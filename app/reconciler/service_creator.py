@@ -2,7 +2,8 @@
 
 import uuid
 import time
-import random
+import secrets
+import json
 from datetime import datetime
 from typing import Any
 
@@ -204,7 +205,7 @@ class ServiceCreator(BaseReconciler):
                 
                 # Calculate delay with jitter to avoid thundering herd
                 delay = base_delay * (backoff_multiplier ** attempt)
-                jitter = random.uniform(0.1, 0.3) * delay
+                jitter = secrets.SystemRandom().uniform(0.1, 0.3) * delay
                 time.sleep(delay + jitter)
                 
                 self.logger.warning(
@@ -227,7 +228,7 @@ class ServiceCreator(BaseReconciler):
                 "constraint_name": data.get("error", "unknown"),
                 "table_name": table_name,
                 "operation": operation,
-                "conflicting_data": str(data)
+                "conflicting_data": json.dumps(data)
             })
             self.db.commit()
         except Exception as e:
