@@ -91,7 +91,6 @@ async def test_openai_generate_structured_from_config(openai_provider: OpenAIPro
         temperature=0.7,
         format=TestModel.model_json_schema(),
     )
-    
     response = await openai_provider.generate(
         "Return a message saying 'Hello Config' and count of 123",
         config=config,
