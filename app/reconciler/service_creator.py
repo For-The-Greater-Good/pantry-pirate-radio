@@ -222,7 +222,7 @@ class ServiceCreator(BaseReconciler):
         try:
             log_query = text(
                 """
-                INSERT INTO reconciler_constraint_violations 
+                INSERT INTO reconciler_constraint_violations
                 (constraint_name, table_name, operation, conflicting_data)
                 VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
             """
@@ -304,7 +304,6 @@ class ServiceCreator(BaseReconciler):
 
         # Execute with retry logic
         service_id, is_new = self._retry_with_backoff(_create_or_find_service)
-        
         # Always create or update source record (this also has ON CONFLICT)
         self.create_service_source(
             str(service_id),

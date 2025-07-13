@@ -20,7 +20,8 @@ def mock_db(mocker: MockerFixture) -> MagicMock:
 
     # Mock database result
     result = MagicMock()
-    result.first.return_value = None
+    # Default to returning a tuple (id, is_new) to match INSERT...ON CONFLICT expectations
+    result.first.return_value = (str(uuid.uuid4()), True)  # Default to new record
     db.execute.return_value = result
 
     return db

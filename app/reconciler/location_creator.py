@@ -64,7 +64,7 @@ class LocationCreator(BaseReconciler):
         try:
             log_query = text(
                 """
-                INSERT INTO reconciler_constraint_violations 
+                INSERT INTO reconciler_constraint_violations
                 (constraint_name, table_name, operation, conflicting_data)
                 VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
             """
@@ -428,7 +428,6 @@ class LocationCreator(BaseReconciler):
 
         # Execute with retry logic
         location_id, is_new = self._retry_with_backoff(_create_or_find_location)
-        
         # Always create or update source record (this has ON CONFLICT)
         self.create_location_source(
             location_id,
