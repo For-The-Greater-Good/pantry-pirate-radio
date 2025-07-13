@@ -1,9 +1,0 @@
-[submodule "docs/HSDS"]
-	path = docs/HSDS
-	url = https://github.com/openreferral/specification.git
-[submodule "docs/rq"]
-	path = docs/rq
-	url = https://github.com/rq/rq
-[submodule "docs/GeoJson/States"]
-	path = docs/GeoJson/States
-	url = https://github.com/OpenDataDE/State-zip-code-GeoJSON
