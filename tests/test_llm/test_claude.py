@@ -317,7 +317,6 @@ async def test_generate_structured_from_config(claude_provider: ClaudeProvider) 
         temperature=0.7,
         format=format_schema,
     )
-    
     # Mock successful CLI execution with structured output
     mock_process = AsyncMock()
     mock_process.returncode = 0
