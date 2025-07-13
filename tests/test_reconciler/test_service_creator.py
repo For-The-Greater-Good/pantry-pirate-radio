@@ -204,8 +204,9 @@ def test_process_service(mock_db: MagicMock, test_service_data: Dict[str, str]) 
 
     # Mock database to return a match first
     result = MagicMock()
-    # Mock row more directly using a tuple instead of MagicMock
-    row = (str(service_id),)
+    # Mock row more directly using a tuple instead of MagicMock  
+    # The query returns (id, is_new) where is_new indicates if it was newly created
+    row = (str(service_id), False)  # False means it was found, not created
     result.first.return_value = row
     mock_db.execute.return_value = result
 

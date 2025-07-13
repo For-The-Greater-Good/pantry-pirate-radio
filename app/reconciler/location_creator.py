@@ -2,7 +2,8 @@
 
 import uuid
 import time
-import random
+import secrets
+import json
 from typing import Any
 
 from sqlalchemy import text
@@ -46,7 +47,7 @@ class LocationCreator(BaseReconciler):
                 
                 # Calculate delay with jitter to avoid thundering herd
                 delay = base_delay * (backoff_multiplier ** attempt)
-                jitter = random.uniform(0.1, 0.3) * delay
+                jitter = secrets.SystemRandom().uniform(0.1, 0.3) * delay
                 time.sleep(delay + jitter)
                 
                 self.logger.warning(
@@ -69,12 +70,27 @@ class LocationCreator(BaseReconciler):
                 "constraint_name": data.get("error", "unknown"),
                 "table_name": table_name,
                 "operation": operation,
-                "conflicting_data": str(data)
+                "conflicting_data": json.dumps(data)
             })
             self.db.commit()
         except Exception as e:
             # Don't let logging failures break the main operation
             self.logger.error(f"Failed to log constraint violation: {e}")
+
+    def find_matching_location(
+        self, latitude: float, longitude: float, tolerance: float = 0.0001
+    ) -> str | None:
+        """Find matching location by coordinates (backward compatibility wrapper).
+
+        Args:
+            latitude: Location latitude
+            longitude: Location longitude
+            tolerance: Coordinate matching tolerance (4 decimal places = ~11m)
+
+        Returns:
+            ID of matching location if found, None otherwise
+        """
+        return self.find_matching_location_with_lock(latitude, longitude, tolerance)
 
     def find_matching_location_with_lock(
         self, latitude: float, longitude: float, tolerance: float = 0.0001
@@ -118,6 +134,7 @@ class LocationCreator(BaseReconciler):
             # Always release the advisory lock
             release_query = text("SELECT release_location_lock(:lock_id)")
             self.db.execute(release_query, {"lock_id": lock_id})
+            self.db.commit()
 
     def create_location(
         self,
@@ -393,6 +410,7 @@ class LocationCreator(BaseReconciler):
                 # Always release the advisory lock
                 release_query = text("SELECT release_location_lock(:lock_id)")
                 self.db.execute(release_query, {"lock_id": lock_id})
+                self.db.commit()
 
         # Execute with retry logic
         location_id, is_new = self._retry_with_backoff(_create_or_find_location)
