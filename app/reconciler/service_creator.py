@@ -40,20 +40,20 @@ class ServiceCreator(BaseReconciler):
         service_id = uuid.uuid4()
         query = text(
             """
-        INSERT INTO service (
-            id,
-            name,
-            description,
-            organization_id,
-            status
-        ) VALUES (
-            :id,
-            :name,
-            :description,
-            :organization_id,
-            'active'
-        )
-        """
+            INSERT INTO service (
+                id,
+                name,
+                description,
+                organization_id,
+                status
+            ) VALUES (
+                :id,
+                :name,
+                :description,
+                :organization_id,
+                'active'
+            )
+            """
         )
 
         self.db.execute(
@@ -111,31 +111,31 @@ class ServiceCreator(BaseReconciler):
         source_id = str(uuid.uuid4())
         query = text(
             """
-        INSERT INTO service_source (
-            id,
-            service_id,
-            scraper_id,
-            name,
-            description,
-            organization_id,
-            status
-        ) VALUES (
-            :id,
-            :service_id,
-            :scraper_id,
-            :name,
-            :description,
-            :organization_id,
-            'active'
-        )
-        ON CONFLICT (service_id, scraper_id) DO UPDATE SET
-            name = :name,
-            description = :description,
-            organization_id = :organization_id,
-            status = 'active',
-            updated_at = NOW()
-        RETURNING id
-        """
+            INSERT INTO service_source (
+                id,
+                service_id,
+                scraper_id,
+                name,
+                description,
+                organization_id,
+                status
+            ) VALUES (
+                :id,
+                :service_id,
+                :scraper_id,
+                :name,
+                :description,
+                :organization_id,
+                'active'
+            )
+            ON CONFLICT (service_id, scraper_id) DO UPDATE SET
+                name = :name,
+                description = :description,
+                organization_id = :organization_id,
+                status = 'active',
+                updated_at = NOW()
+            RETURNING id
+            """
         )
 
         result = self.db.execute(
@@ -177,59 +177,65 @@ class ServiceCreator(BaseReconciler):
 
     def _retry_with_backoff(self, operation, max_attempts: int = 3) -> Any:
         """Execute operation with exponential backoff retry on constraint violations.
-        
+
         Args:
             operation: Callable that performs the database operation
             max_attempts: Maximum number of retry attempts
-            
+
         Returns:
             Result of the operation
-            
+
         Raises:
             IntegrityError: If all retry attempts fail
         """
         base_delay = 0.1  # 100ms base delay
         backoff_multiplier = 2.0
-        
+
         for attempt in range(max_attempts):
             try:
                 return operation()
             except IntegrityError as e:
                 if attempt == max_attempts - 1:
                     # Log constraint violation for monitoring
-                    self._log_constraint_violation("service", "INSERT", {
-                        "error": str(e),
-                        "attempt": attempt + 1
-                    })
+                    self._log_constraint_violation(
+                        "service", "INSERT", {"error": str(e), "attempt": attempt + 1}
+                    )
                     raise
-                
+
                 # Calculate delay with jitter to avoid thundering herd
-                delay = base_delay * (backoff_multiplier ** attempt)
+                delay = base_delay * (backoff_multiplier**attempt)
                 jitter = secrets.SystemRandom().uniform(0.1, 0.3) * delay
                 time.sleep(delay + jitter)
-                
+
                 self.logger.warning(
                     f"Constraint violation on attempt {attempt + 1}, retrying in {delay + jitter:.3f}s",
-                    extra={"error": str(e), "attempt": attempt + 1}
+                    extra={"error": str(e), "attempt": attempt + 1},
                 )
-        
+
         # This should never be reached, but satisfy type checker
         raise RuntimeError("Unexpected end of retry loop")
 
-    def _log_constraint_violation(self, table_name: str, operation: str, data: dict[str, Any]) -> None:
+    def _log_constraint_violation(
+        self, table_name: str, operation: str, data: dict[str, Any]
+    ) -> None:
         """Log constraint violation for monitoring and debugging."""
         try:
-            log_query = text("""
+            log_query = text(
+                """
                 INSERT INTO reconciler_constraint_violations 
                 (constraint_name, table_name, operation, conflicting_data)
                 VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
-            """)
-            self.db.execute(log_query, {
-                "constraint_name": data.get("error", "unknown"),
-                "table_name": table_name,
-                "operation": operation,
-                "conflicting_data": json.dumps(data)
-            })
+            """
+            )
+            self.db.execute(
+                log_query,
+                {
+                    "constraint_name": data.get("error", "unknown"),
+                    "table_name": table_name,
+                    "operation": operation,
+                    "conflicting_data": json.dumps(data),
+                },
+            )
             self.db.commit()
         except Exception as e:
             # Don't let logging failures break the main operation
@@ -258,12 +264,13 @@ class ServiceCreator(BaseReconciler):
             Tuple of (service_id, is_new) where is_new indicates if a new service was created
         """
         scraper_id = metadata.get("scraper_id", "unknown")
-        
+
         def _create_or_find_service():
             # Use INSERT...ON CONFLICT to atomically create or find service
             service_id = uuid.uuid4()
-            
-            query = text("""
+
+            query = text(
+                """
                 INSERT INTO service (
                     id, name, description, organization_id, status
                 ) VALUES (
@@ -273,22 +280,26 @@ class ServiceCreator(BaseReconciler):
                     description = COALESCE(EXCLUDED.description, service.description),
                     status = 'active'
                 RETURNING id, (xmax = 0) AS is_new
-            """)
-            
-            result = self.db.execute(query, {
-                "id": str(service_id),
-                "name": name,
-                "description": description,
-                "organization_id": str(organization_id) if organization_id else None,
-            })
-            
+            """
+            )
+
+            result = self.db.execute(
+                query,
+                {
+                    "id": str(service_id),
+                    "name": name,
+                    "description": description,
+                    "organization_id": str(organization_id) if organization_id else None,
+                },
+            )
+
             row = result.first()
             if not row:
                 raise RuntimeError("INSERT...ON CONFLICT failed to return a row")
-                
+
             svc_uuid = uuid.UUID(row[0])
             is_new = row[1]
-            
+
             return svc_uuid, is_new
 
         # Execute with retry logic
@@ -348,18 +359,18 @@ class ServiceCreator(BaseReconciler):
         sal_id = uuid.uuid4()
         query = text(
             """
-        INSERT INTO service_at_location (
-            id,
-            service_id,
-            location_id,
-            description
-        ) VALUES (
-            :id,
-            :service_id,
-            :location_id,
-            :description
-        )
-        """
+            INSERT INTO service_at_location (
+                id,
+                service_id,
+                location_id,
+                description
+            ) VALUES (
+                :id,
+                :service_id,
+                :location_id,
+                :description
+            )
+            """
         )
 
         self.db.execute(

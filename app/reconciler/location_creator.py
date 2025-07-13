@@ -19,59 +19,65 @@ class LocationCreator(BaseReconciler):
 
     def _retry_with_backoff(self, operation, max_attempts: int = 3) -> Any:
         """Execute operation with exponential backoff retry on constraint violations.
-        
+
         Args:
             operation: Callable that performs the database operation
             max_attempts: Maximum number of retry attempts
-            
+
         Returns:
             Result of the operation
-            
+
         Raises:
             IntegrityError: If all retry attempts fail
         """
         base_delay = 0.1  # 100ms base delay
         backoff_multiplier = 2.0
-        
+
         for attempt in range(max_attempts):
             try:
                 return operation()
             except IntegrityError as e:
                 if attempt == max_attempts - 1:
                     # Log constraint violation for monitoring
-                    self._log_constraint_violation("location", "INSERT", {
-                        "error": str(e),
-                        "attempt": attempt + 1
-                    })
+                    self._log_constraint_violation(
+                        "location", "INSERT", {"error": str(e), "attempt": attempt + 1}
+                    )
                     raise
-                
+
                 # Calculate delay with jitter to avoid thundering herd
-                delay = base_delay * (backoff_multiplier ** attempt)
+                delay = base_delay * (backoff_multiplier**attempt)
                 jitter = secrets.SystemRandom().uniform(0.1, 0.3) * delay
                 time.sleep(delay + jitter)
-                
+
                 self.logger.warning(
                     f"Constraint violation on attempt {attempt + 1}, retrying in {delay + jitter:.3f}s",
-                    extra={"error": str(e), "attempt": attempt + 1}
+                    extra={"error": str(e), "attempt": attempt + 1},
                 )
-        
+
         # This should never be reached, but satisfy type checker
         raise RuntimeError("Unexpected end of retry loop")
 
-    def _log_constraint_violation(self, table_name: str, operation: str, data: dict[str, Any]) -> None:
+    def _log_constraint_violation(
+        self, table_name: str, operation: str, data: dict[str, Any]
+    ) -> None:
         """Log constraint violation for monitoring and debugging."""
         try:
-            log_query = text("""
+            log_query = text(
+                """
                 INSERT INTO reconciler_constraint_violations 
                 (constraint_name, table_name, operation, conflicting_data)
                 VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
-            """)
-            self.db.execute(log_query, {
-                "constraint_name": data.get("error", "unknown"),
-                "table_name": table_name,
-                "operation": operation,
-                "conflicting_data": json.dumps(data)
-            })
+            """
+            )
+            self.db.execute(
+                log_query,
+                {
+                    "constraint_name": data.get("error", "unknown"),
+                    "table_name": table_name,
+                    "operation": operation,
+                    "conflicting_data": json.dumps(data),
+                },
+            )
             self.db.commit()
         except Exception as e:
             # Don't let logging failures break the main operation
@@ -109,10 +115,11 @@ class LocationCreator(BaseReconciler):
         lock_query = text("SELECT acquire_location_lock(:lat, :lon)")
         lock_result = self.db.execute(lock_query, {"lat": latitude, "lon": longitude})
         lock_id = lock_result.scalar()
-        
+
         try:
             # Use the database function for consistent coordinate matching
-            query = text("""
+            query = text(
+                """
                 SELECT id
                 FROM location
                 WHERE location_coordinates_match(:lat1, :lon1, latitude, longitude, :tolerance)
@@ -120,16 +127,15 @@ class LocationCreator(BaseReconciler):
                 ORDER BY ABS(latitude - :lat1) + ABS(longitude - :lon1)
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
-            """)
+            """
+            )
 
-            result = self.db.execute(query, {
-                "lat1": latitude,
-                "lon1": longitude,
-                "tolerance": tolerance
-            })
+            result = self.db.execute(
+                query, {"lat1": latitude, "lon1": longitude, "tolerance": tolerance}
+            )
             row = result.first()
             return row[0] if row else None
-            
+
         finally:
             # Always release the advisory lock
             release_query = text("SELECT release_location_lock(:lock_id)")
@@ -161,26 +167,26 @@ class LocationCreator(BaseReconciler):
         location_id = str(uuid.uuid4())
         query = text(
             """
-        INSERT INTO location (
-            id,
-            name,
-            description,
-            latitude,
-            longitude,
-            organization_id,
-            location_type,
-            is_canonical
-        ) VALUES (
-            :id,
-            :name,
-            :description,
-            :latitude,
-            :longitude,
-            :organization_id,
-            'physical',
-            TRUE
-        )
-        """
+            INSERT INTO location (
+                id,
+                name,
+                description,
+                latitude,
+                longitude,
+                organization_id,
+                location_type,
+                is_canonical
+            ) VALUES (
+                :id,
+                :name,
+                :description,
+                :latitude,
+                :longitude,
+                :organization_id,
+                'physical',
+                TRUE
+            )
+            """
         )
 
         self.db.execute(
@@ -252,33 +258,33 @@ class LocationCreator(BaseReconciler):
         source_id = str(uuid.uuid4())
         query = text(
             """
-        INSERT INTO location_source (
-            id,
-            location_id,
-            scraper_id,
-            name,
-            description,
-            latitude,
-            longitude,
-            location_type
-        ) VALUES (
-            :id,
-            :location_id,
-            :scraper_id,
-            :name,
-            :description,
-            :latitude,
-            :longitude,
-            'physical'
-        )
-        ON CONFLICT (location_id, scraper_id) DO UPDATE SET
-            name = :name,
-            description = :description,
-            latitude = :latitude,
-            longitude = :longitude,
-            updated_at = NOW()
-        RETURNING id
-        """
+            INSERT INTO location_source (
+                id,
+                location_id,
+                scraper_id,
+                name,
+                description,
+                latitude,
+                longitude,
+                location_type
+            ) VALUES (
+                :id,
+                :location_id,
+                :scraper_id,
+                :name,
+                :description,
+                :latitude,
+                :longitude,
+                'physical'
+            )
+            ON CONFLICT (location_id, scraper_id) DO UPDATE SET
+                name = :name,
+                description = :description,
+                latitude = :latitude,
+                longitude = :longitude,
+                updated_at = NOW()
+            RETURNING id
+            """
         )
 
         result = self.db.execute(
@@ -347,16 +353,19 @@ class LocationCreator(BaseReconciler):
         """
         scraper_id = metadata.get("scraper_id", "unknown")
         tolerance = 0.0001  # ~11m tolerance for coordinate matching
-        
+
         def _create_or_find_location():
             # Acquire advisory lock for this coordinate area
             lock_query = text("SELECT acquire_location_lock(:lat, :lon)")
-            lock_result = self.db.execute(lock_query, {"lat": latitude, "lon": longitude})
+            lock_result = self.db.execute(
+                lock_query, {"lat": latitude, "lon": longitude}
+            )
             lock_id = lock_result.scalar()
-            
+
             try:
                 # First, check if a location exists at these coordinates
-                match_query = text("""
+                match_query = text(
+                    """
                     SELECT id
                     FROM location
                     WHERE location_coordinates_match(:lat1, :lon1, latitude, longitude, :tolerance)
@@ -364,23 +373,24 @@ class LocationCreator(BaseReconciler):
                     ORDER BY ABS(latitude - :lat1) + ABS(longitude - :lon1)
                     LIMIT 1
                     FOR UPDATE
-                """)
-                
-                result = self.db.execute(match_query, {
-                    "lat1": latitude,
-                    "lon1": longitude,
-                    "tolerance": tolerance
-                })
+                """
+                )
+
+                result = self.db.execute(
+                    match_query,
+                    {"lat1": latitude, "lon1": longitude, "tolerance": tolerance},
+                )
                 row = result.first()
-                
+
                 if row:
                     # Found existing location
                     return row[0], False
-                
+
                 # No existing location found, create new one
                 location_id = str(uuid.uuid4())
-                
-                insert_query = text("""
+
+                insert_query = text(
+                    """
                     INSERT INTO location (
                         id, name, description, latitude, longitude,
                         organization_id, location_type, is_canonical
@@ -389,23 +399,27 @@ class LocationCreator(BaseReconciler):
                         :organization_id, 'physical', TRUE
                     )
                     RETURNING id
-                """)
-                
-                insert_result = self.db.execute(insert_query, {
-                    "id": location_id,
-                    "name": name,
-                    "description": description,
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "organization_id": organization_id,
-                })
-                
+                """
+                )
+
+                insert_result = self.db.execute(
+                    insert_query,
+                    {
+                        "id": location_id,
+                        "name": name,
+                        "description": description,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "organization_id": organization_id,
+                    },
+                )
+
                 new_row = insert_result.first()
                 if not new_row:
                     raise RuntimeError("Failed to create location")
-                    
+
                 return new_row[0], True
-                
+
             finally:
                 # Always release the advisory lock
                 release_query = text("SELECT release_location_lock(:lock_id)")
@@ -446,15 +460,16 @@ class LocationCreator(BaseReconciler):
         else:
             # Update organization_id if provided and different
             if organization_id:
-                update_query = text("""
+                update_query = text(
+                    """
                     UPDATE location
                     SET organization_id = :organization_id
                     WHERE id = :id AND (organization_id IS NULL OR organization_id != :organization_id)
-                """)
-                self.db.execute(update_query, {
-                    "id": location_id, 
-                    "organization_id": organization_id
-                })
+                """
+                )
+                self.db.execute(
+                    update_query, {"id": location_id, "organization_id": organization_id}
+                )
                 self.db.commit()
 
             # Merge source records to update canonical record
@@ -506,32 +521,32 @@ class LocationCreator(BaseReconciler):
         address_id = str(uuid.uuid4())
         query = text(
             """
-        INSERT INTO address (
-            id,
-            location_id,
-            attention,
-            address_1,
-            address_2,
-            city,
-            region,
-            state_province,
-            postal_code,
-            country,
-            address_type
-        ) VALUES (
-            :id,
-            :location_id,
-            :attention,
-            :address_1,
-            :address_2,
-            :city,
-            :region,
-            :state_province,
-            :postal_code,
-            :country,
-            :address_type
-        )
-        """
+            INSERT INTO address (
+                id,
+                location_id,
+                attention,
+                address_1,
+                address_2,
+                city,
+                region,
+                state_province,
+                postal_code,
+                country,
+                address_type
+            ) VALUES (
+                :id,
+                :location_id,
+                :attention,
+                :address_1,
+                :address_2,
+                :city,
+                :region,
+                :state_province,
+                :postal_code,
+                :country,
+                :address_type
+            )
+            """
         )
 
         self.db.execute(
@@ -555,10 +570,10 @@ class LocationCreator(BaseReconciler):
         # Update location name to match city
         query = text(
             """
-        UPDATE location
-        SET name=:name
-        WHERE id=:id
-        """
+            UPDATE location
+            SET name=:name
+            WHERE id=:id
+            """
         )
         self.db.execute(query, {"id": location_id, "name": city})
         self.db.commit()
@@ -610,20 +625,20 @@ class LocationCreator(BaseReconciler):
         accessibility_id = str(uuid.uuid4())
         query = text(
             """
-        INSERT INTO accessibility (
-            id,
-            location_id,
-            description,
-            details,
-            url
-        ) VALUES (
-            :id,
-            :location_id,
-            :description,
-            :details,
-            :url
-        )
-        """
+            INSERT INTO accessibility (
+                id,
+                location_id,
+                description,
+                details,
+                url
+            ) VALUES (
+                :id,
+                :location_id,
+                :description,
+                :details,
+                :url
+            )
+            """
         )
 
         self.db.execute(
