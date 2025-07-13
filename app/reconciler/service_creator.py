@@ -1,11 +1,14 @@
 """Service creation utilities for the reconciler."""
 
 import uuid
+import time
+import random
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.reconciler.base import BaseReconciler
 from app.reconciler.merge_strategy import MergeStrategy
@@ -171,6 +174,66 @@ class ServiceCreator(BaseReconciler):
 
         return source_id
 
+    def _retry_with_backoff(self, operation, max_attempts: int = 3) -> Any:
+        """Execute operation with exponential backoff retry on constraint violations.
+        
+        Args:
+            operation: Callable that performs the database operation
+            max_attempts: Maximum number of retry attempts
+            
+        Returns:
+            Result of the operation
+            
+        Raises:
+            IntegrityError: If all retry attempts fail
+        """
+        base_delay = 0.1  # 100ms base delay
+        backoff_multiplier = 2.0
+        
+        for attempt in range(max_attempts):
+            try:
+                return operation()
+            except IntegrityError as e:
+                if attempt == max_attempts - 1:
+                    # Log constraint violation for monitoring
+                    self._log_constraint_violation("service", "INSERT", {
+                        "error": str(e),
+                        "attempt": attempt + 1
+                    })
+                    raise
+                
+                # Calculate delay with jitter to avoid thundering herd
+                delay = base_delay * (backoff_multiplier ** attempt)
+                jitter = random.uniform(0.1, 0.3) * delay
+                time.sleep(delay + jitter)
+                
+                self.logger.warning(
+                    f"Constraint violation on attempt {attempt + 1}, retrying in {delay + jitter:.3f}s",
+                    extra={"error": str(e), "attempt": attempt + 1}
+                )
+        
+        # This should never be reached, but satisfy type checker
+        raise RuntimeError("Unexpected end of retry loop")
+
+    def _log_constraint_violation(self, table_name: str, operation: str, data: dict[str, Any]) -> None:
+        """Log constraint violation for monitoring and debugging."""
+        try:
+            log_query = text("""
+                INSERT INTO reconciler_constraint_violations 
+                (constraint_name, table_name, operation, conflicting_data)
+                VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
+            """)
+            self.db.execute(log_query, {
+                "constraint_name": data.get("error", "unknown"),
+                "table_name": table_name,
+                "operation": operation,
+                "conflicting_data": str(data)
+            })
+            self.db.commit()
+        except Exception as e:
+            # Don't let logging failures break the main operation
+            self.logger.error(f"Failed to log constraint violation: {e}")
+
     def process_service(
         self,
         name: str,
@@ -180,11 +243,9 @@ class ServiceCreator(BaseReconciler):
     ) -> tuple[uuid.UUID, bool]:
         """Process a service by finding a match or creating a new one.
 
-        This method implements the core reconciliation logic for services.
-        It first tries to find a matching service by name and organization.
-        If a match is found, it creates or updates a source-specific record
-        and merges all source records to update the canonical record.
-        If no match is found, it creates a new canonical record and source record.
+        This method implements race-condition-safe reconciliation logic for services.
+        It uses INSERT...ON CONFLICT to atomically handle service creation based on
+        name and organization combination.
 
         Args:
             name: Service name
@@ -195,61 +256,75 @@ class ServiceCreator(BaseReconciler):
         Returns:
             Tuple of (service_id, is_new) where is_new indicates if a new service was created
         """
-        # Ensure scraper_id is present
         scraper_id = metadata.get("scraper_id", "unknown")
-
-        # Try to find a matching service by name and organization
-        query = text(
-            """
-        SELECT id FROM service
-        WHERE name=:name
-        AND (organization_id=:organization_id OR (organization_id IS NULL AND :organization_id IS NULL))
-        LIMIT 1
-        """
-        )
-        result = self.db.execute(
-            query,
-            {
+        
+        def _create_or_find_service():
+            # Use INSERT...ON CONFLICT to atomically create or find service
+            service_id = uuid.uuid4()
+            
+            query = text("""
+                INSERT INTO service (
+                    id, name, description, organization_id, status
+                ) VALUES (
+                    :id, :name, :description, :organization_id, 'active'
+                )
+                ON CONFLICT (name, organization_id) DO UPDATE SET
+                    description = COALESCE(EXCLUDED.description, service.description),
+                    status = 'active'
+                RETURNING id, (xmax = 0) AS is_new
+            """)
+            
+            result = self.db.execute(query, {
+                "id": str(service_id),
                 "name": name,
+                "description": description,
                 "organization_id": str(organization_id) if organization_id else None,
-            },
+            })
+            
+            row = result.first()
+            if not row:
+                raise RuntimeError("INSERT...ON CONFLICT failed to return a row")
+                
+            svc_uuid = uuid.UUID(row[0])
+            is_new = row[1]
+            
+            return svc_uuid, is_new
+
+        # Execute with retry logic
+        service_id, is_new = self._retry_with_backoff(_create_or_find_service)
+        
+        # Always create or update source record (this also has ON CONFLICT)
+        self.create_service_source(
+            str(service_id),
+            scraper_id,
+            name,
+            description,
+            str(organization_id) if organization_id else None,
+            metadata,
         )
-        row = result.first()
 
-        if row:
-            # Match found - create or update source record
-            service_id = uuid.UUID(row[0])
-            self.create_service_source(
+        # Create version record for new canonical service
+        if is_new:
+            version_tracker = VersionTracker(self.db)
+            version_tracker.create_version(
                 str(service_id),
-                scraper_id,
-                name,
-                description,
-                str(organization_id) if organization_id else None,
-                metadata,
+                "service",
+                {
+                    "name": name,
+                    "description": description,
+                    "organization_id": str(organization_id) if organization_id else None,
+                    "status": "active",
+                    **metadata,
+                },
+                "reconciler",
+                commit=True,
             )
-
+        else:
             # Merge source records to update canonical record
             merge_strategy = MergeStrategy(self.db)
             merge_strategy.merge_service(str(service_id))
 
-            return service_id, False
-        else:
-            # No match found - create new canonical and source records
-            service_id = self.create_service(
-                name, description, organization_id, metadata
-            )
-
-            # Create source record
-            self.create_service_source(
-                str(service_id),
-                scraper_id,
-                name,
-                description,
-                str(organization_id) if organization_id else None,
-                metadata,
-            )
-
-            return service_id, True
+        return service_id, is_new
 
     def create_service_at_location(
         self,
