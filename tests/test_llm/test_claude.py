@@ -339,7 +339,6 @@ async def test_generate_structured_from_config(claude_provider: ClaudeProvider) 
 async def test_generate_structured_separate_format(claude_provider: ClaudeProvider) -> None:
     """Test structured output generation with separate format parameter (backward compatibility)."""
     format_schema = {"type": "object", "properties": {"message": {"type": "string"}}}
-    
     # Mock successful CLI execution with structured output
     mock_process = AsyncMock()
     mock_process.returncode = 0
