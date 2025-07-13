@@ -52,32 +52,32 @@ class OrganizationCreator(BaseReconciler):
         org_id = uuid.uuid4()
         query = text(
             """
-        INSERT INTO organization (
-            id,
-            name,
-            description,
-            website,
-            email,
-            year_incorporated,
-            legal_status,
-            tax_status,
-            tax_id,
-            uri,
-            parent_organization_id
-        ) VALUES (
-            :id,
-            :name,
-            :description,
-            :website,
-            :email,
-            :year_incorporated,
-            :legal_status,
-            :tax_status,
-            :tax_id,
-            :uri,
-            :parent_organization_id
-        )
-        """
+            INSERT INTO organization (
+                id,
+                name,
+                description,
+                website,
+                email,
+                year_incorporated,
+                legal_status,
+                tax_status,
+                tax_id,
+                uri,
+                parent_organization_id
+            ) VALUES (
+                :id,
+                :name,
+                :description,
+                :website,
+                :email,
+                :year_incorporated,
+                :legal_status,
+                :tax_status,
+                :tax_id,
+                :uri,
+                :parent_organization_id
+            )
+            """
         )
 
         self.db.execute(
@@ -166,49 +166,49 @@ class OrganizationCreator(BaseReconciler):
         source_id = str(uuid.uuid4())
         query = text(
             """
-        INSERT INTO organization_source (
-            id,
-            organization_id,
-            scraper_id,
-            name,
-            description,
-            website,
-            email,
-            year_incorporated,
-            legal_status,
-            tax_status,
-            tax_id,
-            uri,
-            parent_organization_id
-        ) VALUES (
-            :id,
-            :organization_id,
-            :scraper_id,
-            :name,
-            :description,
-            :website,
-            :email,
-            :year_incorporated,
-            :legal_status,
-            :tax_status,
-            :tax_id,
-            :uri,
-            :parent_organization_id
-        )
-        ON CONFLICT (organization_id, scraper_id) DO UPDATE SET
-            name = :name,
-            description = :description,
-            website = :website,
-            email = :email,
-            year_incorporated = :year_incorporated,
-            legal_status = :legal_status,
-            tax_status = :tax_status,
-            tax_id = :tax_id,
-            uri = :uri,
-            parent_organization_id = :parent_organization_id,
-            updated_at = NOW()
-        RETURNING id
-        """
+            INSERT INTO organization_source (
+                id,
+                organization_id,
+                scraper_id,
+                name,
+                description,
+                website,
+                email,
+                year_incorporated,
+                legal_status,
+                tax_status,
+                tax_id,
+                uri,
+                parent_organization_id
+            ) VALUES (
+                :id,
+                :organization_id,
+                :scraper_id,
+                :name,
+                :description,
+                :website,
+                :email,
+                :year_incorporated,
+                :legal_status,
+                :tax_status,
+                :tax_id,
+                :uri,
+                :parent_organization_id
+            )
+            ON CONFLICT (organization_id, scraper_id) DO UPDATE SET
+                name = :name,
+                description = :description,
+                website = :website,
+                email = :email,
+                year_incorporated = :year_incorporated,
+                legal_status = :legal_status,
+                tax_status = :tax_status,
+                tax_id = :tax_id,
+                uri = :uri,
+                parent_organization_id = :parent_organization_id,
+                updated_at = NOW()
+            RETURNING id
+            """
         )
 
         result = self.db.execute(
@@ -263,59 +263,67 @@ class OrganizationCreator(BaseReconciler):
 
     def _retry_with_backoff(self, operation, max_attempts: int = 3) -> Any:
         """Execute operation with exponential backoff retry on constraint violations.
-        
+
         Args:
             operation: Callable that performs the database operation
             max_attempts: Maximum number of retry attempts
-            
+
         Returns:
             Result of the operation
-            
+
         Raises:
             IntegrityError: If all retry attempts fail
         """
         base_delay = 0.1  # 100ms base delay
         backoff_multiplier = 2.0
-        
+
         for attempt in range(max_attempts):
             try:
                 return operation()
             except IntegrityError as e:
                 if attempt == max_attempts - 1:
                     # Log constraint violation for monitoring
-                    self._log_constraint_violation("organization", "INSERT", {
-                        "error": str(e),
-                        "attempt": attempt + 1
-                    })
+                    self._log_constraint_violation(
+                        "organization",
+                        "INSERT",
+                        {"error": str(e), "attempt": attempt + 1},
+                    )
                     raise
-                
+
                 # Calculate delay with jitter to avoid thundering herd
-                delay = base_delay * (backoff_multiplier ** attempt)
+                delay = base_delay * (backoff_multiplier**attempt)
                 jitter = secrets.SystemRandom().uniform(0.1, 0.3) * delay
                 time.sleep(delay + jitter)
-                
+
                 self.logger.warning(
                     f"Constraint violation on attempt {attempt + 1}, retrying in {delay + jitter:.3f}s",
-                    extra={"error": str(e), "attempt": attempt + 1}
+                    extra={"error": str(e), "attempt": attempt + 1},
                 )
-        
+
         # This should never be reached, but satisfy type checker
         raise RuntimeError("Unexpected end of retry loop")
 
-    def _log_constraint_violation(self, table_name: str, operation: str, data: dict[str, Any]) -> None:
+    def _log_constraint_violation(
+        self, table_name: str, operation: str, data: dict[str, Any]
+    ) -> None:
         """Log constraint violation for monitoring and debugging."""
         try:
-            log_query = text("""
+            log_query = text(
+                """
                 INSERT INTO reconciler_constraint_violations 
                 (constraint_name, table_name, operation, conflicting_data)
                 VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
-            """)
-            self.db.execute(log_query, {
-                "constraint_name": data.get("error", "unknown"),
-                "table_name": table_name,
-                "operation": operation,
-                "conflicting_data": json.dumps(data)
-            })
+            """
+            )
+            self.db.execute(
+                log_query,
+                {
+                    "constraint_name": data.get("error", "unknown"),
+                    "table_name": table_name,
+                    "operation": operation,
+                    "conflicting_data": json.dumps(data),
+                },
+            )
             self.db.commit()
         except Exception as e:
             # Don't let logging failures break the main operation
@@ -358,13 +366,14 @@ class OrganizationCreator(BaseReconciler):
             Tuple of (organization_id, is_new) where is_new indicates if a new organization was created
         """
         scraper_id = metadata.get("scraper_id", "unknown")
-        
+
         def _create_or_find_organization():
             # Use INSERT...ON CONFLICT to atomically create or find organization
             org_id = uuid.uuid4()
-            
+
             # First, try to insert new organization
-            query = text("""
+            query = text(
+                """
                 INSERT INTO organization (
                     id, name, description, website, email, year_incorporated,
                     legal_status, tax_status, tax_id, uri, parent_organization_id
@@ -383,29 +392,33 @@ class OrganizationCreator(BaseReconciler):
                     uri = COALESCE(EXCLUDED.uri, organization.uri),
                     parent_organization_id = COALESCE(EXCLUDED.parent_organization_id, organization.parent_organization_id)
                 RETURNING id, (xmax = 0) AS is_new
-            """)
-            
-            result = self.db.execute(query, {
-                "id": str(org_id),
-                "name": name,
-                "description": description,
-                "website": website,
-                "email": email,
-                "year_incorporated": year_incorporated,
-                "legal_status": legal_status,
-                "tax_status": tax_status,
-                "tax_id": tax_id,
-                "uri": uri,
-                "parent_organization_id": parent_organization_id,
-            })
-            
+            """
+            )
+
+            result = self.db.execute(
+                query,
+                {
+                    "id": str(org_id),
+                    "name": name,
+                    "description": description,
+                    "website": website,
+                    "email": email,
+                    "year_incorporated": year_incorporated,
+                    "legal_status": legal_status,
+                    "tax_status": tax_status,
+                    "tax_id": tax_id,
+                    "uri": uri,
+                    "parent_organization_id": parent_organization_id,
+                },
+            )
+
             row = result.first()
             if not row:
                 raise RuntimeError("INSERT...ON CONFLICT failed to return a row")
-                
+
             org_uuid = uuid.UUID(row[0])
             is_new = row[1]
-            
+
             return org_uuid, is_new
 
         # Execute with retry logic
@@ -474,18 +487,18 @@ class OrganizationCreator(BaseReconciler):
         identifier_id = uuid.uuid4()
         query = text(
             """
-        INSERT INTO organization_identifier (
-            id,
-            organization_id,
-            identifier_type,
-            identifier
-        ) VALUES (
-            :id,
-            :organization_id,
-            :identifier_type,
-            :identifier
-        )
-        """
+            INSERT INTO organization_identifier (
+                id,
+                organization_id,
+                identifier_type,
+                identifier
+            ) VALUES (
+                :id,
+                :organization_id,
+                :identifier_type,
+                :identifier
+            )
+            """
         )
 
         self.db.execute(
