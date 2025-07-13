@@ -1,0 +1,255 @@
+{
+  "processing_job_id": "job-example-001",
+  "llm_model": "llama3.2:3b",
+  "processing_timestamp": "2024-01-15T10:45:00Z",
+  "source_data_id": "raw_scraped_data.json",
+  "processed_records": [
+    {
+      "raw_record_index": 0,
+      "llm_response": {
+        "organization": {
+          "name": "Downtown Food Pantry",
+          "description": "Serving low-income families in downtown area since 1985. Provides emergency food assistance, free groceries, and nutrition counseling. No appointment needed.",
+          "email": "info@downtownpantry.org",
+          "url": "https://www.downtownpantry.org",
+          "tax_status": null,
+          "year_incorporated": 1985,
+          "legal_status": "Nonprofit Organization"
+        },
+        "location": {
+          "name": "Downtown Food Pantry - Main Location",
+          "description": "Main distribution center for downtown food pantry services",
+          "latitude": 40.7128,
+          "longitude": -74.0060,
+          "location_type": "physical",
+          "address": {
+            "address_1": "123 Main St",
+            "city": "Example City",
+            "state_province": "NY",
+            "postal_code": "10001",
+            "country": "US",
+            "address_type": "physical"
+          }
+        },
+        "service": {
+          "name": "Emergency Food Assistance",
+          "description": "Emergency food assistance including free groceries and nutrition counseling for low-income families",
+          "status": "active",
+          "eligibility_description": "Income below 200% federal poverty level",
+          "application_process": "No appointment needed - walk-in service",
+          "fees_description": "No fees - all services provided free of charge"
+        },
+        "schedule": {
+          "description": "Monday through Friday 9am-5pm, Saturday 10am-2pm",
+          "opens_at": "09:00",
+          "closes_at": "17:00",
+          "byday": "MO,TU,WE,TH,FR",
+          "additional_schedules": [
+            {
+              "opens_at": "10:00",
+              "closes_at": "14:00",
+              "byday": "SA",
+              "description": "Saturday hours"
+            }
+          ]
+        },
+        "contact": {
+          "name": "Sarah Johnson",
+          "title": "Director",
+          "email": "info@downtownpantry.org"
+        },
+        "phone": {
+          "number": "555-123-4567",
+          "type": "voice",
+          "description": "Main contact number"
+        },
+        "languages": ["English", "Spanish"]
+      },
+      "confidence_score": 0.92,
+      "validation_results": {
+        "required_fields_present": true,
+        "data_types_valid": true,
+        "field_coherence_score": 0.89,
+        "potential_hallucinations": []
+      }
+    },
+    {
+      "raw_record_index": 1,
+      "llm_response": {
+        "organization": {
+          "name": "Community Kitchen & Pantry",
+          "description": "Volunteer-run kitchen serving anyone in need with a no questions asked policy. Provides hot meals, food pantry services, and holiday meal programs.",
+          "email": "meals@communitykitchen.org",
+          "url": "https://communitykitchen.org",
+          "tax_status": null,
+          "year_incorporated": null,
+          "legal_status": "Volunteer Organization"
+        },
+        "location": {
+          "name": "Community Kitchen & Pantry - Main Location",
+          "description": "Community kitchen and pantry facility",
+          "latitude": 40.7589,
+          "longitude": -73.9851,
+          "location_type": "physical",
+          "address": {
+            "address_1": "456 Hope Ave",
+            "city": "Example City",
+            "state_province": "NY",
+            "postal_code": "10002",
+            "country": "US",
+            "address_type": "physical"
+          }
+        },
+        "services": [
+          {
+            "name": "Community Hot Meals",
+            "description": "Hot meals served daily to anyone in need, no questions asked",
+            "status": "active",
+            "eligibility_description": "Open to all community members",
+            "application_process": "No application required - walk-in service",
+            "fees_description": "Free meals for all"
+          },
+          {
+            "name": "Food Pantry Service",
+            "description": "Food pantry providing groceries and holiday meal programs",
+            "status": "active",
+            "eligibility_description": "Open to all community members",
+            "application_process": "No application required - walk-in service",
+            "fees_description": "Free groceries for all"
+          }
+        ],
+        "schedules": [
+          {
+            "service_name": "Community Hot Meals",
+            "description": "Hot meals served daily 12pm-2pm",
+            "opens_at": "12:00",
+            "closes_at": "14:00",
+            "byday": "MO,TU,WE,TH,FR,SA,SU"
+          },
+          {
+            "service_name": "Food Pantry Service",
+            "description": "Pantry open Monday, Wednesday, Friday 10am-1pm",
+            "opens_at": "10:00",
+            "closes_at": "13:00",
+            "byday": "MO,WE,FR"
+          }
+        ],
+        "contact": {
+          "name": "Maria Santos",
+          "title": "Volunteer Coordinator",
+          "email": "meals@communitykitchen.org"
+        },
+        "phone": {
+          "number": "555-234-5678",
+          "type": "voice",
+          "description": "Main contact number"
+        },
+        "languages": ["English", "Spanish", "French"]
+      },
+      "confidence_score": 0.88,
+      "validation_results": {
+        "required_fields_present": true,
+        "data_types_valid": true,
+        "field_coherence_score": 0.91,
+        "potential_hallucinations": []
+      }
+    },
+    {
+      "raw_record_index": 2,
+      "llm_response": {
+        "organization": {
+          "name": "Mobile Food Truck",
+          "description": "Mobile food pantry service bringing food directly to underserved neighborhoods. Provides free groceries including fresh fruits and vegetables.",
+          "email": "mobile@foodtruck.org",
+          "url": "https://foodtruck.org/schedule",
+          "tax_status": null,
+          "year_incorporated": null,
+          "legal_status": "Mobile Service Organization"
+        },
+        "locations": [
+          {
+            "name": "Mobile Food Truck - Community Center Stop",
+            "description": "Mobile pantry stop at Community Center parking lot",
+            "latitude": 40.7505,
+            "longitude": -73.9934,
+            "location_type": "physical",
+            "address": {
+              "address_1": "Community Center Parking Lot",
+              "city": "Example City",
+              "state_province": "NY",
+              "postal_code": "10005",
+              "country": "US",
+              "address_type": "physical"
+            }
+          },
+          {
+            "name": "Mobile Food Truck - Elementary School Stop",
+            "description": "Mobile pantry stop at Elementary School parking lot",
+            "latitude": 40.7282,
+            "longitude": -74.0776,
+            "location_type": "physical",
+            "address": {
+              "address_1": "Elementary School Parking Lot",
+              "city": "Example City",
+              "state_province": "NY",
+              "postal_code": "10006",
+              "country": "US",
+              "address_type": "physical"
+            }
+          }
+        ],
+        "service": {
+          "name": "Mobile Food Pantry",
+          "description": "Mobile food pantry service providing fresh produce distribution and free groceries",
+          "status": "active",
+          "eligibility_description": "No restrictions - available to all community members",
+          "application_process": "No application required - service provided at scheduled stops",
+          "fees_description": "Free groceries and produce for all"
+        },
+        "schedules": [
+          {
+            "location_name": "Community Center Stop",
+            "description": "Tuesday 2-4pm at Community Center",
+            "opens_at": "14:00",
+            "closes_at": "16:00",
+            "byday": "TU"
+          },
+          {
+            "location_name": "Elementary School Stop",
+            "description": "Thursday 3-5pm at Elementary School",
+            "opens_at": "15:00",
+            "closes_at": "17:00",
+            "byday": "TH"
+          }
+        ],
+        "contact": {
+          "name": "Mike Rodriguez",
+          "title": "Mobile Coordinator",
+          "email": "mobile@foodtruck.org"
+        },
+        "phone": {
+          "number": "555-345-6789",
+          "type": "voice",
+          "description": "Mobile pantry scheduling line"
+        },
+        "languages": ["English", "Spanish"]
+      },
+      "confidence_score": 0.85,
+      "validation_results": {
+        "required_fields_present": true,
+        "data_types_valid": true,
+        "field_coherence_score": 0.87,
+        "potential_hallucinations": ["Elementary School Parking Lot address may need verification"]
+      }
+    }
+  ],
+  "processing_metadata": {
+    "total_processing_time_seconds": 45.7,
+    "average_confidence_score": 0.88,
+    "records_requiring_manual_review": 1,
+    "llm_provider": "openai",
+    "temperature": 0.1,
+    "max_tokens": 2000,
+    "prompt_version": "v1.2"
+  }
+}

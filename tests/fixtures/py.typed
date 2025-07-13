@@ -1,0 +1,30 @@
+"""Type definitions for Docker SDK."""
+from typing import TypedDict, List
+
+
+class PortBinding(TypedDict):
+    """Docker port binding information."""
+
+    HostIp: str
+    HostPort: str
+
+
+class HealthState(TypedDict):
+    """Docker health check state."""
+
+    Status: str
+
+
+class ContainerState(TypedDict):
+    """Docker container state."""
+
+    Health: HealthState
+
+
+class ContainerAttrs(TypedDict):
+    """Docker container attributes."""
+
+    State: ContainerState
+
+
+PortBindings = dict[str, List[PortBinding]]

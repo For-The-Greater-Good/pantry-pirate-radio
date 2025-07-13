@@ -1,0 +1,19 @@
+echo "Running pre-commit checks..."
+
+# Run type checking
+echo "Running type check..."
+npm run typecheck || exit 1
+
+# Run ESLint
+echo "Running ESLint..."
+npm run lint || exit 1
+
+# Run Prettier
+echo "Running Prettier check..."
+npm run format:check || exit 1
+
+# Run tests
+echo "Running tests..."
+npm run test || exit 1
+
+echo "All checks passed! ✨"

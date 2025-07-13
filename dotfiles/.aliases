@@ -1,0 +1,137 @@
+# General aliases
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# Git aliases
+alias g='git'
+alias gs='git status'
+alias ga='git add'
+alias gaa='git add .'
+alias gc='git commit'
+alias gcm='git commit -m'
+alias gca='git commit --amend'
+alias gp='git push'
+alias gpl='git pull'
+alias gb='git branch'
+alias gco='git checkout'
+alias gcb='git checkout -b'
+alias gm='git merge'
+alias gd='git diff'
+alias gdc='git diff --cached'
+alias gl='git log --oneline'
+alias gll='git log --graph --pretty=format:"%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset" --abbrev-commit'
+alias gst='git stash'
+alias gsp='git stash pop'
+alias gsl='git stash list'
+
+# Python/Poetry aliases
+alias py='python'
+alias py3='python3'
+alias pip='pip3'
+alias poetry='poetry'
+alias pr='poetry run'
+alias pi='poetry install'
+alias pa='poetry add'
+alias pdev='poetry add --group dev'
+alias ptest='poetry run pytest'
+alias pcov='poetry run pytest --cov'
+alias pmypy='poetry run mypy .'
+alias pblack='poetry run black .'
+alias pruff='poetry run ruff .'
+alias pbandit='poetry run bandit -r app/'
+
+# Docker aliases
+alias d='docker'
+alias dc='docker-compose'
+alias dcu='docker-compose up'
+alias dcd='docker-compose down'
+alias dcb='docker-compose build'
+alias dcl='docker-compose logs'
+alias dclf='docker-compose logs -f'
+alias dps='docker ps'
+alias dpsa='docker ps -a'
+alias di='docker images'
+alias drmi='docker rmi'
+alias dexec='docker exec -it'
+alias dprune='docker system prune -f'
+
+# FastAPI/API development aliases
+alias serve='poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
+alias api='curl -s http://localhost:8000'
+alias apihealth='curl -s http://localhost:8000/health'
+alias apidocs='open http://localhost:8000/docs'
+
+# Database aliases
+alias psql-local='psql -h localhost -U postgres -d pantry_pirate_radio'
+alias redis-cli-local='redis-cli -h localhost -p 6379'
+
+# Testing aliases
+alias test='poetry run pytest'
+alias testv='poetry run pytest -v'
+alias testcov='poetry run pytest --cov=app --cov-report=html'
+alias testwatch='poetry run pytest-watch'
+alias lint='poetry run ruff . && poetry run mypy . && poetry run bandit -r app/'
+
+# Coverage aliases
+alias cov='poetry run coverage'
+alias covreport='poetry run coverage report --show-missing'
+alias covhtml='poetry run coverage html && open htmlcov/index.html'
+
+# File and directory operations
+alias tree='tree -I "__pycache__|*.pyc|node_modules|.git"'
+alias findpy='find . -name "*.py" -type f'
+alias findtest='find . -name "test_*.py" -type f'
+alias clean='find . -name "*.pyc" -delete && find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true'
+alias cleanall='clean && docker system prune -f && poetry env remove --all'
+
+# Network and process aliases
+alias ports='netstat -tuln'
+alias listening='lsof -i -P -n | grep LISTEN'
+alias myip='curl -s http://checkip.amazonaws.com'
+
+# Utility aliases
+alias h='history'
+alias hg='history | grep'
+alias path='echo -e ${PATH//:/\\n}'
+alias now='date +"%Y-%m-%d %H:%M:%S"'
+alias epoch='date +%s'
+alias reload='source ~/.bashrc'
+
+# Project-specific aliases
+alias scrapers='python -m app.scraper --list'
+alias runall='python -m app.scraper --all'
+alias worker='poetry run python -m app.llm.queue.worker'
+alias recorder='poetry run python -m app.recorder'
+alias reconciler='poetry run python -m app.reconciler'
+
+# Quick navigation aliases
+alias cdapp='cd app'
+alias cdtest='cd tests'
+alias cddocs='cd docs'
+alias cdscripts='cd scripts'
+alias cdlogs='cd outputs'
+
+# Development environment aliases
+alias venv='source .venv/bin/activate'
+alias deactivate='deactivate'
+alias requirements='pip freeze > requirements.txt'
+
+# Safety aliases
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# Colorize output
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias dir='dir --color=auto'
+    alias vdir='vdir --color=auto'
+fi

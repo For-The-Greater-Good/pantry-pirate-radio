@@ -1,0 +1,1 @@
+SELECT record_type, created_by, COUNT(*) FROM record_version WHERE created_by = 'reconciler' AND created_at > NOW() - INTERVAL '5 minutes' GROUP BY record_type, created_by ORDER BY record_type;

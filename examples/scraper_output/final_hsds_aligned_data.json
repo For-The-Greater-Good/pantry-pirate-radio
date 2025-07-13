@@ -1,0 +1,366 @@
+{
+  "reconciliation_job_id": "reconcile-example-001",
+  "reconciliation_timestamp": "2024-01-15T11:00:00Z",
+  "source_processing_job_id": "job-example-001",
+  "hsds_compliant_data": {
+    "organizations": [
+      {
+        "id": "org-reconciled-001",
+        "name": "Downtown Food Pantry",
+        "description": "Serving low-income families in downtown area since 1985. Provides emergency food assistance, free groceries, and nutrition counseling. No appointment needed.",
+        "email": "info@downtownpantry.org",
+        "url": "https://www.downtownpantry.org",
+        "tax_status": null,
+        "tax_id": null,
+        "year_incorporated": 1985,
+        "legal_status": "Nonprofit Organization",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "org-reconciled-002",
+        "name": "Community Kitchen & Pantry",
+        "description": "Volunteer-run kitchen serving anyone in need with a no questions asked policy. Provides hot meals, food pantry services, and holiday meal programs.",
+        "email": "meals@communitykitchen.org",
+        "url": "https://communitykitchen.org",
+        "tax_status": null,
+        "tax_id": null,
+        "year_incorporated": null,
+        "legal_status": "Volunteer Organization",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "org-reconciled-003",
+        "name": "Mobile Food Truck",
+        "description": "Mobile food pantry service bringing food directly to underserved neighborhoods. Provides free groceries including fresh fruits and vegetables.",
+        "email": "mobile@foodtruck.org",
+        "url": "https://foodtruck.org/schedule",
+        "tax_status": null,
+        "tax_id": null,
+        "year_incorporated": null,
+        "legal_status": "Mobile Service Organization",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "locations": [
+      {
+        "id": "loc-reconciled-001",
+        "organization_id": "org-reconciled-001",
+        "name": "Downtown Food Pantry - Main Location",
+        "description": "Main distribution center for downtown food pantry services",
+        "latitude": 40.7128,
+        "longitude": -74.0060,
+        "location_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "loc-reconciled-002",
+        "organization_id": "org-reconciled-002",
+        "name": "Community Kitchen & Pantry - Main Location",
+        "description": "Community kitchen and pantry facility",
+        "latitude": 40.7589,
+        "longitude": -73.9851,
+        "location_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "loc-reconciled-003",
+        "organization_id": "org-reconciled-003",
+        "name": "Mobile Food Truck - Community Center Stop",
+        "description": "Mobile pantry stop at Community Center parking lot",
+        "latitude": 40.7505,
+        "longitude": -73.9934,
+        "location_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "loc-reconciled-004",
+        "organization_id": "org-reconciled-003",
+        "name": "Mobile Food Truck - Elementary School Stop",
+        "description": "Mobile pantry stop at Elementary School parking lot",
+        "latitude": 40.7282,
+        "longitude": -74.0776,
+        "location_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "services": [
+      {
+        "id": "svc-reconciled-001",
+        "organization_id": "org-reconciled-001",
+        "name": "Emergency Food Assistance",
+        "description": "Emergency food assistance including free groceries and nutrition counseling for low-income families",
+        "status": "active",
+        "eligibility_description": "Income below 200% federal poverty level",
+        "application_process": "No appointment needed - walk-in service",
+        "fees_description": "No fees - all services provided free of charge",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "svc-reconciled-002",
+        "organization_id": "org-reconciled-002",
+        "name": "Community Hot Meals",
+        "description": "Hot meals served daily to anyone in need, no questions asked",
+        "status": "active",
+        "eligibility_description": "Open to all community members",
+        "application_process": "No application required - walk-in service",
+        "fees_description": "Free meals for all",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "svc-reconciled-003",
+        "organization_id": "org-reconciled-002",
+        "name": "Food Pantry Service",
+        "description": "Food pantry providing groceries and holiday meal programs",
+        "status": "active",
+        "eligibility_description": "Open to all community members",
+        "application_process": "No application required - walk-in service",
+        "fees_description": "Free groceries for all",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "svc-reconciled-004",
+        "organization_id": "org-reconciled-003",
+        "name": "Mobile Food Pantry",
+        "description": "Mobile food pantry service providing fresh produce distribution and free groceries",
+        "status": "active",
+        "eligibility_description": "No restrictions - available to all community members",
+        "application_process": "No application required - service provided at scheduled stops",
+        "fees_description": "Free groceries and produce for all",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "service_at_location": [
+      {
+        "id": "sal-reconciled-001",
+        "service_id": "svc-reconciled-001",
+        "location_id": "loc-reconciled-001",
+        "description": "Emergency food assistance provided at main pantry location",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sal-reconciled-002",
+        "service_id": "svc-reconciled-002",
+        "location_id": "loc-reconciled-002",
+        "description": "Hot meals served at community kitchen location",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sal-reconciled-003",
+        "service_id": "svc-reconciled-003",
+        "location_id": "loc-reconciled-002",
+        "description": "Food pantry service provided at community kitchen location",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sal-reconciled-004",
+        "service_id": "svc-reconciled-004",
+        "location_id": "loc-reconciled-003",
+        "description": "Mobile food pantry service at Community Center stop",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sal-reconciled-005",
+        "service_id": "svc-reconciled-004",
+        "location_id": "loc-reconciled-004",
+        "description": "Mobile food pantry service at Elementary School stop",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "schedules": [
+      {
+        "id": "sched-reconciled-001",
+        "service_id": "svc-reconciled-001",
+        "location_id": "loc-reconciled-001",
+        "service_at_location_id": "sal-reconciled-001",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "opens_at": "09:00",
+        "closes_at": "17:00",
+        "byday": "MO,TU,WE,TH,FR",
+        "description": "Monday through Friday 9am-5pm",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sched-reconciled-002",
+        "service_id": "svc-reconciled-001",
+        "location_id": "loc-reconciled-001",
+        "service_at_location_id": "sal-reconciled-001",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "opens_at": "10:00",
+        "closes_at": "14:00",
+        "byday": "SA",
+        "description": "Saturday hours 10am-2pm",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sched-reconciled-003",
+        "service_id": "svc-reconciled-002",
+        "location_id": "loc-reconciled-002",
+        "service_at_location_id": "sal-reconciled-002",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "opens_at": "12:00",
+        "closes_at": "14:00",
+        "byday": "MO,TU,WE,TH,FR,SA,SU",
+        "description": "Hot meals served daily 12pm-2pm",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sched-reconciled-004",
+        "service_id": "svc-reconciled-003",
+        "location_id": "loc-reconciled-002",
+        "service_at_location_id": "sal-reconciled-003",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "opens_at": "10:00",
+        "closes_at": "13:00",
+        "byday": "MO,WE,FR",
+        "description": "Pantry open Monday, Wednesday, Friday 10am-1pm",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sched-reconciled-005",
+        "service_id": "svc-reconciled-004",
+        "location_id": "loc-reconciled-003",
+        "service_at_location_id": "sal-reconciled-004",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "opens_at": "14:00",
+        "closes_at": "16:00",
+        "byday": "TU",
+        "description": "Tuesday 2-4pm at Community Center",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "sched-reconciled-006",
+        "service_id": "svc-reconciled-004",
+        "location_id": "loc-reconciled-004",
+        "service_at_location_id": "sal-reconciled-005",
+        "valid_from": "2024-01-01",
+        "valid_to": "2024-12-31",
+        "opens_at": "15:00",
+        "closes_at": "17:00",
+        "byday": "TH",
+        "description": "Thursday 3-5pm at Elementary School",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "contacts": [
+      {
+        "id": "contact-reconciled-001",
+        "organization_id": "org-reconciled-001",
+        "service_id": "svc-reconciled-001",
+        "name": "Sarah Johnson",
+        "title": "Director",
+        "email": "info@downtownpantry.org",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "contact-reconciled-002",
+        "organization_id": "org-reconciled-002",
+        "service_id": "svc-reconciled-002",
+        "name": "Maria Santos",
+        "title": "Volunteer Coordinator",
+        "email": "meals@communitykitchen.org",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "contact-reconciled-003",
+        "organization_id": "org-reconciled-003",
+        "service_id": "svc-reconciled-004",
+        "name": "Mike Rodriguez",
+        "title": "Mobile Coordinator",
+        "email": "mobile@foodtruck.org",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "phones": [
+      {
+        "id": "phone-reconciled-001",
+        "organization_id": "org-reconciled-001",
+        "service_id": "svc-reconciled-001",
+        "number": "555-123-4567",
+        "type": "voice",
+        "description": "Main contact number",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "phone-reconciled-002",
+        "organization_id": "org-reconciled-002",
+        "service_id": "svc-reconciled-002",
+        "number": "555-234-5678",
+        "type": "voice",
+        "description": "Community kitchen contact",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "phone-reconciled-003",
+        "organization_id": "org-reconciled-003",
+        "service_id": "svc-reconciled-004",
+        "number": "555-345-6789",
+        "type": "voice",
+        "description": "Mobile pantry scheduling line",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ],
+    "addresses": [
+      {
+        "id": "addr-reconciled-001",
+        "location_id": "loc-reconciled-001",
+        "address_1": "123 Main St",
+        "city": "Example City",
+        "state_province": "NY",
+        "postal_code": "10001",
+        "country": "US",
+        "address_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "addr-reconciled-002",
+        "location_id": "loc-reconciled-002",
+        "address_1": "456 Hope Ave",
+        "city": "Example City",
+        "state_province": "NY",
+        "postal_code": "10002",
+        "country": "US",
+        "address_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "addr-reconciled-003",
+        "location_id": "loc-reconciled-003",
+        "address_1": "Community Center Parking Lot",
+        "city": "Example City",
+        "state_province": "NY",
+        "postal_code": "10005",
+        "country": "US",
+        "address_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      },
+      {
+        "id": "addr-reconciled-004",
+        "location_id": "loc-reconciled-004",
+        "address_1": "Elementary School Parking Lot",
+        "city": "Example City",
+        "state_province": "NY",
+        "postal_code": "10006",
+        "country": "US",
+        "address_type": "physical",
+        "last_modified": "2024-01-15T11:00:00Z"
+      }
+    ]
+  },
+  "reconciliation_metadata": {
+    "total_organizations_created": 3,
+    "total_locations_created": 4,
+    "total_services_created": 4,
+    "total_relationships_created": 5,
+    "duplicate_organizations_found": 0,
+    "duplicate_locations_found": 0,
+    "geocoding_success_rate": 1.0,
+    "data_quality_score": 0.94,
+    "manual_review_required": false,
+    "processing_time_seconds": 8.2
+  }
+}

@@ -1,0 +1,69 @@
+# Python
+**/__pycache__/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+.coverage.*
+coverage/
+coverage.json
+htmlcov/
+.tox/
+.nox/
+.cache/
+.virtualenvs/
+.venv-*/
+.hypothesis/*
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+test-output.log
+outputs/*
+archives/*
+output.txt
+
+# Generated files
+coordinates.csv
+coordinates.json
+
+# Submodules (content should not be committed)
+docs/HSDS/
+docs/GeoJson/States/
+docs/rq/
+
+# Caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# Coverage baseline (managed by CI cache)
+.coverage-baseline
+
+# OS
+.DS_Store
+Thumbs.db
+postgis.pem
+coverage.xml
+coverage.xml

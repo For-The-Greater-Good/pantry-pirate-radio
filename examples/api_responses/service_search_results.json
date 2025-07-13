@@ -1,0 +1,208 @@
+{
+  "search_query": {
+    "latitude": 40.7128,
+    "longitude": -74.0060,
+    "radius": 5,
+    "filters": {
+      "services": ["food_pantry", "hot_meals"],
+      "status": "active"
+    }
+  },
+  "services": [
+    {
+      "id": "svc-example-001",
+      "organization": {
+        "id": "org-example-001",
+        "name": "Example Community Food Bank",
+        "description": "A full-service food bank serving the Example County area with emergency food assistance, nutrition education, and community outreach programs.",
+        "email": "info@examplefoodbank.org",
+        "url": "https://www.examplefoodbank.org",
+        "tax_status": "501c3",
+        "legal_status": "Registered Charity"
+      },
+      "service": {
+        "id": "svc-example-001",
+        "name": "Emergency Food Pantry",
+        "description": "Free groceries and emergency food assistance for families and individuals facing food insecurity. Includes fresh produce, canned goods, and household essentials.",
+        "url": "https://www.examplefoodbank.org/pantry",
+        "email": "pantry@examplefoodbank.org",
+        "status": "active",
+        "interpretation_services": "Spanish and Arabic interpreters available on request",
+        "application_process": "No application required. Valid ID and proof of address needed for first visit.",
+        "fees_description": "No fees - all services provided free of charge",
+        "eligibility_description": "Open to all residents of Example County experiencing food insecurity"
+      },
+      "location": {
+        "id": "loc-example-001",
+        "name": "Example Community Food Bank - Main Warehouse",
+        "description": "Primary distribution center and administrative offices for the Example Community Food Bank",
+        "latitude": 40.7128,
+        "longitude": -74.0060,
+        "location_type": "physical",
+        "distance_miles": 0.1,
+        "address": {
+          "address_1": "123 Main Street",
+          "city": "Example City",
+          "region": "Example County",
+          "state_province": "NY",
+          "postal_code": "10001",
+          "country": "US",
+          "address_type": "physical"
+        },
+        "transportation": "Bus routes 12, 34, and 56 stop directly in front. Free parking available."
+      },
+      "schedules": [
+        {
+          "id": "sched-example-001",
+          "valid_from": "2024-01-01",
+          "valid_to": "2024-12-31",
+          "opens_at": "09:00",
+          "closes_at": "17:00",
+          "byday": "MO,TU,WE,TH,FR",
+          "description": "Food pantry open Monday through Friday, 9 AM to 5 PM"
+        }
+      ],
+      "contacts": [
+        {
+          "id": "contact-example-001",
+          "name": "Sarah Johnson",
+          "title": "Food Pantry Manager",
+          "department": "Client Services",
+          "email": "sarah.johnson@examplefoodbank.org"
+        }
+      ],
+      "phones": [
+        {
+          "id": "phone-example-001",
+          "number": "555-123-4567",
+          "extension": 101,
+          "type": "voice",
+          "description": "Main food pantry hotline"
+        }
+      ],
+      "languages": [
+        {
+          "name": "English",
+          "code": "en"
+        },
+        {
+          "name": "Spanish",
+          "code": "es"
+        },
+        {
+          "name": "Arabic",
+          "code": "ar"
+        }
+      ]
+    },
+    {
+      "id": "svc-example-003",
+      "organization": {
+        "id": "org-example-002",
+        "name": "Hope Kitchen Coalition",
+        "description": "A grassroots organization providing free meals and food pantry services to families in need throughout Example City.",
+        "email": "contact@hopekitchen.org",
+        "url": "https://www.hopekitchen.org",
+        "tax_status": "501c3",
+        "legal_status": "Nonprofit Corporation"
+      },
+      "service": {
+        "id": "svc-example-003",
+        "name": "Community Meals Program",
+        "description": "Free hot meals served daily in a welcoming community environment. Nutritious, home-cooked meals prepared by volunteers and staff.",
+        "url": "https://www.hopekitchen.org/meals",
+        "email": "meals@hopekitchen.org",
+        "status": "active",
+        "interpretation_services": "Volunteer interpreters for common languages",
+        "application_process": "No application required - walk-in service",
+        "fees_description": "Meals provided at no cost",
+        "eligibility_description": "Open to all community members regardless of income or housing status"
+      },
+      "location": {
+        "id": "loc-example-003",
+        "name": "Hope Kitchen Coalition - Main Kitchen",
+        "description": "Community kitchen serving hot meals daily and operating food pantry",
+        "latitude": 40.7831,
+        "longitude": -73.9712,
+        "location_type": "physical",
+        "distance_miles": 2.3,
+        "address": {
+          "address_1": "789 Hope Street",
+          "city": "Example City",
+          "region": "Example County",
+          "state_province": "NY",
+          "postal_code": "10003",
+          "country": "US",
+          "address_type": "physical"
+        },
+        "transportation": "Metro station 3 blocks away. Bus routes 21 and 43 nearby."
+      },
+      "schedules": [
+        {
+          "id": "sched-example-005",
+          "valid_from": "2024-01-01",
+          "valid_to": "2024-12-31",
+          "opens_at": "11:30",
+          "closes_at": "13:30",
+          "byday": "MO,TU,WE,TH,FR,SA,SU",
+          "description": "Hot meals served daily from 11:30 AM to 1:30 PM"
+        }
+      ],
+      "contacts": [
+        {
+          "id": "contact-example-003",
+          "name": "Jennifer Chen",
+          "title": "Kitchen Manager",
+          "department": "Food Services",
+          "email": "jennifer.chen@hopekitchen.org"
+        }
+      ],
+      "phones": [
+        {
+          "id": "phone-example-003",
+          "number": "555-234-5678",
+          "type": "voice",
+          "description": "Community kitchen information"
+        }
+      ],
+      "languages": [
+        {
+          "name": "English",
+          "code": "en"
+        },
+        {
+          "name": "Spanish",
+          "code": "es"
+        },
+        {
+          "name": "French",
+          "code": "fr"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total": 2,
+    "total_pages": 1
+  },
+  "metadata": {
+    "timestamp": "2024-01-15T15:30:00Z",
+    "coverage": {
+      "center": {
+        "latitude": 40.7128,
+        "longitude": -74.0060
+      },
+      "radius": 5
+    },
+    "query_time": 0.089,
+    "api_version": "v1",
+    "total_results": 2,
+    "search_parameters": {
+      "geographic_search": true,
+      "filters_applied": true,
+      "sort_by": "distance"
+    }
+  }
+}

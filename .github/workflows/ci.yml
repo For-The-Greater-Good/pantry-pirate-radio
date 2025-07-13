@@ -1,0 +1,387 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: pirate
+  POSTGRES_DB: pantry_pirate_radio
+  DATABASE_URL: postgresql://postgres:pirate@db:5432/pantry_pirate_radio
+  REDIS_URL: redis://cache:6379/0
+  LLM_PROVIDER: openai
+  LLM_MODEL_NAME: google/gemini-2.0-flash-001
+  LLM_TEMPERATURE: 0.7
+  LLM_MAX_TOKENS: 64768
+  LLM_RESPONSE_FORMAT: json_object
+  LLM_TIMEOUT: 30
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Generate cache key
+        id: cache-key
+        run: echo "key=${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}" >> $GITHUB_OUTPUT
+
+  formatting-and-linting:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run file checks
+        run: |
+          # Check YAML files
+          find . -name "*.yaml" -o -name "*.yml" | xargs -I {} python -c "import yaml; yaml.safe_load(open('{}'))"
+          # Check TOML files
+          find . -name "*.toml" | xargs -I {} python -c "import tomllib; tomllib.load(open('{}', 'rb'))"
+          # Check for large files (>500KB)
+          find . -type f -size +500k -not -path "./.git/*" -not -path "./.*" | head -10
+          # Check for trailing whitespace
+          find . -name "*.py" -exec grep -l '[[:space:]]$' {} \; | head -10
+      - name: Run Black formatter check
+        run: poetry run black --check app tests
+
+      - name: Run Ruff linter
+        run: poetry run ruff check app tests
+
+
+  mypy:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run MyPy type checker
+        run: poetry run mypy app tests
+
+  pytest:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev postgresql-client gcc python3-dev cmake build-essential redis-tools
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Create environment file
+        run: |
+          # Create .env file from example
+          cp .env.example .env
+          # Set API key from GitHub secret if available
+          if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
+            sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env
+          fi
+
+      - name: Start services with Docker Compose
+        run: docker compose up -d db cache app
+
+      - name: Wait for services
+        run: |
+          timeout 60 bash -c 'until docker compose exec db pg_isready -U postgres; do sleep 2; done'
+          timeout 60 bash -c 'until docker compose exec cache redis-cli ping; do sleep 2; done'
+      - name: Initialize database
+        run: |
+          # Apply init scripts in order
+          for script in init-scripts/*.sql; do
+            if [ -f "$script" ]; then
+              echo "Applying $script..."
+              docker compose exec -T db psql -U postgres -d pantry_pirate_radio -f - < "$script"
+            fi
+          done
+          # Apply HSDS schema if exists
+          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
+            echo "Applying HSDS schema..."
+            docker compose exec -T db psql -U postgres -d pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
+          fi
+      - name: Install test dependencies and run tests
+        run: |
+          # Copy tests directory, docs, and .env to app container
+          docker compose cp tests app:/app/tests
+          docker compose cp docs app:/app/docs
+          docker compose cp .env app:/app/.env
+          # Install test dependencies and run tests with coverage, excluding integration tests
+          docker compose exec app sh -c "poetry install && poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=xml --cov-report=json --cov-branch"
+
+      - name: Extract coverage data
+        run: |
+          # Copy coverage reports from container
+          docker compose cp app:/app/coverage.xml ./coverage.xml
+          docker compose cp app:/app/coverage.json ./coverage.json
+
+      - name: Display coverage summary
+        run: |
+          echo "Coverage report generated:"
+          if [ -f coverage.xml ]; then
+            echo "✅ XML coverage report: coverage.xml"
+          fi
+          if [ -f coverage.json ]; then
+            echo "✅ JSON coverage report: coverage.json"
+          fi
+
+      - name: Restore coverage baseline from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .coverage-baseline
+          key: coverage-baseline-${{ github.ref_name }}
+          restore-keys: |
+            coverage-baseline-main
+            coverage-baseline-
+
+      - name: Check coverage ratcheting
+        run: |
+          # Copy coverage baseline if it exists
+          if [ -f .coverage-baseline ]; then
+            docker compose cp .coverage-baseline app:/app/.coverage-baseline
+          fi
+          # Copy coverage scripts
+          docker compose cp scripts app:/app/scripts
+          # Run coverage check with ratcheting
+          docker compose exec app sh -c "bash scripts/coverage-check.sh"
+          # Copy updated baseline back
+          docker compose cp app:/app/.coverage-baseline ./.coverage-baseline || true
+
+      - name: Save coverage baseline to cache
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: .coverage-baseline
+          key: coverage-baseline-main-${{ github.run_number }}
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+  vulture:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run Vulture dead code check
+        run: poetry run vulture app tests .vulture_whitelist --min-confidence 80
+
+  bandit:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run Bandit security check
+        run: poetry run bandit -r app
+
+  safety:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run Safety security check
+        run: poetry run safety check
+
+  pip-audit:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run pip-audit security check
+        run: poetry run pip-audit
+
+  xenon:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run Xenon complexity check
+        run: poetry run xenon --max-absolute F --max-modules F --max-average E app

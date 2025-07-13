@@ -1,0 +1,448 @@
+[tool.poetry]
+name = "pantry-pirate-radio"
+version = "0.1.0"
+description = "AI-powered food security data aggregation system implementing the OpenReferral HSDS specification"
+authors = ["For The Greater Good <info@forthegg.org>"]
+license = "Unlicense"
+readme = "README.md"
+homepage = "https://github.com/For-The-Greater-Good/pantry-pirate-radio"
+repository = "https://github.com/For-The-Greater-Good/pantry-pirate-radio"
+documentation = "https://github.com/For-The-Greater-Good/pantry-pirate-radio/tree/main/docs"
+keywords = ["food-security", "hsds", "openreferral", "api", "social-services"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "Intended Audience :: Science/Research",
+    "License :: Public Domain",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Sociology",
+]
+package-mode = false
+packages = [
+    { include = "tests" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pytest-benchmark = "<5.0.0"
+sqlalchemy = {version = "^2.0.37", extras = ["asyncio"]}
+pytest-asyncio = "<0.25.0"
+redis = "^5.0.0"
+rq = "^1.15.1"
+rq-dashboard = "^0.6.1"
+fastapi = "^0.115.8"
+uvicorn = "^0.27.0"
+prometheus-client = "^0.19.0"
+pydantic = "^2.6.0"
+pydantic-settings = "^2.1.0"
+psycopg = {version = "^3.1.18", extras = ["binary"]}
+asyncpg = "^0.29.0"
+httpx = ">=0.27,<0.29"
+structlog = "^24.1.0"
+hypothesis = "^6.82.0"
+email-validator = ">=2.1.0"
+demjson3 = "^3.0.6"
+openai = "^1.10.0"
+geopandas = "^1.0.1"
+psycopg2-binary = "^2.9.10"
+pdfplumber = "^0.11.5"
+geopy = "^2.4.1"
+bs4 = "^0.0.2"
+playwright = "^1.51.0"
+marshmallow = "^3.26.0"
+pyjwt = "^2.10.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+black = "^24.3.0"
+mypy = "^1.5.0"
+ruff = "^0.3.5"
+jsonschema = "^4.23.0"
+types-jsonschema = "^4.23.0"
+vulture = "^2.10"
+bandit = "^1.7.7"
+safety = "^2.3.5"
+pip-audit = "^2.7.2"
+xenon = "^0.9.1"
+pytest-cov = "^4.1.0"
+types-redis = "^4.6.0.20241004"
+pytest-vcr = "^1.0.2"
+pytest-mock = "^3.12.0"
+respx = "^0.22.0"
+types-requests = "^2.32.4.20250611"
+types-pyyaml = "^6.0.12.20250516"
+
+[tool.pytest.ini_options]
+norecursedirs = ["docs/*"]
+testpaths = ["tests"]
+addopts = "--asyncio-mode=auto --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml --cov-report=json --cov-branch"
+markers = [
+    "vcr: mark test to use VCR.py for HTTP request recording/playbook",
+    "asyncio: mark test as async/await test",
+    "integration: mark test as integration test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+disallow_untyped_decorators = false
+no_implicit_optional = false
+warn_redundant_casts = false
+warn_unused_ignores = false
+warn_no_return = false
+warn_unreachable = false
+strict_equality = false
+ignore_missing_imports = true
+namespace_packages = false
+explicit_package_bases = false
+mypy_path = "type_stubs/openai-stubs:type_stubs/pytest-stubs"
+exclude = '^(docs/.*|.*test_.*\.py|app/core/logging\.py|app/core/events\.py|app/middleware/.*\.py|app/datasette/.*\.py|app/scraper/.*\.py|app/reconciler/.*\.py|.*/__main__\.py|app/core/grid\.py)$'
+
+[[tool.mypy.overrides]]
+module = "hypothesis.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "rich.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "structlog.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "markdown_it.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "tests.hsds.strategies.*"
+disallow_untyped_decorators = false
+implicit_reexport = true
+allow_redefinition = true
+check_untyped_defs = false
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = "tests.hsds.test_hsds_validation"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_decorators = false
+ignore_missing_imports = true
+disable_error_code = [
+    "no-untyped-def",
+    "no-untyped-call",
+    "misc",
+    "arg-type",
+    "type-arg",
+    "union-attr",
+    "index",
+    "assignment",
+    "var-annotated",
+    "override",
+    "return-value",
+    "attr-defined",
+    "valid-type",
+    "name-defined",
+    "call-overload",
+    "dict-item",
+    "list-item",
+    "operator",
+    "type-var",
+    "func-returns-value",
+    "has-type",
+    "import",
+    "no-any-return",
+    "redundant-cast",
+    "str-bytes-safe",
+    "syntax",
+    "type-abstract",
+    "type-arg",
+    "truthy-bool",
+    "truthy-iterable",
+    "var-annotated",
+]
+
+[[tool.mypy.overrides]]
+module = "pytest.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "multiprocessing.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "concurrent.futures.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "asyncio.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "logging.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "app.*"
+disallow_untyped_decorators = false
+
+[tool.black]
+line-length = 88
+exclude = '''
+(
+  /(
+    | docs
+  )/
+)
+'''
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+exclude = [
+    "docs",
+    "docs/*",
+    "tests/hsds/strategies/example_data.py"
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "C90", # mccabe complexity
+    "N",   # pep8-naming
+    "B",   # flake8-bugbear
+    "S",   # flake8-bandit
+    "RUF", # Ruff-specific rules
+    "UP",  # Python upgrade suggestions (including pathlib)
+]
+ignore = [
+    "E501",  # Line too long
+    "B904",  # Within except clause, raise with from err
+    "RUF012", # Mutable class attributes should be annotated with ClassVar
+    "C901",  # Function is too complex
+    "N801",  # Class name should use CapWords convention
+    "F841",  # Local variable assigned but never used
+    "S105",  # Possible hardcoded password
+    "S311",  # Standard pseudo-random generators not suitable for cryptographic purposes
+    "UP007", # Use X | Y for type annotations
+    "E402",  # Module level import not at top of file
+    "UP035", # typing.Dict is deprecated, use dict instead
+    "UP006", # Use dict instead of Dict for type annotation
+    "N806",  # Variable in function should be lowercase
+    "I001",  # Import block is un-sorted
+    "F401",  # Imported but unused
+    "RUF013", # PEP 484 prohibits implicit Optional
+    "RUF010", # Use explicit conversion flag
+    "S603",   # subprocess call without shell=True
+    "S607",   # Starting a process with a partial executable path
+    "B017",  # pytest.raises(Exception) should be considered evil
+    "S101",  # Use of assert detected
+    "UP031", # Use format specifiers instead of percent format
+    "UP041", # Replace aliased errors with TimeoutError
+    "RUF100", # Unused noqa directive
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "C901",   # Complex code
+    "S101",   # Use of assert
+    "S102",   # Use of exec
+    "B011",   # Do not call assert False
+    "ANN001", # Missing type annotation for arguments
+    "ANN201", # Missing return type annotation
+    "UP007",  # Use X | Y for union
+    "UP006",  # Use list[X] instead of List[X]
+    "UP004",  # Use dict[X, Y] instead of Dict[X, Y]
+    "UP015",  # Unneeded open mode parameters
+    "UP035",  # Import from typing instead of collections.abc
+    "PYI021", # Docstring in stub file
+    "PYI041", # Use tuple[X, ...] instead of Tuple[X, ...]
+    "TCH001", # Move imports to top
+    "TCH002", # Move typing imports to top
+    "TCH003", # Move stdlib imports to top
+    "PT001",  # Use @pytest.fixture() over @pytest.fixture
+    "PT004",  # Fixture does not return anything
+    "PT005",  # Fixture name not valid
+    "PT006",  # Wrong name for parametrized test
+    "PT007",  # Wrong fixture name
+    "PT008",  # Fixture function name should be lowercase
+    "PT009",  # Use a regular assert instead of unittest-style
+    "PT010",  # Use pytest.raises instead of unittest assertions
+    "PT011",  # Too broad exception handling
+    "PT012",  # pytest.raises() block should contain a single statement
+    "PT013",  # Found incorrect import of pytest
+    "PT014",  # Found duplicate test cases
+    "PT015",  # Assertion always fails
+    "PT016",  # No implicit pytest.mark.asyncio
+    "PT017",  # Found assertion on exception cause
+    "PT018",  # Assertion should be broken down
+    "PT019",  # Fixture yields instead of returns
+    "PT020",  # Found incorrect pytest import
+    "PT021",  # Use yield instead of request.addfinalizer
+    "PT022",  # No teardown in fixture
+    "PT023",  # Use pytest.mark.skip instead of pytest.skip
+    "PGH003", # Use specific rule codes when ignoring type issues
+    "PGH004", # Use specific rule codes when using noqa
+    "TID252", # Relative imports from parent modules are not allowed
+    "TRY003", # Avoid specifying long messages outside the exception class
+    "TRY300", # Consider moving try/except to smaller context
+    "PLR0911", # Too many return statements
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments to function call
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used in comparison
+    "PLC0414", # Import alias does not rename original package
+    "PLC1901", # Use falsey strings
+    "PLW0603", # Using globals
+    "PLW2901", # For loop variable overwritten
+    "RUF001", # String contains ambiguous unicode character
+    "RUF002", # Docstring contains ambiguous unicode character
+    "RUF003", # Comment contains ambiguous unicode character
+    "RUF012", # Mutable class attributes should be annotated with typing.ClassVar
+    "RUF013", # PEP 484 prohibits implicit Optional
+    "RUF100", # Unused noqa directive
+    "ERA001", # Found commented-out code
+    "FBT001", # Boolean positional arg in function definition
+    "FBT002", # Boolean default value in function definition
+    "FBT003", # Boolean positional value in function call
+    "TD001",  # Invalid TODO tag
+    "TD002",  # Missing author in TODO
+    "TD003",  # Missing issue link in TODO
+    "TD004",  # Missing colon in TODO
+    "TD005",  # Missing TODO item
+    "TD006",  # Missing space after colon in TODO
+    "TD007",  # Missing space after TODO
+    "ARG001", # Unused function argument
+    "ARG002", # Unused method argument
+    "ARG003", # Unused class method argument
+    "ARG004", # Unused static method argument
+    "ARG005", # Unused lambda argument
+]
+"tests/hsds/strategies/*" = ["C901"]
+"types/structlog-stubs/*" = ["N802"]
+"tests/fixtures/*" = ["S110", "B904", "B010", "RUF010"]
+"tests/test_core/*" = ["RUF010"]
+"app/datasette/exporter.py" = ["E501", "C901", "S608"]  # Legacy module with complex SQL operations
+
+[tool.ruff.lint.isort]
+known-first-party = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/__main__.py",
+    "app/*/migrations/*",
+    "app/*/tests/*",
+    "*/test_*",
+    "*/tests/*",
+    "*/conftest.py",
+    "*/type_stubs/*",
+    "*/generated/*",
+    "app/core/logging.py",
+    "app/core/events.py",
+    "app/middleware/correlation.py",
+    "app/middleware/errors.py",
+    "app/middleware/metrics.py",
+    "init-scripts/*",
+    "docs/*",
+    "*.md",
+    "*.txt",
+    "*.yml",
+    "*.yaml",
+    "*.json",
+    "Dockerfile*",
+    "docker-compose*",
+]
+branch = true
+parallel = true
+concurrency = ["multiprocessing", "thread"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+skip_empty = true
+sort = "Cover"
+# fail_under removed - using ratcheting mechanism in scripts/coverage-check.sh instead
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    "except ImportError:",
+    "pass",
+    "\\.\\.\\.",
+    "TYPE_CHECKING",
+    "if TYPE_CHECKING:",
+    "@overload",
+    "# pragma: no cover",
+    "# nocov",
+    "logger\\.",
+    "logging\\.",
+    "print\\(",
+    "console\\.",
+    "warnings\\.warn",
+    "sys\\.exit",
+    "os\\._exit",
+    "def __hash__",
+    "def __eq__",
+    "def __ne__",
+    "def __str__",
+    "def __lt__",
+    "def __le__",
+    "def __gt__",
+    "def __ge__",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Pantry Pirate Radio Test Coverage"
+show_contexts = true
+skip_covered = false
+skip_empty = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.json]
+output = "coverage.json"
+pretty_print = true
+show_contexts = true

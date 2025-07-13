@@ -1,0 +1,58 @@
+{
+  "scraper_name": "example_food_bank_scraper",
+  "scraper_version": "1.0.0",
+  "scrape_timestamp": "2024-01-15T10:30:00Z",
+  "source_url": "https://example-food-bank-directory.org/locations",
+  "total_records": 3,
+  "raw_data": [
+    {
+      "org_name": "Downtown Food Pantry",
+      "location": "123 Main St, Example City, NY 10001",
+      "phone": "(555) 123-4567",
+      "email": "info@downtownpantry.org",
+      "website": "www.downtownpantry.org",
+      "hours": "Mon-Fri 9am-5pm, Sat 10am-2pm",
+      "services": "Emergency food assistance, free groceries, nutrition counseling",
+      "description": "Serving low-income families in downtown area since 1985. No appointment needed.",
+      "eligibility": "Income below 200% federal poverty level",
+      "languages": "English, Spanish",
+      "contact_person": "Sarah Johnson, Director",
+      "last_verified": "2024-01-10"
+    },
+    {
+      "org_name": "Community Kitchen & Pantry",
+      "location": "456 Hope Ave, Example City, NY 10002",
+      "phone": "555-234-5678",
+      "email": "meals@communitykitchen.org",
+      "website": "https://communitykitchen.org",
+      "hours": "Hot meals: Daily 12pm-2pm, Pantry: Mon/Wed/Fri 10am-1pm",
+      "services": "Hot meals, food pantry, holiday meal programs",
+      "description": "Volunteer-run kitchen serving anyone in need. No questions asked policy.",
+      "eligibility": "Open to all",
+      "languages": "English, Spanish, French",
+      "contact_person": "Maria Santos, Volunteer Coordinator",
+      "last_verified": "2024-01-08"
+    },
+    {
+      "org_name": "Mobile Food Truck",
+      "location": "Various locations - see schedule",
+      "phone": "(555) 345-6789",
+      "email": "mobile@foodtruck.org",
+      "website": "foodtruck.org/schedule",
+      "hours": "Tues: Community Center 2-4pm, Thurs: Elementary School 3-5pm",
+      "services": "Mobile food pantry, fresh produce distribution",
+      "description": "Brings food directly to underserved neighborhoods. Free groceries including fresh fruits and vegetables.",
+      "eligibility": "No restrictions",
+      "languages": "English, Spanish",
+      "contact_person": "Mike Rodriguez, Mobile Coordinator",
+      "last_verified": "2024-01-12"
+    }
+  ],
+  "scraper_metadata": {
+    "total_pages_scraped": 1,
+    "http_status_codes": [200],
+    "errors": [],
+    "processing_time_seconds": 15.3,
+    "user_agent": "PantryPirateRadio/1.0 (+https://github.com/example/pantry-pirate-radio)"
+  }
+}

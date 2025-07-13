@@ -1,0 +1,184 @@
+{
+  "id": "svc-example-001",
+  "organization_id": "org-example-001",
+  "program_id": null,
+  "name": "Emergency Food Pantry",
+  "alternate_name": "Food Pantry",
+  "description": "Free groceries and emergency food assistance for families and individuals facing food insecurity. Includes fresh produce, canned goods, and household essentials.",
+  "url": "https://www.examplefoodbank.org/pantry",
+  "email": "pantry@examplefoodbank.org",
+  "status": "active",
+  "interpretation_services": "Spanish and Arabic interpreters available on request",
+  "application_process": "No application required. Valid ID and proof of address needed for first visit.",
+  "fees_description": "No fees - all services provided free of charge",
+  "accreditations": "Feeding America Member Agency, United Way Partner",
+  "eligibility_description": "Open to all residents of Example County experiencing food insecurity",
+  "minimum_age": null,
+  "maximum_age": null,
+  "assured_date": "2024-01-10T00:00:00Z",
+  "assurer_email": "sarah.johnson@examplefoodbank.org",
+  "alert": null,
+  "last_modified": "2024-01-15T10:30:00Z",
+  "organization": {
+    "id": "org-example-001",
+    "name": "Example Community Food Bank",
+    "alternate_name": "ECFB",
+    "description": "A full-service food bank serving the Example County area with emergency food assistance, nutrition education, and community outreach programs.",
+    "email": "info@examplefoodbank.org",
+    "url": "https://www.examplefoodbank.org",
+    "tax_status": "501c3",
+    "tax_id": "55-1234567",
+    "year_incorporated": 1995,
+    "legal_status": "Registered Charity",
+    "last_modified": "2024-01-15T10:30:00Z"
+  },
+  "service_at_location": [
+    {
+      "id": "sal-example-001",
+      "service_id": "svc-example-001",
+      "location_id": "loc-example-001",
+      "description": "Emergency food pantry service provided at the main warehouse location",
+      "location": {
+        "id": "loc-example-001",
+        "organization_id": "org-example-001",
+        "name": "Example Community Food Bank - Main Warehouse",
+        "alternate_name": "ECFB Main",
+        "description": "Primary distribution center and administrative offices for the Example Community Food Bank",
+        "transportation": "Bus routes 12, 34, and 56 stop directly in front. Free parking available.",
+        "latitude": 40.7128,
+        "longitude": -74.0060,
+        "location_type": "physical",
+        "last_modified": "2024-01-15T10:30:00Z",
+        "address": {
+          "id": "addr-example-001",
+          "location_id": "loc-example-001",
+          "address_1": "123 Main Street",
+          "address_2": null,
+          "city": "Example City",
+          "region": "Example County",
+          "state_province": "NY",
+          "postal_code": "10001",
+          "country": "US",
+          "address_type": "physical"
+        }
+      },
+      "schedules": [
+        {
+          "id": "sched-example-001",
+          "service_id": "svc-example-001",
+          "location_id": "loc-example-001",
+          "service_at_location_id": "sal-example-001",
+          "valid_from": "2024-01-01",
+          "valid_to": "2024-12-31",
+          "opens_at": "09:00",
+          "closes_at": "17:00",
+          "byday": "MO,TU,WE,TH,FR",
+          "description": "Food pantry open Monday through Friday, 9 AM to 5 PM"
+        }
+      ]
+    },
+    {
+      "id": "sal-example-002",
+      "service_id": "svc-example-001",
+      "location_id": "loc-example-002",
+      "description": "Emergency food pantry service provided at the satellite location",
+      "location": {
+        "id": "loc-example-002",
+        "organization_id": "org-example-001",
+        "name": "Example Community Food Bank - Satellite Pantry",
+        "alternate_name": "ECFB Satellite",
+        "description": "Neighborhood distribution point in the Eastside community",
+        "transportation": "Accessible via bus route 78. Street parking available.",
+        "latitude": 40.7589,
+        "longitude": -73.9851,
+        "location_type": "physical",
+        "last_modified": "2024-01-15T10:30:00Z",
+        "address": {
+          "id": "addr-example-002",
+          "location_id": "loc-example-002",
+          "address_1": "456 East Side Avenue",
+          "address_2": "Suite 2B",
+          "city": "Example City",
+          "region": "Example County",
+          "state_province": "NY",
+          "postal_code": "10002",
+          "country": "US",
+          "address_type": "physical"
+        }
+      },
+      "schedules": [
+        {
+          "id": "sched-example-002",
+          "service_id": "svc-example-001",
+          "location_id": "loc-example-002",
+          "service_at_location_id": "sal-example-002",
+          "valid_from": "2024-01-01",
+          "valid_to": "2024-12-31",
+          "opens_at": "10:00",
+          "closes_at": "14:00",
+          "byday": "TU,TH,SA",
+          "description": "Satellite pantry open Tuesday, Thursday, and Saturday, 10 AM to 2 PM"
+        }
+      ]
+    }
+  ],
+  "contacts": [
+    {
+      "id": "contact-example-001",
+      "organization_id": "org-example-001",
+      "service_id": "svc-example-001",
+      "name": "Sarah Johnson",
+      "title": "Food Pantry Manager",
+      "department": "Client Services",
+      "email": "sarah.johnson@examplefoodbank.org"
+    }
+  ],
+  "phones": [
+    {
+      "id": "phone-example-001",
+      "organization_id": "org-example-001",
+      "service_id": "svc-example-001",
+      "number": "555-123-4567",
+      "extension": 101,
+      "type": "voice",
+      "description": "Main food pantry hotline"
+    }
+  ],
+  "languages": [
+    {
+      "name": "English",
+      "code": "en",
+      "note": "Primary language"
+    },
+    {
+      "name": "Spanish",
+      "code": "es",
+      "note": "Interpreters available on request"
+    },
+    {
+      "name": "Arabic",
+      "code": "ar",
+      "note": "Interpreters available on request"
+    }
+  ],
+  "service_areas": [
+    {
+      "id": "area-example-001",
+      "service_id": "svc-example-001",
+      "name": "Example County",
+      "description": "Service area covers all of Example County",
+      "extent": "county",
+      "uri": "https://www.census.gov/geographies/reference-files/2010/geo/relationship/county-to-state.html"
+    }
+  ],
+  "metadata": {
+    "timestamp": "2024-01-15T15:30:00Z",
+    "api_version": "v1",
+    "data_sources": [
+      "example_food_bank_scraper",
+      "manual_verification"
+    ],
+    "last_verified": "2024-01-10T00:00:00Z",
+    "verification_status": "verified"
+  }
+}

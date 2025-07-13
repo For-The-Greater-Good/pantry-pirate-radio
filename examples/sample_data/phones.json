@@ -1,0 +1,250 @@
+{
+  "phones": [
+    {
+      "id": "phone-example-001",
+      "organization_id": "org-example-001",
+      "service_id": "svc-example-001",
+      "number": "555-123-4567",
+      "extension": 101,
+      "type": "voice",
+      "description": "Main food pantry hotline",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-002",
+      "organization_id": "org-example-001",
+      "service_id": "svc-example-002",
+      "number": "555-123-4568",
+      "extension": null,
+      "type": "voice",
+      "description": "Mobile pantry scheduling line",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-003",
+      "organization_id": "org-example-002",
+      "service_id": "svc-example-003",
+      "number": "555-234-5678",
+      "extension": null,
+      "type": "voice",
+      "description": "Community kitchen information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-004",
+      "organization_id": "org-example-002",
+      "service_id": "svc-example-004",
+      "number": "555-234-5679",
+      "extension": null,
+      "type": "voice",
+      "description": "Food pantry appointments",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-005",
+      "organization_id": "org-example-003",
+      "service_id": "svc-example-005",
+      "number": "555-345-6789",
+      "extension": 211,
+      "type": "voice",
+      "description": "Meals on Wheels intake line",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-006",
+      "organization_id": "org-example-004",
+      "service_id": "svc-example-006",
+      "number": "555-456-7890",
+      "extension": null,
+      "type": "voice",
+      "description": "Mobile pantry Route A information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-007",
+      "organization_id": "org-example-004",
+      "service_id": "svc-example-007",
+      "number": "555-456-7891",
+      "extension": null,
+      "type": "voice",
+      "description": "Mobile pantry Route B information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-008",
+      "organization_id": "org-example-005",
+      "service_id": "svc-example-008",
+      "number": "555-567-8901",
+      "extension": null,
+      "type": "voice",
+      "description": "Church soup kitchen information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-009",
+      "organization_id": "org-example-005",
+      "service_id": "svc-example-009",
+      "number": "555-567-8902",
+      "extension": null,
+      "type": "voice",
+      "description": "Faith-based pantry appointments",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-010",
+      "organization_id": "org-example-006",
+      "service_id": "svc-example-010",
+      "number": "555-678-9012",
+      "extension": 450,
+      "type": "voice",
+      "description": "Student food pantry information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-011",
+      "organization_id": "org-example-007",
+      "service_id": "svc-example-011",
+      "number": "555-789-0123",
+      "extension": null,
+      "type": "voice",
+      "description": "Produce distribution coordination",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-012",
+      "organization_id": "org-example-008",
+      "service_id": "svc-example-012",
+      "number": "555-890-1234",
+      "extension": 301,
+      "type": "voice",
+      "description": "School backpack program information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-013",
+      "organization_id": "org-example-008",
+      "service_id": "svc-example-013",
+      "number": "555-890-1235",
+      "extension": 302,
+      "type": "voice",
+      "description": "Summer meals program information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-014",
+      "organization_id": "org-example-009",
+      "service_id": "svc-example-014",
+      "number": "555-901-2345",
+      "extension": null,
+      "type": "voice",
+      "description": "Emergency food response 24/7 hotline",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-015",
+      "organization_id": "org-example-010",
+      "service_id": "svc-example-015",
+      "number": "555-012-3456",
+      "extension": 150,
+      "type": "voice",
+      "description": "Senior meal program information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-016",
+      "organization_id": "org-example-011",
+      "service_id": "svc-example-016",
+      "number": "555-123-4560",
+      "extension": null,
+      "type": "voice",
+      "description": "Weekend food bags program",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-017",
+      "organization_id": "org-example-012",
+      "service_id": "svc-example-017",
+      "number": "555-234-5601",
+      "extension": null,
+      "type": "voice",
+      "description": "Interfaith pantry network information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-018",
+      "organization_id": "org-example-013",
+      "service_id": "svc-example-018",
+      "number": "555-345-6012",
+      "extension": null,
+      "type": "voice",
+      "description": "Food recovery coordination",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-019",
+      "organization_id": "org-example-014",
+      "service_id": "svc-example-019",
+      "number": "555-456-7023",
+      "extension": 800,
+      "type": "voice",
+      "description": "WIC program appointments",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-020",
+      "organization_id": "org-example-014",
+      "service_id": "svc-example-020",
+      "number": "555-567-8034",
+      "extension": 900,
+      "type": "voice",
+      "description": "SNAP assistance helpline",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-021",
+      "organization_id": "org-example-015",
+      "service_id": "svc-example-021",
+      "number": "555-678-9045",
+      "extension": null,
+      "type": "voice",
+      "description": "Co-op pantry information",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-022",
+      "organization_id": "org-example-001",
+      "number": "555-123-4566",
+      "extension": null,
+      "type": "fax",
+      "description": "Food bank fax line",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-023",
+      "organization_id": "org-example-002",
+      "number": "555-234-5677",
+      "extension": null,
+      "type": "fax",
+      "description": "Hope Kitchen fax line",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-024",
+      "organization_id": "org-example-009",
+      "number": "555-901-2346",
+      "extension": null,
+      "type": "text",
+      "description": "Emergency response text alerts",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "phone-example-025",
+      "organization_id": "org-example-014",
+      "number": "555-456-7024",
+      "extension": null,
+      "type": "text",
+      "description": "WIC appointment reminders",
+      "last_modified": "2024-01-15T10:30:00Z"
+    }
+  ]
+}

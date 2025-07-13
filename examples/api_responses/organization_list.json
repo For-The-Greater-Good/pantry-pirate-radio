@@ -1,0 +1,55 @@
+{
+  "organizations": [
+    {
+      "id": "org-example-001",
+      "name": "Example Community Food Bank",
+      "alternate_name": "ECFB",
+      "description": "A full-service food bank serving the Example County area with emergency food assistance, nutrition education, and community outreach programs.",
+      "email": "info@examplefoodbank.org",
+      "url": "https://www.examplefoodbank.org",
+      "tax_status": "501c3",
+      "tax_id": "55-1234567",
+      "year_incorporated": 1995,
+      "legal_status": "Registered Charity",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "org-example-002",
+      "name": "Hope Kitchen Coalition",
+      "alternate_name": "HKC",
+      "description": "A grassroots organization providing free meals and food pantry services to families in need throughout Example City.",
+      "email": "contact@hopekitchen.org",
+      "url": "https://www.hopekitchen.org",
+      "tax_status": "501c3",
+      "tax_id": "55-2345678",
+      "year_incorporated": 2010,
+      "legal_status": "Nonprofit Corporation",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "org-example-003",
+      "name": "Example County Meals on Wheels",
+      "alternate_name": "ECMOW",
+      "description": "Delivering nutritious meals to homebound seniors and individuals with disabilities in Example County.",
+      "email": "meals@examplecounty.gov",
+      "url": "https://www.examplecounty.gov/meals-on-wheels",
+      "tax_status": "Government",
+      "tax_id": "55-3456789",
+      "year_incorporated": 1985,
+      "legal_status": "Government Agency",
+      "last_modified": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total": 15,
+    "total_pages": 1
+  },
+  "metadata": {
+    "timestamp": "2024-01-15T15:30:00Z",
+    "query_time": 0.045,
+    "api_version": "v1",
+    "total_results": 3
+  }
+}
