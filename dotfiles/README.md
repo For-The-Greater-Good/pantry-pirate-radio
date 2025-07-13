@@ -311,5 +311,5 @@ cd /workspaces/pantry-pirate-radio/dotfiles
 
 ---
 
-**Last Updated**: July 2025  
+**Last Updated**: July 2025
 **Maintainer**: Pantry Pirate Radio Development Team

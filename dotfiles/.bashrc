@@ -115,23 +115,23 @@ activate_venv() {
 # Function to set up development environment
 dev_setup() {
     echo "Setting up development environment..."
-    
+
     # Try to activate virtual environment
     activate_venv
-    
+
     # Check if Poetry is available
     if command -v poetry &> /dev/null; then
         echo "Poetry available"
         echo "Run 'poetry install' to install dependencies"
         echo "Run 'poetry shell' to activate poetry environment"
     fi
-    
+
     # Check if Docker Compose is available
     if command -v docker-compose &> /dev/null; then
         echo "Docker Compose available"
         echo "Run 'docker-compose up -d' to start services"
     fi
-    
+
     echo "Development aliases loaded. Type 'alias' to see available shortcuts."
 }
 

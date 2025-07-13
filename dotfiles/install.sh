@@ -41,7 +41,7 @@ log_info "Home directory: $HOME_DIR"
 create_symlink() {
     local source="$1"
     local target="$2"
-    
+
     if [ -L "$target" ]; then
         log_warning "Removing existing symlink: $target"
         rm "$target"
@@ -49,7 +49,7 @@ create_symlink() {
         log_warning "Backing up existing file/directory: $target -> $target.backup"
         mv "$target" "$target.backup"
     fi
-    
+
     ln -s "$source" "$target"
     log_success "Created symlink: $target -> $source"
 }
@@ -91,14 +91,14 @@ if command -v code &> /dev/null; then
     if [ -f "$DOTFILES_DIR/.vscode/extensions.json" ]; then
         # Extract extension IDs from extensions.json and install them
         extensions=$(grep -E '^\s*"[^"]+/[^"]+"\s*,' "$DOTFILES_DIR/.vscode/extensions.json" | sed 's/.*"\([^"]*\)".*/\1/' | grep -v '//')
-        
+
         for extension in $extensions; do
             if [ -n "$extension" ]; then
                 log_info "Installing extension: $extension"
                 code --install-extension "$extension" --force || log_warning "Failed to install extension: $extension"
             fi
         done
-        
+
         log_success "VSCode extensions installation complete"
     else
         log_warning "extensions.json not found, skipping extension installation"
@@ -158,7 +158,7 @@ if [ ! -d "$HOME/.oh-my-zsh" ]; then
     if [ "$install_omz" = "y" ] || [ "$install_omz" = "Y" ]; then
         sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
         log_success "Oh My Zsh installed"
-        
+
         # Install additional plugins
         git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions 2>/dev/null || true
         git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting 2>/dev/null || true

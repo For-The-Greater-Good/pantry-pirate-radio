@@ -50,7 +50,7 @@ lint        # Run all linting tools (MyPy, Ruff, Bandit)
 dcu         # docker-compose up -d
 dcd         # docker-compose down
 
-# Git shortcuts  
+# Git shortcuts
 gs          # git status
 ga          # git add
 gcm 'msg'   # git commit -m 'msg'
@@ -80,7 +80,7 @@ dotfiles/
 │   ├── keybindings.json       # Keyboard shortcuts
 │   └── snippets/python.json   # Code snippets
 ├── .bashrc                    # Bash configuration
-├── .zshrc                     # Zsh configuration  
+├── .zshrc                     # Zsh configuration
 ├── .aliases                   # Development aliases
 ├── install.sh                 # Setup script
 └── README.md                  # Detailed documentation
@@ -214,5 +214,5 @@ chmod +x install.sh
 
 ---
 
-**Last Updated**: July 2025  
+**Last Updated**: July 2025
 **Author**: Pantry Pirate Radio Development Team
