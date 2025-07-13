@@ -29,7 +29,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Generate cache key
         id: cache-key
@@ -42,7 +42,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -87,7 +87,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -118,7 +118,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
+
+      - name: Initialize and update submodules
+        run: |
+          git submodule update --init --recursive --force
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -238,7 +242,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -269,7 +273,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -300,7 +304,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -331,7 +335,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -362,7 +366,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5

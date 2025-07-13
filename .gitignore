@@ -47,10 +47,7 @@ output.txt
 coordinates.csv
 coordinates.json
 
-# Submodules (content should not be committed)
-docs/HSDS/
-docs/GeoJson/States/
-docs/rq/
+# Submodules are handled by git
 
 # Caches
 .mypy_cache/
