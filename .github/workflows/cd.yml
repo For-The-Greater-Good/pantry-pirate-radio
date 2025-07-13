@@ -54,11 +54,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha,prefix={{branch}}-
+            type=sha
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ matrix.target }}-latest,enable={{is_default_branch}}
             type=raw,value=${{ matrix.target }}-{{sha}},enable=true
-            type=raw,value=${{ matrix.target }}-{{branch}},enable=true
+            type=raw,value=${{ matrix.target }}-{{date 'YYYYMMDD'}},enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -106,9 +106,10 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
-            type=sha,prefix=datasette-{{branch}}-
+            type=sha,prefix=datasette-
             type=raw,value=datasette-latest,enable={{is_default_branch}}
             type=raw,value=datasette-{{sha}},enable=true
+            type=raw,value=datasette-{{date 'YYYYMMDD'}},enable={{is_default_branch}}
 
       - name: Build and push Datasette Docker image
         uses: docker/build-push-action@v5
