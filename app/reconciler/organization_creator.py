@@ -310,7 +310,7 @@ class OrganizationCreator(BaseReconciler):
         try:
             log_query = text(
                 """
-                INSERT INTO reconciler_constraint_violations 
+                INSERT INTO reconciler_constraint_violations
                 (constraint_name, table_name, operation, conflicting_data)
                 VALUES (:constraint_name, :table_name, :operation, :conflicting_data)
             """
@@ -423,7 +423,6 @@ class OrganizationCreator(BaseReconciler):
 
         # Execute with retry logic
         organization_id, is_new = self._retry_with_backoff(_create_or_find_organization)
-        
         # Always create or update source record (this also has ON CONFLICT)
         self.create_organization_source(
             str(organization_id),
