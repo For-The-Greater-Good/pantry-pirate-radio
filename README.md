@@ -123,7 +123,7 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 
 #### **LLM Processing System** (`app/llm/`)
 - **HSDS Aligner**: AI-powered schema alignment to HSDS v3.1.1 specification
-- **Multiple Providers**: 
+- **Multiple Providers**:
   - **OpenAI/OpenRouter**: HTTP API-based provider
   - **Claude**: CLI-based provider with shared authentication across workers
 - **Queue Processing**: Redis-based job distribution with confidence scoring
@@ -415,7 +415,7 @@ LLM_PROVIDER=claude  # or "openai"
 # Claude Provider
 ANTHROPIC_API_KEY=your_api_key_here  # Optional - can use interactive auth
 
-# OpenAI Provider  
+# OpenAI Provider
 OPENROUTER_API_KEY=your_api_key_here
 LLM_MODEL_NAME=gpt-4
 
