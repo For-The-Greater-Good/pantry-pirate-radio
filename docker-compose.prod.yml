@@ -1,0 +1,172 @@
+# Production docker-compose using ghcr.io images
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+# Set DOCKER_REGISTRY in .env file, e.g.: DOCKER_REGISTRY=ghcr.io/for-the-greater-good/pantry-pirate-radio
+
+services:
+  app:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:app-${DOCKER_TAG:-latest}
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - API_BASE_URL=${API_BASE_URL}
+      - API_VERSION=${API_VERSION}
+      - HTTP_REFERER=${HTTP_REFERER}
+      - APP_TITLE=${APP_TITLE}
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS}
+      - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT}
+      - LLM_TIMEOUT=${LLM_TIMEOUT}
+    depends_on:
+      - db
+      - cache
+
+  worker:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
+    command: rq worker llm
+    ports:
+      - "8080-8089:8080"  # Claude health check port range for scaling
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - API_BASE_URL=${API_BASE_URL}
+      - API_VERSION=${API_VERSION}
+      - HTTP_REFERER=${HTTP_REFERER}
+      - APP_TITLE=${APP_TITLE}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS}
+      - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT}
+      - LLM_TIMEOUT=${LLM_TIMEOUT}
+      - CLAUDE_QUOTA_RETRY_DELAY=${CLAUDE_QUOTA_RETRY_DELAY}
+      - CLAUDE_QUOTA_MAX_DELAY=${CLAUDE_QUOTA_MAX_DELAY}
+      - CLAUDE_QUOTA_BACKOFF_MULTIPLIER=${CLAUDE_QUOTA_BACKOFF_MULTIPLIER}
+      - CLAUDE_HEALTH_SERVER=true
+    volumes:
+      - claude_config:/root/.config/claude  # Shared Claude authentication
+    depends_on:
+      - db
+      - cache
+
+  recorder:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:recorder-${DOCKER_TAG:-latest}
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - OUTPUT_DIR=/app/outputs
+    depends_on:
+      - db
+      - cache
+    volumes:
+      - ./outputs:/app/outputs
+      - ./archives:/app/archives
+
+  reconciler:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
+    command: rq worker reconciler
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - db
+      - cache
+
+  db:
+    image: postgis/postgis:15-3.3
+    env_file: .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  cache:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rq-dashboard:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
+    command: rq-dashboard -H cache
+    ports:
+      - "9181:9181"
+    env_file: .env
+    environment:
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - cache
+
+  datasette-exporter:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-exporter-${DOCKER_TAG:-latest}
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - OUTPUT_DIR=/data
+      - EXPORT_INTERVAL=3600  # Seconds between exports (1 hour default)
+    depends_on:
+      - db
+    volumes:
+      - datasette_data:/data
+      - ./datasette-metadata.json:/data/metadata.json
+
+  datasette:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-${DOCKER_TAG:-latest}
+    ports:
+      - "8001:8001"
+    command: [
+      "datasette",
+      "-p", "8001",
+      "-h", "0.0.0.0",
+      "--metadata", "/data/metadata.json",
+      "--setting", "sql_time_limit_ms", "10000",
+      "--setting", "max_returned_rows", "5000",
+      "--setting", "allow_download", "1",
+      "--setting", "default_page_size", "50",
+      "--setting", "base_url", "/",
+      "/data/latest.sqlite"
+    ]
+    volumes:
+      - datasette_data:/data
+    depends_on:
+      - datasette-exporter
+
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:15
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - SCHEDULE=*/15 * * * *
+      - BACKUP_KEEP_DAYS=7
+      - BACKUP_KEEP_WEEKS=4
+      - BACKUP_KEEP_MONTHS=12
+      - HEALTHCHECK_PORT=8080
+    volumes:
+      - postgres_backups:/backups
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
+  redis_data:
+  datasette_data:
+  postgres_backups:
+  claude_config:  # Shared Claude authentication across worker containers
