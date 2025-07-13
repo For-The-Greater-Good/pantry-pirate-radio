@@ -1,0 +1,190 @@
+{
+  "name": "Pantry Pirate Radio Development Environment",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/pantry-pirate-radio",
+  
+  // Configure the development container
+  "customizations": {
+    "vscode": {
+      // Extensions to install automatically
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylint",
+        "ms-python.black-formatter",
+        "ms-python.mypy-type-checker",
+        "ms-python.isort",
+        "charliermarsh.ruff",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode-remote.remote-containers",
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+        "github.vscode-pull-request-github",
+        "ms-mssql.mssql",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg",
+        "redhat.vscode-yaml",
+        "esbenp.prettier-vscode",
+        "yzhang.markdown-all-in-one",
+        "davidanson.vscode-markdownlint",
+        "ms-python.coverage-gutters",
+        "ms-python.bandit",
+        "pkief.material-icon-theme",
+        "github.github-vscode-theme",
+        "cweijan.vscode-redis-client",
+        "timonwong.shellcheck",
+        "foxundermoon.shell-format",
+        "ms-vsliveshare.vsliveshare",
+        "humao.rest-client",
+        "42crunch.vscode-openapi",
+        "mikestead.dotenv"
+      ],
+      
+      // Container-specific settings
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.analysis.typeCheckingMode": "strict",
+        "python.linting.enabled": true,
+        "python.linting.mypyEnabled": true,
+        "python.linting.banditEnabled": true,
+        "python.formatting.provider": "black",
+        "python.testing.pytestEnabled": true,
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.cwd": "/workspaces/pantry-pirate-radio",
+        "workbench.colorTheme": "GitHub Dark",
+        "workbench.iconTheme": "material-icon-theme",
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true,
+          "**/.pytest_cache": true,
+          "**/.mypy_cache": true,
+          "**/.ruff_cache": true,
+          "**/htmlcov": true,
+          "**/.coverage": true
+        }
+      }
+    }
+  },
+  
+  // Features to install
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": true,
+      "upgradePackages": true,
+      "username": "vscode",
+      "userUid": "1000",
+      "userGid": "1000"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11",
+      "installTools": true,
+      "installJupyterlab": false
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18",
+      "nodeGypDependencies": true,
+      "installYarnUsingApt": true
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest",
+      "enableNonRootDocker": true,
+      "moby": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "version": "latest",
+      "ppa": true
+    }
+  },
+  
+  // Configure tool-specific properties
+  "otherPortsAttributes": {
+    "onAutoForward": "notify"
+  },
+  
+  // Forward ports for development services
+  "forwardPorts": [
+    8000,  // FastAPI application
+    5432,  // PostgreSQL
+    6379,  // Redis
+    9181,  // RQ Dashboard
+    8001   // Datasette
+  ],
+  
+  "portsAttributes": {
+    "8000": {
+      "label": "FastAPI Application",
+      "onAutoForward": "openBrowser"
+    },
+    "5432": {
+      "label": "PostgreSQL Database"
+    },
+    "6379": {
+      "label": "Redis Cache"
+    },
+    "9181": {
+      "label": "RQ Dashboard",
+      "onAutoForward": "openPreview"
+    },
+    "8001": {
+      "label": "Datasette",
+      "onAutoForward": "openPreview"
+    }
+  },
+  
+  // Container environment variables
+  "containerEnv": {
+    "PYTHONPATH": "/workspaces/pantry-pirate-radio",
+    "DEVELOPMENT": "1",
+    "DEBUG": "1",
+    "LOG_LEVEL": "DEBUG",
+    "POETRY_VENV_IN_PROJECT": "1",
+    "POETRY_CACHE_DIR": "/tmp/poetry_cache"
+  },
+  
+  // Mount the Docker socket for Docker-in-Docker
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
+  ],
+  
+  // Use dotfiles repository for automatic configuration
+  "dotfilesRepository": "https://github.com/For-The-Greater-Good/pantry-pirate-radio.git",
+  "dotfilesInstallCommand": "chmod +x /workspaces/pantry-pirate-radio/dotfiles/install.sh && /workspaces/pantry-pirate-radio/dotfiles/install.sh",
+  "dotfilesTargetPath": "/workspaces/pantry-pirate-radio",
+  
+  // Commands to run after container creation
+  "onCreateCommand": [
+    "sudo apt-get update",
+    "sudo apt-get install -y tree jq curl wget htop nano vim shellcheck"
+  ],
+  
+  // Commands to run after container starts
+  "postStartCommand": [
+    "poetry install"
+  ],
+  
+  // Commands to run after user is attached to container
+  "postAttachCommand": [
+    "echo 'Welcome to Pantry Pirate Radio development environment!'",
+    "echo 'Type \"project_info\" for quick reference'",
+    "echo 'Type \"dev_setup\" to initialize the environment'"
+  ],
+  
+  // Container user
+  "remoteUser": "vscode",
+  
+  // Shutdown action
+  "shutdownAction": "stopCompose",
+  
+  // Wait for services to be ready
+  "waitFor": "onCreateCommand",
+  
+  // Use host network mode for easier service communication
+  "runArgs": ["--network=host"],
+  
+  // Additional container configuration
+  "capAdd": ["SYS_PTRACE"],
+  "securityOpt": ["seccomp:unconfined"]
+}

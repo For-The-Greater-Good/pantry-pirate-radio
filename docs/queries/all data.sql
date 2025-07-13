@@ -1,0 +1,1 @@
+SELECT*FROM organization o LEFT JOIN service s ON s.organization_id=o.id LEFT JOIN service_at_location sal ON sal.service_id=s.id LEFT JOIN location l ON l.id=sal.location_id ORDER BY o.name,s.name,l.name;

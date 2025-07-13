@@ -1,0 +1,38 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "name": "Test Area"
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [
+                            -72.0,
+                            41.0
+                        ],
+                        [
+                            -72.0,
+                            42.0
+                        ],
+                        [
+                            -71.0,
+                            42.0
+                        ],
+                        [
+                            -71.0,
+                            41.0
+                        ],
+                        [
+                            -72.0,
+                            41.0
+                        ]
+                    ]
+                ]
+            }
+        }
+    ]
+}

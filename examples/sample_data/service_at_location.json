@@ -1,0 +1,165 @@
+{
+  "service_at_location": [
+    {
+      "id": "sal-example-001",
+      "service_id": "svc-example-001",
+      "location_id": "loc-example-001",
+      "description": "Emergency food pantry service provided at the main warehouse location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-002",
+      "service_id": "svc-example-001",
+      "location_id": "loc-example-002",
+      "description": "Emergency food pantry service provided at the satellite location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-003",
+      "service_id": "svc-example-002",
+      "location_id": "loc-example-005",
+      "description": "Mobile food pantry service at Community Center location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-004",
+      "service_id": "svc-example-002",
+      "location_id": "loc-example-006",
+      "description": "Mobile food pantry service at Elementary School location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-005",
+      "service_id": "svc-example-003",
+      "location_id": "loc-example-003",
+      "description": "Hot meals served daily at the Hope Kitchen Coalition main kitchen",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-006",
+      "service_id": "svc-example-004",
+      "location_id": "loc-example-003",
+      "description": "Client-choice food pantry service at the Hope Kitchen Coalition location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-007",
+      "service_id": "svc-example-005",
+      "location_id": "loc-example-004",
+      "description": "Home-delivered meals coordinated from the central kitchen facility",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-008",
+      "service_id": "svc-example-006",
+      "location_id": "loc-example-005",
+      "description": "Mobile food pantry Route A service at Community Center stop",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-009",
+      "service_id": "svc-example-007",
+      "location_id": "loc-example-006",
+      "description": "Mobile food pantry Route B service at Elementary School stop",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-010",
+      "service_id": "svc-example-008",
+      "location_id": "loc-example-007",
+      "description": "Community soup kitchen service at St. Mary's Church location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-011",
+      "service_id": "svc-example-009",
+      "location_id": "loc-example-007",
+      "description": "Faith-based food pantry service at St. Mary's Church location",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-012",
+      "service_id": "svc-example-010",
+      "location_id": "loc-example-008",
+      "description": "Student food pantry service at the University Student Center",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-013",
+      "service_id": "svc-example-011",
+      "location_id": "loc-example-009",
+      "description": "Fresh produce distribution service at the Community Harvest Food Hub",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-014",
+      "service_id": "svc-example-012",
+      "location_id": "loc-example-010",
+      "description": "School backpack program coordination from the Children's Nutrition Center",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-015",
+      "service_id": "svc-example-013",
+      "location_id": "loc-example-010",
+      "description": "Summer meals program coordination from the Children's Nutrition Center",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-016",
+      "service_id": "svc-example-014",
+      "location_id": "loc-example-011",
+      "description": "Emergency food response coordination from the warehouse facility",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-017",
+      "service_id": "svc-example-015",
+      "location_id": "loc-example-012",
+      "description": "Senior congregate meals served at the Senior Center dining hall",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-018",
+      "service_id": "svc-example-016",
+      "location_id": "loc-example-013",
+      "description": "Weekend food bags program coordinated from the Weekend Warriors warehouse",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-019",
+      "service_id": "svc-example-017",
+      "location_id": "loc-example-014",
+      "description": "Interfaith food pantry network coordination from the central kitchen",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-020",
+      "service_id": "svc-example-018",
+      "location_id": "loc-example-015",
+      "description": "Food recovery and redistribution service from the processing center",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-021",
+      "service_id": "svc-example-019",
+      "location_id": "loc-example-016",
+      "description": "WIC program services provided at the Health Department nutrition office",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-022",
+      "service_id": "svc-example-020",
+      "location_id": "loc-example-016",
+      "description": "SNAP outreach and application assistance at the Health Department nutrition office",
+      "last_modified": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": "sal-example-023",
+      "service_id": "svc-example-021",
+      "location_id": "loc-example-017",
+      "description": "Community food co-op pantry service integrated with the grocery store",
+      "last_modified": "2024-01-15T10:30:00Z"
+    }
+  ]
+}

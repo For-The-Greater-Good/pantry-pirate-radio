@@ -1,0 +1,112 @@
+{
+  "title": "Pantry Pirate Radio Data Explorer",
+  "description": "Explore food pantry and provider data collected by Pantry Pirate Radio",
+  "license": "CC-BY-SA",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "source": "Pantry Pirate Radio PostgreSQL Database",
+  "source_url": "https://github.com/For-The-Greater-Good/pantry-pirate-radio",
+
+  "plugins": {
+    "datasette-cluster-map": {
+      "latitude_column": "latitude",
+      "longitude_column": "longitude",
+      "cluster_control": true,
+      "popup_html": "<strong>{name}</strong><br>{address1}<br>{city}, {state} {postal_code}<br><a href='{url}' target='_blank'>Website</a>"
+    },
+    "datasette-leaflet": {
+      "tile_layer": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "latitude_column": "latitude",
+      "longitude_column": "longitude"
+    },
+    "datasette-block-robots": {
+      "block": true
+    },
+    "datasette-graphql": {
+      "enable_graphiql": true
+    },
+    "datasette-dashboards": {
+      "default_dashboard": "food-pantries"
+    }
+  },
+
+  "databases": {
+    "latest": {
+      "tables": {
+        "organization": {
+          "sort": "name",
+          "sort_desc": false,
+          "title": "Food Pantries & Providers",
+          "description": "Organizations that provide food assistance services"
+        },
+        "location": {
+          "sort": "name",
+          "sort_desc": false,
+          "title": "Service Locations",
+          "description": "Physical locations where food services are provided"
+        },
+        "service": {
+          "sort": "name",
+          "sort_desc": false,
+          "title": "Food Services",
+          "description": "Food distribution and assistance programs"
+        },
+        "service_at_location": {
+          "hidden": true
+        },
+        "location_with_services": {
+          "title": "Locations with Services",
+          "description": "Simplified view of locations with their services and organizations"
+        }
+      },
+      "queries": {
+        "locations_by_city": {
+          "sql": "SELECT city, count(*) as count FROM location GROUP BY city ORDER BY count DESC",
+          "title": "Locations by City",
+          "description": "Number of service locations in each city"
+        },
+        "organizations_by_type": {
+          "sql": "SELECT organization_type, count(*) as count FROM organization GROUP BY organization_type ORDER BY count DESC",
+          "title": "Organizations by Type",
+          "description": "Number of organizations by type"
+        }
+      }
+    }
+  },
+
+  "dashboards": {
+    "food-pantries": {
+      "title": "Food Pantry Explorer",
+      "description": "Explore food pantry data across different regions",
+      "layout": [
+        {
+          "title": "Locations Map",
+          "type": "chart",
+          "query": "SELECT * FROM location WHERE latitude IS NOT NULL AND longitude IS NOT NULL LIMIT 1000",
+          "chart": {
+            "plugin": "datasette-cluster-map"
+          }
+        },
+        {
+          "title": "Locations by City",
+          "type": "chart",
+          "query": "SELECT city, count(*) as count FROM location GROUP BY city ORDER BY count DESC LIMIT 10",
+          "chart": {
+            "type": "bar",
+            "x": "city",
+            "y": "count"
+          }
+        },
+        {
+          "title": "Organizations by Type",
+          "type": "chart",
+          "query": "SELECT organization_type, count(*) as count FROM organization GROUP BY organization_type ORDER BY count DESC LIMIT 10",
+          "chart": {
+            "type": "pie",
+            "x": "organization_type",
+            "y": "count"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "validation_error": {
+    "error": {
+      "code": "VALIDATION_ERROR",
+      "message": "Invalid input parameters provided",
+      "details": {
+        "type": "ValidationError",
+        "field": "latitude",
+        "value": 91.0,
+        "constraint": "Latitude must be between -90 and 90 degrees"
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-12345678-abcd-efgh-ijkl-123456789012"
+    }
+  },
+  "not_found_error": {
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "Requested resource not found",
+      "details": {
+        "type": "NotFoundError",
+        "resource": "service",
+        "id": "svc-nonexistent-123",
+        "constraint": "Service with the specified ID does not exist"
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-23456789-bcde-fghi-jklm-234567890123"
+    }
+  },
+  "search_error": {
+    "error": {
+      "code": "SEARCH_ERROR",
+      "message": "Search operation failed",
+      "details": {
+        "type": "SearchError",
+        "operation": "geographic_search",
+        "constraint": "Search radius too large - maximum 80 miles allowed"
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-34567890-cdef-ghij-klmn-345678901234"
+    }
+  },
+  "rate_limit_error": {
+    "error": {
+      "code": "RATE_LIMIT_EXCEEDED",
+      "message": "Too many requests - rate limit exceeded",
+      "details": {
+        "type": "RateLimitError",
+        "limit": 100,
+        "window": "60 seconds",
+        "retry_after": 45
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-45678901-defg-hijk-lmno-456789012345"
+    }
+  },
+  "service_unavailable_error": {
+    "error": {
+      "code": "SERVICE_UNAVAILABLE",
+      "message": "Service temporarily unavailable",
+      "details": {
+        "type": "ServiceUnavailableError",
+        "service": "database",
+        "estimated_recovery": "2024-01-15T16:00:00Z"
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-56789012-efgh-ijkl-mnop-567890123456"
+    }
+  },
+  "authorization_error": {
+    "error": {
+      "code": "AUTHORIZATION_ERROR",
+      "message": "Insufficient permissions for this operation",
+      "details": {
+        "type": "AuthorizationError",
+        "operation": "service_create",
+        "required_permission": "write:services"
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-67890123-fghi-jklm-nopq-678901234567"
+    }
+  },
+  "malformed_request_error": {
+    "error": {
+      "code": "MALFORMED_REQUEST",
+      "message": "Request body is malformed or missing required fields",
+      "details": {
+        "type": "MalformedRequestError",
+        "issue": "Invalid JSON syntax",
+        "line": 5,
+        "column": 23
+      },
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-78901234-ghij-klmn-opqr-789012345678"
+    }
+  },
+  "multiple_validation_errors": {
+    "error": {
+      "code": "VALIDATION_ERROR",
+      "message": "Multiple validation errors found",
+      "details": [
+        {
+          "type": "ValidationError",
+          "field": "latitude",
+          "value": null,
+          "constraint": "Latitude is required for geographic search"
+        },
+        {
+          "type": "ValidationError",
+          "field": "longitude",
+          "value": null,
+          "constraint": "Longitude is required for geographic search"
+        },
+        {
+          "type": "ValidationError",
+          "field": "radius",
+          "value": -5,
+          "constraint": "Radius must be a positive number"
+        }
+      ],
+      "timestamp": "2024-01-15T15:30:00Z",
+      "request_id": "req-89012345-hijk-lmno-pqrs-890123456789"
+    }
+  }
+}

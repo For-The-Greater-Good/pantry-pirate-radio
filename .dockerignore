@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Development
+.idea/
+*.swp
+*.swo
+.DS_Store
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+
+# Project specific
+*.log
+logs/
+data/
+postgres_data/
+redis_data/
+.env*
+!.env.example
+
+# Documentation
+docs/
+*.md
+!README.md
+LICENSE

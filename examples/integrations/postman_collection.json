@@ -1,0 +1,759 @@
+{
+  "info": {
+    "name": "Pantry Pirate Radio API",
+    "description": "Comprehensive collection of API endpoints for the Pantry Pirate Radio food security data system. This collection includes examples for searching services, retrieving organization details, and accessing HSDS-compliant data.",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.pantrypirate.org/v1",
+      "description": "Base URL for the Pantry Pirate Radio API"
+    },
+    {
+      "key": "localUrl",
+      "value": "http://localhost:8000/api/v1",
+      "description": "Local development URL"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & Status",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Check the health status of the API"
+          },
+          "response": [
+            {
+              "name": "Successful Health Check",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"healthy\",\n  \"version\": \"1.0.0\",\n  \"uptime\": 86400,\n  \"timestamp\": \"2024-01-15T15:30:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "API Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/plain"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Get Prometheus-formatted metrics"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Search",
+      "item": [
+        {
+          "name": "Search Services by Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?latitude=40.7128&longitude=-74.0060&radius=5&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "40.7128",
+                  "description": "Latitude coordinate (25.0 to 49.0)"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-74.0060",
+                  "description": "Longitude coordinate (-125.0 to -67.0)"
+                },
+                {
+                  "key": "radius",
+                  "value": "5",
+                  "description": "Search radius in miles (max 80)"
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "Filter by service status"
+                }
+              ]
+            },
+            "description": "Search for food services within a specific radius of a point"
+          },
+          "response": [
+            {
+              "name": "Successful Service Search",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/services?latitude=40.7128&longitude=-74.0060&radius=5&status=active",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["services"],
+                  "query": [
+                    {
+                      "key": "latitude",
+                      "value": "40.7128"
+                    },
+                    {
+                      "key": "longitude",
+                      "value": "-74.0060"
+                    },
+                    {
+                      "key": "radius",
+                      "value": "5"
+                    },
+                    {
+                      "key": "status",
+                      "value": "active"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"search_query\": {\n    \"latitude\": 40.7128,\n    \"longitude\": -74.0060,\n    \"radius\": 5,\n    \"filters\": {\n      \"status\": \"active\"\n    }\n  },\n  \"services\": [\n    {\n      \"id\": \"svc-example-001\",\n      \"organization\": {\n        \"id\": \"org-example-001\",\n        \"name\": \"Example Community Food Bank\",\n        \"description\": \"A full-service food bank serving the Example County area...\"\n      },\n      \"service\": {\n        \"id\": \"svc-example-001\",\n        \"name\": \"Emergency Food Pantry\",\n        \"status\": \"active\"\n      },\n      \"location\": {\n        \"id\": \"loc-example-001\",\n        \"latitude\": 40.7128,\n        \"longitude\": -74.0060,\n        \"distance_miles\": 0.1\n      }\n    }\n  ],\n  \"pagination\": {\n    \"page\": 1,\n    \"per_page\": 20,\n    \"total\": 1,\n    \"total_pages\": 1\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Search Food Pantries",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?latitude=40.7128&longitude=-74.0060&radius=10&service_type=food_pantry&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "40.7128"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-74.0060"
+                },
+                {
+                  "key": "radius",
+                  "value": "10"
+                },
+                {
+                  "key": "service_type",
+                  "value": "food_pantry",
+                  "description": "Filter by service type"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            },
+            "description": "Search specifically for food pantries"
+          }
+        },
+        {
+          "name": "Search Hot Meals Programs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?latitude=40.7128&longitude=-74.0060&radius=8&service_type=hot_meals&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "40.7128"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-74.0060"
+                },
+                {
+                  "key": "radius",
+                  "value": "8"
+                },
+                {
+                  "key": "service_type",
+                  "value": "hot_meals"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            },
+            "description": "Search for hot meals programs"
+          }
+        },
+        {
+          "name": "Search with Language Filter",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?latitude=40.7128&longitude=-74.0060&radius=10&languages=es&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "40.7128"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-74.0060"
+                },
+                {
+                  "key": "radius",
+                  "value": "10"
+                },
+                {
+                  "key": "languages",
+                  "value": "es",
+                  "description": "Filter by language support (comma-separated)"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            },
+            "description": "Search for services with Spanish language support"
+          }
+        },
+        {
+          "name": "Search by Bounding Box",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?bounds[north]=40.8&bounds[south]=40.7&bounds[east]=-73.9&bounds[west]=-74.1&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "bounds[north]",
+                  "value": "40.8",
+                  "description": "Northern boundary latitude"
+                },
+                {
+                  "key": "bounds[south]",
+                  "value": "40.7",
+                  "description": "Southern boundary latitude"
+                },
+                {
+                  "key": "bounds[east]",
+                  "value": "-73.9",
+                  "description": "Eastern boundary longitude"
+                },
+                {
+                  "key": "bounds[west]",
+                  "value": "-74.1",
+                  "description": "Western boundary longitude"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            },
+            "description": "Search for services within a geographic bounding box"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Organizations",
+      "item": [
+        {
+          "name": "List Organizations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/organizations?page=1&per_page=10&sort=name&order=asc",
+              "host": ["{{baseUrl}}"],
+              "path": ["organizations"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10",
+                  "description": "Results per page (max 100)"
+                },
+                {
+                  "key": "sort",
+                  "value": "name",
+                  "description": "Sort field (name, last_modified)"
+                },
+                {
+                  "key": "order",
+                  "value": "asc",
+                  "description": "Sort order (asc, desc)"
+                }
+              ]
+            },
+            "description": "List all organizations with pagination and sorting"
+          }
+        },
+        {
+          "name": "Get Organization Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/organizations/org-example-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["organizations", "org-example-001"]
+            },
+            "description": "Get detailed information about a specific organization"
+          },
+          "response": [
+            {
+              "name": "Organization Details",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/organizations/org-example-001",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["organizations", "org-example-001"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"org-example-001\",\n  \"name\": \"Example Community Food Bank\",\n  \"alternate_name\": \"ECFB\",\n  \"description\": \"A full-service food bank serving the Example County area with emergency food assistance, nutrition education, and community outreach programs.\",\n  \"email\": \"info@examplefoodbank.org\",\n  \"url\": \"https://www.examplefoodbank.org\",\n  \"tax_status\": \"501c3\",\n  \"tax_id\": \"55-1234567\",\n  \"year_incorporated\": 1995,\n  \"legal_status\": \"Registered Charity\",\n  \"last_modified\": \"2024-01-15T10:30:00Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Services",
+      "item": [
+        {
+          "name": "List Services",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?page=1&per_page=10&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "Filter by service status"
+                }
+              ]
+            },
+            "description": "List all services with pagination and filtering"
+          }
+        },
+        {
+          "name": "Get Service Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services/svc-example-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["services", "svc-example-001"]
+            },
+            "description": "Get detailed information about a specific service including locations and schedules"
+          }
+        },
+        {
+          "name": "Get Services by Organization",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?organization_id=org-example-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "organization_id",
+                  "value": "org-example-001",
+                  "description": "Filter by organization ID"
+                }
+              ]
+            },
+            "description": "Get all services provided by a specific organization"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Locations",
+      "item": [
+        {
+          "name": "List Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations?page=1&per_page=10&location_type=physical",
+              "host": ["{{baseUrl}}"],
+              "path": ["locations"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10"
+                },
+                {
+                  "key": "location_type",
+                  "value": "physical",
+                  "description": "Filter by location type (physical, postal, virtual)"
+                }
+              ]
+            },
+            "description": "List all locations with pagination and filtering"
+          }
+        },
+        {
+          "name": "Get Location Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/locations/loc-example-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["locations", "loc-example-001"]
+            },
+            "description": "Get detailed information about a specific location"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Examples",
+      "item": [
+        {
+          "name": "Invalid Coordinates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services?latitude=91.0&longitude=-74.0060&radius=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["services"],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "91.0",
+                  "description": "Invalid latitude (must be between -90 and 90)"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-74.0060"
+                },
+                {
+                  "key": "radius",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Example of validation error with invalid coordinates"
+          },
+          "response": [
+            {
+              "name": "Validation Error",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/services?latitude=91.0&longitude=-74.0060&radius=5",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["services"],
+                  "query": [
+                    {
+                      "key": "latitude",
+                      "value": "91.0"
+                    },
+                    {
+                      "key": "longitude",
+                      "value": "-74.0060"
+                    },
+                    {
+                      "key": "radius",
+                      "value": "5"
+                    }
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"Invalid input parameters provided\",\n    \"details\": {\n      \"type\": \"ValidationError\",\n      \"field\": \"latitude\",\n      \"value\": 91.0,\n      \"constraint\": \"Latitude must be between -90 and 90 degrees\"\n    },\n    \"timestamp\": \"2024-01-15T15:30:00Z\",\n    \"request_id\": \"req-12345678-abcd-efgh-ijkl-123456789012\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Resource Not Found",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/services/svc-nonexistent-123",
+              "host": ["{{baseUrl}}"],
+              "path": ["services", "svc-nonexistent-123"]
+            },
+            "description": "Example of 404 error for non-existent resource"
+          },
+          "response": [
+            {
+              "name": "Not Found Error",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/services/svc-nonexistent-123",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["services", "svc-nonexistent-123"]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"error\": {\n    \"code\": \"NOT_FOUND\",\n    \"message\": \"Requested resource not found\",\n    \"details\": {\n      \"type\": \"NotFoundError\",\n      \"resource\": \"service\",\n      \"id\": \"svc-nonexistent-123\",\n      \"constraint\": \"Service with the specified ID does not exist\"\n    },\n    \"timestamp\": \"2024-01-15T15:30:00Z\",\n    \"request_id\": \"req-23456789-bcde-fghi-jklm-234567890123\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set dynamic variables",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Basic response validation",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Response has correct content type', function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});",
+          "",
+          "// Success response validation",
+          "if (pm.response.code === 200) {",
+          "    pm.test('Response body is valid JSON', function () {",
+          "        pm.response.json();",
+          "    });",
+          "    ",
+          "    pm.test('Response has expected structure', function () {",
+          "        const response = pm.response.json();",
+          "        // Add specific validation based on endpoint",
+          "        if (response.services) {",
+          "            pm.expect(response.services).to.be.an('array');",
+          "            pm.expect(response.pagination).to.be.an('object');",
+          "            pm.expect(response.metadata).to.be.an('object');",
+          "        }",
+          "    });",
+          "}",
+          "",
+          "// Error response validation",
+          "if (pm.response.code >= 400) {",
+          "    pm.test('Error response has correct structure', function () {",
+          "        const response = pm.response.json();",
+          "        pm.expect(response.error).to.be.an('object');",
+          "        pm.expect(response.error.code).to.be.a('string');",
+          "        pm.expect(response.error.message).to.be.a('string');",
+          "        pm.expect(response.error.timestamp).to.be.a('string');",
+          "        pm.expect(response.error.request_id).to.be.a('string');",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ]
+}

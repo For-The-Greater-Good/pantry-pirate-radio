@@ -1,0 +1,10 @@
+# Vulture whitelist for type annotations and protocol definitions
+
+# Type annotations used in protocols and type hints
+ConnectionPool  # app/core/events.py - used in type annotations
+GeoDataFrame    # app/models/geographic.py - used in type annotations
+
+# Test fixture parameters that are required but not directly used in test body
+# These are dependencies required by fixtures but not used in the test functions themselves
+mock_redis_url  # tests/test_scraper/test_utils.py - pytest fixture parameter
+mock_prompt_file  # tests/test_scraper/test_utils.py - pytest fixture parameter
