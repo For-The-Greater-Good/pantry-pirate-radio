@@ -55,23 +55,36 @@ def test_find_matching_location_found(mock_db: MagicMock) -> None:
     location_creator = LocationCreator(mock_db)
     existing_id = str(uuid.uuid4())
 
-    # Mock database response
-    result = MagicMock()
-    result.first.return_value = (existing_id,)
-    mock_db.execute.return_value = result
+    # Mock database responses for advisory lock and search
+    # First call: acquire_location_lock - returns lock_id
+    lock_result = MagicMock()
+    lock_result.scalar.return_value = "mock_lock_id"
+    
+    # Second call: location search - returns location
+    search_result = MagicMock()
+    search_result.first.return_value = (existing_id,)
+    
+    # Third call: release_location_lock
+    release_result = MagicMock()
+    
+    # Set up mock_db.execute to return different results for each call
+    mock_db.execute.side_effect = [lock_result, search_result, release_result]
 
     result = location_creator.find_matching_location(37.7749, -122.4194)
 
     # Verify result
     assert result == existing_id
 
-    # Verify SQL execution
-    mock_db.execute.assert_called_once()
-    call_args = mock_db.execute.call_args
-    assert isinstance(call_args[0][0], TextClause)
-    assert call_args[0][1] == {
-        "latitude": 37.7749,
-        "longitude": -122.4194,
+    # Verify SQL execution - should be called 3 times due to advisory locks
+    # 1: acquire_location_lock, 2: location search, 3: release_location_lock
+    assert mock_db.execute.call_count == 3
+    
+    # Verify the second call (location search) has correct parameters
+    location_search_call = mock_db.execute.call_args_list[1]
+    assert isinstance(location_search_call[0][0], TextClause)
+    assert location_search_call[0][1] == {
+        "lat1": 37.7749,
+        "lon1": -122.4194,
         "tolerance": 0.0001,
     }
 

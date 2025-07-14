@@ -238,26 +238,23 @@ def test_process_service(mock_db: MagicMock, test_service_data: Dict[str, str]) 
         mock_db.reset_mock()
         mock_strategy_instance.reset_mock()
 
-        # Now test the create path - mock no match found
-        result.first.return_value = None
+        # Now test the create path - mock INSERT...ON CONFLICT creating a new record
+        new_service_id = uuid.uuid4()
+        row_new = (str(new_service_id), True)  # True means it was newly created
+        result.first.return_value = row_new
         mock_db.execute.return_value = result
 
-        # Mock service creator to return a new service
-        with patch.object(service_creator, "create_service") as mock_create_service:
-            mock_create_service.return_value = service_id
+        # Call process_service (should create a new one)
+        created_id, is_new = service_creator.process_service(
+            test_service_data["name"],
+            test_service_data["description"],
+            org_id,
+            {"source": "test", "scraper_id": "test_scraper"},
+        )
 
-            # Call process_service (should create a new one)
-            created_id, is_new = service_creator.process_service(
-                test_service_data["name"],
-                test_service_data["description"],
-                org_id,
-                {"source": "test", "scraper_id": "test_scraper"},
-            )
-
-            # Verify service was created
-            assert created_id == service_id
-            assert is_new is True
-            mock_create_service.assert_called_once()
+        # Verify service was created
+        assert created_id == new_service_id
+        assert is_new is True
 
 
 def test_create_schedule(
