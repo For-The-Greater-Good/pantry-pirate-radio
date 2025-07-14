@@ -18,7 +18,9 @@ def openai_provider() -> OpenAIProvider:
     """Create OpenAI provider with real config."""
     return OpenAIProvider(
         OpenAIConfig(model_name="google/gemini-2.0-flash-001"),
-        api_key="***REMOVED***",
+        api_key=(
+            "***REMOVED***"
+        ),
         base_url="https://openrouter.ai/api/v1",
         headers={
             "HTTP-Referer": "https://github.com/openrouter-ai/openrouter-python",
@@ -40,7 +42,9 @@ def test_openai_provider_init() -> None:
     """Test OpenAI provider initialization."""
     provider = OpenAIProvider(
         OpenAIConfig(model_name="google/gemini-2.0-flash-001"),
-        api_key="***REMOVED***",
+        api_key=(
+            "***REMOVED***"
+        ),
         base_url="https://openrouter.ai/api/v1",
         headers={
             "HTTP-Referer": "https://github.com/openrouter-ai/openrouter-python",
@@ -48,9 +52,8 @@ def test_openai_provider_init() -> None:
         },
     )
     assert provider.model_name == "google/gemini-2.0-flash-001"
-    assert (
-        provider.api_key
-        == "***REMOVED***"
+    assert provider.api_key == (
+        "***REMOVED***"
     )
     assert provider.base_url == "https://openrouter.ai/api/v1"
     assert provider.headers == {
@@ -83,11 +86,51 @@ async def test_openai_generate_structured(openai_provider: OpenAIProvider) -> No
 
 
 @pytest.mark.asyncio
-async def test_openai_generate_invalid_model(openai_provider: OpenAIProvider) -> None:
+async def test_openai_generate_structured_from_config(
+    openai_provider: OpenAIProvider,
+) -> None:
+    """Test structured output generation with format in config (bug fix scenario)."""
+    from app.llm.providers.types import GenerateConfig
+
+    config = GenerateConfig(
+        temperature=0.7,
+        format=TestModel.model_json_schema(),
+    )
+    response = await openai_provider.generate(
+        "Return a message saying 'Hello Config' and count of 123",
+        config=config,
+    )
+
+    assert response.parsed is not None
+    assert response.parsed["message"] == "Hello Config"
+    assert response.parsed["count"] == 123
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_structured_separate_format(
+    openai_provider: OpenAIProvider,
+) -> None:
+    """Test structured output generation with separate format parameter (backward compatibility)."""
+    response = await openai_provider.generate(
+        "Return a message saying 'Hello Separate' and count of 456",
+        format=TestModel.model_json_schema(),
+    )
+
+    assert response.parsed is not None
+    assert response.parsed["message"] == "Hello Separate"
+    assert response.parsed["count"] == 456
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_invalid_model(
+    openai_provider: OpenAIProvider,
+) -> None:
     """Test handling invalid model."""
     provider = OpenAIProvider(
         OpenAIConfig(model_name="invalid-model"),
-        api_key="***REMOVED***",
+        api_key=(
+            "***REMOVED***"
+        ),
         base_url="https://openrouter.ai/api/v1",
         headers={
             "HTTP-Referer": "https://github.com/openrouter-ai/openrouter-python",
