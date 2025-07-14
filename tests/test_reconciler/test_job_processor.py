@@ -29,7 +29,8 @@ def mock_db(mocker: MockerFixture) -> MagicMock:
 
     # Mock database result
     result = MagicMock()
-    result.first.return_value = None
+    # Default to returning a tuple (id, is_new) to match INSERT...ON CONFLICT expectations
+    result.first.return_value = (str(uuid.uuid4()), True)  # Default to new record
     db.execute.return_value = result
 
     return db
@@ -138,14 +139,48 @@ def test_process_completed_jobs(
     """Test processing completed jobs."""
     processor = JobProcessor(mock_db)
 
-    # Process job directly since we no longer use Queue in job_processor
-    result = processor.process_job_result(sample_job_result)
+    with patch(
+        "app.reconciler.job_processor.OrganizationCreator"
+    ) as mock_org_creator, patch(
+        "app.reconciler.job_processor.LocationCreator"
+    ) as mock_loc_creator, patch(
+        "app.reconciler.job_processor.ServiceCreator"
+    ) as mock_service_creator:
+        # Mock organization creator
+        mock_org_instance = MagicMock()
+        mock_org_creator.return_value = mock_org_instance
+        org_id = uuid.uuid4()
 
-    # Verify result
-    assert result["status"] == "success"
-    assert "organization_id" in result
-    assert "location_ids" in result
-    assert "service_ids" in result
+        # Mock process_organization to return tuple (id, is_new)
+        mock_org_instance.process_organization.return_value = (org_id, True)
+
+        # Also mock create_organization for backward compatibility
+        mock_org_instance.create_organization.return_value = org_id
+
+        # Mock location creator
+        mock_location_instance = MagicMock()
+        mock_loc_creator.return_value = mock_location_instance
+        location_id = uuid.uuid4()
+        mock_location_instance.find_matching_location.return_value = None
+        mock_location_instance.create_location.return_value = str(location_id)
+        mock_location_instance.process_location.return_value = (location_id, True)
+
+        # Mock service creator
+        mock_service_instance = MagicMock()
+        mock_service_creator.return_value = mock_service_instance
+        service_id = uuid.uuid4()
+        mock_service_instance.process_service.return_value = (service_id, True)
+        sal_id = uuid.uuid4()
+        mock_service_instance.create_service_at_location.return_value = sal_id
+
+        # Process job directly since we no longer use Queue in job_processor
+        result = processor.process_job_result(sample_job_result)
+
+        # Verify result
+        assert result["status"] == "success"
+        assert "organization_id" in result
+        assert "location_ids" in result
+        assert "service_ids" in result
 
 
 def test_process_completed_jobs_error_handling(
@@ -377,22 +412,46 @@ def test_process_job_result_process_function_exists(
     """Test processing when process_organization/process_service functions exist."""
     processor = JobProcessor(mock_db)
 
-    # Add process functions to test alternative code path
-    def process_organization(org_data, scraper_id):
-        return str(uuid.uuid4())
+    with patch(
+        "app.reconciler.job_processor.OrganizationCreator"
+    ) as mock_org_creator, patch(
+        "app.reconciler.job_processor.LocationCreator"
+    ) as mock_loc_creator, patch(
+        "app.reconciler.job_processor.ServiceCreator"
+    ) as mock_service_creator:
+        # Mock organization creator
+        mock_org_instance = MagicMock()
+        mock_org_creator.return_value = mock_org_instance
+        org_id = uuid.uuid4()
 
-    def process_service(service_data, org_id, location_id, scraper_id):
-        return str(uuid.uuid4())
+        # Mock process_organization to return tuple (id, is_new)
+        mock_org_instance.process_organization.return_value = (org_id, True)
 
-    processor.process_organization = process_organization
-    processor.process_service = process_service
+        # Also mock create_organization for backward compatibility
+        mock_org_instance.create_organization.return_value = org_id
 
-    with patch("app.reconciler.job_processor.LocationCreator") as mock_loc_creator:
+        # Mock location creator
         mock_loc_instance = MagicMock()
         mock_loc_creator.return_value = mock_loc_instance
         location_id = str(uuid.uuid4())
         mock_loc_instance.create_location.return_value = location_id
+        mock_loc_instance.process_location.return_value = (location_id, True)
         mock_loc_instance.find_matching_location.return_value = None
+
+        # Mock service creator
+        mock_service_instance = MagicMock()
+        mock_service_creator.return_value = mock_service_instance
+        service_id = uuid.uuid4()
+
+        # Mock process_service to return tuple (id, is_new)
+        mock_service_instance.process_service.return_value = (service_id, True)
+
+        # Also mock create_service for backward compatibility
+        mock_service_instance.create_service.return_value = service_id
+
+        mock_service_instance.create_service_at_location.return_value = str(
+            uuid.uuid4()
+        )
 
         result = processor.process_job_result(sample_job_result)
 
