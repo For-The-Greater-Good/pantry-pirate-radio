@@ -1,5 +1,6 @@
 """Type definitions for configuration."""
 
+import os
 from dataclasses import dataclass
 
 
@@ -18,10 +19,13 @@ class Settings:
 def get_test_settings() -> Settings:
     """Get test settings."""
     return Settings(
-        DATABASE_URL="postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio",
-        REDIS_URL="redis://cache:6379/0",
+        DATABASE_URL=os.getenv(
+            "DATABASE_URL",
+            "postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio",
+        ),
+        REDIS_URL=os.getenv("REDIS_URL", "redis://cache:6379/0"),
         DEBUG=True,
         TESTING=True,
         DB_ECHO=True,
-        LLM_MODEL_NAME="test-model",
+        LLM_MODEL_NAME=os.getenv("LLM_MODEL_NAME", "test-model"),
     )

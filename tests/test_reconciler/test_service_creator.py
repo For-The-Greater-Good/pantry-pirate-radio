@@ -20,7 +20,8 @@ def mock_db(mocker: MockerFixture) -> MagicMock:
 
     # Mock database result
     result = MagicMock()
-    result.first.return_value = None
+    # Default to returning a tuple (id, is_new) to match INSERT...ON CONFLICT expectations
+    result.first.return_value = (str(uuid.uuid4()), True)  # Default to new record
     db.execute.return_value = result
 
     return db
@@ -205,7 +206,8 @@ def test_process_service(mock_db: MagicMock, test_service_data: Dict[str, str]) 
     # Mock database to return a match first
     result = MagicMock()
     # Mock row more directly using a tuple instead of MagicMock
-    row = (str(service_id),)
+    # The query returns (id, is_new) where is_new indicates if it was newly created
+    row = (str(service_id), False)  # False means it was found, not created
     result.first.return_value = row
     mock_db.execute.return_value = result
 
@@ -236,26 +238,23 @@ def test_process_service(mock_db: MagicMock, test_service_data: Dict[str, str]) 
         mock_db.reset_mock()
         mock_strategy_instance.reset_mock()
 
-        # Now test the create path - mock no match found
-        result.first.return_value = None
+        # Now test the create path - mock INSERT...ON CONFLICT creating a new record
+        new_service_id = uuid.uuid4()
+        row_new = (str(new_service_id), True)  # True means it was newly created
+        result.first.return_value = row_new
         mock_db.execute.return_value = result
 
-        # Mock service creator to return a new service
-        with patch.object(service_creator, "create_service") as mock_create_service:
-            mock_create_service.return_value = service_id
+        # Call process_service (should create a new one)
+        created_id, is_new = service_creator.process_service(
+            test_service_data["name"],
+            test_service_data["description"],
+            org_id,
+            {"source": "test", "scraper_id": "test_scraper"},
+        )
 
-            # Call process_service (should create a new one)
-            created_id, is_new = service_creator.process_service(
-                test_service_data["name"],
-                test_service_data["description"],
-                org_id,
-                {"source": "test", "scraper_id": "test_scraper"},
-            )
-
-            # Verify service was created
-            assert created_id == service_id
-            assert is_new is True
-            mock_create_service.assert_called_once()
+        # Verify service was created
+        assert created_id == new_service_id
+        assert is_new is True
 
 
 def test_create_schedule(
