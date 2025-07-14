@@ -307,6 +307,58 @@ async def test_generate_with_api_key(
             assert call_kwargs["env"]["ANTHROPIC_API_KEY"] == "test-api-key"
 
 
+@pytest.mark.asyncio
+async def test_generate_structured_from_config(claude_provider: ClaudeProvider) -> None:
+    """Test structured output generation with format in config (bug fix scenario)."""
+    from app.llm.providers.types import GenerateConfig
+
+    format_schema = {"type": "object", "properties": {"message": {"type": "string"}}}
+    config = GenerateConfig(
+        temperature=0.7,
+        format=format_schema,
+    )
+    # Mock successful CLI execution with structured output
+    mock_process = AsyncMock()
+    mock_process.returncode = 0
+    mock_process.communicate.return_value = (
+        b'{"result": "{\\"message\\": \\"Hello Config\\"}", "is_error": false}',
+        b"",
+    )
+
+    with patch.object(claude_provider, "_check_authentication", return_value=True):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await claude_provider.generate(
+                "Return a JSON object with message: 'Hello Config'",
+                config=config,
+            )
+            assert result.text == '{"message": "Hello Config"}'
+            assert result.parsed == {"message": "Hello Config"}
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_separate_format(
+    claude_provider: ClaudeProvider,
+) -> None:
+    """Test structured output generation with separate format parameter (backward compatibility)."""
+    format_schema = {"type": "object", "properties": {"message": {"type": "string"}}}
+    # Mock successful CLI execution with structured output
+    mock_process = AsyncMock()
+    mock_process.returncode = 0
+    mock_process.communicate.return_value = (
+        b'{"result": "{\\"message\\": \\"Hello Separate\\"}", "is_error": false}',
+        b"",
+    )
+
+    with patch.object(claude_provider, "_check_authentication", return_value=True):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await claude_provider.generate(
+                "Return a JSON object with message: 'Hello Separate'",
+                format=format_schema,
+            )
+            assert result.text == '{"message": "Hello Separate"}'
+            assert result.parsed == {"message": "Hello Separate"}
+
+
 def test_claude_exceptions() -> None:
     """Test Claude-specific exceptions."""
     # Test ClaudeQuotaExceededException

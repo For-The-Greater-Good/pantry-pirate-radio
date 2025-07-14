@@ -411,6 +411,14 @@ IMPORTANT: Only return the JSON object, no additional text or explanation.
             ValueError: If there is an error in generation
         """
         try:
+            # Check if format is embedded in config when format parameter is None
+            if (
+                format is None
+                and config is not None
+                and hasattr(config, "format")
+                and config.format
+            ):
+                format = config.format
             # Check authentication first
             if not await self._check_authentication():
                 logger.error(
