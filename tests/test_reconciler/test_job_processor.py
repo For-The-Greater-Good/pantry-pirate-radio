@@ -161,6 +161,8 @@ def test_process_completed_jobs(
         mock_location_instance = MagicMock()
         mock_loc_creator.return_value = mock_location_instance
         location_id = uuid.uuid4()
+        mock_location_instance.find_matching_location.return_value = None
+        mock_location_instance.create_location.return_value = str(location_id)
         mock_location_instance.process_location.return_value = (location_id, True)
 
         # Mock service creator

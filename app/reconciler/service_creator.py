@@ -289,7 +289,9 @@ class ServiceCreator(BaseReconciler):
                     "id": str(service_id),
                     "name": name,
                     "description": description,
-                    "organization_id": str(organization_id) if organization_id else None,
+                    "organization_id": (
+                        str(organization_id) if organization_id else None
+                    ),
                 },
             )
 
@@ -323,7 +325,9 @@ class ServiceCreator(BaseReconciler):
                 {
                     "name": name,
                     "description": description,
-                    "organization_id": str(organization_id) if organization_id else None,
+                    "organization_id": (
+                        str(organization_id) if organization_id else None
+                    ),
                     "status": "active",
                     **metadata,
                 },
