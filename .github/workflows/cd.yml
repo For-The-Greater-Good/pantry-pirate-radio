@@ -28,7 +28,7 @@ jobs:
     strategy:
       matrix:
         target: [app, worker, recorder, scraper, test, datasette-exporter]
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -130,7 +130,7 @@ jobs:
     permissions:
       contents: write
       packages: read
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -143,7 +143,7 @@ jobs:
             ## Docker Images
 
             This release includes the following Docker images:
-            
+
             ### Application Services
             - `ghcr.io/${{ github.repository }}:app-${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}:worker-${{ github.ref_name }}`
@@ -151,7 +151,7 @@ jobs:
             - `ghcr.io/${{ github.repository }}:scraper-${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}:datasette-exporter-${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}:datasette-${{ github.ref_name }}`
-            
+
             ### Testing
             - `ghcr.io/${{ github.repository }}:test-${{ github.ref_name }}`
 
