@@ -59,14 +59,14 @@ def test_find_matching_location_found(mock_db: MagicMock) -> None:
     # First call: acquire_location_lock - returns lock_id
     lock_result = MagicMock()
     lock_result.scalar.return_value = "mock_lock_id"
-    
+
     # Second call: location search - returns location
     search_result = MagicMock()
     search_result.first.return_value = (existing_id,)
-    
+
     # Third call: release_location_lock
     release_result = MagicMock()
-    
+
     # Set up mock_db.execute to return different results for each call
     mock_db.execute.side_effect = [lock_result, search_result, release_result]
 
@@ -78,7 +78,7 @@ def test_find_matching_location_found(mock_db: MagicMock) -> None:
     # Verify SQL execution - should be called 3 times due to advisory locks
     # 1: acquire_location_lock, 2: location search, 3: release_location_lock
     assert mock_db.execute.call_count == 3
-    
+
     # Verify the second call (location search) has correct parameters
     location_search_call = mock_db.execute.call_args_list[1]
     assert isinstance(location_search_call[0][0], TextClause)

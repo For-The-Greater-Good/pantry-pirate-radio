@@ -13,42 +13,42 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Add normalized name column and unique constraint for organizations
-ALTER TABLE organization 
+ALTER TABLE organization
 ADD COLUMN IF NOT EXISTS normalized_name TEXT;
 
 -- Update existing records with normalized names
-UPDATE organization 
-SET normalized_name = normalize_organization_name(name) 
+UPDATE organization
+SET normalized_name = normalize_organization_name(name)
 WHERE normalized_name IS NULL;
 
 -- Make normalized_name NOT NULL
-ALTER TABLE organization 
+ALTER TABLE organization
 ALTER COLUMN normalized_name SET NOT NULL;
 
 -- Add unique constraint on normalized organization name
-ALTER TABLE organization 
-ADD CONSTRAINT organization_normalized_name_unique 
+ALTER TABLE organization
+ADD CONSTRAINT organization_normalized_name_unique
 UNIQUE (normalized_name);
 
 -- Create index for faster organization lookups
-CREATE INDEX IF NOT EXISTS organization_normalized_name_idx 
+CREATE INDEX IF NOT EXISTS organization_normalized_name_idx
 ON organization(normalized_name);
 
 -- 2. Location coordinate constraints and spatial indexing
 
 -- Add spatial index for location coordinates (if not exists from PostGIS setup)
-CREATE INDEX IF NOT EXISTS location_coordinates_idx 
+CREATE INDEX IF NOT EXISTS location_coordinates_idx
 ON location USING gist(point(longitude, latitude));
 
 -- Add constraint to ensure canonical locations have coordinates
-ALTER TABLE location 
-ADD CONSTRAINT location_canonical_coordinates_check 
+ALTER TABLE location
+ADD CONSTRAINT location_canonical_coordinates_check
 CHECK (is_canonical = FALSE OR (latitude IS NOT NULL AND longitude IS NOT NULL));
 
 -- Create function for location coordinate matching with tolerance
 CREATE OR REPLACE FUNCTION location_coordinates_match(
-    lat1 NUMERIC, lon1 NUMERIC, 
-    lat2 NUMERIC, lon2 NUMERIC, 
+    lat1 NUMERIC, lon1 NUMERIC,
+    lat2 NUMERIC, lon2 NUMERIC,
     tolerance NUMERIC DEFAULT 0.0001
 ) RETURNS BOOLEAN AS $$
 BEGIN
@@ -60,12 +60,12 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Add unique constraint for service name + organization combination
 -- This allows same service name under different organizations
-ALTER TABLE service 
-ADD CONSTRAINT service_name_organization_unique 
+ALTER TABLE service
+ADD CONSTRAINT service_name_organization_unique
 UNIQUE (name, organization_id);
 
 -- Create index for faster service lookups
-CREATE INDEX IF NOT EXISTS service_name_organization_idx 
+CREATE INDEX IF NOT EXISTS service_name_organization_idx
 ON service(name, organization_id);
 
 -- 4. Add retry configuration table for managing constraint violation retries
@@ -158,27 +158,27 @@ CREATE TABLE IF NOT EXISTS reconciler_constraint_violations (
 );
 
 -- Index for monitoring queries
-CREATE INDEX IF NOT EXISTS reconciler_violations_created_at_idx 
+CREATE INDEX IF NOT EXISTS reconciler_violations_created_at_idx
 ON reconciler_constraint_violations(created_at);
 
-CREATE INDEX IF NOT EXISTS reconciler_violations_resolved_idx 
+CREATE INDEX IF NOT EXISTS reconciler_violations_resolved_idx
 ON reconciler_constraint_violations(resolved, created_at);
 
 -- 8. Performance optimization: Add missing indexes for foreign keys
 
 -- These indexes improve performance of ON CONFLICT operations
-CREATE INDEX IF NOT EXISTS location_source_location_scraper_idx 
+CREATE INDEX IF NOT EXISTS location_source_location_scraper_idx
 ON location_source(location_id, scraper_id);
 
-CREATE INDEX IF NOT EXISTS organization_source_org_scraper_idx 
+CREATE INDEX IF NOT EXISTS organization_source_org_scraper_idx
 ON organization_source(organization_id, scraper_id);
 
-CREATE INDEX IF NOT EXISTS service_source_service_scraper_idx 
+CREATE INDEX IF NOT EXISTS service_source_service_scraper_idx
 ON service_source(service_id, scraper_id);
 
 -- Add index for service organization lookups
-CREATE INDEX IF NOT EXISTS service_organization_id_idx 
-ON service(organization_id) 
+CREATE INDEX IF NOT EXISTS service_organization_id_idx
+ON service(organization_id)
 WHERE organization_id IS NOT NULL;
 
 -- 9. Add function to clean up old constraint violation logs
@@ -187,15 +187,15 @@ CREATE OR REPLACE FUNCTION cleanup_old_constraint_violations(retention_days INTE
 DECLARE
     deleted_count INTEGER;
 BEGIN
-    DELETE FROM reconciler_constraint_violations 
+    DELETE FROM reconciler_constraint_violations
     WHERE created_at < NOW() - INTERVAL '1 day' * retention_days
     AND resolved = TRUE;
-    
+
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Schedule cleanup function to run periodically (can be called from application)
-COMMENT ON FUNCTION cleanup_old_constraint_violations IS 
+COMMENT ON FUNCTION cleanup_old_constraint_violations IS
 'Cleans up resolved constraint violations older than specified days. Call periodically from application.';
