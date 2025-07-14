@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(poetry run pytest:*)",
+      "Bash(export REDIS_URL=redis://localhost:6379/0)",
+      "Bash(export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/pantry_pirate_radio)",
+      "Bash(poetry run python -m pytest:*)",
+      "Bash(export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/pantry_pirate_radio)",
+      "Bash(rm:*)",
+      "Bash(poetry run mypy:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(poetry run vulture:*)",
+      "Bash(poetry run bandit:*)",
+      "Bash(poetry run:*)",
+      "Bash(poetry show:*)",
+      "Bash(poetry:*)",
+      "Bash(./scripts/run-ci-checks.sh:*)",
+      "Bash(ls:*)",
+      "Bash(awk:*)",
+      "Bash(bash scripts/run-ci-checks.sh:*)",
+      "Bash(/dev/null)",
+      "Bash(git commit:*)",
+      "Bash(cat:*)",
+      "Bash(gh issue create:*)",
+      "WebFetch(domain:app.plentifulapp.com)",
+      "Bash(echo:*)",
+      "Bash(bash:*)",
+      "Bash(git add:*)",
+      "Bash(python:*)",
+      "Bash(gh run view:*)",
+      "WebFetch(domain:www.feedingamerica.org)",
+      "Bash(gh label create:*)"
+    ],
+    "deny": []
+  }
+}

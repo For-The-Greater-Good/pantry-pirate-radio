@@ -150,10 +150,10 @@ def test_process_completed_jobs(
         mock_org_instance = MagicMock()
         mock_org_creator.return_value = mock_org_instance
         org_id = uuid.uuid4()
-        
+
         # Mock process_organization to return tuple (id, is_new)
         mock_org_instance.process_organization.return_value = (org_id, True)
-        
+
         # Also mock create_organization for backward compatibility
         mock_org_instance.create_organization.return_value = org_id
 
@@ -410,7 +410,9 @@ def test_process_job_result_process_function_exists(
     """Test processing when process_organization/process_service functions exist."""
     processor = JobProcessor(mock_db)
 
-    with patch("app.reconciler.job_processor.OrganizationCreator") as mock_org_creator, patch(
+    with patch(
+        "app.reconciler.job_processor.OrganizationCreator"
+    ) as mock_org_creator, patch(
         "app.reconciler.job_processor.LocationCreator"
     ) as mock_loc_creator, patch(
         "app.reconciler.job_processor.ServiceCreator"
@@ -419,10 +421,10 @@ def test_process_job_result_process_function_exists(
         mock_org_instance = MagicMock()
         mock_org_creator.return_value = mock_org_instance
         org_id = uuid.uuid4()
-        
+
         # Mock process_organization to return tuple (id, is_new)
         mock_org_instance.process_organization.return_value = (org_id, True)
-        
+
         # Also mock create_organization for backward compatibility
         mock_org_instance.create_organization.return_value = org_id
 
@@ -438,14 +440,16 @@ def test_process_job_result_process_function_exists(
         mock_service_instance = MagicMock()
         mock_service_creator.return_value = mock_service_instance
         service_id = uuid.uuid4()
-        
+
         # Mock process_service to return tuple (id, is_new)
         mock_service_instance.process_service.return_value = (service_id, True)
-        
+
         # Also mock create_service for backward compatibility
         mock_service_instance.create_service.return_value = service_id
-        
-        mock_service_instance.create_service_at_location.return_value = str(uuid.uuid4())
+
+        mock_service_instance.create_service_at_location.return_value = str(
+            uuid.uuid4()
+        )
 
         result = processor.process_job_result(sample_job_result)
 
