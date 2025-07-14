@@ -467,7 +467,8 @@ class LocationCreator(BaseReconciler):
                 """
                 )
                 self.db.execute(
-                    update_query, {"id": location_id, "organization_id": organization_id}
+                    update_query,
+                    {"id": location_id, "organization_id": organization_id},
                 )
                 self.db.commit()
 
