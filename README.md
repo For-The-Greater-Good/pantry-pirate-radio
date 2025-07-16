@@ -1,6 +1,9 @@
-
 <img width="1024" height="1024" alt="ChatGPT Image Jul 11, 2025 at 09_59_43 AM" src="https://github.com/user-attachments/assets/1f6a1f2a-adf1-4bfe-8969-d13c4c315de7" />
+
 # 🎧 Pantry Pirate Radio
+
+⚠️ WARNING: Licensed under sandia-ftgg-nc-os-1.0 ⚠️
+
 *Breaking down barriers to food security through unified resource access*
 
 [![Build Status](https://github.com/For-The-Greater-Good/pantry-pirate-radio/workflows/CI/badge.svg)](https://github.com/For-The-Greater-Good/pantry-pirate-radio/actions)
