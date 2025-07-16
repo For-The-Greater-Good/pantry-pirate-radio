@@ -12,17 +12,17 @@ on:
 
 jobs:
   claude-review:
-    # Only run for the repository owner from the main branch
+    # Only run for PRs to main branch from the repository owner
     if: |
-      github.actor == 'For-The-Greater-Good' &&
       github.repository_owner == 'For-The-Greater-Good' &&
-      github.base_ref == 'main'
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
 
     runs-on: ubuntu-latest
-    environment: production
+    # Remove environment restriction for PR reviews
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write  # Need write to comment on PRs
       issues: read
       id-token: write
 
