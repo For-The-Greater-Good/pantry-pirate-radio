@@ -8,22 +8,13 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - API_BASE_URL=${API_BASE_URL}
-      - API_VERSION=${API_VERSION}
-      - HTTP_REFERER=${HTTP_REFERER}
-      - APP_TITLE=${APP_TITLE}
-      - LLM_MODEL_NAME=${LLM_MODEL_NAME}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE}
-      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS}
-      - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT}
-      - LLM_TIMEOUT=${LLM_TIMEOUT}
     depends_on:
       - db
       - cache
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
 
   worker:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
@@ -91,21 +82,19 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
-    ports:
-      - "5432:5432"
+    # NO PORTS EXPOSED - access only through Docker network for security
 
   cache:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # NO PORTS EXPOSED - access only through Docker network for security
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --protected-mode yes
     volumes:
       - redis_data:/data
 
   rq-dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
     command: rq-dashboard -H cache
-    ports:
-      - "9181:9181"
+    # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 9181:rq-dashboard:9181 user@server
     env_file: .env
     environment:
       - REDIS_URL=${REDIS_URL}
@@ -170,3 +159,10 @@ volumes:
   datasette_data:
   postgres_backups:
   claude_config:  # Shared Claude authentication across worker containers
+
+networks:
+  frontend:
+    # Public-facing network for API and datasette
+  backend:
+    # Internal network for service communication
+    internal: true
