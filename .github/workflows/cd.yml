@@ -14,6 +14,11 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -22,6 +27,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    environment: production
     permissions:
       contents: read
       packages: write
@@ -79,6 +85,7 @@ jobs:
   build-datasette:
     runs-on: ubuntu-latest
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    environment: production
     permissions:
       contents: read
       packages: write
