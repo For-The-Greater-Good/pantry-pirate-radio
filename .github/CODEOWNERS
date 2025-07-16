@@ -1,0 +1,36 @@
+# CODEOWNERS for Pantry Pirate Radio
+# This file defines who needs to review changes to specific parts of the codebase
+# For more info: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo
+* @For-The-Greater-Good
+
+# GitHub Actions workflows require explicit owner approval
+# This is critical for security - prevents unauthorized workflow modifications
+/.github/workflows/ @For-The-Greater-Good
+
+# Security-sensitive files
+/SECURITY.md @For-The-Greater-Good
+/.github/CODEOWNERS @For-The-Greater-Good
+/docker-compose*.yml @For-The-Greater-Good
+/Dockerfile* @For-The-Greater-Good
+/.env.example @For-The-Greater-Good
+
+# Critical application components
+/app/api/ @For-The-Greater-Good
+/app/llm/ @For-The-Greater-Good
+/app/reconciler/ @For-The-Greater-Good
+/app/scraper/ @For-The-Greater-Good
+
+# Database and migrations
+/init-scripts/ @For-The-Greater-Good
+
+# Configuration files
+/pyproject.toml @For-The-Greater-Good
+/poetry.lock @For-The-Greater-Good
+/.gitignore @For-The-Greater-Good
+
+# Documentation
+/README.md @For-The-Greater-Good
+/CLAUDE.md @For-The-Greater-Good
+/docs/ @For-The-Greater-Good
