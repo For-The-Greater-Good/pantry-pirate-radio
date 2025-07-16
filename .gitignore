@@ -64,3 +64,8 @@ Thumbs.db
 postgis.pem
 coverage.xml
 coverage.xml
+
+# node items
+node_modules/
+package-lock.json
+yarn.lock
