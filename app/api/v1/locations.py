@@ -1,5 +1,6 @@
 """Locations API endpoints."""
 
+import math
 from uuid import UUID
 from typing import Optional
 
@@ -169,15 +170,7 @@ async def search_locations(
         coord is not None
         for coord in [min_latitude, max_latitude, min_longitude, max_longitude]
     ):
-        # Bounding box search - ensure all coords are not None
-        if any(
-            coord is None
-            for coord in [min_latitude, max_latitude, min_longitude, max_longitude]
-        ):
-            raise HTTPException(
-                status_code=400, detail="All bounding box coordinates must be provided"
-            )
-
+        # Bounding box search - all coords are guaranteed to be not None by the check above
         bbox = GeoBoundingBox(
             min_latitude=min_latitude,  # type: ignore[arg-type]
             max_latitude=max_latitude,  # type: ignore[arg-type]
@@ -221,8 +214,6 @@ async def search_locations(
             and location.longitude
         ):
             # Calculate distance (simplified - would use PostGIS in production)
-            import math
-
             lat1, lon1 = math.radians(latitude), math.radians(longitude)
             lat2, lon2 = math.radians(float(location.latitude)), math.radians(
                 float(location.longitude)
