@@ -25,9 +25,13 @@ async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
     Yields:
         AsyncEngine for test database
     """
-    # Use psycopg2 for both async and sync since we're using RQ
+    # Convert sync database URL to async for testing
+    async_url = settings.DATABASE_URL.replace(
+        "postgresql+psycopg2://", "postgresql+asyncpg://"
+    ).replace("postgresql://", "postgresql+asyncpg://")
+
     engine = create_async_engine(
-        settings.DATABASE_URL,
+        async_url,
         echo=settings.DB_ECHO,
         pool_pre_ping=True,
         future=True,
@@ -92,9 +96,15 @@ def db_session_sync() -> Generator[Session, None, None]:
     Yields:
         Synchronous database session
     """
-    # Use psycopg2 for both async and sync since we're using RQ
+    # Ensure sync database URL uses psycopg2
+    sync_url = settings.DATABASE_URL
+    if "postgresql+asyncpg://" in sync_url:
+        sync_url = sync_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+    elif "postgresql://" in sync_url and "postgresql+psycopg2://" not in sync_url:
+        sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://")
+
     engine = create_engine(
-        settings.DATABASE_URL,
+        sync_url,
         echo=settings.DB_ECHO,
         pool_pre_ping=True,
         future=True,
