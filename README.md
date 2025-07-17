@@ -73,6 +73,7 @@ Our mission is to break down information barriers in food security by making pub
 - Compressed data archiving
 
 ### API Features
+- **Read-Only Access**: Safe data exploration without modification capabilities
 - Complete OpenAPI/Swagger documentation
 - Geographic search with radius and bounds support
 - Multi-criteria filtering capabilities
@@ -80,7 +81,7 @@ Our mission is to break down information barriers in food security by making pub
 - Fair use rate limiting
 - Response caching with invalidation
 - Comprehensive error handling
-- Complete Support for HSDS endpoints as well as our own
+- HSDS-compliant read endpoints for all entity types
 
 ### Monitoring & Metrics
 - Prometheus metrics integration
@@ -163,7 +164,7 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 
 #### **API Layer** (`app/api/`)
 - **FastAPI Framework**: High-performance async API server
-- **HSDS Endpoints**: Complete OpenReferral HSDS v3.1.1 API implementation
+- **Read-Only HSDS Endpoints**: Safe data access following OpenReferral HSDS v3.1.1 specification
 - **Geographic Search**: Radius-based and bounding box search capabilities
 - **Pagination**: Cursor-based pagination for large result sets
 - **Response Caching**: Geographic tile-based caching for performance

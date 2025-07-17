@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.database.repositories import LocationRepository
-from app.models.hsds.location import Location, LocationCreate, LocationUpdate
+from app.models.hsds.location import Location
 from app.models.hsds.query import GeoBoundingBox, GeoPoint
 from app.models.hsds.response import LocationResponse, ServiceResponse, Page
 from app.api.v1.utils import (
@@ -314,78 +314,3 @@ async def get_location(
         ]
 
     return location_response
-
-
-@router.post("/", response_model=LocationResponse, status_code=201)
-async def create_location(
-    location: LocationCreate,
-    session: AsyncSession = Depends(get_session),
-) -> LocationResponse:
-    """
-    Create a new location.
-
-    Creates a new location with the provided details.
-    """
-    repository = LocationRepository(session)
-
-    # Create location
-    new_location = await repository.create(
-        organization_id=location.organization_id,
-        name=location.name,
-        alternate_name=location.alternate_name,
-        description=location.description,
-        transportation=location.transportation,
-        latitude=location.latitude,
-        longitude=location.longitude,
-        external_identifier=location.external_identifier,
-        external_identifier_type=location.external_identifier_type,
-        location_type=location.location_type or "physical",
-    )
-
-    return LocationResponse.model_validate(new_location)
-
-
-@router.put("/{location_id}", response_model=LocationResponse)
-async def update_location(
-    location_id: UUID,
-    location: LocationUpdate,
-    session: AsyncSession = Depends(get_session),
-) -> LocationResponse:
-    """
-    Update an existing location.
-
-    Updates a location with the provided details.
-    """
-    repository = LocationRepository(session)
-
-    # Check if location exists
-    existing_location = await repository.get_by_id(location_id)
-    if not existing_location:
-        raise HTTPException(status_code=404, detail="Location not found")
-
-    # Update location
-    update_data = location.model_dump(exclude_unset=True)
-    updated_location = await repository.update(location_id, **update_data)
-
-    return LocationResponse.model_validate(updated_location)
-
-
-@router.delete("/{location_id}", status_code=204)
-async def delete_location(
-    location_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    """
-    Delete a location.
-
-    Removes a location and all associated services.
-    """
-    repository = LocationRepository(session)
-
-    # Check if location exists
-    existing_location = await repository.get_by_id(location_id)
-    if not existing_location:
-        raise HTTPException(status_code=404, detail="Location not found")
-
-    # Delete location
-    await repository.delete(location_id)

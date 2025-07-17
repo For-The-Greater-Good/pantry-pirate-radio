@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.database.repositories import ServiceRepository
-from app.models.hsds.service import Service, ServiceCreate, ServiceUpdate
+from app.models.hsds.service import Service
 from app.models.hsds.response import ServiceResponse, LocationResponse, Page
 from app.api.v1.utils import (
     create_pagination_links,
@@ -231,96 +231,6 @@ async def get_service(
         ]
 
     return service_response
-
-
-@router.post("/", response_model=ServiceResponse, status_code=201)
-async def create_service(
-    service: ServiceCreate,
-    session: AsyncSession = Depends(get_session),
-) -> ServiceResponse:
-    """
-    Create a new service.
-
-    Creates a new service with the provided details.
-    """
-    repository = ServiceRepository(session)
-
-    # Verify organization exists
-    from app.database.repositories import OrganizationRepository
-
-    org_repo = OrganizationRepository(session)
-    organization = await org_repo.get_by_id(service.organization_id)
-    if not organization:
-        raise HTTPException(status_code=400, detail="Organization not found")
-
-    # Create service
-    new_service = await repository.create(
-        organization_id=service.organization_id,
-        program_id=service.program_id,
-        name=service.name,
-        alternate_name=service.alternate_name,
-        description=service.description,
-        url=service.url,
-        email=service.email,
-        status=service.status or "active",
-        interpretation_services=service.interpretation_services,
-        application_process=service.application_process,
-        fees_description=service.fees_description,
-        accreditations=service.accreditations,
-        eligibility_description=service.eligibility_description,
-        minimum_age=service.minimum_age,
-        maximum_age=service.maximum_age,
-        assured_date=service.assured_date,
-        assurer_email=service.assurer_email,
-    )
-
-    return ServiceResponse.model_validate(new_service)
-
-
-@router.put("/{service_id}", response_model=ServiceResponse)
-async def update_service(
-    service_id: UUID,
-    service: ServiceUpdate,
-    session: AsyncSession = Depends(get_session),
-) -> ServiceResponse:
-    """
-    Update an existing service.
-
-    Updates a service with the provided details.
-    """
-    repository = ServiceRepository(session)
-
-    # Check if service exists
-    existing_service = await repository.get_by_id(service_id)
-    if not existing_service:
-        raise HTTPException(status_code=404, detail="Service not found")
-
-    # Update service
-    update_data = service.model_dump(exclude_unset=True)
-    updated_service = await repository.update(service_id, **update_data)
-
-    return ServiceResponse.model_validate(updated_service)
-
-
-@router.delete("/{service_id}", status_code=204)
-async def delete_service(
-    service_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    """
-    Delete a service.
-
-    Removes a service and all associated service-at-location relationships.
-    """
-    repository = ServiceRepository(session)
-
-    # Check if service exists
-    existing_service = await repository.get_by_id(service_id)
-    if not existing_service:
-        raise HTTPException(status_code=404, detail="Service not found")
-
-    # Delete service
-    await repository.delete(service_id)
 
 
 @router.get("/active", response_model=Page[ServiceResponse])
