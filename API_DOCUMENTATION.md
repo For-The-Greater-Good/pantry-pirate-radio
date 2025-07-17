@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Pantry Pirate Radio API provides access to food security resources using the Human Services Data Specification (HSDS) v3.1.1. This API serves pantry locations, services, and organizations across the continental United States.
+The Pantry Pirate Radio API provides **read-only access** to food security resources using the Human Services Data Specification (HSDS) v3.1.1. This API serves pantry locations, services, and organizations across the continental United States with safe, non-destructive data exploration capabilities.
 
 ## Base URL
 
@@ -342,8 +342,6 @@ GET /api/v1/locations/search?min_latitude=40.7&max_latitude=40.8&min_longitude=-
 The API returns standard HTTP status codes:
 
 - `200 OK`: Successful request
-- `201 Created`: Resource created successfully
-- `204 No Content`: Resource deleted successfully
 - `400 Bad Request`: Invalid request parameters
 - `404 Not Found`: Resource not found
 - `422 Unprocessable Entity`: Validation errors

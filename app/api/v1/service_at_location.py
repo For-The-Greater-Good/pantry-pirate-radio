@@ -8,11 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.database.repositories import ServiceAtLocationRepository
-from app.models.hsds.service_at_location import (
-    ServiceAtLocation,
-    ServiceAtLocationCreate,
-    ServiceAtLocationUpdate,
-)
+from app.models.hsds.service_at_location import ServiceAtLocation
 from app.models.hsds.response import (
     ServiceAtLocationResponse,
     ServiceResponse,
@@ -148,100 +144,6 @@ async def get_service_at_location(
             sal_response.location = LocationResponse.model_validate(sal.location)
 
     return sal_response
-
-
-@router.post("/", response_model=ServiceAtLocationResponse, status_code=201)
-async def create_service_at_location(
-    service_at_location: ServiceAtLocationCreate,
-    session: AsyncSession = Depends(get_session),
-) -> ServiceAtLocationResponse:
-    """
-    Create a new service-at-location relationship.
-
-    Creates a new relationship between a service and a location.
-    """
-    repository = ServiceAtLocationRepository(session)
-
-    # Check if relationship already exists
-    existing_sal = await repository.get_by_service_and_location(
-        service_id=service_at_location.service_id,
-        location_id=service_at_location.location_id,
-    )
-    if existing_sal:
-        raise HTTPException(
-            status_code=400, detail="Service-at-location relationship already exists"
-        )
-
-    # Verify service exists
-    from app.database.repositories import ServiceRepository
-
-    service_repo = ServiceRepository(session)
-    service = await service_repo.get_by_id(service_at_location.service_id)
-    if not service:
-        raise HTTPException(status_code=400, detail="Service not found")
-
-    # Verify location exists
-    from app.database.repositories import LocationRepository
-
-    location_repo = LocationRepository(session)
-    location = await location_repo.get_by_id(service_at_location.location_id)
-    if not location:
-        raise HTTPException(status_code=400, detail="Location not found")
-
-    # Create service-at-location relationship
-    new_sal = await repository.create(
-        service_id=service_at_location.service_id,
-        location_id=service_at_location.location_id,
-        description=service_at_location.description,
-    )
-
-    return ServiceAtLocationResponse.model_validate(new_sal)
-
-
-@router.put("/{service_at_location_id}", response_model=ServiceAtLocationResponse)
-async def update_service_at_location(
-    service_at_location_id: UUID,
-    service_at_location: ServiceAtLocationUpdate,
-    session: AsyncSession = Depends(get_session),
-) -> ServiceAtLocationResponse:
-    """
-    Update an existing service-at-location relationship.
-
-    Updates a service-at-location relationship with the provided details.
-    """
-    repository = ServiceAtLocationRepository(session)
-
-    # Check if service-at-location exists
-    existing_sal = await repository.get_by_id(service_at_location_id)
-    if not existing_sal:
-        raise HTTPException(status_code=404, detail="Service-at-location not found")
-
-    # Update service-at-location
-    update_data = service_at_location.model_dump(exclude_unset=True)
-    updated_sal = await repository.update(service_at_location_id, **update_data)
-
-    return ServiceAtLocationResponse.model_validate(updated_sal)
-
-
-@router.delete("/{service_at_location_id}", status_code=204)
-async def delete_service_at_location(
-    service_at_location_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    """
-    Delete a service-at-location relationship.
-
-    Removes the relationship between a service and a location.
-    """
-    repository = ServiceAtLocationRepository(session)
-
-    # Check if service-at-location exists
-    existing_sal = await repository.get_by_id(service_at_location_id)
-    if not existing_sal:
-        raise HTTPException(status_code=404, detail="Service-at-location not found")
-
-    # Delete service-at-location
-    await repository.delete(service_at_location_id)
 
 
 @router.get(

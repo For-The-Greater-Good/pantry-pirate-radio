@@ -9,11 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.utils import create_pagination_links
 from app.core.db import get_session
 from app.database.repositories import OrganizationRepository
-from app.models.hsds.organization import (
-    Organization,
-    OrganizationCreate,
-    OrganizationUpdate,
-)
+from app.models.hsds.organization import Organization
 from app.models.hsds.response import OrganizationResponse, Page, ServiceResponse
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -123,91 +119,6 @@ async def get_organization(
         ]
 
     return org_response
-
-
-@router.post("/", response_model=OrganizationResponse, status_code=201)
-async def create_organization(
-    organization: OrganizationCreate,
-    session: AsyncSession = Depends(get_session),
-) -> OrganizationResponse:
-    """
-    Create a new organization.
-
-    Creates a new organization with the provided details.
-    """
-    repository = OrganizationRepository(session)
-
-    # Check if organization with same name already exists
-    existing_org = await repository.get_by_name(organization.name)
-    if existing_org:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Organization with name '{organization.name}' already exists",
-        )
-
-    # Create organization
-    new_org = await repository.create(
-        name=organization.name,
-        alternate_name=organization.alternate_name,
-        description=organization.description,
-        email=organization.email,
-        website=organization.url,
-        tax_status=organization.tax_status,
-        tax_id=organization.tax_id,
-        year_incorporated=organization.year_incorporated,
-        legal_status=organization.legal_status,
-    )
-
-    return OrganizationResponse.model_validate(new_org)
-
-
-@router.put("/{organization_id}", response_model=OrganizationResponse)
-async def update_organization(
-    organization_id: UUID,
-    organization: OrganizationUpdate,
-    session: AsyncSession = Depends(get_session),
-) -> OrganizationResponse:
-    """
-    Update an existing organization.
-
-    Updates an organization with the provided details.
-    """
-    repository = OrganizationRepository(session)
-
-    # Check if organization exists
-    existing_org = await repository.get_by_id(organization_id)
-    if not existing_org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-
-    # Update organization
-    update_data = organization.model_dump(exclude_unset=True)
-    if "url" in update_data:
-        update_data["website"] = update_data.pop("url")
-
-    updated_org = await repository.update(organization_id, **update_data)
-
-    return OrganizationResponse.model_validate(updated_org)
-
-
-@router.delete("/{organization_id}", status_code=204)
-async def delete_organization(
-    organization_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    """
-    Delete an organization.
-
-    Removes an organization and all associated services and locations.
-    """
-    repository = OrganizationRepository(session)
-
-    # Check if organization exists
-    existing_org = await repository.get_by_id(organization_id)
-    if not existing_org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-
-    # Delete organization (cascade will handle related entities)
-    await repository.delete(organization_id)
 
 
 @router.get("/search", response_model=Page[OrganizationResponse])
