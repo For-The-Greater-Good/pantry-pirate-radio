@@ -38,7 +38,10 @@
       "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term --ignore=tests/test_scraper/test_utils.py -q)",
       "Bash(mv:*)",
       "Bash(cp:*)",
-      "Bash(TESTING=false poetry run pytest tests/test_integration/test_api_organizations.py::TestOrganizationsAPIIntegration::test_list_organizations_empty -v)"
+      "Bash(TESTING=false poetry run pytest tests/test_integration/test_api_organizations.py::TestOrganizationsAPIIntegration::test_list_organizations_empty -v)",
+      "Bash(curl:*)",
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term-missing -q)",
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term -q)"
     ],
     "deny": []
   }
