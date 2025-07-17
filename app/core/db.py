@@ -7,16 +7,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 
-# Create async engine
-# Convert postgres:// to postgresql+asyncpg:// for async support
-database_url = settings.DATABASE_URL
+# Lazy database initialization - don't create engine at import time
+engine = None
+async_session_factory = None
 
-# Skip database engine creation during testing to avoid connection issues
-if os.getenv("TESTING") == "true":
-    # Use a mock engine for testing - will be overridden in test fixtures
-    engine = None
-    async_session_factory = None
-else:
+
+def _initialize_database():
+    """Initialize database engine and session factory."""
+    global engine, async_session_factory
+
+    if engine is not None:
+        return  # Already initialized
+
+    if os.getenv("TESTING") == "true":
+        # Keep as None for testing - will be overridden in test fixtures
+        return
+
+    # Convert postgres:// to postgresql+asyncpg:// for async support
+    database_url = settings.DATABASE_URL
     if database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     elif database_url.startswith("postgres://"):
@@ -45,6 +53,9 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     Yields:
         AsyncSession: Database session
     """
+    # Initialize database on first use
+    _initialize_database()
+
     if async_session_factory is None:
         raise RuntimeError("Database not initialized - cannot create session")
 

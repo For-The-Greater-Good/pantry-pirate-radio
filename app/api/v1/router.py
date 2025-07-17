@@ -17,17 +17,16 @@ if os.getenv("TESTING") == "true":
     settings.LLM_PROVIDER = "openai"
 router = APIRouter(default_response_class=JSONResponse)
 
-# Include API routers (skip during testing to avoid database connection issues)
-if os.getenv("TESTING") != "true":
-    from app.api.v1.organizations import router as organizations_router
-    from app.api.v1.locations import router as locations_router
-    from app.api.v1.services import router as services_router
-    from app.api.v1.service_at_location import router as service_at_location_router
+# Always include API routers for comprehensive documentation
+from app.api.v1.organizations import router as organizations_router
+from app.api.v1.locations import router as locations_router
+from app.api.v1.services import router as services_router
+from app.api.v1.service_at_location import router as service_at_location_router
 
-    router.include_router(organizations_router)
-    router.include_router(locations_router)
-    router.include_router(services_router)
-    router.include_router(service_at_location_router)
+router.include_router(organizations_router)
+router.include_router(locations_router)
+router.include_router(services_router)
+router.include_router(service_at_location_router)
 
 
 @router.get("/metrics")
