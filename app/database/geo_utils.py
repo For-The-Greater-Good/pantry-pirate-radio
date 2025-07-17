@@ -20,6 +20,9 @@ from sqlalchemy.sql import Select
 
 from app.models.hsds.query import GeoBoundingBox, GeoPoint
 
+# Geographic constants
+MILES_PER_DEGREE_LATITUDE = 69.0  # Approximate miles per degree of latitude
+
 
 class GeoQueryBuilder:
     """Builder for geographic queries using PostGIS functions."""
@@ -181,8 +184,10 @@ class GeoQueryBuilder:
         # 1 degree latitude ≈ 69 miles
         # 1 degree longitude ≈ 69 miles * cos(latitude)
 
-        lat_delta = radius_miles / 69.0
-        lon_delta = radius_miles / (69.0 * math.cos(math.radians(center.latitude)))
+        lat_delta = radius_miles / MILES_PER_DEGREE_LATITUDE
+        lon_delta = radius_miles / (
+            MILES_PER_DEGREE_LATITUDE * math.cos(math.radians(center.latitude))
+        )
 
         return GeoBoundingBox(
             min_latitude=center.latitude - lat_delta,
