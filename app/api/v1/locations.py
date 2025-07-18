@@ -1,13 +1,14 @@
 """Locations API endpoints."""
 
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.database.repositories import LocationRepository
+from app.database.models import LocationModel
 from app.models.hsds.location import Location
 from app.models.hsds.query import GeoBoundingBox, GeoPoint
 from app.models.hsds.response import LocationResponse, ServiceResponse, Page
@@ -150,9 +151,6 @@ async def search_locations(
     filters = build_filter_dict(organization_id=organization_id)
 
     # Determine search type and execute query
-    from typing import Sequence
-    from app.database.models import LocationModel
-
     locations: Sequence[LocationModel] = []
 
     if latitude is not None and longitude is not None and radius_miles is not None:
