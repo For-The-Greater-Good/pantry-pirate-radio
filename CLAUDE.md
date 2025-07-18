@@ -4,6 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
+### Test-Driven Development (TDD) Workflow
+
+This project follows Test-Driven Development principles. Always write tests before implementing features:
+
+1. **Red Phase**: Write a failing test that defines the desired behavior
+2. **Green Phase**: Write the minimum code necessary to make the test pass
+3. **Refactor Phase**: Improve the code while keeping tests passing
+
+#### TDD Process for New Features
+```bash
+# 1. Create test file first
+touch tests/test_new_feature.py
+
+# 2. Write failing test
+poetry run pytest tests/test_new_feature.py -v  # Should fail
+
+# 3. Implement minimal code to pass
+# ... write implementation ...
+
+# 4. Run test again
+poetry run pytest tests/test_new_feature.py -v  # Should pass
+
+# 5. Refactor and ensure tests still pass
+poetry run pytest tests/test_new_feature.py -v
+
+# 6. Run full test suite before committing
+poetry run pytest
+```
+
 ### Running Tests
 ```bash
 # Run all tests (coverage included by default)
@@ -23,6 +52,18 @@ poetry run pytest -m integration
 
 # Run async tests
 poetry run pytest -m asyncio
+
+# Watch mode - rerun tests on file changes (requires pytest-watch)
+poetry run ptw
+
+# Run tests in parallel (requires pytest-xdist)
+poetry run pytest -n auto
+
+# Run only tests that failed in the last run
+poetry run pytest --lf
+
+# Run tests with verbose output and show local variables on failure
+poetry run pytest -vvl
 ```
 
 ### Coverage Analysis
@@ -227,13 +268,17 @@ The project uses a **consolidated multi-stage Dockerfile** that builds all servi
   - **OpenAI/OpenRouter**: HTTP API-based provider using OpenAI-compatible endpoints
   - **Claude**: CLI-based provider using the Claude Code SDK for direct Anthropic API access
 
-### Testing Strategy
-- Unit tests with pytest and asyncio support
-- Integration tests for service interactions
-- Property-based testing with Hypothesis
-- VCR.py for HTTP request mocking
-- Minimum 90% test coverage required
-- Scraper testing framework for validation
+### Testing Strategy (TDD-First Approach)
+- **Test-First Development**: Write tests before implementation code
+- **Unit tests** with pytest and asyncio support
+- **Integration tests** for service interactions
+- **Property-based testing** with Hypothesis for edge cases
+- **VCR.py** for HTTP request mocking and deterministic tests
+- **Minimum test coverage** required by ratchet mechanism (aim for 80%+)
+- **Scraper testing framework** for validation
+- **Test Naming Convention**: `test_should_<expected_behavior>_when_<condition>`
+- **AAA Pattern**: Arrange, Act, Assert structure for all tests
+- **Test Isolation**: Each test should be independent and idempotent
 
 ### Type Safety
 - Strict mypy configuration with comprehensive type checking
@@ -279,20 +324,26 @@ The project uses a **consolidated multi-stage Dockerfile** that builds all servi
 
 ## Service-Specific Implementation Notes
 
-### Scraper Development
-- Inherit from `ScraperJob` base class
-- Implement `scrape()` method for data collection
-- Use `ScraperUtils` for queue management and grid generation
-- Use `GeocoderUtils` for address geocoding with fallbacks
-- Include comprehensive error handling and logging
-- Follow rate limiting best practices
+### Scraper Development (TDD Approach)
+- **Start with tests**: Write tests for expected scraper behavior first
+- **Test the contract**: Ensure scraper follows `ScraperJob` interface
+- **Mock external calls**: Use VCR.py or mocks for HTTP requests
+- **Test error scenarios**: Network failures, invalid data, rate limits
+- **Implement incrementally**: Make one test pass at a time
+- **Use `ScraperUtils`** for queue management and grid generation
+- **Use `GeocoderUtils`** for address geocoding with fallbacks
+- **Test logging output**: Verify appropriate log messages
+- **Follow rate limiting** best practices with tests
 
-### LLM Processing
-- Use HSDS aligner for schema compliance
-- Implement confidence scoring and validation
-- Handle structured output formats
-- Include retry logic for failed alignments
-- Cache responses for improved performance
+### LLM Processing (TDD Approach)
+- **Test HSDS alignment**: Write tests for schema compliance validation
+- **Mock LLM responses**: Create fixtures for various response scenarios
+- **Test confidence scoring**: Verify thresholds and validation logic
+- **Test structured outputs**: Ensure JSON/XML parsing works correctly
+- **Test retry mechanisms**: Verify exponential backoff behavior
+- **Test cache behavior**: Verify hits, misses, and TTL expiration
+- **Performance tests**: Ensure response times meet SLAs
+- **Integration tests**: Use VCR.py for deterministic API testing
 
 #### Claude Provider Configuration
 - **Environment**: Set `LLM_PROVIDER=claude` and optionally `ANTHROPIC_API_KEY`
@@ -415,50 +466,77 @@ docker compose logs -f worker
 4. Follow the interactive setup wizard
 5. Verify: `curl http://localhost:8080/health`
 
-### Reconciler Processing
-- Process jobs in dependency order (organizations → locations → services)
-- Maintain version history for all changes
-- Handle location matching with coordinate-based deduplication
-- Create source-specific records with merge strategies
-- Implement comprehensive error handling and rollback
+### Reconciler Processing (TDD Approach)
+- **Test dependency order**: Write tests for correct processing sequence
+- **Test version tracking**: Verify history is maintained correctly
+- **Test deduplication**: Create tests for location matching logic
+- **Test merge strategies**: Verify source-specific record handling
+- **Test transactions**: Ensure rollback works on failures
+- **Test idempotency**: Verify repeated processing produces same results
+- **Mock database calls**: Use SQLAlchemy test fixtures
+- **Test concurrency**: Verify race condition handling
 
-### API Development
-- Follow HSDS specification for all endpoints
-- Implement geographic search with spatial queries
-- Include pagination and filtering capabilities
-- Add comprehensive error handling with correlation IDs
-- Implement response caching for performance
+### API Development (TDD Approach)
+- **Test HSDS compliance**: Write tests against HSDS specification
+- **Test request validation**: Verify input validation and error messages
+- **Test geographic queries**: Mock PostGIS queries for spatial tests
+- **Test pagination**: Verify limit/offset behavior and edge cases
+- **Test filtering**: Ensure all filter combinations work correctly
+- **Test error responses**: Verify proper HTTP status codes and messages
+- **Test correlation IDs**: Ensure IDs propagate through the system
+- **Test caching**: Verify cache headers and invalidation
+- **Load tests**: Use pytest-benchmark for performance testing
+- **Contract tests**: Ensure API backwards compatibility
 
 ## Common Development Tasks
 
-### Adding a New Scraper
-1. Create `your_scraper_name_scraper.py` in `app/scraper/`
-2. Inherit from `ScraperJob` base class
-3. Implement `scrape()` method
-4. Add comprehensive error handling
-5. Include documentation in corresponding `.md` file
-6. Add tests in `test_scrapers.py`
+### Adding a New Scraper (TDD Approach)
+1. **Write test first**: Create `test_your_scraper_name_scraper.py` in `tests/scraper/`
+2. **Define expected behavior**: Write tests for scraping logic, error handling, and edge cases
+3. **Run failing tests**: `poetry run pytest tests/scraper/test_your_scraper_name_scraper.py -v`
+4. **Create scraper**: Create `your_scraper_name_scraper.py` in `app/scraper/`
+5. **Implement minimally**: Inherit from `ScraperJob` and implement `scrape()` method
+6. **Make tests pass**: Run tests and iterate until all pass
+7. **Refactor**: Improve code quality while keeping tests green
+8. **Add integration tests**: Test with real data (using VCR.py for determinism)
+9. **Document**: Include documentation in corresponding `.md` file
+10. **Verify coverage**: Ensure new code has adequate test coverage
 
-### Modifying HSDS Models
-1. Update Pydantic models in `app/models/hsds/`
-2. Run database migrations if schema changes
-3. Update API endpoints and responses
-4. Add validation tests
-5. Update documentation
+### Modifying HSDS Models (TDD Approach)
+1. **Write validation tests first**: Define expected model behavior and constraints
+2. **Test edge cases**: Write tests for validation rules, required fields, and relationships
+3. **Run failing tests**: Ensure tests fail before implementation
+4. **Update Pydantic models** in `app/models/hsds/`
+5. **Make tests pass**: Implement validation logic
+6. **Write migration tests**: Test database schema changes
+7. **Run database migrations** if schema changes
+8. **Update API endpoint tests**: Write tests for new/changed responses
+9. **Update API endpoints** and responses
+10. **Update documentation** with examples
 
-### Adding LLM Provider
-1. Implement `BaseLLMProvider` interface in `app/llm/providers/`
-2. Add provider-specific configuration
-3. Implement caching and retry logic
-4. Add provider to factory method
-5. Write integration tests
+### Adding LLM Provider (TDD Approach)
+1. **Write interface tests**: Define expected behavior for `BaseLLMProvider`
+2. **Mock provider responses**: Create test fixtures for provider responses
+3. **Test error scenarios**: Write tests for rate limits, timeouts, invalid responses
+4. **Create provider skeleton**: Implement `BaseLLMProvider` interface in `app/llm/providers/`
+5. **Make basic tests pass**: Implement core functionality
+6. **Add retry logic tests**: Test exponential backoff and retry behavior
+7. **Implement caching tests**: Test cache hits, misses, and invalidation
+8. **Add provider to factory**: Update factory method with tests
+9. **Write integration tests**: Test with real API (using VCR.py)
+10. **Add configuration tests**: Test environment variable handling
 
-### Database Schema Changes
-1. Create migration script in `init-scripts/`
-2. Update SQLAlchemy models if needed
-3. Update reconciler logic for new fields
-4. Add validation tests
-5. Update API responses
+### Database Schema Changes (TDD Approach)
+1. **Write schema tests first**: Define expected database structure and constraints
+2. **Test migrations**: Write tests for upgrade and downgrade paths
+3. **Create migration script** in `init-scripts/` with rollback support
+4. **Test model changes**: Write tests for SQLAlchemy model updates
+5. **Update SQLAlchemy models** if needed
+6. **Write reconciler tests**: Test new field handling and validation
+7. **Update reconciler logic** for new fields
+8. **Test API responses**: Ensure endpoints handle new fields correctly
+9. **Update API responses** with backward compatibility
+10. **Performance test**: Verify indexes and query performance
 
 ### Docker Development Tasks
 ```bash
@@ -513,11 +591,24 @@ docker build --target recorder -t test-recorder .
 - Datasette: http://localhost:8001
 - Prometheus Metrics: http://localhost:8000/metrics
 
-## Testing
+## Testing (TDD Best Practices)
+
+### Core Testing Commands
 - Run all tests: `poetry run pytest`
 - Run with coverage: `poetry run pytest --cov`
 - Test scrapers: `python -m app.scraper.test_scrapers --all`
 - Integration tests: `poetry run pytest -m integration`
+
+### TDD Testing Guidelines
+- **Write tests first**: Always start with a failing test
+- **One assertion per test**: Keep tests focused and clear
+- **Test behavior, not implementation**: Focus on what, not how
+- **Use descriptive test names**: `test_should_return_error_when_invalid_input`
+- **Follow AAA pattern**: Arrange, Act, Assert
+- **Mock external dependencies**: Use pytest-mock for isolation
+- **Test edge cases**: Empty inputs, nulls, boundary values
+- **Keep tests fast**: Unit tests should run in milliseconds
+- **Maintain test coverage**: Aim for 80%+ coverage, 100% for critical paths
 
 ## Key Dependencies
 - FastAPI for API framework
@@ -528,3 +619,35 @@ docker build --target recorder -t test-recorder .
 - OpenAI/Claude for LLM processing
 - Prometheus for metrics
 - Docker/Docker Compose for containerization
+
+## TDD Principles Summary
+
+When developing any feature in this codebase, follow these TDD principles:
+
+1. **Red-Green-Refactor Cycle**:
+   - Red: Write a failing test that defines desired behavior
+   - Green: Write minimal code to make the test pass
+   - Refactor: Improve code quality while keeping tests green
+
+2. **Test First, Code Second**:
+   - Always write tests before implementation
+   - Tests define the specification and contract
+   - Implementation should be driven by making tests pass
+
+3. **Test Quality Standards**:
+   - Each test should have a single responsibility
+   - Tests should be independent and idempotent
+   - Use descriptive names: `test_should_<behavior>_when_<condition>`
+   - Follow AAA pattern: Arrange, Act, Assert
+
+4. **Coverage Goals**:
+   - Maintain minimum 80% test coverage
+   - Critical paths should have 100% coverage
+   - Use coverage reports to identify untested code
+
+5. **Testing Tools**:
+   - pytest for test runner
+   - pytest-cov for coverage
+   - pytest-mock for mocking
+   - VCR.py for HTTP request recording
+   - Hypothesis for property-based testing
