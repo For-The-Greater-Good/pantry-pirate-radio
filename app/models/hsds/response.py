@@ -132,11 +132,13 @@ class ServiceResponse(BaseResponse):
 
     organization_id: UUID
     name: str
-    description: str
+    description: str | None = None
     url: HttpUrl | None = None
     email: str | None = None
     status: str
     locations: list["LocationResponse"] | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrganizationResponse(BaseResponse):
@@ -144,19 +146,24 @@ class OrganizationResponse(BaseResponse):
 
     name: str
     description: str | None = None
-    url: HttpUrl | None = None
+    url: HttpUrl | None = Field(None, alias="website")
     email: str | None = None
     services: list[ServiceResponse] | None = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class LocationResponse(BaseResponse):
     """Response model for Location endpoints."""
 
-    name: str
+    name: str | None = None
     description: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     services: list[ServiceResponse] | None = None
+    distance: str | None = None  # For radius search results
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ServiceAtLocationResponse(BaseResponse):
@@ -166,6 +173,8 @@ class ServiceAtLocationResponse(BaseResponse):
     location_id: UUID
     service: ServiceResponse | None = None
     location: LocationResponse | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Update forward references
