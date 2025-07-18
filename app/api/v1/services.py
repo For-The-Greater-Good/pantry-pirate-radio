@@ -144,11 +144,14 @@ async def search_services(
         limit=per_page,
     )
 
-    # Filter by status if provided
+    # Get proper count for search results
+    total = await repository.count_by_search(search_term=q)
+
+    # Filter by status if provided (this is not ideal for performance)
     if status:
         services = [s for s in services if s.status == status]
-
-    total = len(services)  # Approximation for search results
+        # Note: This filtering after the fact means the count may be inaccurate
+        # TODO: Add status filter to repository methods for accurate counts
 
     # Convert to response models
     service_responses = []

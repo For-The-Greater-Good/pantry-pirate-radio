@@ -178,8 +178,8 @@ async def get_locations_for_service(
         limit=per_page,
     )
 
-    # Get total count (approximation)
-    total = len(locations_for_service)
+    # Get total count using proper count query
+    total = await repository.count_locations_for_service(service_id=service_id)
 
     # Update pagination metadata
     pagination["total_items"] = total
@@ -247,8 +247,8 @@ async def get_services_at_location(
         limit=per_page,
     )
 
-    # Get total count (approximation)
-    total = len(services_at_location)
+    # Get total count using proper count query
+    total = await repository.count_services_at_location(location_id=location_id)
 
     # Update pagination metadata
     pagination["total_items"] = total

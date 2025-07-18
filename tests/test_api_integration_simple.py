@@ -132,6 +132,7 @@ class TestOrganizationsAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.search_by_name.return_value = [mock_organization]
+        mock_repo.count_by_name_search.return_value = 1
 
         response = client.get("/api/v1/organizations/?name=food+bank")
 
@@ -208,6 +209,7 @@ class TestLocationsAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.get_locations_by_radius.return_value = [mock_location]
+        mock_repo.count_by_radius.return_value = 1
 
         response = client.get(
             "/api/v1/locations/search?latitude=40.7128&longitude=-74.0060&radius_miles=10"
@@ -224,6 +226,7 @@ class TestLocationsAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.get_locations_by_bbox.return_value = [mock_location]
+        mock_repo.count_by_bbox.return_value = 1
 
         response = client.get(
             "/api/v1/locations/search?min_latitude=40.7&max_latitude=40.8&min_longitude=-74.1&max_longitude=-74.0"
@@ -313,6 +316,7 @@ class TestServicesAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.search_by_name.return_value = [mock_service]
+        mock_repo.count_by_search.return_value = 1
 
         response = client.get("/api/v1/services/search?q=food")
 
@@ -327,6 +331,7 @@ class TestServicesAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.search_by_name.return_value = [mock_service]
+        mock_repo.count_by_search.return_value = 1
 
         response = client.get("/api/v1/services/search?q=food&status=active")
 
@@ -435,6 +440,7 @@ class TestServiceAtLocationAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.get_locations_for_service.return_value = [mock_service_at_location]
+        mock_repo.count_locations_for_service.return_value = 1
 
         service_id = str(uuid.uuid4())
         response = client.get(
@@ -452,6 +458,7 @@ class TestServiceAtLocationAPI:
         mock_repo_class.return_value = mock_repo
 
         mock_repo.get_services_at_location.return_value = [mock_service_at_location]
+        mock_repo.count_services_at_location.return_value = 1
 
         location_id = str(uuid.uuid4())
         response = client.get(

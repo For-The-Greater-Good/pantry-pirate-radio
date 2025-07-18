@@ -1,6 +1,5 @@
 """Locations API endpoints."""
 
-import math
 from uuid import UUID
 from typing import Optional
 
@@ -194,8 +193,33 @@ async def search_locations(
                 skip=pagination["skip"], limit=per_page, filters=filters
             )
 
-    # Get total count (approximation for geographic searches)
-    total = len(locations) if locations else 0
+    # Get total count using proper count queries
+    if latitude is not None and longitude is not None and radius_miles is not None:
+        # Radius search count
+        center = GeoPoint(latitude=latitude, longitude=longitude)
+        total = await repository.count_by_radius(
+            center=center,
+            radius_miles=radius_miles,
+            filters=filters,
+        )
+    elif all(
+        coord is not None
+        for coord in [min_latitude, max_latitude, min_longitude, max_longitude]
+    ):
+        # Bounding box search count
+        bbox = GeoBoundingBox(
+            min_latitude=min_latitude,  # type: ignore[arg-type]
+            max_latitude=max_latitude,  # type: ignore[arg-type]
+            min_longitude=min_longitude,  # type: ignore[arg-type]
+            max_longitude=max_longitude,  # type: ignore[arg-type]
+        )
+        total = await repository.count_by_bbox(
+            bbox=bbox,
+            filters=filters,
+        )
+    else:
+        # Regular count
+        total = await repository.count(filters=filters)
 
     # Update pagination metadata
     pagination["total_items"] = total
@@ -210,26 +234,10 @@ async def search_locations(
         if (
             latitude is not None
             and longitude is not None
-            and location.latitude
-            and location.longitude
+            and hasattr(location, "distance_miles")
         ):
-            # Calculate distance (simplified - would use PostGIS in production)
-            lat1, lon1 = math.radians(latitude), math.radians(longitude)
-            lat2, lon2 = math.radians(float(location.latitude)), math.radians(
-                float(location.longitude)
-            )
-
-            dlat = lat2 - lat1
-            dlon = lon2 - lon1
-
-            a = (
-                math.sin(dlat / 2) ** 2
-                + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-            )
-            c = 2 * math.asin(math.sqrt(a))
-            distance_miles = 3959 * c  # Earth's radius in miles
-
-            location_data.distance = f"{distance_miles:.1f}mi"
+            # Use distance from PostGIS query
+            location_data.distance = f"{location.distance_miles:.1f}mi"
 
         if (
             include_services

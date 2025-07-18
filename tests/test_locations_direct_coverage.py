@@ -120,7 +120,9 @@ class TestLocationsDirectExecution:
             mock_location.latitude = 40.7589
             mock_location.longitude = -73.9851
             mock_location.services_at_location = []
+            mock_location.distance_miles = 2.5  # Add distance attribute
             mock_repo.get_locations_by_radius.return_value = [mock_location]
+            mock_repo.count_by_radius.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -194,6 +196,7 @@ class TestLocationsDirectExecution:
             mock_location.longitude = None
             mock_location.services_at_location = []
             mock_repo.get_locations_by_bbox.return_value = [mock_location]
+            mock_repo.count_by_bbox.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -268,6 +271,7 @@ class TestLocationsDirectExecution:
             mock_location = Mock()
             mock_location.services_at_location = []
             mock_repo.get_all.return_value = [mock_location]
+            mock_repo.count.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -332,6 +336,7 @@ class TestLocationsDirectExecution:
             mock_location = Mock()
             mock_location.services_at_location = []
             mock_repo.get_all.return_value = [mock_location]
+            mock_repo.count.return_value = 1
             mock_repo.get_locations_with_services.return_value = [mock_location]
 
             # Mock utilities
@@ -533,7 +538,9 @@ class TestLocationsDirectExecution:
             mock_location.latitude = 40.7589
             mock_location.longitude = -73.9851
             mock_location.services_at_location = []
+            mock_location.distance_miles = 2.5  # Add distance attribute
             mock_repo.get_locations_by_radius.return_value = [mock_location]
+            mock_repo.count_by_radius.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -612,6 +619,7 @@ class TestLocationsDirectExecution:
             mock_location.services_at_location = [Mock()]
             mock_location.services_at_location[0].service = Mock()
             mock_repo.get_all.return_value = [mock_location]
+            mock_repo.count.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {
