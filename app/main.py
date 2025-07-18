@@ -20,7 +20,7 @@ settings = Settings()
 # Initialize FastAPI app with no default routes or exception handlers
 app = FastAPI(
     title=settings.app_name,
-    description="Food security data aggregation system using HSDS",
+    description="Read-only food security data API using HSDS specification",
     version=settings.version,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -39,7 +39,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=settings.cors_allow_credentials,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "HEAD", "OPTIONS"],
     allow_headers=["*", "Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
     max_age=600,

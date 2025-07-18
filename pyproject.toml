@@ -276,6 +276,9 @@ ignore = [
 max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
+"app/api/v1/*" = [
+    "B008",   # Do not perform function call in argument defaults (FastAPI dependency injection)
+]
 "tests/*" = [
     "C901",   # Complex code
     "S101",   # Use of assert

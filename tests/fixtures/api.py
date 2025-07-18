@@ -84,10 +84,34 @@ def test_app() -> FastAPI:
         )
 
     # Include v1 router with prefix
+    # Temporarily unset TESTING environment variable to load API routes
+    import os
+
+    testing_env = os.environ.get("TESTING")
+    if testing_env:
+        del os.environ["TESTING"]
+
     from app.api.v1.router import router as v1_router
     from app.core.config import settings
 
+    # Force import the individual routers for integration testing
+    from app.api.v1.organizations import router as organizations_router
+    from app.api.v1.locations import router as locations_router
+    from app.api.v1.services import router as services_router
+    from app.api.v1.service_at_location import router as service_at_location_router
+
+    # Include individual routers directly
+    test_app.include_router(organizations_router, prefix=settings.api_prefix)
+    test_app.include_router(locations_router, prefix=settings.api_prefix)
+    test_app.include_router(services_router, prefix=settings.api_prefix)
+    test_app.include_router(service_at_location_router, prefix=settings.api_prefix)
+
+    # Also include the main router for health checks
     test_app.include_router(v1_router, prefix=settings.api_prefix)
+
+    # Restore TESTING environment variable
+    if testing_env:
+        os.environ["TESTING"] = testing_env
     return test_app
 
 

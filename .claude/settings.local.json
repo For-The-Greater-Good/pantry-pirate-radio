@@ -30,7 +30,18 @@
       "Bash(python:*)",
       "Bash(gh run view:*)",
       "WebFetch(domain:www.feedingamerica.org)",
-      "Bash(gh label create:*)"
+      "Bash(gh label create:*)",
+      "Bash(TESTING=true poetry run pytest tests/test_database/test_models.py tests/test_api/test_utils.py --cov=app.database.models --cov=app.api.v1.utils --cov-report=term-missing -v)",
+      "Bash(TESTING=true poetry run pytest tests/test_database/test_models.py tests/test_api/test_utils.py --cov=app.database.models --cov=app.api.v1.utils --cov-report=term-missing -q)",
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term --cov-report=json -q)",
+      "Bash(true)",
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term --ignore=tests/test_scraper/test_utils.py -q)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "Bash(TESTING=false poetry run pytest tests/test_integration/test_api_organizations.py::TestOrganizationsAPIIntegration::test_list_organizations_empty -v)",
+      "Bash(curl:*)",
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term-missing -q)",
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term -q)"
     ],
     "deny": []
   }
