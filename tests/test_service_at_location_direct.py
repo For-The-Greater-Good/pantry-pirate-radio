@@ -236,6 +236,7 @@ class TestServiceAtLocationDirect:
             mock_sal = Mock()
             mock_sal.location = Mock()
             mock_repo.get_locations_for_service.return_value = [mock_sal]
+            mock_repo.count_locations_for_service.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -319,6 +320,7 @@ class TestServiceAtLocationDirect:
             mock_sal = Mock()
             mock_sal.service = Mock()
             mock_repo.get_services_at_location.return_value = [mock_sal]
+            mock_repo.count_services_at_location.return_value = 1
 
             # Mock utilities
             mock_calc_meta.return_value = {

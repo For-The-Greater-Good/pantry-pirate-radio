@@ -132,6 +132,21 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def count_by_name_search(self, name: str) -> int:
+        """Count organizations matching name search."""
+        query = (
+            select(func.count())
+            .select_from(self.model)
+            .filter(
+                or_(
+                    self.model.name.ilike(f"%{name}%"),
+                    self.model.alternate_name.ilike(f"%{name}%"),
+                )
+            )
+        )
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
     async def get_organizations_with_services(
         self, skip: int = 0, limit: int = 100
     ) -> Sequence[OrganizationModel]:
@@ -165,7 +180,21 @@ class LocationRepository(BaseRepository[LocationModel]):
             # Use PostGIS for accurate distance calculations
             radius_meters = radius_miles * 1609.34
 
-            query = select(self.model).filter(
+            # Calculate distance and include it in the result
+            distance_col = ST_Distance(
+                self.model.geometry,
+                func.ST_SetSRID(
+                    func.ST_MakePoint(center.longitude, center.latitude), 4326
+                ),
+                True,  # Use spheroid for accurate distance
+            )
+
+            query = select(
+                self.model,
+                (distance_col / 1609.34).label(
+                    "distance_miles"
+                ),  # Convert meters to miles
+            ).filter(
                 ST_DWithin(
                     self.model.geometry,
                     func.ST_SetSRID(
@@ -177,15 +206,7 @@ class LocationRepository(BaseRepository[LocationModel]):
             )
 
             # Order by distance
-            query = query.order_by(
-                ST_Distance(
-                    self.model.geometry,
-                    func.ST_SetSRID(
-                        func.ST_MakePoint(center.longitude, center.latitude), 4326
-                    ),
-                    True,
-                )
-            )
+            query = query.order_by(distance_col)
         else:
             # Fallback: use bounding box approximation
             # Convert miles to approximate degrees
@@ -213,7 +234,17 @@ class LocationRepository(BaseRepository[LocationModel]):
         query = query.offset(skip).limit(limit)
 
         result = await self.session.execute(query)
-        return result.scalars().all()
+        if HAS_GEOALCHEMY2:
+            # When we include distance, we get tuples (LocationModel, distance_miles)
+            # We need to attach the distance to each location model
+            locations = []
+            for row in result:
+                location = row[0]
+                location.distance_miles = row[1]  # Attach distance as an attribute
+                locations.append(location)
+            return locations
+        else:
+            return result.scalars().all()
 
     async def get_locations_by_bbox(
         self,
@@ -278,6 +309,110 @@ class LocationRepository(BaseRepository[LocationModel]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def count_by_radius(
+        self,
+        center: GeoPoint,
+        radius_miles: float,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> int:
+        """Count locations within radius of a point."""
+        if HAS_GEOALCHEMY2:
+            # Use PostGIS for accurate distance calculations
+            radius_meters = radius_miles * 1609.34
+
+            query = (
+                select(func.count())
+                .select_from(self.model)
+                .filter(
+                    ST_DWithin(
+                        self.model.geometry,
+                        func.ST_SetSRID(
+                            func.ST_MakePoint(center.longitude, center.latitude), 4326
+                        ),
+                        radius_meters,
+                        True,  # Use spheroid for accurate distance
+                    )
+                )
+            )
+        else:
+            # Fallback: use bounding box approximation
+            # Convert miles to approximate degrees
+            lat_delta = radius_miles / 69.0
+            lon_delta = radius_miles / (69.0 * 0.7)  # Approximate longitude scaling
+
+            query = (
+                select(func.count())
+                .select_from(self.model)
+                .filter(
+                    and_(
+                        self.model.latitude.between(
+                            center.latitude - lat_delta, center.latitude + lat_delta
+                        ),
+                        self.model.longitude.between(
+                            center.longitude - lon_delta, center.longitude + lon_delta
+                        ),
+                    )
+                )
+            )
+
+        # Apply additional filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
+    async def count_by_bbox(
+        self,
+        bbox: GeoBoundingBox,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> int:
+        """Count locations within bounding box."""
+        if HAS_GEOALCHEMY2:
+            # Use PostGIS for accurate bounding box queries
+            bbox_geom = func.ST_SetSRID(
+                func.ST_MakeEnvelope(
+                    bbox.min_longitude,
+                    bbox.min_latitude,
+                    bbox.max_longitude,
+                    bbox.max_latitude,
+                ),
+                4326,
+            )
+
+            query = (
+                select(func.count())
+                .select_from(self.model)
+                .filter(ST_Intersects(self.model.geometry, bbox_geom))
+            )
+        else:
+            # Fallback: use simple coordinate range filtering
+            query = (
+                select(func.count())
+                .select_from(self.model)
+                .filter(
+                    and_(
+                        self.model.latitude.between(
+                            bbox.min_latitude, bbox.max_latitude
+                        ),
+                        self.model.longitude.between(
+                            bbox.min_longitude, bbox.max_longitude
+                        ),
+                    )
+                )
+            )
+
+        # Apply additional filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
 
 class ServiceRepository(BaseRepository[ServiceModel]):
     """Repository for Service entities."""
@@ -330,6 +465,22 @@ class ServiceRepository(BaseRepository[ServiceModel]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def count_by_search(self, search_term: str) -> int:
+        """Count services matching search term."""
+        query = (
+            select(func.count())
+            .select_from(self.model)
+            .filter(
+                or_(
+                    self.model.name.ilike(f"%{search_term}%"),
+                    self.model.alternate_name.ilike(f"%{search_term}%"),
+                    self.model.description.ilike(f"%{search_term}%"),
+                )
+            )
+        )
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
     async def get_services_with_locations(
         self, skip: int = 0, limit: int = 100
     ) -> Sequence[ServiceModel]:
@@ -381,6 +532,16 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def count_services_at_location(self, location_id: UUID) -> int:
+        """Count services at a location."""
+        query = (
+            select(func.count())
+            .select_from(self.model)
+            .filter(self.model.location_id == location_id)
+        )
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
     async def get_locations_for_service(
         self, service_id: UUID, skip: int = 0, limit: int = 100
     ) -> Sequence[ServiceAtLocationModel]:
@@ -394,6 +555,16 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         )
         result = await self.session.execute(query)
         return result.scalars().all()
+
+    async def count_locations_for_service(self, service_id: UUID) -> int:
+        """Count locations for a service."""
+        query = (
+            select(func.count())
+            .select_from(self.model)
+            .filter(self.model.service_id == service_id)
+        )
+        result = await self.session.execute(query)
+        return result.scalar() or 0
 
 
 class AddressRepository(BaseRepository[AddressModel]):

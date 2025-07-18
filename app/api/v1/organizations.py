@@ -39,7 +39,7 @@ async def list_organizations(
     if name:
         # Use search method for name filtering
         organizations = await repository.search_by_name(name, limit=per_page)
-        total = len(organizations)  # Approximation for search results
+        total = await repository.count_by_name_search(name)
     else:
         # Get all organizations
         if include_services:
@@ -138,7 +138,7 @@ async def search_organizations(
 
     # Search organizations
     organizations = await repository.search_by_name(q, limit=per_page)
-    total = len(organizations)  # Approximation for search results
+    total = await repository.count_by_name_search(q)
 
     # Convert to response models
     org_responses = [OrganizationResponse.model_validate(org) for org in organizations]
