@@ -45,7 +45,7 @@ def scheduled_export(
                 latest_path = os.path.join(output_dir, "latest.sqlite")
                 if os.path.exists(latest_path) and os.path.islink(latest_path):
                     os.remove(latest_path)
-                os.symlink(filename, latest_path)
+                os.symlink(output_path, latest_path)
                 logger.info(f"Updated latest.sqlite link to point to {filename}")
 
             # Clean up old files if needed
