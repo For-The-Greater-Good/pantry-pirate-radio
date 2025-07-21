@@ -69,3 +69,4 @@ coverage.xml
 node_modules/
 package-lock.json
 yarn.lock
+pantry_pirate_radio.sqlite

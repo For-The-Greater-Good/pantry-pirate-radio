@@ -401,13 +401,15 @@ class OrganizationCreator(BaseReconciler):
                     "id": str(org_id),
                     "name": name,
                     "description": description,
-                    "website": website,
-                    "email": email,
-                    "year_incorporated": year_incorporated,
-                    "legal_status": legal_status,
+                    "website": website if website else None,
+                    "email": email if email else None,
+                    "year_incorporated": (
+                        year_incorporated if year_incorporated else None
+                    ),
+                    "legal_status": legal_status if legal_status else None,
                     "tax_status": tax_status,
                     "tax_id": tax_id,
-                    "uri": uri,
+                    "uri": uri if uri else None,
                     "parent_organization_id": parent_organization_id,
                 },
             )

@@ -41,7 +41,11 @@
       "Bash(TESTING=false poetry run pytest tests/test_integration/test_api_organizations.py::TestOrganizationsAPIIntegration::test_list_organizations_empty -v)",
       "Bash(curl:*)",
       "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term-missing -q)",
-      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term -q)"
+      "Bash(TESTING=true poetry run pytest --cov=app --cov-report=term -q)",
+      "WebFetch(domain:github.com)",
+      "Bash(touch:*)",
+      "Bash(sqlite3:*)",
+      "Bash(gh pr view:*)"
     ],
     "deny": []
   }

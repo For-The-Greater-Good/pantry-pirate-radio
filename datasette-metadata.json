@@ -32,42 +32,63 @@
   "databases": {
     "latest": {
       "tables": {
-        "organization": {
-          "sort": "name",
+        "location_master": {
+          "sort": "location_name",
           "sort_desc": false,
-          "title": "Food Pantries & Providers",
-          "description": "Organizations that provide food assistance services"
+          "title": "All Food Pantry Locations",
+          "description": "Comprehensive view of all food pantry locations with complete details including address, contact info, services, hours, and source tracking"
+        },
+        "organization": {
+          "hidden": true
         },
         "location": {
-          "sort": "name",
-          "sort_desc": false,
-          "title": "Service Locations",
-          "description": "Physical locations where food services are provided"
+          "hidden": true
         },
         "service": {
-          "sort": "name",
-          "sort_desc": false,
-          "title": "Food Services",
-          "description": "Food distribution and assistance programs"
+          "hidden": true
         },
         "service_at_location": {
           "hidden": true
         },
-        "location_with_services": {
-          "title": "Locations with Services",
-          "description": "Simplified view of locations with their services and organizations"
+        "address": {
+          "hidden": true
+        },
+        "phone": {
+          "hidden": true
+        },
+        "schedule": {
+          "hidden": true
+        },
+        "location_source": {
+          "hidden": true
+        },
+        "organization_source": {
+          "hidden": true
+        },
+        "service_source": {
+          "hidden": true
         }
       },
       "queries": {
         "locations_by_city": {
-          "sql": "SELECT city, count(*) as count FROM location GROUP BY city ORDER BY count DESC",
+          "sql": "SELECT city, count(*) as count FROM location_master GROUP BY city ORDER BY count DESC",
           "title": "Locations by City",
           "description": "Number of service locations in each city"
         },
-        "organizations_by_type": {
-          "sql": "SELECT organization_type, count(*) as count FROM organization GROUP BY organization_type ORDER BY count DESC",
-          "title": "Organizations by Type",
-          "description": "Number of organizations by type"
+        "locations_by_state": {
+          "sql": "SELECT state_province, count(*) as count FROM location_master GROUP BY state_province ORDER BY count DESC",
+          "title": "Locations by State",
+          "description": "Number of service locations by state"
+        },
+        "locations_with_hours": {
+          "sql": "SELECT location_name, address_1, city, state_province, hours_of_operation FROM location_master WHERE hours_of_operation IS NOT NULL ORDER BY state_province, city, location_name",
+          "title": "Locations with Known Hours",
+          "description": "All locations that have hours of operation information"
+        },
+        "multi_source_locations": {
+          "sql": "SELECT location_name, address_1, city, state_province, data_sources, source_count FROM location_master WHERE source_count > 1 ORDER BY source_count DESC, location_name",
+          "title": "Locations from Multiple Sources",
+          "description": "Locations that appear in multiple data sources"
         }
       }
     }
@@ -81,7 +102,7 @@
         {
           "title": "Locations Map",
           "type": "chart",
-          "query": "SELECT * FROM location WHERE latitude IS NOT NULL AND longitude IS NOT NULL LIMIT 1000",
+          "query": "SELECT * FROM location_master WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
           "chart": {
             "plugin": "datasette-cluster-map"
           }
@@ -89,7 +110,7 @@
         {
           "title": "Locations by City",
           "type": "chart",
-          "query": "SELECT city, count(*) as count FROM location GROUP BY city ORDER BY count DESC LIMIT 10",
+          "query": "SELECT city, count(*) as count FROM location_master GROUP BY city ORDER BY count DESC LIMIT 10",
           "chart": {
             "type": "bar",
             "x": "city",
@@ -97,13 +118,23 @@
           }
         },
         {
-          "title": "Organizations by Type",
+          "title": "Locations by State",
           "type": "chart",
-          "query": "SELECT organization_type, count(*) as count FROM organization GROUP BY organization_type ORDER BY count DESC LIMIT 10",
+          "query": "SELECT state_province, count(*) as count FROM location_master GROUP BY state_province ORDER BY count DESC LIMIT 15",
+          "chart": {
+            "type": "bar",
+            "x": "state_province",
+            "y": "count"
+          }
+        },
+        {
+          "title": "Data Source Coverage",
+          "type": "chart",
+          "query": "SELECT data_sources, COUNT(*) as location_count FROM location_master GROUP BY data_sources ORDER BY location_count DESC LIMIT 10",
           "chart": {
             "type": "pie",
-            "x": "organization_type",
-            "y": "count"
+            "x": "data_sources",
+            "y": "location_count"
           }
         }
       ]

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import httpx
+
 from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
@@ -22,16 +23,17 @@ class FreshtrakScraper(ScraperJob):
         """
         super().__init__(scraper_id=scraper_id)
         self.base_url = "https://pantry-finder-api.freshtrak.com"
-        self.search_radius = 50  # miles
-        self.batch_size = 25  # Number of grid points to process at once
-        self.request_delay = 0.1  # 100ms between requests
+        self.search_radius = 500  # miles - increased to reduce API calls
+        self.batch_size = 200  # Larger batches since we have fewer total points
+        self.request_delay = 0.01  # 10ms between requests
         self.unique_agencies: set[str] = set()
         self.total_agencies = 0
 
         # Initialize geocoder with US default coordinates
         self.geocoder = GeocoderUtils(
             default_coordinates={
-                "US": (39.8283, -98.5795),  # Geographic center of the United States
+                # Geographic center of the United States
+                "US": (39.8283, -98.5795),
             }
         )
 
@@ -56,7 +58,9 @@ class FreshtrakScraper(ScraperJob):
         logger.info(f"Fetching agencies for zip code: {zip_code}")
 
         try:
-            async with httpx.AsyncClient(headers=get_scraper_headers()) as client:
+            async with httpx.AsyncClient(
+                headers=get_scraper_headers(), timeout=httpx.Timeout(90.0, connect=30.0)
+            ) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 return response.json()
@@ -82,12 +86,24 @@ class FreshtrakScraper(ScraperJob):
         logger.debug(f"Fetching agencies for coordinates: {lat}, {lng}")
 
         try:
-            async with httpx.AsyncClient(headers=get_scraper_headers()) as client:
+            async with httpx.AsyncClient(
+                headers=get_scraper_headers(), timeout=httpx.Timeout(90.0, connect=30.0)
+            ) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPError as e:
-            logger.error(f"Error fetching data for coordinates {lat}, {lng}: {e}")
+            logger.error(
+                f"Error fetching data for coordinates {lat}, {lng}: {type(e).__name__}: {str(e)}"
+            )
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.error(f"Response text: {e.response.text[:500]}")
+            return {}
+        except Exception as e:
+            logger.error(
+                f"Unexpected error fetching data for coordinates {lat}, {lng}: {type(e).__name__}: {str(e)}"
+            )
             return {}
 
     def process_agency(self, agency: dict[str, Any]) -> dict[str, Any]:
@@ -199,17 +215,24 @@ class FreshtrakScraper(ScraperJob):
         """
         all_agencies = []
 
-        # Get grid points for entire US
-        us_grid_points = self.utils.get_us_grid_points()
+        # Get grid points with optimized settings for FreshTrak
+        # Using 150-mile radius with 25% overlap significantly reduces API calls
+        us_grid_points = self.utils.get_us_grid_points(
+            search_radius_miles=self.search_radius,  # 150 miles
+            overlap_factor=0.25,  # 25% overlap
+        )
         logger.info(
-            "Starting grid search with %s coordinate points", len(us_grid_points)
+            "Starting optimized grid search with %s coordinate points (150mi radius, 25%% overlap)",
+            len(us_grid_points),
         )
 
-        # Process grid points in batches
-        for i in range(0, len(us_grid_points), self.batch_size):
-            batch = us_grid_points[i : i + self.batch_size]
+        # Configure concurrent processing
+        max_concurrent = 25  # Increased for faster processing with fewer total requests
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-            for coord in batch:
+        async def fetch_with_semaphore(coord):
+            """Fetch agencies for a coordinate with rate limiting."""
+            async with semaphore:
                 try:
                     data = await self.fetch_agencies_by_coordinates(
                         coord.latitude, coord.longitude
@@ -217,44 +240,60 @@ class FreshtrakScraper(ScraperJob):
 
                     if data.get("agencies"):
                         agencies = data["agencies"]
-                        logger.debug(
-                            f"Found {len(agencies)} agencies for coordinates {coord.latitude}, {coord.longitude}"
-                        )
-
-                        for agency in agencies:
-                            agency_id = str(agency.get("id", ""))
-
-                            # Only process unique agencies
-                            if agency_id and agency_id not in self.unique_agencies:
-                                processed_agency = self.process_agency(agency)
-                                all_agencies.append(processed_agency)
-                                self.unique_agencies.add(agency_id)
-                                self.total_agencies += 1
-
-                                logger.info(
-                                    "Found unique agency %s (total: %s)",
-                                    agency_id,
-                                    self.total_agencies,
-                                )
-
+                        if len(agencies) > 0:
+                            logger.debug(
+                                f"Found {len(agencies)} agencies for coordinates {coord.latitude}, {coord.longitude}"
+                            )
+                        return agencies
+                    return []
                 except Exception as e:
-                    logger.error(
+                    logger.debug(
                         f"Error processing coordinates {coord.latitude}, {coord.longitude}: {e}"
                     )
-                    continue
+                    return []
 
-                # Add delay between requests
-                await asyncio.sleep(self.request_delay)
+        # Process grid points in batches
+        for i in range(0, len(us_grid_points), self.batch_size):
+            batch = us_grid_points[i : i + self.batch_size]
 
-            # Log progress
+            # Create tasks for concurrent processing
+            tasks = [fetch_with_semaphore(coord) for coord in batch]
+
+            # Execute batch concurrently
+            batch_results = await asyncio.gather(*tasks)
+
+            # Process results
+            for agencies in batch_results:
+                for agency in agencies:
+                    agency_id = str(agency.get("id", ""))
+
+                    # Only process unique agencies
+                    if agency_id and agency_id not in self.unique_agencies:
+                        processed_agency = self.process_agency(agency)
+                        all_agencies.append(processed_agency)
+                        self.unique_agencies.add(agency_id)
+                        self.total_agencies += 1
+
+                        logger.info(
+                            "Found unique agency %s (total: %s)",
+                            agency_id,
+                            self.total_agencies,
+                        )
+
+            # Log progress every 10% or when new agencies are found
             progress = min(
                 100, round((i + self.batch_size) / len(us_grid_points) * 100)
             )
-            logger.info(
-                "Grid search progress: %s%% complete, unique agencies: %s",
-                progress,
-                len(self.unique_agencies),
-            )
+            if progress % 10 == 0 or len(self.unique_agencies) > self.total_agencies:
+                logger.info(
+                    "Grid search progress: %s%% complete, unique agencies: %s",
+                    progress,
+                    len(self.unique_agencies),
+                )
+
+            # Small delay only for large batches to avoid overwhelming the API
+            if i % 500 == 0 and i > 0:
+                await asyncio.sleep(0.5)
 
         return all_agencies
 
