@@ -5,8 +5,7 @@
 		"../docker-compose.dev.yml"
 	],
 	"mounts": [
-		"source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly",
-		"source=${localEnv:HOME}/.git-credentials,target=/home/vscode/.git-credentials,type=bind"
+		"source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly"
 	],
 	"service": "app",
 	"workspaceFolder": "/workspace",

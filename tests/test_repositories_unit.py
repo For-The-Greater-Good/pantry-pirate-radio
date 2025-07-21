@@ -493,10 +493,13 @@ class TestBaseRepositoryUnitTests:
         # Test descriptor protocol
         class TestDescriptor:
             def __get__(self, obj, objtype=None):
+                _ = obj  # Acknowledge parameter
                 _ = objtype  # Acknowledge parameter
                 return "descriptor_value"
 
             def __set__(self, obj, value):
+                _ = obj  # Acknowledge parameter
+                _ = value  # Acknowledge parameter
                 pass
 
         class TestClass:
