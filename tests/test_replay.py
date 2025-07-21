@@ -338,3 +338,149 @@ class TestReplayModule:
         assert should_process_job(completed_data) is True
         assert should_process_job(failed_data) is False  # Skip failed jobs
         assert should_process_job(incomplete_data) is False  # Skip incomplete jobs
+
+
+class TestReplaySecurityFeatures:
+    """Test cases for security features in the replay module."""
+
+    def test_should_reject_directory_traversal_attempts(self, tmp_path: Path) -> None:
+        """Test that directory traversal attempts are blocked."""
+        # Arrange
+        from app.replay.replay import validate_file_path
+
+        # Create a test file
+        test_file = tmp_path / "test.json"
+        test_file.write_text("{}")
+
+        # Act & Assert
+        # Direct path should work
+        assert validate_file_path(str(test_file)) is not None
+
+        # Directory traversal should be blocked
+        assert validate_file_path(f"{tmp_path}/../test.json") is None
+        assert validate_file_path(f"{tmp_path}/../../test.json") is None
+
+    def test_should_reject_files_outside_allowed_directories(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that files outside allowed directories are rejected."""
+        # Arrange
+        from app.replay.replay import validate_file_path
+
+        # Create test directories
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        forbidden_dir = tmp_path / "forbidden"
+        forbidden_dir.mkdir()
+
+        # Create test files
+        allowed_file = allowed_dir / "test.json"
+        allowed_file.write_text("{}")
+        forbidden_file = forbidden_dir / "test.json"
+        forbidden_file.write_text("{}")
+
+        # Act & Assert
+        # File in allowed directory should work
+        assert (
+            validate_file_path(str(allowed_file), allowed_dirs=[str(allowed_dir)])
+            is not None
+        )
+
+        # File outside allowed directory should be rejected
+        assert (
+            validate_file_path(str(forbidden_file), allowed_dirs=[str(allowed_dir)])
+            is None
+        )
+
+    def test_should_reject_files_exceeding_size_limit(self, tmp_path: Path) -> None:
+        """Test that oversized files are rejected."""
+        # Arrange
+        from app.replay.replay import MAX_FILE_SIZE, validate_file_path
+
+        # Create a large file
+        large_file = tmp_path / "large.json"
+        large_file.write_bytes(b"x" * (MAX_FILE_SIZE + 1))
+
+        # Create a normal file
+        normal_file = tmp_path / "normal.json"
+        normal_file.write_text("{}")
+
+        # Act & Assert
+        # Large file should be rejected
+        assert validate_file_path(str(large_file)) is None
+
+        # Normal file should be accepted
+        assert validate_file_path(str(normal_file)) is not None
+
+    def test_should_handle_nonexistent_files_safely(self) -> None:
+        """Test handling of nonexistent files."""
+        # Arrange
+        from app.replay.replay import validate_file_path
+
+        # Act & Assert
+        assert validate_file_path("/nonexistent/file.json") is None
+        assert validate_file_path("") is None
+
+    def test_should_preserve_original_metadata_when_available(self) -> None:
+        """Test that original job metadata is preserved."""
+        # Arrange
+        from app.replay.replay import create_job_result
+
+        data = {
+            "job_id": "test-123",
+            "job": {
+                "id": "test-123",
+                "prompt": "Test prompt",
+                "format": {"type": "object"},
+                "provider_config": {},
+                "metadata": {},
+                "created_at": "2025-07-21T16:22:14.978038+00:00",
+            },
+            "result": {"text": "Test response"},
+            "error": None,
+            "completed_at": "2025-07-21T16:25:30.123456+00:00",
+            "processing_time": 15.5,
+            "retry_count": 2,
+        }
+
+        # Act
+        job_result = create_job_result(data)
+
+        # Assert
+        assert job_result is not None
+        assert job_result.completed_at.isoformat() == "2025-07-21T16:25:30.123456+00:00"
+        assert job_result.processing_time == 15.5
+        assert job_result.retry_count == 2
+
+    def test_should_use_defaults_for_invalid_metadata(self) -> None:
+        """Test that invalid metadata falls back to defaults."""
+        # Arrange
+        from app.replay.replay import create_job_result
+
+        data = {
+            "job_id": "test-123",
+            "job": {
+                "id": "test-123",
+                "prompt": "Test prompt",
+                "format": {"type": "object"},
+                "provider_config": {},
+                "metadata": {},
+                "created_at": "2025-07-21T16:22:14.978038+00:00",
+            },
+            "result": {"text": "Test response"},
+            "error": None,
+            "completed_at": "invalid-date",
+            "processing_time": "not-a-number",
+            "retry_count": "not-an-int",
+        }
+
+        # Act
+        job_result = create_job_result(data)
+
+        # Assert
+        assert job_result is not None
+        # Should use current time for invalid date
+        assert job_result.completed_at is not None
+        # Should use defaults for invalid numbers
+        assert job_result.processing_time == 0.0
+        assert job_result.retry_count == 0

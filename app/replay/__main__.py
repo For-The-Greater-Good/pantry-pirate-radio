@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from app.replay.replay import replay_directory, replay_file
+from app.replay.replay import DEFAULT_OUTPUT_DIR, replay_directory, replay_file
 
 # Configure logging
 logging.basicConfig(
@@ -105,7 +105,7 @@ def main() -> int:
 
         else:  # --use-default-output-dir
             # Use default output directory
-            output_dir = os.environ.get("OUTPUT_DIR", "outputs")
+            output_dir = os.environ.get("OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
             dir_path = Path(output_dir)
 
             if not dir_path.exists():

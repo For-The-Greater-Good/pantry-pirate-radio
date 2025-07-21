@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,22 +14,92 @@ from app.reconciler.job_processor import process_job_result
 
 logger = logging.getLogger(__name__)
 
+# Constants
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
+DEFAULT_OUTPUT_DIR = "outputs"
+DEFAULT_MODEL_NAME = "unknown"
+DEFAULT_USAGE_STATS = {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0}
 
-def read_job_file(file_path: str) -> dict[str, Any] | None:
+
+def validate_file_path(
+    file_path: str, allowed_dirs: list[str] | None = None
+) -> Path | None:
+    """Validate file path for security and size constraints.
+
+    Args:
+        file_path: Path to validate
+        allowed_dirs: List of allowed directories. If None, allows any path.
+
+    Returns:
+        Resolved Path object if valid, None otherwise
+    """
+    try:
+        path = Path(file_path).resolve()
+
+        # Check if file exists
+        if not path.is_file():
+            logger.warning(f"File not found: {file_path}")
+            return None
+
+        # Check for directory traversal attempts
+        if ".." in file_path:
+            logger.warning(f"Directory traversal attempt detected: {file_path}")
+            return None
+
+        # Check file size
+        file_size = path.stat().st_size
+        if file_size > MAX_FILE_SIZE:
+            logger.warning(
+                f"File too large: {file_path} ({file_size} bytes > {MAX_FILE_SIZE} bytes)"
+            )
+            return None
+
+        # Validate against allowed directories if specified
+        if allowed_dirs:
+            is_allowed = False
+            for allowed_dir in allowed_dirs:
+                try:
+                    allowed_path = Path(allowed_dir).resolve()
+                    if path.is_relative_to(allowed_path):
+                        is_allowed = True
+                        break
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to resolve allowed directory {allowed_dir}: {e}"
+                    )
+                    continue
+
+            if not is_allowed:
+                logger.warning(f"File outside allowed directories: {file_path}")
+                return None
+
+        return path
+
+    except Exception as e:
+        logger.warning(f"Invalid file path {file_path}: {e}")
+        return None
+
+
+def read_job_file(
+    file_path: str, allowed_dirs: list[str] | None = None
+) -> dict[str, Any] | None:
     """Read a job JSON file and return its contents.
 
     Args:
         file_path: Path to the JSON file
+        allowed_dirs: List of allowed directories for security
 
     Returns:
         Parsed JSON data or None if error
     """
-    try:
-        with open(file_path) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logger.warning(f"File not found: {file_path}")
+    # Validate path first
+    validated_path = validate_file_path(file_path, allowed_dirs)
+    if not validated_path:
         return None
+
+    try:
+        with open(validated_path) as f:
+            return json.load(f)
     except json.JSONDecodeError as e:
         logger.warning(f"Invalid JSON in file {file_path}: {e}")
         return None
@@ -82,23 +153,54 @@ def create_job_result(data: dict[str, Any]) -> JobResult | None:
         # Convert result to LLMResponse if needed
         result = data.get("result")
         if result is not None and status == JobStatus.COMPLETED:
-            # Check if result is already an LLMResponse-like dict
-            if isinstance(result, dict) and "model" in result and "usage" in result:
-                # Already in LLMResponse format
-                llm_response = LLMResponse(**result)
-            else:
-                # Create LLMResponse from raw result
-                llm_response = LLMResponse(
-                    text=str(result) if not isinstance(result, str) else result,
-                    model=job_data.get("provider_config", {}).get("model", "unknown"),
-                    usage={
-                        "total_tokens": 0,
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                    },
-                    raw=result if isinstance(result, dict) else {"response": result},
-                )
+            # Try to create LLMResponse, with better validation
+            try:
+                # Check if result is already an LLMResponse-like dict
+                if isinstance(result, dict) and all(
+                    k in result for k in ["model", "usage", "text"]
+                ):
+                    # Already in LLMResponse format
+                    llm_response = LLMResponse(**result)
+                else:
+                    # Create LLMResponse from raw result
+                    llm_response = LLMResponse(
+                        text=str(result) if not isinstance(result, str) else result,
+                        model=job_data.get("provider_config", {}).get(
+                            "model", DEFAULT_MODEL_NAME
+                        ),
+                        usage=DEFAULT_USAGE_STATS.copy(),
+                        raw=(
+                            result if isinstance(result, dict) else {"response": result}
+                        ),
+                    )
                 result = llm_response
+            except Exception as e:
+                logger.warning(f"Failed to create LLMResponse, using raw result: {e}")
+                # Keep raw result if LLMResponse creation fails
+
+        # Preserve original metadata when available
+        completed_at = datetime.now()
+        if "completed_at" in data:
+            try:
+                completed_at = datetime.fromisoformat(data["completed_at"])
+            except (ValueError, TypeError):
+                logger.debug(f"Invalid completed_at format: {data['completed_at']}")
+
+        processing_time = 0.0
+        if "processing_time" in data:
+            try:
+                processing_time = float(data["processing_time"])
+            except (ValueError, TypeError):
+                logger.debug(
+                    f"Invalid processing_time format: {data['processing_time']}"
+                )
+
+        retry_count = 0
+        if "retry_count" in data:
+            try:
+                retry_count = int(data["retry_count"])
+            except (ValueError, TypeError):
+                logger.debug(f"Invalid retry_count format: {data['retry_count']}")
 
         # Create JobResult
         job_result = JobResult(
@@ -107,9 +209,9 @@ def create_job_result(data: dict[str, Any]) -> JobResult | None:
             status=status,
             result=result,
             error=data.get("error"),
-            completed_at=datetime.now(),
-            processing_time=0.0,
-            retry_count=0,
+            completed_at=completed_at,
+            processing_time=processing_time,
+            retry_count=retry_count,
         )
 
         return job_result
@@ -139,20 +241,23 @@ def should_process_job(data: dict[str, Any]) -> bool:
     return data.get("result") is not None
 
 
-def replay_file(file_path: str, dry_run: bool = False) -> bool:
+def replay_file(
+    file_path: str, dry_run: bool = False, allowed_dirs: list[str] | None = None
+) -> bool:
     """Replay a single JSON file.
 
     Args:
         file_path: Path to the JSON file
         dry_run: If True, only validate without processing
+        allowed_dirs: List of allowed directories for security
 
     Returns:
         True if successful, False otherwise
     """
     logger.info(f"Processing file: {file_path}")
 
-    # Read the file
-    data = read_job_file(file_path)
+    # Read the file with security validation
+    data = read_job_file(file_path, allowed_dirs)
     if not data:
         logger.error(f"Failed to read file: {file_path}")
         return False
@@ -201,6 +306,9 @@ def replay_directory(
         logger.error(f"Directory not found: {directory}")
         return {"total_files": 0, "successful": 0, "failed": 0}
 
+    # Security: Only allow files from the specified directory
+    allowed_dirs = [str(dir_path.resolve())]
+
     # Find all matching files
     files = list(dir_path.glob(pattern))
     logger.info(f"Found {len(files)} files matching pattern '{pattern}'")
@@ -210,7 +318,7 @@ def replay_directory(
     # Process each file
     for file_path in files:
         try:
-            if replay_file(str(file_path), dry_run=dry_run):
+            if replay_file(str(file_path), dry_run=dry_run, allowed_dirs=allowed_dirs):
                 stats["successful"] += 1
             else:
                 stats["failed"] += 1
