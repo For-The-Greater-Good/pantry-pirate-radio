@@ -20,15 +20,31 @@ class TestScheduledExport:
     @patch("app.datasette.scheduler.time.sleep")
     @patch("app.datasette.scheduler.export_to_sqlite")
     @patch("app.datasette.scheduler.os.makedirs")
+    @patch("app.datasette.scheduler.os.symlink")
+    @patch("app.datasette.scheduler.os.remove")
+    @patch("app.datasette.scheduler.os.path.exists")
+    @patch("app.datasette.scheduler.os.path.islink")
     @patch("app.datasette.scheduler.datetime")
     def test_scheduled_export_basic_single_iteration(
-        self, mock_datetime, mock_makedirs, mock_export, mock_sleep
+        self,
+        mock_datetime,
+        mock_islink,
+        mock_exists,
+        mock_remove,
+        mock_symlink,
+        mock_makedirs,
+        mock_export,
+        mock_sleep,
     ):
         """Test basic scheduled export functionality for one iteration."""
         # Mock datetime to return consistent timestamp
         mock_now = MagicMock()
         mock_now.strftime.return_value = "20230101_120000"
         mock_datetime.now.return_value = mock_now
+
+        # Set up symlink mocks
+        mock_exists.return_value = False
+        mock_islink.return_value = False
 
         # Mock sleep to break the infinite loop after first iteration
         mock_sleep.side_effect = KeyboardInterrupt("Break loop")
@@ -43,7 +59,7 @@ class TestScheduledExport:
 
         # Verify export was called
         expected_path = "/test/output/pantry_pirate_radio_20230101_120000.sqlite"
-        mock_export.assert_called_once_with(output_path=expected_path)
+        mock_export.assert_called_once_with(sqlite_path=expected_path)
 
         # Verify sleep was called
         mock_sleep.assert_called_once_with(60)
@@ -159,14 +175,30 @@ class TestScheduledExport:
     @patch("app.datasette.scheduler.time.sleep")
     @patch("app.datasette.scheduler.export_to_sqlite")
     @patch("app.datasette.scheduler.os.makedirs")
+    @patch("app.datasette.scheduler.os.symlink")
+    @patch("app.datasette.scheduler.os.remove")
+    @patch("app.datasette.scheduler.os.path.exists")
+    @patch("app.datasette.scheduler.os.path.islink")
     @patch("app.datasette.scheduler.datetime")
     def test_scheduled_export_custom_filename_template(
-        self, mock_datetime, mock_makedirs, mock_export, mock_sleep
+        self,
+        mock_datetime,
+        mock_islink,
+        mock_exists,
+        mock_remove,
+        mock_symlink,
+        mock_makedirs,
+        mock_export,
+        mock_sleep,
     ):
         """Test scheduled export with custom filename template."""
         mock_now = MagicMock()
         mock_now.strftime.return_value = "20230101_120000"
         mock_datetime.now.return_value = mock_now
+
+        # Set up symlink mocks
+        mock_exists.return_value = False
+        mock_islink.return_value = False
 
         mock_sleep.side_effect = KeyboardInterrupt("Break loop")
 
@@ -179,7 +211,7 @@ class TestScheduledExport:
 
         # Verify custom filename was used
         expected_path = "/test/output/custom_export_20230101_120000.db"
-        mock_export.assert_called_once_with(output_path=expected_path)
+        mock_export.assert_called_once_with(sqlite_path=expected_path)
 
 
 class TestCleanupOldExports:

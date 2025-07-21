@@ -14,13 +14,22 @@ class GridGenerator:
     SEARCH_RADIUS_MILES = 80.0
     OVERLAP_FACTOR = 0.45  # 45% overlap between circles
 
-    def __init__(self, bounds: BoundingBox | None = None):
+    def __init__(
+        self,
+        bounds: BoundingBox | None = None,
+        search_radius_miles: float | None = None,
+        overlap_factor: float | None = None,
+    ):
         """Initialize with boundary constants.
 
         Args:
             bounds: Optional bounding box, defaults to continental US
+            search_radius_miles: Optional custom search radius in miles
+            overlap_factor: Optional custom overlap factor (0.0 to 1.0)
         """
         self.bounds = bounds or USBounds()
+        self.search_radius_miles = search_radius_miles or self.SEARCH_RADIUS_MILES
+        self.overlap_factor = overlap_factor or self.OVERLAP_FACTOR
 
     @staticmethod
     def miles_to_lat_degrees(miles: float) -> float:
@@ -68,7 +77,7 @@ class GridGenerator:
             List[GridPoint]: List of grid points with overlapping coverage
         """
         coordinates: list[GridPoint] = []
-        spacing = self.SEARCH_RADIUS_MILES * (1 - self.OVERLAP_FACTOR)
+        spacing = self.search_radius_miles * (1 - self.overlap_factor)
         point_count = 0
 
         # Start at southernmost point
