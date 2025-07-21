@@ -102,7 +102,8 @@ class TestScheduledExport:
         # Verify symlink operations
         mock_remove.assert_called_once_with("/test/output/latest.sqlite")
         mock_symlink.assert_called_once_with(
-            "pantry_pirate_radio_20230101_120000.sqlite", "/test/output/latest.sqlite"
+            "/test/output/pantry_pirate_radio_20230101_120000.sqlite",
+            "/test/output/latest.sqlite",
         )
 
     @patch("app.datasette.scheduler.time.sleep")
