@@ -49,27 +49,41 @@ class ScraperUtils:
     """Utilities for scrapers to queue jobs and generate grid points."""
 
     @staticmethod
-    def get_us_grid_points() -> list[GridPoint]:
+    def get_us_grid_points(
+        search_radius_miles: float | None = None, overlap_factor: float | None = None
+    ) -> list[GridPoint]:
         """Get grid points covering continental US.
+
+        Args:
+            search_radius_miles: Optional custom search radius in miles
+            overlap_factor: Optional custom overlap factor (0.0 to 1.0)
 
         Returns:
             List[GridPoint]: List of grid points with overlapping coverage
         """
-        generator = GridGenerator()
+        generator = GridGenerator(
+            search_radius_miles=search_radius_miles, overlap_factor=overlap_factor
+        )
         points: list[GridPoint] = generator.generate_grid()
         return points
 
     @staticmethod
-    def get_grid_points(bounds: BoundingBox | None = None) -> list[GridPoint]:
+    def get_grid_points(
+        bounds: BoundingBox | None = None,
+        search_radius_miles: float | None = None,
+        overlap_factor: float | None = None,
+    ) -> list[GridPoint]:
         """Get grid points for specified area or US if none provided.
 
         Args:
             bounds: Optional bounding box, defaults to continental US
+            search_radius_miles: Optional custom search radius in miles
+            overlap_factor: Optional custom overlap factor (0.0 to 1.0)
 
         Returns:
             List[GridPoint]: List of grid points with overlapping coverage
         """
-        generator = GridGenerator(bounds)
+        generator = GridGenerator(bounds, search_radius_miles, overlap_factor)
         points: list[GridPoint] = generator.generate_grid()
         return points
 

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 from typing import Any, cast
 
@@ -96,7 +97,7 @@ class LocationDict(TypedDict):
     description: str
     latitude: float
     longitude: float
-    addresses: list[dict[str, Any]]
+    addresss: list[dict[str, Any]]  # Note: HSDS spec uses "addresss" with 3 s's
     phones: list[dict[str, Any]]
     schedules: list[ScheduleDict]
     accessibility: list[dict[str, Any]]
@@ -130,6 +131,21 @@ class JobProcessor:
         """
         self.logger.info("Method deprecated - jobs are processed by RQ worker")
 
+    def _extract_json_from_markdown(self, text: str) -> str:
+        """Extract JSON content from markdown code blocks.
+
+        Args:
+            text: Text that may contain markdown code blocks
+
+        Returns:
+            str: Extracted JSON content or original text if no code blocks found
+        """
+        # Look for ```json ... ``` blocks
+        json_block_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+        if json_block_match:
+            return json_block_match.group(1).strip()
+        return text
+
     def process_job_result(self, job_result: JobResult) -> dict[str, Any]:
         """Process completed job result.
 
@@ -145,13 +161,16 @@ class JobProcessor:
             raise ValueError("Job result has no result")
 
         try:
+            # Extract JSON from markdown code blocks if present
+            json_text = self._extract_json_from_markdown(job_result.result.text)
+
             # Try standard JSON parsing first
             try:
-                raw_data = json.loads(job_result.result.text)
+                raw_data = json.loads(json_text)
             except json.JSONDecodeError:
                 # If standard parsing fails, use demjson3 which is more tolerant
                 logger.info("Standard JSON parsing failed, trying demjson3")
-                raw_data = demjson3.decode(job_result.result.text)
+                raw_data = demjson3.decode(json_text)
 
             # Transform data structure if needed
             # Check if we have a single organization object instead of the expected structure
@@ -212,27 +231,49 @@ class JobProcessor:
                 # Check if process_organization method exists (for source-specific handling)
                 if hasattr(org_creator, "process_organization"):
                     # Process organization to find a match or create a new one
+                    # Convert empty strings and invalid values to None for numeric fields
+                    year_inc = org.get("year_incorporated")
+                    if isinstance(year_inc, str):
+                        year_inc = (
+                            int(year_inc)
+                            if year_inc.strip() and year_inc.strip().isdigit()
+                            else None
+                        )
+                    elif not isinstance(year_inc, int | type(None)):
+                        year_inc = None
+
                     org_id, is_new_org = org_creator.process_organization(
                         org["name"],
                         description,
                         job_result.job.metadata,
-                        website=org.get("website"),
-                        email=org.get("email"),
-                        year_incorporated=org.get("year_incorporated"),
-                        legal_status=org.get("legal_status"),
-                        uri=org.get("uri"),
+                        website=org.get("website") or None,
+                        email=org.get("email") or None,
+                        year_incorporated=year_inc,
+                        legal_status=org.get("legal_status") or None,
+                        uri=org.get("uri") or None,
                     )
                 else:
                     # Fall back to old method for backward compatibility with tests
+                    # Convert empty strings and invalid values to None for numeric fields
+                    year_inc = org.get("year_incorporated")
+                    if isinstance(year_inc, str):
+                        year_inc = (
+                            int(year_inc)
+                            if year_inc.strip() and year_inc.strip().isdigit()
+                            else None
+                        )
+                    elif not isinstance(year_inc, int | type(None)):
+                        year_inc = None
+
                     org_id = org_creator.create_organization(
                         org["name"],
                         description,
                         job_result.job.metadata,
-                        website=org.get("website"),
-                        email=org.get("email"),
-                        year_incorporated=org.get("year_incorporated"),
-                        legal_status=org.get("legal_status"),
-                        uri=org.get("uri"),
+                        website=org.get("website") or None,
+                        email=org.get("email") or None,
+                        year_incorporated=year_inc,
+                        legal_status=org.get("legal_status") or None,
+                        uri=org.get("uri") or None,
                     )
 
                 # Create organization phones with languages
@@ -362,9 +403,24 @@ class JobProcessor:
                             )
                             location_id = uuid.UUID(location_id_str)
 
-                            # Create location addresses
-                            if "addresses" in location:
-                                for address in location["addresses"]:
+                        # Create location addresses for both new and existing locations (HSDS spec uses "addresss" with 3 s's)
+                        if "addresss" in location and location_id:
+                            location_id_str = str(location_id)
+
+                            # Check if addresses already exist for this location
+                            existing_addresses_query = text(
+                                "SELECT COUNT(*) FROM address WHERE location_id = :location_id"
+                            )
+                            result = self.db.execute(
+                                existing_addresses_query,
+                                {"location_id": location_id_str},
+                            )
+                            row = result.first()
+                            address_count = row[0] if row else 0
+
+                            # Only create addresses if none exist
+                            if address_count == 0:
+                                for address in location["addresss"]:
                                     # Ensure required address fields are never null by using empty strings
                                     # These will be updated later based on lat/long
                                     location_creator.create_address(
@@ -382,37 +438,38 @@ class JobProcessor:
                                         metadata=job_result.job.metadata,
                                     )
 
-                            # Create location phones with languages
-                            if "phones" in location:
-                                for phone in location["phones"]:
-                                    # Use empty strings for missing fields
-                                    phone_id = service_creator.create_phone(
-                                        number=phone.get("number", ""),
-                                        phone_type=phone.get("type", ""),
-                                        location_id=location_id,  # Pass UUID
-                                        metadata=job_result.job.metadata,
-                                        transaction=self.db,
-                                    )
-                                    # Add phone languages
-                                    if "languages" in phone:
-                                        for language in phone["languages"]:
-                                            service_creator.create_language(
-                                                name=language.get("name", ""),
-                                                code=language.get("code", ""),
-                                                phone_id=phone_id,
-                                                metadata=job_result.job.metadata,
-                                            )
+                        # Create location phones with languages (for both new and existing locations)
+                        if "phones" in location and location_id:
+                            for phone in location["phones"]:
+                                # Use empty strings for missing fields
+                                phone_id = service_creator.create_phone(
+                                    number=phone.get("number", ""),
+                                    phone_type=phone.get("type", ""),
+                                    location_id=location_id,  # Pass UUID
+                                    metadata=job_result.job.metadata,
+                                    transaction=self.db,
+                                )
+                                # Add phone languages
+                                if "languages" in phone:
+                                    for language in phone["languages"]:
+                                        service_creator.create_language(
+                                            name=language.get("name", ""),
+                                            code=language.get("code", ""),
+                                            phone_id=phone_id,
+                                            metadata=job_result.job.metadata,
+                                        )
 
-                            # Create location accessibility
-                            if "accessibility" in location:
-                                for access in location["accessibility"]:
-                                    location_creator.create_accessibility(
-                                        location_id=location_id_str,
-                                        description=access.get("description"),
-                                        details=access.get("details"),
-                                        url=access.get("url"),
-                                        metadata=job_result.job.metadata,
-                                    )
+                        # Create location accessibility (for both new and existing locations)
+                        if "accessibility" in location and location_id:
+                            location_id_str = str(location_id)
+                            for access in location["accessibility"]:
+                                location_creator.create_accessibility(
+                                    location_id=location_id_str,
+                                    description=access.get("description"),
+                                    details=access.get("details"),
+                                    url=access.get("url"),
+                                    metadata=job_result.job.metadata,
+                                )
 
                         # Store UUID in location_ids dictionary
                         location_ids[location["name"]] = location_id

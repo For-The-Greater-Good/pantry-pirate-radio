@@ -38,7 +38,7 @@ def scheduled_export(
 
             # Run the export
             logger.info(f"Starting scheduled export to {output_path}")
-            export_to_sqlite(output_path=output_path)
+            export_to_sqlite(sqlite_path=output_path)
 
             # Create/update "latest" symlink
             if keep_latest_link:
