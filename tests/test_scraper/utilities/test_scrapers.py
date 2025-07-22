@@ -7,7 +7,10 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from app.scraper.test_utils import run_all_scraper_tests, run_scraper_test
+from tests.test_scraper.utilities.test_utils import (
+    run_all_scraper_tests,
+    run_scraper_test,
+)
 
 # Configure logging
 logging.basicConfig(

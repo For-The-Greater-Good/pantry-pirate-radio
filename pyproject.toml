@@ -384,6 +384,8 @@ omit = [
     "docs/*",
     "*.md",
     "*.txt",
+    # Exclude scrapers from coverage - they depend on external sites
+    "app/scraper/*_scraper.py",
     "*.yml",
     "*.yaml",
     "*.json",

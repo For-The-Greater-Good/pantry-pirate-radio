@@ -363,7 +363,7 @@ When running scrapers in test mode:
 This allows for regular testing of scrapers to detect if external changes break our functionality, without generating unnecessary processing jobs.
 
 ```python
-from app.scraper.test_utils import test_scraper
+from tests.test_scraper.utilities.test_utils import test_scraper
 
 # Test a specific scraper
 results = await test_scraper("nyc_efap_programs")
@@ -372,20 +372,20 @@ print(f"Test {'passed' if results['success'] else 'failed'}")
 
 ### Running Tests
 
-Tests can be run using the `app.scraper.test_scrapers` module:
+Tests can be run using the `tests.test_scraper.utilities.test_scrapers` module:
 
 ```bash
 # Test a specific scraper
-python -m app.scraper.test_scrapers nyc_efap_programs
+python -m tests.test_scraper.utilities.test_scrapers nyc_efap_programs
 
 # Test all available scrapers
-python -m app.scraper.test_scrapers --all
+python -m tests.test_scraper.utilities.test_scrapers --all
 
 # Test all scrapers in parallel (faster)
-python -m app.scraper.test_scrapers --all --parallel --max-workers 4
+python -m tests.test_scraper.utilities.test_scrapers --all --parallel --max-workers 4
 
 # Save test results to a file
-python -m app.scraper.test_scrapers --all --output outputs/scraper_tests.json
+python -m tests.test_scraper.utilities.test_scrapers --all --output outputs/scraper_tests.json
 ```
 
 The module will:
