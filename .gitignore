@@ -36,6 +36,35 @@ ENV/
 .env.local
 .env.*.local
 
+# Security - Never commit these
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+*_rsa
+*_dsa
+*_ecdsa
+*_ed25519
+
+# API Keys and Secrets
+*api_key*
+*apikey*
+*secret*
+*.secret
+secrets/
+credentials/
+
+# Personal Information
+personal_info.txt
+*_credentials.json
+*.credentials
+
 # Logs
 *.log
 test-output.log

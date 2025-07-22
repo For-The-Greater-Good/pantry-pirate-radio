@@ -87,6 +87,11 @@ When adding test data, always use anonymized information:
 - Use environment variables for configuration
 - Validate all user inputs
 - Follow secure coding practices
+
+### 5. **GitHub Workflows**
+- The Claude AI workflows are restricted to the repository owner only
+- These workflows use expensive API calls and will not run on forks
+- See [GitHub Workflows Guide](docs/GITHUB_WORKFLOWS.md) for details on setting up workflows in your fork
 - Use type hints for better code safety
 
 ### Pre-commit Hooks

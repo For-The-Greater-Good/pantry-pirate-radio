@@ -405,6 +405,7 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 - [Worker System](docs/worker.md)
 - [Database Backup](docs/database-backup.md)
 - [Deployment Guide](docs/deployment.md)
+- [GitHub Workflows Guide](docs/GITHUB_WORKFLOWS.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## Environment Configuration
