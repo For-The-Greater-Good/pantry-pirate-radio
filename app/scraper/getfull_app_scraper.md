@@ -16,23 +16,31 @@ The GetFull.app website requires authentication to access its API. The browser s
 3. Using CDP (Chrome DevTools Protocol) to monitor network traffic
 4. Falling back to an anonymous token if necessary
 
-### Data Collection Process
+### Data Collection Process (Updated)
 
-The browser scraper follows these steps to collect data:
+The browser scraper now uses a more efficient geo search API approach:
 
 1. Initialize a headless browser using Playwright
 2. Navigate to the GetFull.app food finder map page
 3. Extract an authentication token using multiple approaches
-4. Generate a prioritized grid of geographic coordinates (see Grid Prioritization below)
-5. For each coordinate:
-   - Center the map at the coordinate with a high zoom level
-   - Extract pantry information from the list view
-   - For each pantry:
-     - Extract the slug from the "more info" button or links
-     - Try multiple slug formats to get detailed information via API
-     - Handle different data formats for hours and services
-6. Transform the pantry data to HSDS format
-7. Submit the data to the processing queue in batches
+4. Use the Elasticsearch geo search API endpoint (`/es/search/geo/pantries`) to search for pantries
+5. Make targeted API calls to major metropolitan areas and rural regions across the US
+6. For each search result:
+   - Extract pantry information from the API response
+   - Get additional details using the pantry details API if needed
+   - Handle different data formats for hours and services
+7. Transform the pantry data to HSDS format
+8. Submit the data to the processing queue in batches
+
+### Geo Search API Approach
+
+The improved scraper uses the geo search API with the following strategy:
+
+1. **Comprehensive Coverage**: 60+ search centers covering all major US metropolitan areas
+2. **Variable Search Radius**: 30-100 mile radius depending on population density
+3. **Overlapping Circles**: Ensures no pantries are missed between search areas
+4. **Efficient API Usage**: Single API call per search center instead of thousands of grid points
+5. **Better Results**: Can retrieve up to 1000 pantries per search location
 
 ### Grid Prioritization and Density
 

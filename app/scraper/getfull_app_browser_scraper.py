@@ -576,6 +576,131 @@ class Getfull_App_BrowserScraper(ScraperJob):
         # Wait a bit for the map to settle and pantries to load
         await asyncio.sleep(2)
 
+    async def search_pantries_by_location(
+        self, lat: float, lng: float, radius_miles: float = 50
+    ) -> list[dict[str, Any]]:
+        """Search for pantries using the geo search API endpoint.
+
+        Args:
+            lat: Latitude of search center
+            lng: Longitude of search center
+            radius_miles: Search radius in miles
+
+        Returns:
+            List of pantry data from API
+        """
+        if not self.auth_token:
+            logger.warning("No auth token available for API search")
+            return []
+
+        # Convert radius to lat/lng offsets for bounding box
+        # Rough approximation: 1 degree latitude = 69 miles
+        # 1 degree longitude = cos(latitude) * 69 miles
+        lat_offset = radius_miles / 69.0
+        lng_offset = radius_miles / (math.cos(math.radians(lat)) * 69.0)
+
+        # Create bounding box
+        top_left = [lat + lat_offset, lng - lng_offset]
+        bottom_right = [lat - lat_offset, lng + lng_offset]
+
+        # Prepare the search request
+        search_url = f"{self.api_url}/es/search/geo/pantries"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.auth_token}",
+            "Content-Type": "application/json",
+        }
+
+        # Search payload with bounding box format
+        payload = {
+            "top_left": top_left,
+            "bottom_right": bottom_right,
+        }
+
+        try:
+            async with httpx.AsyncClient(headers=headers) as client:
+                response = await client.post(
+                    search_url, json=payload, timeout=60
+                )
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # The API returns a list directly
+                if isinstance(data, list):
+                    pantries = data
+                else:
+                    # Fallback to elasticsearch format if it's a dict
+                    pantries = data.get("hits", {}).get("hits", [])
+                
+                logger.info(
+                    f"Found {len(pantries)} pantries via geo search at {lat}, {lng} with radius {radius_miles} miles"
+                )
+                
+                # Extract pantry data - check if it's already in the right format
+                extracted_pantries = []
+                for pantry in pantries:
+                    if isinstance(pantry, dict):
+                        # Check if it's in Elasticsearch format
+                        if "_source" in pantry:
+                            source = pantry.get("_source", {})
+                            pantry_data = {
+                                "id": pantry.get("_id", ""),
+                                "name": source.get("name", ""),
+                                "slug": source.get("slug", ""),
+                                "description": source.get("description", ""),
+                                "address": {
+                                    "street": source.get("address", ""),
+                                    "city": source.get("city", ""),
+                                    "state": source.get("state", ""),
+                                    "zip": source.get("zipCode", ""),
+                                },
+                                "latitude": source.get("location", {}).get("lat"),
+                                "longitude": source.get("location", {}).get("lon"),
+                                "phone": source.get("phone", ""),
+                                "website": source.get("website", ""),
+                                "email": source.get("email", ""),
+                                "hours": source.get("hours", []),
+                                "services": source.get("services", []),
+                                "scheduleId": source.get("scheduleId"),
+                                "isClosed": source.get("isClosed", False),
+                            }
+                        else:
+                            # Direct format from API
+                            pantry_data = {
+                                "id": pantry.get("id", ""),
+                                "name": pantry.get("name", ""),
+                                "slug": pantry.get("slug", ""),
+                                "description": pantry.get("description", ""),
+                                "address": {
+                                    "street": pantry.get("address", {}).get("street", ""),
+                                    "city": pantry.get("address", {}).get("city", ""),
+                                    "state": pantry.get("address", {}).get("state", ""),
+                                    "zip": pantry.get("address", {}).get("zip", ""),
+                                },
+                                "latitude": pantry.get("latitude"),
+                                "longitude": pantry.get("longitude"),
+                                "phone": pantry.get("phone", ""),
+                                "website": pantry.get("website", ""),
+                                "email": pantry.get("email", ""),
+                                "hours": pantry.get("hours", []),
+                                "services": pantry.get("services", []),
+                                "scheduleId": pantry.get("scheduleId"),
+                                "isClosed": pantry.get("isClosed", False),
+                            }
+                        extracted_pantries.append(pantry_data)
+                
+                return extracted_pantries
+                
+        except httpx.HTTPError as e:
+            logger.error(f"Error searching pantries via API: {e}")
+            if hasattr(e, "response") and e.response:
+                logger.error(f"Response: {e.response.text[:500]}")
+        except Exception as e:
+            logger.error(f"Unexpected error in geo search: {e}")
+        
+        return []
+
     async def extract_pantries_from_list(self, page: Page) -> list[dict[str, Any]]:
         """Extract pantry information from the list view.
 
@@ -1753,6 +1878,179 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 # Update the overloaded entry
                 overloaded[0] = (over_idx, worker_coordinate_sets[over_idx])
 
+    async def geo_search_scrape(self) -> dict[str, Any]:
+        """Scrape data using the geo search API with overlapping circles.
+
+        Returns:
+            Dictionary with scraping results
+        """
+        logger.info("Starting geo search scrape using API endpoint")
+        
+        # Initialize a single browser to get auth token
+        playwright, browser, page = await self.initialize_browser()
+        try:
+            await self.navigate_to_map(page)
+            
+            if not self.auth_token or self.auth_token == "anonymous_access_token":
+                logger.error("Failed to obtain valid auth token")
+                return {
+                    "error": "Authentication failed",
+                    "total_pantries_found": 0,
+                    "unique_pantries": 0,
+                }
+            
+            # Define major search centers across the US with appropriate radii
+            search_centers = [
+                # Northeast
+                {"lat": 40.7128, "lng": -74.0060, "radius": 50, "name": "New York City"},
+                {"lat": 42.3601, "lng": -71.0589, "radius": 50, "name": "Boston"},
+                {"lat": 39.9526, "lng": -75.1652, "radius": 50, "name": "Philadelphia"},
+                {"lat": 38.9072, "lng": -77.0369, "radius": 50, "name": "Washington DC"},
+                {"lat": 39.2904, "lng": -76.6122, "radius": 40, "name": "Baltimore"},
+                {"lat": 40.4406, "lng": -79.9959, "radius": 40, "name": "Pittsburgh"},
+                {"lat": 41.8240, "lng": -71.4128, "radius": 30, "name": "Providence"},
+                {"lat": 43.0481, "lng": -76.1474, "radius": 40, "name": "Syracuse"},
+                {"lat": 42.8864, "lng": -78.8784, "radius": 40, "name": "Buffalo"},
+                
+                # Southeast
+                {"lat": 33.7490, "lng": -84.3880, "radius": 50, "name": "Atlanta"},
+                {"lat": 25.7617, "lng": -80.1918, "radius": 50, "name": "Miami"},
+                {"lat": 27.9506, "lng": -82.4572, "radius": 40, "name": "Tampa"},
+                {"lat": 28.5383, "lng": -81.3792, "radius": 40, "name": "Orlando"},
+                {"lat": 30.3322, "lng": -81.6557, "radius": 40, "name": "Jacksonville"},
+                {"lat": 35.2271, "lng": -80.8431, "radius": 40, "name": "Charlotte"},
+                {"lat": 35.7796, "lng": -78.6382, "radius": 40, "name": "Raleigh"},
+                {"lat": 37.5407, "lng": -77.4360, "radius": 30, "name": "Richmond"},
+                {"lat": 32.7765, "lng": -79.9311, "radius": 30, "name": "Charleston"},
+                {"lat": 36.8508, "lng": -75.9742, "radius": 40, "name": "Virginia Beach"},
+                
+                # Midwest
+                {"lat": 41.8781, "lng": -87.6298, "radius": 50, "name": "Chicago"},
+                {"lat": 42.3314, "lng": -83.0458, "radius": 50, "name": "Detroit"},
+                {"lat": 44.9778, "lng": -93.2650, "radius": 50, "name": "Minneapolis"},
+                {"lat": 38.6270, "lng": -90.1994, "radius": 50, "name": "St. Louis"},
+                {"lat": 39.7684, "lng": -86.1581, "radius": 40, "name": "Indianapolis"},
+                {"lat": 41.2565, "lng": -95.9345, "radius": 40, "name": "Omaha"},
+                {"lat": 39.0997, "lng": -94.5786, "radius": 50, "name": "Kansas City"},
+                {"lat": 43.0389, "lng": -87.9065, "radius": 40, "name": "Milwaukee"},
+                {"lat": 41.4993, "lng": -81.6944, "radius": 40, "name": "Cleveland"},
+                {"lat": 39.9612, "lng": -82.9988, "radius": 40, "name": "Columbus"},
+                {"lat": 39.1031, "lng": -84.5120, "radius": 40, "name": "Cincinnati"},
+                
+                # South
+                {"lat": 29.7604, "lng": -95.3698, "radius": 50, "name": "Houston"},
+                {"lat": 32.7767, "lng": -96.7970, "radius": 50, "name": "Dallas"},
+                {"lat": 29.4241, "lng": -98.4936, "radius": 50, "name": "San Antonio"},
+                {"lat": 30.2672, "lng": -97.7431, "radius": 50, "name": "Austin"},
+                {"lat": 29.9511, "lng": -90.0715, "radius": 40, "name": "New Orleans"},
+                {"lat": 36.1627, "lng": -86.7816, "radius": 40, "name": "Nashville"},
+                {"lat": 35.1495, "lng": -90.0490, "radius": 40, "name": "Memphis"},
+                {"lat": 33.5207, "lng": -86.8025, "radius": 40, "name": "Birmingham"},
+                {"lat": 35.4676, "lng": -97.5164, "radius": 50, "name": "Oklahoma City"},
+                
+                # Mountain/West
+                {"lat": 39.7392, "lng": -104.9903, "radius": 50, "name": "Denver"},
+                {"lat": 40.7608, "lng": -111.8910, "radius": 50, "name": "Salt Lake City"},
+                {"lat": 33.4484, "lng": -112.0740, "radius": 50, "name": "Phoenix"},
+                {"lat": 32.2226, "lng": -110.9747, "radius": 40, "name": "Tucson"},
+                {"lat": 35.0844, "lng": -106.6504, "radius": 40, "name": "Albuquerque"},
+                {"lat": 36.1699, "lng": -115.1398, "radius": 50, "name": "Las Vegas"},
+                {"lat": 43.6150, "lng": -116.2023, "radius": 40, "name": "Boise"},
+                
+                # West Coast
+                {"lat": 34.0522, "lng": -118.2437, "radius": 50, "name": "Los Angeles"},
+                {"lat": 37.7749, "lng": -122.4194, "radius": 50, "name": "San Francisco"},
+                {"lat": 37.8044, "lng": -122.2712, "radius": 30, "name": "Oakland"},
+                {"lat": 37.3382, "lng": -121.8863, "radius": 40, "name": "San Jose"},
+                {"lat": 32.7157, "lng": -117.1611, "radius": 50, "name": "San Diego"},
+                {"lat": 47.6062, "lng": -122.3321, "radius": 50, "name": "Seattle"},
+                {"lat": 45.5152, "lng": -122.6784, "radius": 50, "name": "Portland"},
+                {"lat": 38.5816, "lng": -121.4944, "radius": 40, "name": "Sacramento"},
+                {"lat": 36.7378, "lng": -119.7871, "radius": 40, "name": "Fresno"},
+                {"lat": 47.6588, "lng": -117.4260, "radius": 40, "name": "Spokane"},
+                
+                # Additional coverage for rural areas
+                {"lat": 46.8772, "lng": -113.9961, "radius": 100, "name": "Montana"},
+                {"lat": 44.3683, "lng": -100.3364, "radius": 100, "name": "South Dakota"},
+                {"lat": 47.5515, "lng": -101.0020, "radius": 100, "name": "North Dakota"},
+                {"lat": 43.0731, "lng": -107.2903, "radius": 100, "name": "Wyoming"},
+                {"lat": 39.3210, "lng": -111.0937, "radius": 80, "name": "Central Utah"},
+                {"lat": 44.0682, "lng": -114.7420, "radius": 100, "name": "Idaho"},
+            ]
+            
+            # Track all unique pantries
+            all_pantries = {}
+            total_api_calls = len(search_centers)
+            
+            logger.info(f"Will make {total_api_calls} API calls to cover the US")
+            
+            # Process each search center
+            for i, center in enumerate(search_centers):
+                logger.info(
+                    f"Progress: {i+1}/{total_api_calls} - Searching {center['name']} "
+                    f"({center['lat']}, {center['lng']}) with radius {center['radius']} miles"
+                )
+                
+                # Search for pantries in this area
+                pantries = await self.search_pantries_by_location(
+                    center["lat"], center["lng"], center["radius"]
+                )
+                
+                # Process each pantry
+                new_pantries = 0
+                for pantry in pantries:
+                    pantry_id = str(pantry.get("id", ""))
+                    if pantry_id and pantry_id not in all_pantries:
+                        all_pantries[pantry_id] = pantry
+                        new_pantries += 1
+                
+                logger.info(
+                    f"Found {len(pantries)} pantries in {center['name']}, "
+                    f"{new_pantries} were new (total unique: {len(all_pantries)})"
+                )
+                
+                # Small delay between API calls
+                await asyncio.sleep(0.5)
+            
+            # Submit all pantries to the queue
+            logger.info(f"Submitting {len(all_pantries)} unique pantries to queue")
+            jobs_created = 0
+            
+            for pantry_id, pantry_data in all_pantries.items():
+                # Get detailed information if needed
+                if pantry_data.get("scheduleId") and not pantry_data.get("schedule"):
+                    try:
+                        detailed_pantry = await self.get_pantry_details(page, pantry_data)
+                        if detailed_pantry:
+                            pantry_data = detailed_pantry
+                    except Exception as e:
+                        logger.warning(f"Could not get details for pantry {pantry_id}: {e}")
+                
+                # Transform to HSDS format
+                hsds_data = self.transform_to_hsds(pantry_data)
+                
+                # Submit to queue
+                try:
+                    job_id = self.submit_to_queue(json.dumps(hsds_data))
+                    jobs_created += 1
+                    if jobs_created % 100 == 0:
+                        logger.info(f"Submitted {jobs_created} jobs to queue...")
+                except Exception as e:
+                    logger.error(f"Error submitting pantry {pantry_id}: {e}")
+            
+            return {
+                "total_search_centers": total_api_calls,
+                "total_pantries_found": len(all_pantries),
+                "unique_pantries": len(all_pantries),
+                "jobs_created": jobs_created,
+                "source": self.base_url,
+                "method": "geo_search_api",
+            }
+            
+        finally:
+            await browser.close()
+            await playwright.stop()
+
     async def parallel_scrape(self) -> dict[str, Any]:
         """Scrape data using multiple browser instances in parallel.
 
@@ -1920,7 +2218,7 @@ class Getfull_App_BrowserScraper(ScraperJob):
             pass
 
     async def scrape(self) -> str:
-        """Scrape data from GetFull.app using browser manipulation with parallel processing.
+        """Scrape data from GetFull.app using the geo search API.
 
         Returns:
             Summary of scraping results as JSON string
@@ -1933,16 +2231,22 @@ class Getfull_App_BrowserScraper(ScraperJob):
             set()
         )  # Reset the shared set of processed pantry IDs
 
-        # Run parallel scrape
-        summary = await self.parallel_scrape()
+        # Use the new geo search approach which is more comprehensive
+        summary = await self.geo_search_scrape()
 
         # Print summary to CLI
-        print("\nSearch complete!")
-        print("Final Stats:")
-        print(f"- Total coordinates processed: {summary['total_coordinates']}")
-        print(f"- Total pantries processed: {summary['total_pantries_found']}")
-        print(f"- Unique pantries found: {summary['unique_pantries']}")
-        print(f"- Duplicate pantries: {summary['duplicate_pantries']}")
-        print(f"- Workers used: {summary['workers']}")
+        print("\nGetFull.app Search Complete!")
+        print("=" * 50)
+        
+        if "error" in summary:
+            print(f"ERROR: {summary['error']}")
+        else:
+            print(f"Search Method: Geo Search API")
+            print(f"Total Search Centers: {summary.get('total_search_centers', 0)}")
+            print(f"Total Pantries Found: {summary.get('total_pantries_found', 0)}")
+            print(f"Unique Pantries: {summary.get('unique_pantries', 0)}")
+            print(f"Jobs Created: {summary.get('jobs_created', 0)}")
+        
+        print("=" * 50)
 
         return json.dumps(summary)

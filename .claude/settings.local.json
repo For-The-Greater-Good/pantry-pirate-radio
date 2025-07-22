@@ -45,7 +45,8 @@
       "WebFetch(domain:github.com)",
       "Bash(touch:*)",
       "Bash(sqlite3:*)",
-      "Bash(gh pr view:*)"
+      "Bash(gh pr view:*)",
+      "Bash(git restore:*)"
     ],
     "deny": []
   }
