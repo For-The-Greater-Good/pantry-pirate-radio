@@ -278,6 +278,16 @@ class Getfull_App_BrowserScraper(ScraperJob):
     The scraper uses multiple browser instances in parallel to speed up the process.
     """
 
+    # Configuration constants
+    DEFAULT_SEARCH_RADIUS_MILES = 50.0
+    DEFAULT_OVERLAP_FACTOR = 0.30
+    EARTH_RADIUS_MILES = 69.0  # Approximate miles per degree latitude
+    REQUEST_TIMEOUT = 30  # seconds
+    DEFAULT_WAIT_TIMEOUT = 10000  # milliseconds
+    DEFAULT_REQUEST_DELAY = 0.5  # seconds between requests
+    MAX_PARALLEL_WORKERS = 12
+    PROGRESS_LOG_INTERVAL = 10  # Log progress every N% or for first/last
+
     # Default grid spacing constants
     GRID_LAT_STEP = 0.1  # Approximately 0.5-0.7km north-south
     GRID_LNG_STEP = 0.1  # Approximately 0.5-0.7km east-west (varies by latitude)
@@ -539,11 +549,16 @@ class Getfull_App_BrowserScraper(ScraperJob):
             self.auth_token = token_holder["token"]
             logger.info("Successfully captured authentication token")
         else:
-            # Use a fallback anonymous token
-            self.auth_token = "anonymous_access_token"  # nosec B105
-            logger.warning(
-                "Could not capture authentication token, using anonymous token instead"
-            )
+            # Use a fallback anonymous token from environment or default
+            import os
+
+            self.auth_token = os.getenv("GETFULL_AUTH_TOKEN")
+            if not self.auth_token:
+                logger.warning(
+                    "No auth token found. Set GETFULL_AUTH_TOKEN to improve results."
+                )
+                # Continue without auth - API may still work with limited results
+                self.auth_token = ""  # nosec B105 - empty string, not a password
 
         logger.info("Successfully navigated to food finder map")
 
@@ -596,8 +611,10 @@ class Getfull_App_BrowserScraper(ScraperJob):
         # Convert radius to lat/lng offsets for bounding box
         # Rough approximation: 1 degree latitude = 69 miles
         # 1 degree longitude = cos(latitude) * 69 miles
-        lat_offset = radius_miles / 69.0
-        lng_offset = radius_miles / (math.cos(math.radians(lat)) * 69.0)
+        lat_offset = radius_miles / self.EARTH_RADIUS_MILES
+        lng_offset = radius_miles / (
+            math.cos(math.radians(lat)) * self.EARTH_RADIUS_MILES
+        )
 
         # Create bounding box
         top_left = [lat + lat_offset, lng - lng_offset]
@@ -619,24 +636,22 @@ class Getfull_App_BrowserScraper(ScraperJob):
 
         try:
             async with httpx.AsyncClient(headers=headers) as client:
-                response = await client.post(
-                    search_url, json=payload, timeout=60
-                )
+                response = await client.post(search_url, json=payload, timeout=60)
                 response.raise_for_status()
-                
+
                 data = response.json()
-                
+
                 # The API returns a list directly
                 if isinstance(data, list):
                     pantries = data
                 else:
                     # Fallback to elasticsearch format if it's a dict
                     pantries = data.get("hits", {}).get("hits", [])
-                
+
                 logger.info(
                     f"Found {len(pantries)} pantries via geo search at {lat}, {lng} with radius {radius_miles} miles"
                 )
-                
+
                 # Extract pantry data - check if it's already in the right format
                 extracted_pantries = []
                 for pantry in pantries:
@@ -673,7 +688,9 @@ class Getfull_App_BrowserScraper(ScraperJob):
                                 "slug": pantry.get("slug", ""),
                                 "description": pantry.get("description", ""),
                                 "address": {
-                                    "street": pantry.get("address", {}).get("street", ""),
+                                    "street": pantry.get("address", {}).get(
+                                        "street", ""
+                                    ),
                                     "city": pantry.get("address", {}).get("city", ""),
                                     "state": pantry.get("address", {}).get("state", ""),
                                     "zip": pantry.get("address", {}).get("zip", ""),
@@ -689,16 +706,16 @@ class Getfull_App_BrowserScraper(ScraperJob):
                                 "isClosed": pantry.get("isClosed", False),
                             }
                         extracted_pantries.append(pantry_data)
-                
+
                 return extracted_pantries
-                
+
         except httpx.HTTPError as e:
             logger.error(f"Error searching pantries via API: {e}")
             if hasattr(e, "response") and e.response:
                 logger.error(f"Response: {e.response.text[:500]}")
         except Exception as e:
             logger.error(f"Unexpected error in geo search: {e}")
-        
+
         return []
 
     async def extract_pantries_from_list(self, page: Page) -> list[dict[str, Any]]:
@@ -908,7 +925,7 @@ class Getfull_App_BrowserScraper(ScraperJob):
                         try:
                             schedule_url = f"{self.api_url}/pantry-api/schedule/{schedule_id}/dropin"
                             schedule_response = await client.get(
-                                schedule_url, timeout=30
+                                schedule_url, timeout=self.REQUEST_TIMEOUT
                             )
 
                             if schedule_response.status_code == 200:
@@ -926,7 +943,9 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 else:
                     # If slug doesn't work, try with the ID
                     alt_url = f"{self.api_url}/pantry-api/pantries/{pantry_id}"
-                    alt_response = await client.get(alt_url, timeout=30)
+                    alt_response = await client.get(
+                        alt_url, timeout=self.REQUEST_TIMEOUT
+                    )
 
                     if alt_response.status_code == 200:
                         pantry_details = alt_response.json()
@@ -937,7 +956,7 @@ class Getfull_App_BrowserScraper(ScraperJob):
                             try:
                                 schedule_url = f"{self.api_url}/pantry-api/schedule/{schedule_id}/dropin"
                                 schedule_response = await client.get(
-                                    schedule_url, timeout=30
+                                    schedule_url, timeout=self.REQUEST_TIMEOUT
                                 )
 
                                 if schedule_response.status_code == 200:
@@ -977,10 +996,10 @@ class Getfull_App_BrowserScraper(ScraperJob):
 
         logger.debug(f"Getting API details for pantry: {pantry.get('name', 'Unknown')}")
 
-        # If we're using anonymous token, we might not be able to get detailed information
-        if self.auth_token == "anonymous_access_token":  # nosec B105
+        # If we don't have a valid auth token, skip detailed information
+        if not self.auth_token or self.auth_token == "":  # nosec B105
             logger.debug(
-                f"Using anonymous token, skipping detailed information for pantry {pantry_id}"
+                f"No auth token available, skipping detailed information for pantry {pantry_id}"
             )
             return pantry
 
@@ -1055,7 +1074,9 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 details_url = f"{self.api_url}/pantry-api/pantries/{slug}"
                 try:
                     logger.debug(f"Trying API request with slug: {slug}")
-                    response = await client.get(details_url, timeout=30)
+                    response = await client.get(
+                        details_url, timeout=self.REQUEST_TIMEOUT
+                    )
                     response.raise_for_status()
                     pantry_details = response.json()
                     logger.debug(
@@ -1094,7 +1115,9 @@ class Getfull_App_BrowserScraper(ScraperJob):
                     f"{self.api_url}/pantry-api/schedule/{schedule_id}/dropin"
                 )
                 async with httpx.AsyncClient(headers=headers) as client:
-                    response = await client.get(schedule_url, timeout=30)
+                    response = await client.get(
+                        schedule_url, timeout=self.REQUEST_TIMEOUT
+                    )
                     if response.status_code == 200:
                         schedule_data = response.json()
                         # Add schedule data to pantry details
@@ -1673,9 +1696,11 @@ class Getfull_App_BrowserScraper(ScraperJob):
         for base_point in base_points:
             # Calculate how many steps we need for the specified radius
             # 1 degree of latitude is approximately 69 miles
-            lat_steps = math.ceil(radius_miles / 69.0 / lat_step)
+            lat_steps = math.ceil(radius_miles / self.EARTH_RADIUS_MILES / lat_step)
             # 1 degree of longitude varies by latitude, approximately cos(lat) * 69 miles
-            lng_miles_per_degree = math.cos(math.radians(base_point.latitude)) * 69.0
+            lng_miles_per_degree = (
+                math.cos(math.radians(base_point.latitude)) * self.EARTH_RADIUS_MILES
+            )
             lng_steps = math.ceil(radius_miles / lng_miles_per_degree / lng_step)
 
             # Generate grid points in a rectangular grid around the base point
@@ -1885,33 +1910,44 @@ class Getfull_App_BrowserScraper(ScraperJob):
             Dictionary with scraping results
         """
         logger.info("Starting geo search scrape using API endpoint")
-        
+
         # Initialize a single browser to get auth token
         playwright, browser, page = await self.initialize_browser()
         try:
             await self.navigate_to_map(page)
-            
-            if not self.auth_token or self.auth_token == "anonymous_access_token":
-                logger.error("Failed to obtain valid auth token")
+
+            if not self.auth_token or self.auth_token == "":  # nosec B105
+                logger.error(
+                    "Failed to obtain auth token. Set GETFULL_AUTH_TOKEN environment variable."
+                )
                 return {
                     "error": "Authentication failed",
                     "total_pantries_found": 0,
                     "unique_pantries": 0,
                 }
-            
+
             # Define major search centers across the US with appropriate radii
             search_centers = [
                 # Northeast
-                {"lat": 40.7128, "lng": -74.0060, "radius": 50, "name": "New York City"},
+                {
+                    "lat": 40.7128,
+                    "lng": -74.0060,
+                    "radius": 50,
+                    "name": "New York City",
+                },
                 {"lat": 42.3601, "lng": -71.0589, "radius": 50, "name": "Boston"},
                 {"lat": 39.9526, "lng": -75.1652, "radius": 50, "name": "Philadelphia"},
-                {"lat": 38.9072, "lng": -77.0369, "radius": 50, "name": "Washington DC"},
+                {
+                    "lat": 38.9072,
+                    "lng": -77.0369,
+                    "radius": 50,
+                    "name": "Washington DC",
+                },
                 {"lat": 39.2904, "lng": -76.6122, "radius": 40, "name": "Baltimore"},
                 {"lat": 40.4406, "lng": -79.9959, "radius": 40, "name": "Pittsburgh"},
                 {"lat": 41.8240, "lng": -71.4128, "radius": 30, "name": "Providence"},
                 {"lat": 43.0481, "lng": -76.1474, "radius": 40, "name": "Syracuse"},
                 {"lat": 42.8864, "lng": -78.8784, "radius": 40, "name": "Buffalo"},
-                
                 # Southeast
                 {"lat": 33.7490, "lng": -84.3880, "radius": 50, "name": "Atlanta"},
                 {"lat": 25.7617, "lng": -80.1918, "radius": 50, "name": "Miami"},
@@ -1922,8 +1958,12 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 {"lat": 35.7796, "lng": -78.6382, "radius": 40, "name": "Raleigh"},
                 {"lat": 37.5407, "lng": -77.4360, "radius": 30, "name": "Richmond"},
                 {"lat": 32.7765, "lng": -79.9311, "radius": 30, "name": "Charleston"},
-                {"lat": 36.8508, "lng": -75.9742, "radius": 40, "name": "Virginia Beach"},
-                
+                {
+                    "lat": 36.8508,
+                    "lng": -75.9742,
+                    "radius": 40,
+                    "name": "Virginia Beach",
+                },
                 # Midwest
                 {"lat": 41.8781, "lng": -87.6298, "radius": 50, "name": "Chicago"},
                 {"lat": 42.3314, "lng": -83.0458, "radius": 50, "name": "Detroit"},
@@ -1936,7 +1976,6 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 {"lat": 41.4993, "lng": -81.6944, "radius": 40, "name": "Cleveland"},
                 {"lat": 39.9612, "lng": -82.9988, "radius": 40, "name": "Columbus"},
                 {"lat": 39.1031, "lng": -84.5120, "radius": 40, "name": "Cincinnati"},
-                
                 # South
                 {"lat": 29.7604, "lng": -95.3698, "radius": 50, "name": "Houston"},
                 {"lat": 32.7767, "lng": -96.7970, "radius": 50, "name": "Dallas"},
@@ -1946,20 +1985,33 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 {"lat": 36.1627, "lng": -86.7816, "radius": 40, "name": "Nashville"},
                 {"lat": 35.1495, "lng": -90.0490, "radius": 40, "name": "Memphis"},
                 {"lat": 33.5207, "lng": -86.8025, "radius": 40, "name": "Birmingham"},
-                {"lat": 35.4676, "lng": -97.5164, "radius": 50, "name": "Oklahoma City"},
-                
+                {
+                    "lat": 35.4676,
+                    "lng": -97.5164,
+                    "radius": 50,
+                    "name": "Oklahoma City",
+                },
                 # Mountain/West
                 {"lat": 39.7392, "lng": -104.9903, "radius": 50, "name": "Denver"},
-                {"lat": 40.7608, "lng": -111.8910, "radius": 50, "name": "Salt Lake City"},
+                {
+                    "lat": 40.7608,
+                    "lng": -111.8910,
+                    "radius": 50,
+                    "name": "Salt Lake City",
+                },
                 {"lat": 33.4484, "lng": -112.0740, "radius": 50, "name": "Phoenix"},
                 {"lat": 32.2226, "lng": -110.9747, "radius": 40, "name": "Tucson"},
                 {"lat": 35.0844, "lng": -106.6504, "radius": 40, "name": "Albuquerque"},
                 {"lat": 36.1699, "lng": -115.1398, "radius": 50, "name": "Las Vegas"},
                 {"lat": 43.6150, "lng": -116.2023, "radius": 40, "name": "Boise"},
-                
                 # West Coast
                 {"lat": 34.0522, "lng": -118.2437, "radius": 50, "name": "Los Angeles"},
-                {"lat": 37.7749, "lng": -122.4194, "radius": 50, "name": "San Francisco"},
+                {
+                    "lat": 37.7749,
+                    "lng": -122.4194,
+                    "radius": 50,
+                    "name": "San Francisco",
+                },
                 {"lat": 37.8044, "lng": -122.2712, "radius": 30, "name": "Oakland"},
                 {"lat": 37.3382, "lng": -121.8863, "radius": 40, "name": "San Jose"},
                 {"lat": 32.7157, "lng": -117.1611, "radius": 50, "name": "San Diego"},
@@ -1968,34 +2020,48 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 {"lat": 38.5816, "lng": -121.4944, "radius": 40, "name": "Sacramento"},
                 {"lat": 36.7378, "lng": -119.7871, "radius": 40, "name": "Fresno"},
                 {"lat": 47.6588, "lng": -117.4260, "radius": 40, "name": "Spokane"},
-                
                 # Additional coverage for rural areas
                 {"lat": 46.8772, "lng": -113.9961, "radius": 100, "name": "Montana"},
-                {"lat": 44.3683, "lng": -100.3364, "radius": 100, "name": "South Dakota"},
-                {"lat": 47.5515, "lng": -101.0020, "radius": 100, "name": "North Dakota"},
+                {
+                    "lat": 44.3683,
+                    "lng": -100.3364,
+                    "radius": 100,
+                    "name": "South Dakota",
+                },
+                {
+                    "lat": 47.5515,
+                    "lng": -101.0020,
+                    "radius": 100,
+                    "name": "North Dakota",
+                },
                 {"lat": 43.0731, "lng": -107.2903, "radius": 100, "name": "Wyoming"},
-                {"lat": 39.3210, "lng": -111.0937, "radius": 80, "name": "Central Utah"},
+                {
+                    "lat": 39.3210,
+                    "lng": -111.0937,
+                    "radius": 80,
+                    "name": "Central Utah",
+                },
                 {"lat": 44.0682, "lng": -114.7420, "radius": 100, "name": "Idaho"},
             ]
-            
+
             # Track all unique pantries
             all_pantries = {}
             total_api_calls = len(search_centers)
-            
+
             logger.info(f"Will make {total_api_calls} API calls to cover the US")
-            
+
             # Process each search center
             for i, center in enumerate(search_centers):
                 logger.info(
                     f"Progress: {i+1}/{total_api_calls} - Searching {center['name']} "
                     f"({center['lat']}, {center['lng']}) with radius {center['radius']} miles"
                 )
-                
+
                 # Search for pantries in this area
                 pantries = await self.search_pantries_by_location(
                     center["lat"], center["lng"], center["radius"]
                 )
-                
+
                 # Process each pantry
                 new_pantries = 0
                 for pantry in pantries:
@@ -2003,32 +2069,36 @@ class Getfull_App_BrowserScraper(ScraperJob):
                     if pantry_id and pantry_id not in all_pantries:
                         all_pantries[pantry_id] = pantry
                         new_pantries += 1
-                
+
                 logger.info(
                     f"Found {len(pantries)} pantries in {center['name']}, "
                     f"{new_pantries} were new (total unique: {len(all_pantries)})"
                 )
-                
+
                 # Small delay between API calls
-                await asyncio.sleep(0.5)
-            
+                await asyncio.sleep(self.DEFAULT_REQUEST_DELAY)
+
             # Submit all pantries to the queue
             logger.info(f"Submitting {len(all_pantries)} unique pantries to queue")
             jobs_created = 0
-            
+
             for pantry_id, pantry_data in all_pantries.items():
                 # Get detailed information if needed
                 if pantry_data.get("scheduleId") and not pantry_data.get("schedule"):
                     try:
-                        detailed_pantry = await self.get_pantry_details(page, pantry_data)
+                        detailed_pantry = await self.get_pantry_details(
+                            page, pantry_data
+                        )
                         if detailed_pantry:
                             pantry_data = detailed_pantry
                     except Exception as e:
-                        logger.warning(f"Could not get details for pantry {pantry_id}: {e}")
-                
+                        logger.warning(
+                            f"Could not get details for pantry {pantry_id}: {e}"
+                        )
+
                 # Transform to HSDS format
                 hsds_data = self.transform_to_hsds(pantry_data)
-                
+
                 # Submit to queue
                 try:
                     job_id = self.submit_to_queue(json.dumps(hsds_data))
@@ -2037,7 +2107,7 @@ class Getfull_App_BrowserScraper(ScraperJob):
                         logger.info(f"Submitted {jobs_created} jobs to queue...")
                 except Exception as e:
                     logger.error(f"Error submitting pantry {pantry_id}: {e}")
-            
+
             return {
                 "total_search_centers": total_api_calls,
                 "total_pantries_found": len(all_pantries),
@@ -2046,7 +2116,7 @@ class Getfull_App_BrowserScraper(ScraperJob):
                 "source": self.base_url,
                 "method": "geo_search_api",
             }
-            
+
         finally:
             await browser.close()
             await playwright.stop()
@@ -2237,16 +2307,16 @@ class Getfull_App_BrowserScraper(ScraperJob):
         # Print summary to CLI
         print("\nGetFull.app Search Complete!")
         print("=" * 50)
-        
+
         if "error" in summary:
             print(f"ERROR: {summary['error']}")
         else:
-            print(f"Search Method: Geo Search API")
+            print("Search Method: Geo Search API")
             print(f"Total Search Centers: {summary.get('total_search_centers', 0)}")
             print(f"Total Pantries Found: {summary.get('total_pantries_found', 0)}")
             print(f"Unique Pantries: {summary.get('unique_pantries', 0)}")
             print(f"Jobs Created: {summary.get('jobs_created', 0)}")
-        
+
         print("=" * 50)
 
         return json.dumps(summary)
