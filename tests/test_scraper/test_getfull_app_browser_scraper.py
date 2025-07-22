@@ -1,12 +1,18 @@
 """Unit tests for GetFull.app browser scraper geo search functionality."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from datetime import datetime
 
 import pytest
 from httpx import AsyncClient, Response
+from playwright.async_api import Page
 
-from app.scraper.getfull_app_browser_scraper import Getfull_App_BrowserScraper
+from app.scraper.getfull_app_browser_scraper import (
+    Getfull_App_BrowserScraper,
+    BrowserWorker,
+)
+from app.models.geographic import GridPoint
 
 
 class TestGetfullAppBrowserScraperGeoSearch:

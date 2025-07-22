@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.scraper.test_utils import TestScraperJob, run_scraper_test
+from tests.test_scraper.utilities.test_utils import TestScraperJob, run_scraper_test
 from app.scraper.utils import ScraperJob
 
 
@@ -79,7 +79,7 @@ async def test_test_scraper_job_failure():
 
 
 @pytest.mark.asyncio
-@patch("app.scraper.test_utils.importlib.import_module")
+@patch("tests.test_scraper.utilities.test_utils.importlib.import_module")
 async def test_run_scraper_test_function(mock_import_module):
     """Test the run_scraper_test function."""
     # Create a mock module with a mock scraper class
@@ -123,7 +123,7 @@ async def test_run_scraper_test_function(mock_import_module):
 
 
 @pytest.mark.asyncio
-@patch("app.scraper.test_utils.importlib.import_module")
+@patch("tests.test_scraper.utilities.test_utils.importlib.import_module")
 async def test_run_scraper_test_function_import_error(mock_import_module):
     """Test the run_scraper_test function when import fails."""
     # Configure the mock import_module to raise an ImportError
