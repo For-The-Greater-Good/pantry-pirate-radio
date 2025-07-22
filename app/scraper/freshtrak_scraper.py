@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class FreshtrakScraper(ScraperJob):
-    """Scraper for FreshTrak/PantryTrak API."""
+    """Scraper for FreshTrak/PantryTrak API.
+
+    Note: The API's range/distance filter is broken and returns all agencies
+    regardless of the distance parameter. We take advantage of this by making
+    a single API call to retrieve all agencies at once.
+    """
 
     def __init__(self, scraper_id: str = "freshtrak") -> None:
         """Initialize scraper with ID 'freshtrak' by default.
@@ -23,9 +28,6 @@ class FreshtrakScraper(ScraperJob):
         """
         super().__init__(scraper_id=scraper_id)
         self.base_url = "https://pantry-finder-api.freshtrak.com"
-        self.search_radius = 500  # miles - increased to reduce API calls
-        self.batch_size = 200  # Larger batches since we have fewer total points
-        self.request_delay = 0.01  # 10ms between requests
         self.unique_agencies: set[str] = set()
         self.total_agencies = 0
 
@@ -297,8 +299,50 @@ class FreshtrakScraper(ScraperJob):
 
         return all_agencies
 
+    async def fetch_all_agencies(self) -> dict[str, Any]:
+        """Fetch all agencies with a single API call.
+
+        Since the range filter is broken and returns all data anyway,
+        we can make a single request to get everything.
+
+        Returns:
+            API response as dictionary
+        """
+        url = f"{self.base_url}/api/agencies"
+        # Use center of US with large radius - the API ignores it and returns all anyway
+        params = {
+            "lat": 39.8283,  # Geographic center of US
+            "long": -98.5795,
+            "distance": 5000,  # Large radius - API returns all regardless
+        }
+
+        logger.info("Fetching all agencies with single API call")
+
+        try:
+            async with httpx.AsyncClient(
+                headers=get_scraper_headers(),
+                timeout=httpx.Timeout(120.0, connect=30.0),
+            ) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as e:
+            logger.error(f"Error fetching all agencies: {type(e).__name__}: {str(e)}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.error(f"Response text: {e.response.text[:500]}")
+            return {}
+        except Exception as e:
+            logger.error(
+                f"Unexpected error fetching all agencies: {type(e).__name__}: {str(e)}"
+            )
+            return {}
+
     async def scrape(self) -> str:
-        """Scrape data from FreshTrak API using multiple approaches.
+        """Scrape data from FreshTrak API with a single request.
+
+        Since their range filter is broken and returns all data,
+        we make just one API call to get everything.
 
         Returns:
             Raw scraped content as JSON string
@@ -306,48 +350,69 @@ class FreshtrakScraper(ScraperJob):
         # Reset tracking variables
         self.unique_agencies = set()
         self.total_agencies = 0
-        all_agencies = []
 
-        logger.info("Starting comprehensive FreshTrak scrape")
+        logger.info("Starting FreshTrak scrape with single API call")
 
-        # Use grid search approach for comprehensive US coverage
-        logger.info("Starting grid search across entire US")
-        grid_agencies = await self.process_grid_search()
-        all_agencies.extend(grid_agencies)
+        # Make single API call to get all agencies
+        data = await self.fetch_all_agencies()
 
-        logger.info(
-            "Grid search complete: Total unique agencies: %s", len(self.unique_agencies)
-        )
+        if not data.get("agencies"):
+            logger.error("No agencies found in API response")
+            return json.dumps(
+                {
+                    "error": "No agencies found",
+                    "total_unique_agencies": 0,
+                    "total_jobs_created": 0,
+                    "source": "freshtrak_api",
+                    "base_url": self.base_url,
+                }
+            )
 
-        # Submit all unique agencies to queue
-        logger.info(f"Submitting {len(all_agencies)} agencies to queue")
+        agencies = data["agencies"]
+        logger.info(f"Received {len(agencies)} agencies from API")
+
+        # Process and submit all agencies
         job_count = 0
-        for agency in all_agencies:
+        for agency in agencies:
             try:
-                job_id = self.submit_to_queue(json.dumps(agency))
-                job_count += 1
-                logger.info(f"Queued job {job_id} for agency: {agency['name']}")
+                agency_id = str(agency.get("id", ""))
+
+                # Process each agency (they should all be unique from single call)
+                if agency_id:
+                    processed_agency = self.process_agency(agency)
+
+                    # Submit to queue
+                    job_id = self.submit_to_queue(json.dumps(processed_agency))
+                    job_count += 1
+                    self.unique_agencies.add(agency_id)
+                    self.total_agencies += 1
+
+                    logger.info(
+                        f"Queued job {job_id} for agency: {processed_agency['name']}"
+                    )
+
             except Exception as e:
                 logger.error(
-                    f"Error submitting agency {agency.get('name', 'Unknown')}: {e}"
+                    f"Error processing agency {agency.get('name', 'Unknown')}: {e}"
                 )
                 continue
 
         # Create summary
         summary = {
-            "total_grid_points_searched": len(self.utils.get_us_grid_points()),
+            "total_api_calls": 1,
+            "total_agencies_received": len(agencies),
             "total_unique_agencies": len(self.unique_agencies),
             "total_jobs_created": job_count,
             "source": "freshtrak_api",
             "base_url": self.base_url,
-            "search_methods": ["grid_coordinate_search"],
+            "search_method": "single_api_call",
         }
 
         # Print summary to CLI
         print("\nFreshTrak Scraper Summary:")
-        print("Search method: Grid coordinate search across entire US")
-        print(f"Grid points searched: {len(self.utils.get_us_grid_points())}")
-        print(f"Total unique agencies found: {len(self.unique_agencies)}")
+        print("Search method: Single API call (range filter broken, returns all)")
+        print(f"Total agencies received: {len(agencies)}")
+        print(f"Total unique agencies processed: {len(self.unique_agencies)}")
         print(f"Total jobs created: {job_count}")
         print(f"Source: {self.base_url}")
         print("Status: Complete\n")
