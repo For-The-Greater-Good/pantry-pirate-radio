@@ -57,6 +57,22 @@ if [ "$CLAUDE_HEALTH_SERVER" = "true" ]; then
     echo ""
 fi
 
-# Start the actual worker process
-echo "🔧 Starting RQ worker..."
-exec "$@"
+# Validate and handle worker count
+WORKER_COUNT=${WORKER_COUNT:-1}
+
+# Validate WORKER_COUNT is a positive integer between 1 and 20
+if [[ "$WORKER_COUNT" =~ ^[0-9]+$ ]] && [ "$WORKER_COUNT" -ge 1 ] && [ "$WORKER_COUNT" -le 20 ]; then
+    if [ "$WORKER_COUNT" -gt 1 ]; then
+        echo "🔧 Starting $WORKER_COUNT RQ workers..."
+        exec /usr/local/bin/multi_worker.sh
+    else
+        # Start single worker (default behavior)
+        echo "🔧 Starting single RQ worker..."
+        exec "$@"
+    fi
+else
+    echo "⚠️ Invalid WORKER_COUNT: '$WORKER_COUNT'. Must be an integer between 1-20."
+    echo "   Defaulting to single worker mode."
+    echo "🔧 Starting single RQ worker..."
+    exec "$@"
+fi

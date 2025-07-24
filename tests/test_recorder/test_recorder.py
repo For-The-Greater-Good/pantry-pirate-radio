@@ -94,7 +94,7 @@ def test_record_result(
     archive_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test recording job result."""
+    """Test recording job result with new directory structure."""
     # Set environment variables
     monkeypatch.setenv("OUTPUT_DIR", str(output_dir))
     monkeypatch.setenv("ARCHIVE_DIR", str(archive_dir))
@@ -107,11 +107,36 @@ def test_record_result(
     # Check result
     assert result["status"] == "completed"
     assert result["error"] is None
+    assert "output_file" in result
 
-    # Check output file was created
-    output_file = output_dir / f"{sample_job_result['job_id']}.json"
+    # Check the new directory structure
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    scraper_id = sample_job_result["job"]["metadata"]["scraper_id"]
+
+    # Check output file was created in correct location
+    expected_path = output_dir / "daily" / date_str / "scrapers" / scraper_id
+    output_file = expected_path / f"{sample_job_result['job_id']}.json"
     assert output_file.exists()
     assert output_file.is_file()
+
+    # Check latest symlink points to the date directory
+    latest_link = output_dir / "latest"
+    assert latest_link.exists()
+    assert latest_link.is_symlink()
+    # Verify it points to the current date directory
+    assert latest_link.resolve() == (output_dir / "daily" / date_str).resolve()
+
+    # Check daily summary was created
+    summary_file = output_dir / "daily" / date_str / "summary.json"
+    assert summary_file.exists()
+
+    # Verify summary contents
+    with open(summary_file) as f:
+        summary = json.load(f)
+        assert summary["date"] == date_str
+        assert summary["total_jobs"] == 1
+        assert scraper_id in summary["scrapers"]
+        assert summary["scrapers"][scraper_id]["count"] == 1
 
     # Verify file contents
     with open(output_file) as f:
@@ -160,10 +185,13 @@ def test_multiple_jobs(
     from app.recorder.utils import record_result
 
     results = []
+    job_ids = []
     for i in range(3):
         # Modify data for each job
         data = sample_job_result.copy()
-        data["job_id"] = str(uuid.uuid4())  # New ID for each job
+        job_id = str(uuid.uuid4())
+        data["job_id"] = job_id
+        job_ids.append(job_id)
         if data["result"]:
             result_data = json.loads(data["result"]["text"])
             result_data["organization"][0]["name"] = f"Test Org {i}"
@@ -177,10 +205,33 @@ def test_multiple_jobs(
     assert all(result["status"] == "completed" for result in results)
     assert all(result["error"] is None for result in results)
 
-    # Check output files
-    output_files = list(output_dir.iterdir())
+    # Check output files in new directory structure
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    scraper_id = sample_job_result["job"]["metadata"]["scraper_id"]
+    scraper_path = output_dir / "daily" / date_str / "scrapers" / scraper_id
+
+    # Check that all job files were created
+    output_files = list(scraper_path.glob("*.json"))
     assert len(output_files) == 3
-    assert all(f.suffix == ".json" for f in output_files)
+
+    # Check that all expected job IDs have files
+    file_names = {f.stem for f in output_files}
+    for job_id in job_ids:
+        assert job_id in file_names
+
+    # Check latest symlink exists and points to date directory
+    latest_link = output_dir / "latest"
+    assert latest_link.exists()
+    assert latest_link.is_symlink()
+    assert latest_link.resolve() == (output_dir / "daily" / date_str).resolve()
+
+    # Check daily summary
+    summary_file = output_dir / "daily" / date_str / "summary.json"
+    assert summary_file.exists()
+    with open(summary_file) as f:
+        summary = json.load(f)
+        assert summary["total_jobs"] == 3
+        assert summary["scrapers"][scraper_id]["count"] == 3
 
 
 def test_metrics_on_exception(

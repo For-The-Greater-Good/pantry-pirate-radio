@@ -185,9 +185,10 @@ jobs:
           fi
       - name: Install test dependencies and run tests
         run: |
-          # Copy tests directory, docs, and .env to app container
+          # Copy tests directory, docs, scripts, and .env to app container
           docker compose cp tests app:/app/tests
           docker compose cp docs app:/app/docs
+          docker compose cp scripts app:/app/scripts
           docker compose cp .env app:/app/.env
           # Install test dependencies and run tests with coverage, excluding integration tests
           docker compose exec app sh -c "poetry install && poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=xml --cov-report=json --cov-branch"

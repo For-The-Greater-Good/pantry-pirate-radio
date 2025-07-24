@@ -395,12 +395,23 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 4. **Recorder** → Archive results → **Compressed archives**
 5. **API** → Serve HSDS-compliant data → **Client applications**
 
+## 🔍 Explore the Data
+
+### [**HAARRRvest - Interactive Data Explorer**](https://for-the-greater-good.github.io/HAARRRvest/)
+
+Explore our harvested food resource data directly in your browser! HAARRRvest provides:
+- 🌐 Interactive SQL queries via Datasette-Lite
+- 📊 Daily updated SQLite database
+- 📁 Organized JSON archives
+- 🏴‍☠️ No installation required
+
 ## Documentation
 - [Architecture Details](docs/architecture.md)
 - [API Reference](docs/api.md)
 - [HSDS Implementation](docs/HSDS/)
 - [LLM System](docs/llm.md)
 - [Reconciler Service](docs/reconciler.md)
+- [HAARRRvest Quick Start](docs/haarrvest-quickstart.md)
 - [Recorder Service](docs/recorder.md)
 - [Worker System](docs/worker.md)
 - [Database Backup](docs/database-backup.md)

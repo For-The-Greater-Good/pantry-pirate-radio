@@ -74,17 +74,26 @@ EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # =============================================================================
-# WORKER SERVICES (LLM, Reconciler, Recorder)
+# LLM WORKER SERVICE (with Claude authentication and multi-worker support)
 # =============================================================================
 FROM production-base as worker
 
-# Copy startup script
+# Copy startup scripts
 COPY scripts/container_startup.sh /usr/local/bin/container_startup.sh
-RUN chmod +x /usr/local/bin/container_startup.sh
+COPY scripts/multi_worker.sh /usr/local/bin/multi_worker.sh
+RUN chmod +x /usr/local/bin/container_startup.sh /usr/local/bin/multi_worker.sh
 
 # Use startup script as entrypoint with fallback to RQ worker
 ENTRYPOINT ["/usr/local/bin/container_startup.sh"]
 CMD ["rq", "worker", "llm"]
+
+# =============================================================================
+# SIMPLE RQ WORKER SERVICE (for other queues without Claude setup)
+# =============================================================================
+FROM production-base as simple-worker
+
+# Start RQ worker directly without startup scripts
+CMD ["rq", "worker"]
 
 # =============================================================================
 # RECORDER SERVICE
@@ -101,6 +110,50 @@ CMD ["rq", "worker", "recorder"]
 # SCRAPER SERVICE
 # =============================================================================
 FROM production-base as scraper
+
+# Install system dependencies required by Playwright
+RUN apt-get update && apt-get install -y \
+    wget \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libc6 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm1 \
+    libgcc1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libstdc++6 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxss1 \
+    libxtst6 \
+    lsb-release \
+    xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright browsers
+RUN playwright install chromium
+RUN playwright install-deps chromium
 
 # Start scraper service
 CMD ["python", "-m", "app.scraper"]
