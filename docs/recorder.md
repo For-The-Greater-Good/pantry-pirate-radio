@@ -50,8 +50,12 @@ Key responsibilities:
    - Handles job polling and processing
 
 2. **File System Organization**
-   - `outputs/`: Directory for JSON job results
-   - `archives/`: Directory for compressed raw data archives
+   - **Date-based structure**: `outputs/daily/YYYY-MM-DD/`
+   - **Scraper-specific directories**: `outputs/daily/YYYY-MM-DD/scrapers/{scraper_id}/`
+   - **Processed results**: `outputs/daily/YYYY-MM-DD/processed/`
+   - **Latest symlink**: `outputs/latest` → points to most recent date directory
+   - **Daily summaries**: `outputs/daily/YYYY-MM-DD/summary.json`
+   - **Archives**: `archives/` directory for compressed raw data
    - Automatic directory creation and management
    - Consistent file naming conventions
 
@@ -189,9 +193,22 @@ Required configuration:
 
 ### Directory Structure
 
-Default directories:
-- `outputs/`: JSON job results
-- `archives/`: Compressed archives
+Default directory layout:
+```
+outputs/
+├── daily/
+│   └── YYYY-MM-DD/
+│       ├── summary.json
+│       ├── scrapers/
+│       │   └── {scraper_id}/
+│       │       └── {job_id}.json
+│       └── processed/
+│           └── {job_id}.json
+└── latest -> daily/YYYY-MM-DD (symlink to most recent date)
+
+archives/
+└── {timestamp}_{scraper_id}.tar.gz
+```
 
 ### Command Line Arguments
 
@@ -266,6 +283,37 @@ Saved job results include:
 }
 ```
 
+### Daily Summary Format
+
+Each day's activities are summarized in `outputs/daily/YYYY-MM-DD/summary.json`:
+
+```json
+{
+  "date": "2025-07-23",
+  "total_jobs": 42,
+  "scrapers": {
+    "nyc_efap_programs": {
+      "count": 15,
+      "first_job": "2025-07-23T00:15:00Z",
+      "last_job": "2025-07-23T23:45:00Z"
+    },
+    "foodhelp_org": {
+      "count": 27,
+      "first_job": "2025-07-23T01:00:00Z",
+      "last_job": "2025-07-23T22:30:00Z"
+    }
+  },
+  "jobs": [
+    {
+      "job_id": "abc-123",
+      "scraper_id": "nyc_efap_programs",
+      "timestamp": "2025-07-23T00:15:00Z"
+    }
+    // ... more jobs
+  ]
+}
+```
+
 ### Archive Format
 
 Created archives contain:
@@ -290,8 +338,11 @@ The recorder implements an efficient polling mechanism:
 ### File Naming
 
 Consistent naming conventions:
-- Job results: `{job_id}.json`
-- Archives: `{timestamp}_{scraper_id}.tar.gz`
+- Scraper job results: `outputs/daily/YYYY-MM-DD/scrapers/{scraper_id}/{job_id}.json`
+- Processed results: `outputs/daily/YYYY-MM-DD/processed/{job_id}.json`
+- Latest symlink: `outputs/latest` → points to most recent date directory
+- Daily summaries: `outputs/daily/YYYY-MM-DD/summary.json`
+- Archives: `archives/{timestamp}_{scraper_id}.tar.gz`
 
 ### Error Recovery
 
@@ -301,10 +352,21 @@ Robust error handling:
 3. Redis reconnection
 4. Metric recording
 
+### Recent Improvements
+
+Implemented enhancements:
+1. ✅ Date-based directory organization
+2. ✅ Scraper-specific subdirectories
+3. ✅ Latest symlink pointing to most recent date directory
+4. ✅ Daily summary generation
+5. ✅ Separation of scraper vs processed results
+
 ### Future Improvements
 
 Potential enhancements:
-1. Batch processing support
-2. Compression options
-3. S3/cloud storage integration
-4. Enhanced monitoring
+1. Batch processing support for multiple jobs
+2. Configurable compression for older data
+3. S3/cloud storage integration for archives
+4. Data retention policies with automatic cleanup
+5. Real-time dashboard for monitoring job flow
+6. Export utilities for data synchronization

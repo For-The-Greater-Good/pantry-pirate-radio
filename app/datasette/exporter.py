@@ -579,11 +579,39 @@ def create_datasette_views(sqlite_conn: sqlite3.Connection) -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Export PostgreSQL database to SQLite for Datasette"
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        default="pantry_pirate_radio.sqlite",
+        help="Output SQLite database path (default: pantry_pirate_radio.sqlite)",
+    )
+    parser.add_argument(
+        "--database-url",
+        help="PostgreSQL connection string (default: uses DATABASE_URL env var)",
+    )
+    parser.add_argument(
+        "--exclude",
+        nargs="+",
+        help="Tables to exclude from export",
+    )
+
+    args = parser.parse_args()
+
     # Run the export
-    export_to_sqlite()
+    export_to_sqlite(
+        pg_conn_string=args.database_url,
+        sqlite_path=args.output,
+        exclude_tables=args.exclude,
+    )

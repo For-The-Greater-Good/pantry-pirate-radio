@@ -1,0 +1,182 @@
+name: Publish Data to Repository
+
+on:
+  # Run daily at 4 AM UTC
+  schedule:
+    - cron: '0 4 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      days_to_sync:
+        description: 'Number of days to sync'
+        required: false
+        default: '7'
+        type: string
+      rebuild_database:
+        description: 'Rebuild database from JSON files'
+        required: false
+        default: true
+        type: boolean
+      export_datasette:
+        description: 'Export to SQLite for Datasette'
+        required: false
+        default: true
+        type: boolean
+
+# Only allow one publish job at a time
+concurrency:
+  group: publish-data
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish Data
+    runs-on: ubuntu-latest
+    # Only run on the main repository, not forks
+    if: github.repository_owner == 'For-The-Greater-Good'
+    
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Checkout data repository
+        uses: actions/checkout@v4
+        with:
+          repository: For-The-Greater-Good/HAARRRvest
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: data-repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.7.1
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            main/.venv
+            ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('main/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install dependencies
+        working-directory: main
+        run: |
+          poetry install --no-interaction --no-ansi
+
+      - name: Set up PostgreSQL
+        uses: ikalnytskyi/action-setup-postgres@v7
+        with:
+          username: postgres
+          password: postgres
+          database: pantry_pirate_radio
+          port: 5432
+        id: postgres
+
+      - name: Run database migrations
+        working-directory: main
+        env:
+          DATABASE_URL: ${{ steps.postgres.outputs.connection-uri }}
+        run: |
+          # Run any necessary database setup/migrations
+          poetry run python -c "
+          from app.core.db import engine
+          from app.database.models import Base
+          Base.metadata.create_all(bind=engine)
+          "
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Run data publication pipeline
+        working-directory: main
+        env:
+          DATABASE_URL: ${{ steps.postgres.outputs.connection-uri }}
+          DATA_REPO_PATH: ${{ github.workspace }}/data-repo
+          DAYS_TO_SYNC: ${{ inputs.days_to_sync || '7' }}
+          REBUILD_DATABASE: ${{ inputs.rebuild_database || 'true' }}
+          EXPORT_DATASETTE: ${{ inputs.export_datasette || 'true' }}
+          PUSH_TO_REMOTE: 'true'
+        run: |
+          ./scripts/publish-data.sh
+
+      - name: Upload SQLite database as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pantry-pirate-radio-sqlite-${{ github.run_id }}
+          path: data-repo/sqlite/pantry_pirate_radio.sqlite
+          retention-days: 30
+
+      - name: Upload publication report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-report-${{ github.run_id }}
+          path: data-repo/LAST_UPDATE.md
+          retention-days: 7
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Data Publication Failed - ${new Date().toISOString().split('T')[0]}`,
+              body: `The automated data publication workflow failed.
+              
+              **Workflow Run:** [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+              **Time:** ${new Date().toISOString()}
+              
+              Please check the logs for more details.`,
+              labels: ['bug', 'automation']
+            });
+            console.log(`Created issue #${issue.data.number}`);
+
+  # Deploy GitHub Pages for data repository
+  deploy-pages:
+    name: Deploy GitHub Pages
+    needs: publish
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'For-The-Greater-Good'
+    
+    steps:
+      - name: Checkout data repository
+        uses: actions/checkout@v4
+        with:
+          repository: For-The-Greater-Good/HAARRRvest
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: data-repo
+
+      - name: Trigger Pages build
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DATA_REPO_TOKEN }}
+          script: |
+            // Trigger a pages build for the data repository
+            try {
+              await github.rest.repos.requestPagesBuild({
+                owner: 'For-The-Greater-Good',
+                repo: 'HAARRRvest'
+              });
+              console.log('GitHub Pages build triggered successfully');
+            } catch (error) {
+              console.log('Pages build trigger failed (may not be enabled):', error.message);
+            }
