@@ -330,6 +330,7 @@ Core services defined in docker-compose.yml:
 - `worker`: LLM processing workers
 - `recorder`: Job archival with volume mounts
 - `reconciler`: Data consistency service
+- `haarrrvest-publisher`: Automated data publishing to HAARRRvest repository
 - `db`: PostgreSQL with PostGIS extensions
 - `cache`: Redis for queue and caching
 - Search orchestrator with cron-based scrapers
@@ -385,14 +386,21 @@ Core services defined in docker-compose.yml:
        │              │
        ▼              ▼
 ┌─────────────┐ ┌─────────────┐
-│  Database   │ │  Archives   │
-└──────┬──────┘ └─────────────┘
-       │
-       ▲
-┌──────┴──────┐
-│   FastAPI   │
-│   Server    │
-└─────────────┘
+│  Database   │ │  outputs/   │
+└──────┬──────┘ │   Folder    │
+       │        └──────┬──────┘
+       ▼               │ (reads)
+┌─────────────┐        ▼
+│   FastAPI   │ ┌─────────────┐
+│   Server    │ │ HAARRRvest  │
+└─────────────┘ │ Publisher   │
+                └──────┬──────┘
+                       │
+                       ▼
+                ┌─────────────┐
+                │ HAARRRvest  │
+                │ Repository  │
+                └─────────────┘
 ```
 
 The LLM Layer provides:
@@ -921,9 +929,11 @@ The recorder service persists and archives job results from the LLM processing s
 
 2. **File System Organization**
    - `outputs/`: Directory for JSON job results
-   - `archives/`: Directory for compressed raw data archives
+     - `daily/YYYY-MM-DD/scrapers/{scraper_id}/`: Scraper job results
+     - `daily/YYYY-MM-DD/processed/`: Processed LLM results
+     - `latest/`: Symlink to most recent daily directory
    - Automatic directory creation and management
-   - Consistent file naming conventions
+   - Daily summary files tracking all jobs
 
 #### Job Result Processing
 
@@ -1015,7 +1025,93 @@ The worker system executes asynchronous tasks, particularly LLM-based HSDS data 
        }
    ```
 
-### 10. API Frontend Layer
+### 10. HAARRRvest Publisher Service
+
+The HAARRRvest Publisher service automates the process of publishing processed data to the HAARRRvest repository for public access.
+
+#### Core Components
+
+1. **Service Architecture**
+   ```python
+   class HAARRRvestPublisher:
+       """Publisher service for HAARRRvest data repository"""
+
+       def __init__(self):
+           self.output_dir = Path("/app/outputs")
+           self.data_repo_path = Path("/data-repo")
+           self.check_interval = 300  # 5 minutes
+           self.days_to_sync = 7
+   ```
+
+2. **Publishing Workflow**
+   - Monitors `outputs/` directory for new recorder files
+   - Tracks processed files to avoid duplicates
+   - Creates date-based branches (e.g., `data-update-2025-01-25`)
+   - Syncs data to HAARRRvest repository structure
+   - Generates SQLite database for Datasette
+   - Creates merge commits to main branch
+   - Pushes changes to remote repository
+
+3. **Data Operations**
+   ```python
+   async def process_once(self):
+       """Run the publishing pipeline once"""
+       # 1. Setup/update git repository
+       self._setup_git_repo()
+
+       # 2. Find new files from recorder
+       new_files = self._find_new_files()
+
+       # 3. Create feature branch
+       branch_name = self._create_branch_name()
+
+       # 4. Sync files to repository
+       self._sync_files_to_repo(new_files)
+
+       # 5. Update metadata
+       self._update_repository_metadata()
+
+       # 6. Export to SQLite
+       self._export_to_sqlite()
+
+       # 7. Run location export for maps
+       self._run_location_export()
+
+       # 8. Commit and merge
+       self._create_and_merge_branch(branch_name)
+   ```
+
+4. **SQLite Export**
+   - Uses `db-to-sqlite` for PostgreSQL export
+   - Python fallback for environments without CLI tool
+   - Creates metadata.json for Datasette
+   - Optimized for map visualization queries
+
+5. **Git Safety Features**
+   - Always pulls latest changes before operations
+   - Stashes uncommitted changes automatically
+   - Creates unique branch names if conflicts exist
+   - Never force-pushes or overwrites data
+   - Uses token authentication for security
+
+#### Configuration
+
+```python
+# Environment variables
+DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
+DATA_REPO_TOKEN=your_github_personal_access_token
+PUBLISHER_CHECK_INTERVAL=300  # seconds
+DAYS_TO_SYNC=7  # days of historical data
+```
+
+#### Integration Points
+
+- **Recorder Service**: Reads JSON output files from `/app/outputs`
+- **Database**: Exports data via db-to-sqlite
+- **HAARRRvest Repository**: Pushes data updates
+- **Docker Volumes**: Persists repository state
+
+### 11. API Frontend Layer
 
 #### Core Design Principles
 - Open access: No authentication required

@@ -126,6 +126,31 @@ services:
       - db
       - cache
 
+  haarrrvest-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production-base
+    command: python -m app.haarrrvest_publisher.service
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - OUTPUT_DIR=/app/outputs
+      - DATA_REPO_PATH=/data-repo
+      - DATA_REPO_URL=${DATA_REPO_URL:-git@github.com:For-The-Greater-Good/HAARRRvest.git}
+      - DATA_REPO_TOKEN=${DATA_REPO_TOKEN}
+      - PUBLISHER_CHECK_INTERVAL=${PUBLISHER_CHECK_INTERVAL:-300}
+      - DAYS_TO_SYNC=${DAYS_TO_SYNC:-7}
+    volumes:
+      - ./outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      - db
+      - cache
+      - recorder
+
   db:
     image: postgis/postgis:15-3.3
     env_file: .env
@@ -223,3 +248,4 @@ volumes:
   datasette_data:
   postgres_backups:
   claude_config:  # Shared Claude authentication across worker containers
+  haarrrvest_repo:  # HAARRRvest repository managed by publisher service

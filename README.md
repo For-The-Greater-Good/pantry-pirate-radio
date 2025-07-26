@@ -113,9 +113,16 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
        │                  │
        ▼                  ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Archives   │    │PostgreSQL + │    │   FastAPI   │
-│ (Compressed)│    │   PostGIS   │◀───│   Server    │
-└─────────────┘    └─────────────┘    └─────────────┘
+│  outputs/   │    │PostgreSQL + │    │   FastAPI   │
+│   Folder    │    │   PostGIS   │◀───│   Server    │
+│ (JSON Files)│    └─────────────┘    └─────────────┘
+└──────┬──────┘
+       │ (reads)
+       ▼
+┌─────────────┐    ┌─────────────┐
+│ HAARRRvest  │───▶│ HAARRRvest  │
+│ Publisher   │    │ Repository  │
+└─────────────┘    └─────────────┘
 ```
 
 ### Service Components
@@ -150,10 +157,10 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 - **Shared Authentication**: Single authentication state across all scaled workers
 
 #### **Recorder Service** (`app/recorder/`)
-- **Job Archival**: Archives all job results to JSON files in `outputs/`
-- **Data Compression**: Maintains compressed raw data archives
-- **Audit Trail**: Complete audit trail for all processing activities
-- **File Management**: Utilities for archive organization and cleanup
+- **Job Storage**: Saves all job results as JSON files in `outputs/`
+- **File Organization**: Structured output in `daily/YYYY-MM-DD/` directories
+- **Latest Symlinks**: Maintains `latest/` symlink to most recent daily directory
+- **Summary Files**: Creates daily summary files tracking all processed jobs
 
 #### **Database Layer**
 - **PostgreSQL**: Primary data store with HSDS-compliant schema
@@ -168,6 +175,14 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 - **Geographic Search**: Radius-based and bounding box search capabilities
 - **Pagination**: Cursor-based pagination for large result sets
 - **Response Caching**: Geographic tile-based caching for performance
+
+#### **HAARRRvest Publisher** (`app/haarrrvest_publisher/`)
+- **Automated Publishing**: Monitors recorder JSON outputs and publishes to HAARRRvest repository
+- **File Processing**: Reads from `outputs/daily/` and `outputs/latest/` directories
+- **Branch-Based Workflow**: Creates date-based branches with merge commits
+- **SQLite Export**: Generates SQLite database for Datasette visualization
+- **Git Safety**: Handles repository updates, conflict resolution, and authentication
+- **State Tracking**: Remembers processed files to avoid duplicates
 
 ## Quick Start
 
@@ -273,20 +288,20 @@ docker-compose up -d
 docker-compose up -d
 
 # Start specific service
-docker-compose up -d app         # FastAPI server
-docker-compose up -d worker      # LLM workers
-docker-compose up -d orchestrator # Search orchestrator (runs scrapers)
-docker-compose up -d recorder    # Recorder service
-docker-compose up -d reconciler  # Reconciler service
-docker-compose up -d db-backup   # Database backup service
+docker-compose up -d app                    # FastAPI server
+docker-compose up -d worker                 # LLM workers
+docker-compose up -d recorder               # Recorder service
+docker-compose up -d reconciler             # Reconciler service
+docker-compose up -d haarrrvest-publisher   # HAARRRvest publisher
+docker-compose up -d db-backup              # Database backup service
 
 # View logs
-docker-compose logs -f app          # FastAPI logs
-docker-compose logs -f worker       # Worker logs
-docker-compose logs -f orchestrator # Search orchestrator logs
-docker-compose logs -f recorder     # Recorder logs
-docker-compose logs -f reconciler   # Reconciler logs
-docker-compose logs -f db-backup    # Database backup logs
+docker-compose logs -f app                  # FastAPI logs
+docker-compose logs -f worker               # Worker logs
+docker-compose logs -f recorder             # Recorder logs
+docker-compose logs -f reconciler           # Reconciler logs
+docker-compose logs -f haarrrvest-publisher # Publisher logs
+docker-compose logs -f db-backup            # Database backup logs
 
 # Scale workers
 docker-compose up -d --scale worker=3  # Run 3 worker instances

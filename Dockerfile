@@ -12,6 +12,7 @@ FROM python:3.11-slim-bullseye as base
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (v18 LTS)
