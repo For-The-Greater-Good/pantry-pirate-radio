@@ -431,6 +431,58 @@ Now that you've learned the basics, explore these advanced topics:
 - **Issues**: Report bugs or request features on [GitHub](https://github.com/example/pantry-pirate-radio/issues)
 - **Community**: Join discussions about food security data and the OpenReferral specification
 
+## Understanding the Data Pipeline (For Contributors)
+
+### Data Flow Overview
+The system processes food resource data through several stages:
+
+1. **Scrapers** collect data from various sources
+2. **Workers** process the data using LLM providers
+3. **Reconciler** ensures data consistency and HSDS compliance
+4. **Recorder** archives all processed data
+5. **HAARRRvest Publisher** publishes data to the public repository
+6. **API** serves the processed data
+
+### Running the Full System Locally
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
+cp .env.example .env
+
+# 2. Configure HAARRRvest publisher in .env
+DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
+DATA_REPO_TOKEN=your_github_token
+
+# 3. Start all services
+docker-compose up -d
+
+# 4. Run a scraper to generate data
+docker-compose exec scraper python -m app.scraper nyc_efap_programs
+
+# 5. Monitor processing
+docker-compose logs -f worker
+docker-compose logs -f recorder
+docker-compose logs -f haarrrvest-publisher
+
+# 6. Check published data
+# Visit https://github.com/For-The-Greater-Good/HAARRRvest
+```
+
+### HAARRRvest Publisher
+The publisher service automatically:
+- Monitors for new recorder outputs every 5 minutes
+- Creates date-based branches for safety
+- Exports PostgreSQL data to SQLite for visualization
+- Pushes updates to the HAARRRvest repository
+- Maintains a complete audit trail
+
+To manually trigger publishing:
+```bash
+docker-compose restart haarrrvest-publisher
+```
+
 ## Contributing
 
 The Pantry Pirate Radio project is open source. You can contribute by:
@@ -438,5 +490,6 @@ The Pantry Pirate Radio project is open source. You can contribute by:
 - Improving documentation
 - Adding new scrapers for additional data sources
 - Helping with translations
+- Enhancing the data processing pipeline
 
-Visit our [GitHub repository](https://github.com/example/pantry-pirate-radio) to get started!
+Visit our [GitHub repository](https://github.com/For-The-Greater-Good/pantry-pirate-radio) to get started!

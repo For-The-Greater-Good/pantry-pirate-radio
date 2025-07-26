@@ -100,7 +100,7 @@ Add a section to your README.md with useful queries:
 ```sql
 SELECT name, address_1, city, latitude, longitude
 FROM locations
-WHERE city = 'New York' 
+WHERE city = 'New York'
   AND state_province = 'NY'
 LIMIT 20;
 ```

@@ -23,24 +23,30 @@ HAARRRvest is the public data repository that makes food resource data accessibl
 3. Set it as **Public** (for GitHub Pages)
 4. Don't initialize with README (our script will do this)
 
-## Step 2: Initialize the Repository
+## Step 2: Clone and Setup HAARRRvest
 
 ```bash
-# From the pantry-pirate-radio directory
-./scripts/init-data-repo.sh
+# Clone the HAARRRvest repository
+git clone https://github.com/For-The-Greater-Good/HAARRRvest.git
+cd HAARRRvest
 
-# This will:
-# - Clone/create the repository
-# - Set up directory structure
-# - Create README and index.html
-# - Configure GitHub Actions for Pages
+# The repository structure will be automatically created by the publisher service:
+# - daily/ (historical data by date)
+# - latest/ (most recent data)
+# - sqlite/ (SQLite database exports)
+# - data/ (map visualization data)
 ```
 
-## Step 3: Push Initial Structure
+## Step 3: Configure Publisher Service
+
+The HAARRRvest Publisher service now handles all data publishing automatically:
 
 ```bash
-cd ../HAARRRvest
-git push -u origin main
+# In your pantry-pirate-radio .env file, add:
+DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
+DATA_REPO_TOKEN=your_github_personal_access_token
+PUBLISHER_CHECK_INTERVAL=300  # Check every 5 minutes
+DAYS_TO_SYNC=7  # Sync last 7 days of data
 ```
 
 ## Step 4: Enable GitHub Pages
@@ -53,43 +59,53 @@ git push -u origin main
 
 Wait 5-10 minutes for the initial deployment.
 
-## Step 5: Configure Main Repository
+## Step 5: Start the Publisher Service
 
-1. Add GitHub Secret to pantry-pirate-radio repository:
-   - Go to **Settings** → **Secrets and variables** → **Actions**
-   - Add new secret: `DATA_REPO_TOKEN`
-   - Value: Personal Access Token with `repo` scope
+```bash
+# Start all services including the publisher
+docker-compose up -d
 
-2. Update your `.env` file:
-   ```bash
-   cp .env.example .env
-   # Edit .env to add your database connection and other settings
-   ```
+# Monitor publisher logs
+docker-compose logs -f haarrrvest-publisher
+
+# The publisher will:
+# - Monitor recorder outputs every 5 minutes
+# - Create date-based branches for safety
+# - Export PostgreSQL to SQLite
+# - Generate map visualization data
+# - Push updates to HAARRRvest repository
+```
 
 ## Step 6: Test the Pipeline
 
 ```bash
-# Run a test sync (without pushing)
-DAYS_TO_SYNC=1 PUSH_TO_REMOTE=false ./scripts/publish-data.sh
+# Manually trigger publishing by restarting the service
+docker-compose restart haarrrvest-publisher
 
-# Check the results
-cd ../HAARRRvest
-git status
+# Watch the logs to see it process files
+docker-compose logs -f haarrrvest-publisher
+
+# Check the HAARRRvest repository for updates
+# Visit: https://github.com/For-The-Greater-Good/HAARRRvest
 ```
 
-## Step 7: Run Full Pipeline
+## Step 7: Run a Scraper to Generate Data
 
 ```bash
-# Run the complete pipeline
-./scripts/publish-data.sh
+# Run a scraper to generate some data
+docker-compose exec scraper python -m app.scraper nyc_efap_programs
 
-# This will:
-# 1. Organize recorder outputs
-# 2. Sync to HAARRRvest repository
-# 3. Rebuild database from JSON
-# 4. Export to SQLite
-# 5. Create Datasette-Lite interface
-# 6. Push everything to GitHub
+# The data will flow through:
+# 1. Scraper → Redis Queue
+# 2. Worker → LLM Processing
+# 3. Reconciler → Database
+# 4. Recorder → JSON Files
+# 5. Publisher → HAARRRvest Repository
+
+# Monitor each stage:
+docker-compose logs -f worker
+docker-compose logs -f recorder
+docker-compose logs -f haarrrvest-publisher
 ```
 
 ## Step 8: Access Your Data
@@ -103,12 +119,14 @@ After the pipeline completes and GitHub Pages deploys:
 
 ## Automation
 
-Enable automatic daily updates:
+The HAARRRvest Publisher service runs continuously:
 
-1. Go to pantry-pirate-radio repository
-2. Navigate to **Actions** → **Publish Data to Repository**
-3. Enable the workflow
-4. It will run daily at 4 AM UTC
+- **Automatic Checks**: Every 5 minutes (configurable)
+- **On Startup**: Processes any pending files immediately
+- **Branch Safety**: Creates date-based branches before merging
+- **State Tracking**: Remembers processed files to avoid duplicates
+
+No GitHub Actions needed - everything runs locally in your infrastructure!
 
 ## Troubleshooting
 
@@ -118,11 +136,12 @@ Enable automatic daily updates:
 - Wait 10-15 minutes for deployment
 - Check Actions tab for errors
 
-### Pipeline Failures
+### Publisher Service Issues
 - Verify DATABASE_URL is set correctly
 - Check DATA_REPO_TOKEN has write permissions
-- Review logs in GitHub Actions
-- Ensure outputs directory has data
+- Review logs: `docker-compose logs haarrrvest-publisher`
+- Ensure outputs directory has data: `ls outputs/daily/`
+- Check git authentication: Token needs `repo` scope
 
 ### SQLite Not Loading
 - Check file size (should be under 100MB)

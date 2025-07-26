@@ -82,6 +82,12 @@ ALLOWED_ORIGINS=https://yourdomain.com
 WORKER_CONCURRENCY=4
 WORKER_TIMEOUT=3600
 
+# HAARRRvest Publisher Configuration
+DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
+DATA_REPO_TOKEN=your_github_personal_access_token
+PUBLISHER_CHECK_INTERVAL=300
+DAYS_TO_SYNC=7
+
 # Monitoring
 PROMETHEUS_MULTIPROC_DIR=./metrics
 ```
@@ -168,6 +174,29 @@ services:
       - redis
     restart: unless-stopped
 
+  haarrrvest-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production-base
+    command: python -m app.haarrrvest_publisher.service
+    environment:
+      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+      - REDIS_URL=redis://redis:6379/0
+      - DATA_REPO_URL=${DATA_REPO_URL}
+      - DATA_REPO_TOKEN=${DATA_REPO_TOKEN}
+      - PUBLISHER_CHECK_INTERVAL=${PUBLISHER_CHECK_INTERVAL:-300}
+      - DAYS_TO_SYNC=${DAYS_TO_SYNC:-7}
+    depends_on:
+      - db
+      - redis
+      - recorder
+    volumes:
+      - ./outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - ./scripts:/app/scripts:ro
+    restart: unless-stopped
+
   scraper:
     build:
       context: .
@@ -239,6 +268,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  haarrrvest_repo:
 ```
 
 ### Deploy with Docker Compose
