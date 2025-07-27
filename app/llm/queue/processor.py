@@ -85,6 +85,14 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
             failure_ttl=86400,  # Keep failed jobs for 24 hours
         )
 
+        # Store result in content store if available
+        from app.content_store.config import get_content_store
+
+        content_store = get_content_store()
+        if content_store and "content_hash" in job.metadata:
+            content_hash = job.metadata["content_hash"]
+            content_store.store_result(content_hash, llm_result.text, job.id)
+
         return llm_result
     except Exception as e:
         # Handle Claude-specific errors with intelligent retry

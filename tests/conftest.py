@@ -45,6 +45,7 @@ pytest_plugins: List[str] = [
     "tests.fixtures.cache",
     "tests.fixtures.api",
     "tests.fixtures.websocket",
+    "tests.fixtures.content_store",
 ]
 
 

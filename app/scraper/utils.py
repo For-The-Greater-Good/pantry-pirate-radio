@@ -213,8 +213,29 @@ class ScraperUtils:
             **(metadata or {}),  # type: ignore
         }
 
+        # Check content store if available
+        from app.content_store.config import get_content_store
+
+        content_store = get_content_store()
+        content_entry = None
+
+        if content_store:
+            # Store content and check if already processed
+            # Make a copy to avoid modifying the dict that's passed to store_content
+            content_entry = content_store.store_content(content, dict(job_metadata))
+
+            if content_entry.job_id:
+                # Already queued or processed - return existing job ID
+                # Still increment metrics
+                SCRAPER_JOBS.labels(scraper_id=self.scraper_id).inc()
+                return content_entry.job_id
+
         # Prepare input with system prompt
         full_prompt = f"{self.system_prompt}\n\nInput Data:\n{content}"
+
+        # Add content hash to metadata if using content store
+        if content_store and content_entry:
+            job_metadata["content_hash"] = content_entry.hash
 
         # Create LLMJob
         from datetime import datetime
@@ -281,6 +302,10 @@ class ScraperUtils:
         )
         if result is None:
             raise RuntimeError("Failed to enqueue job")
+
+        # Link job to content hash if using content store
+        if content_store and content_entry:
+            content_store.link_job(content_entry.hash, str(result.id))
 
         # Increment counter
         SCRAPER_JOBS.labels(scraper_id=self.scraper_id).inc()

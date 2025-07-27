@@ -65,7 +65,104 @@ The system fully implements OpenReferral's Human Services Data Specification (HS
 
 ## Core Components
 
-### 1. Search Orchestration Layer
+### 1. Content Deduplication Store
+
+The content store prevents duplicate LLM processing by tracking all scraped content using SHA-256 hashing.
+
+#### Architecture
+
+```python
+class ContentStore:
+    """Content-addressable storage for deduplication"""
+
+    def store_content(self, content: str, metadata: dict) -> ContentEntry:
+        """Store content and check if already processed"""
+        content_hash = self.hash_content(content)
+
+        # Check if already processed
+        if result := self.get_result(content_hash):
+            return ContentEntry(
+                hash=content_hash,
+                status="completed",
+                result=result,
+                job_id=self.get_job_id(content_hash)
+            )
+
+        # Store new content
+        self._store_to_file(content_hash, content, metadata)
+        self._update_index(content_hash, "pending")
+        return ContentEntry(hash=content_hash, status="pending")
+```
+
+#### Key Features
+
+- **SHA-256 Hashing**: Deterministic content identification
+- **SQLite Index**: Fast lookups with status tracking
+- **File Storage**: Organized by hash prefix (e.g., `ab/cd/abcdef...json`)
+- **Thread-Safe**: Handles concurrent access from multiple scrapers
+- **Transparent Integration**: Works seamlessly with existing pipeline
+
+#### Integration Points
+
+1. **Scraper Integration** (`app/scraper/utils.py`):
+   ```python
+   def queue_for_processing(self, content: str, job_metadata: dict):
+       # Check content store first
+       content_store = get_content_store()
+       if content_store:
+           entry = content_store.store_content(content, job_metadata)
+           if entry.status == "completed":
+               return entry.job_id  # Skip LLM processing
+
+       # Queue for processing if new
+       job = enqueue_llm_job(content, job_metadata)
+       return job.id
+   ```
+
+2. **Worker Integration** (`app/llm/queue/processor.py`):
+   ```python
+   def process_job(job: LLMJob):
+       # Process with LLM
+       result = llm_provider.process(job.content)
+
+       # Store result in content store
+       content_store = get_content_store()
+       if content_store and "content_hash" in job.metadata:
+           content_store.store_result(
+               job.metadata["content_hash"],
+               result.text,
+               job.id
+           )
+   ```
+
+3. **HAARRRvest Sync**: Content store is automatically synced to HAARRRvest repository for durable backup
+
+#### Monitoring
+
+```bash
+# CLI interface for content store management
+$ python -m app.content_store status
+
+=== Content Store Summary ===
+Total Content: 15,234
+Processed: 14,892 (97.8%)
+Pending: 342
+Store Size: 156.3 MB
+
+Deduplication Rate: 23.4%
+Space Saved: 48.2 MB
+
+# Generate detailed report
+$ python -m app.content_store report --output report.json
+
+# Find duplicate content
+$ python -m app.content_store duplicates
+
+# Show storage efficiency
+$ python -m app.content_store efficiency
+```
+
+### 2. Search Orchestration Layer
 
 The search orchestrator manages the execution of scrapers through cron jobs, running them within its container.
 
@@ -123,7 +220,7 @@ class OrchestratorConfig(BaseModel):
     )
 ```
 
-### 2. Scraper Layer
+### 3. Scraper Layer
 
 #### Base Scraper
 
@@ -192,7 +289,7 @@ class BaseScraper(ABC):
   - Timestamp information
   - Geographic coverage
 
-### 2. Database Layer
+### 4. Database Layer
 
 - PostgreSQL with PostGIS for geographic data
 - SQLAlchemy models mapped to HSDS schema
@@ -213,7 +310,7 @@ class BaseScraper(ABC):
   - Caching strategies
   - Batch operations
 
-### 3. Search Request Processor
+### 5. Search Request Processor
 
 #### Request Normalization
 
@@ -301,7 +398,7 @@ class BaseScraper(ABC):
   - Includes coverage metadata
   - Reports any gaps in coverage
 
-### 4. Core Infrastructure
+### 6. Core Infrastructure
 
 #### HTTP Client
 
@@ -570,7 +667,7 @@ logging.config.dictConfig({
 })
 ```
 
-### 5. Queue System
+### 7. Queue System
 
 #### Configuration Management
 
@@ -694,7 +791,7 @@ class QueueHealth:
         }
 ```
 
-### 6. AI Layer
+### 8. AI Layer
 
 #### Configuration Management
 
@@ -824,7 +921,7 @@ class BaseLLMProvider(ABC):
       return f"{config_hash}:{prompt_hash}"
   ```
 
-### 7. Reconciler Service
+### 9. Reconciler Service
 
 The reconciler service processes HSDS data from LLM outputs and integrates it into the database while maintaining data consistency and versioning.
 
@@ -915,7 +1012,7 @@ SERVICE_RECORDS = Counter(
 )
 ```
 
-### 8. Recorder Service
+### 10. Recorder Service
 
 The recorder service persists and archives job results from the LLM processing system.
 
@@ -967,7 +1064,7 @@ async def archive_raw_data(
     return archive_path
 ```
 
-### 9. Worker Service
+### 11. Worker Service
 
 The worker system executes asynchronous tasks, particularly LLM-based HSDS data alignment operations.
 

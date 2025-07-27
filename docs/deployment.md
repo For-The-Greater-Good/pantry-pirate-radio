@@ -70,6 +70,10 @@ API_PORT=8000
 OPENROUTER_API_KEY=your_openrouter_api_key
 LLM_MODEL_NAME=anthropic/claude-3-sonnet
 
+# Content Store Configuration
+CONTENT_STORE_PATH=/path/to/content/store
+CONTENT_STORE_ENABLED=true
+
 # Output Configuration
 OUTPUT_DIR=./outputs
 BACKUP_KEEP_DAYS=30
@@ -371,6 +375,56 @@ spec:
 ```
 
 ## Configuration Management
+
+### Content Store Configuration
+
+The content deduplication store prevents duplicate LLM processing:
+
+```bash
+# Content Store Settings
+CONTENT_STORE_PATH=/data/content-store  # Path to store content hashes
+CONTENT_STORE_ENABLED=true              # Enable deduplication (default: true if path set)
+```
+
+#### Production Considerations
+
+1. **Storage Location**:
+   - Use persistent storage (not ephemeral container storage)
+   - Consider SSD for better performance
+   - Estimate ~100MB per 10,000 unique content items
+
+2. **Permissions**:
+   ```bash
+   # Create content store directory
+   mkdir -p /data/content-store
+   chown -R 1000:1000 /data/content-store  # Match container user
+   chmod 755 /data/content-store
+   ```
+
+3. **Backup Strategy**:
+   - Content store is automatically backed up to HAARRRvest
+   - Consider additional backups for critical deployments
+   - SQLite index can be rebuilt from content files if needed
+
+4. **Docker Volume**:
+   ```yaml
+   volumes:
+     content_store:
+       driver: local
+       driver_opts:
+         type: none
+         o: bind
+         device: /data/content-store
+   ```
+
+5. **Monitoring**:
+   ```bash
+   # Check content store status
+   docker-compose exec worker python -m app.content_store status
+
+   # Generate report
+   docker-compose exec worker python -m app.content_store report -o /tmp/report.json
+   ```
 
 ### Secrets Management
 

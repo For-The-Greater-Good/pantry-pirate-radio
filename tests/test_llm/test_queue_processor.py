@@ -35,7 +35,9 @@ def sample_response():
     )
 
 
-def test_process_job_async_generator_result(sample_job, sample_response):
+def test_process_job_async_generator_result(
+    sample_job, sample_response, no_content_store
+):
     """Test processing job with async generator result."""
 
     # Create a mock that returns a coroutine instead - the async generator path is complex to test
@@ -56,7 +58,7 @@ def test_process_job_async_generator_result(sample_job, sample_response):
         mock_queue.enqueue_call.assert_called_once()
 
 
-def test_process_job_sync_result(sample_job, sample_response):
+def test_process_job_sync_result(sample_job, sample_response, no_content_store):
     """Test processing job with coroutine result."""
 
     async def mock_coroutine():
@@ -76,7 +78,7 @@ def test_process_job_sync_result(sample_job, sample_response):
         mock_queue.enqueue_call.assert_called_once()
 
 
-def test_process_job_with_config(sample_job, sample_response):
+def test_process_job_with_config(sample_job, sample_response, no_content_store):
     """Test processing job with generation config."""
     from datetime import datetime
 

@@ -55,8 +55,11 @@ services:
       - CLAUDE_HEALTH_SERVER=true
       - WORKER_COUNT=${WORKER_COUNT}
       - QUEUE_NAME=llm
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH}
+      - CONTENT_STORE_ENABLED=${CONTENT_STORE_ENABLED}
     volumes:
       - claude_config:/root/.config/claude  # Shared Claude authentication
+      - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
     depends_on:
       - db
       - cache
@@ -106,11 +109,14 @@ services:
       - LLM_MAX_TOKENS=${LLM_MAX_TOKENS}
       - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT}
       - LLM_TIMEOUT=${LLM_TIMEOUT}
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH}
+      - CONTENT_STORE_ENABLED=${CONTENT_STORE_ENABLED}
     depends_on:
       - db
       - cache
     volumes:
       - ./docs:/app/docs
+      - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
 
   reconciler:
     build:

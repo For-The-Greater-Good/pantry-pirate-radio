@@ -116,7 +116,7 @@ def test_queue_processing_integration(
     assert rq_job.result == mock_response
 
 
-def test_processor_function_direct():
+def test_processor_function_direct(no_content_store):
     """Test the processor function directly without RQ serialization."""
     from app.llm.queue.processor import process_llm_job
     from app.llm.providers.test_mock import MockProvider

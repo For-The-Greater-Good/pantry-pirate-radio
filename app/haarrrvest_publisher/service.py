@@ -290,6 +290,66 @@ class HAARRRvestPublisher:
             self.processed_files.add(file_key)
             self._save_processed_files()  # Save after each file to handle partial failures
 
+    def _sync_content_store(self):
+        """Sync content store to HAARRRvest repository if configured."""
+        try:
+            from app.content_store.config import get_content_store
+
+            content_store = get_content_store()
+
+            if not content_store:
+                logger.debug("Content store not configured, skipping sync")
+                return
+
+            logger.info("Syncing content store to HAARRRvest")
+
+            # Get content store path
+            content_store_path = content_store.store_path / "content-store"
+            if not content_store_path.exists():
+                logger.warning("Content store path does not exist, skipping sync")
+                return
+
+            # Target path in HAARRRvest
+            target_path = self.data_repo_path / "content_store" / "content-store"
+
+            # Create target directory
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Sync content store directory
+            # Use rsync-like behavior: copy new/updated files, preserve existing
+            if target_path.exists():
+                # Update existing content store
+                logger.debug("Updating existing content store in repository")
+                # Copy only new or updated files
+                for item in content_store_path.rglob("*"):
+                    if item.is_file():
+                        relative = item.relative_to(content_store_path)
+                        target_file = target_path / relative
+
+                        # Only copy if file doesn't exist or is newer
+                        if (
+                            not target_file.exists()
+                            or item.stat().st_mtime > target_file.stat().st_mtime
+                        ):
+                            target_file.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(item, target_file)
+                            logger.debug(f"Updated {relative}")
+            else:
+                # Initial sync - copy entire directory
+                logger.debug("Initial content store sync to repository")
+                shutil.copytree(content_store_path, target_path)
+
+            # Update content store statistics
+            stats = content_store.get_statistics()
+            logger.info(
+                f"Content store synced: {stats['total_content']} items, "
+                f"{stats['processed_content']} processed"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to sync content store: {e}")
+            # Don't fail the entire pipeline if content store sync fails
+
     def _update_repository_metadata(self):
         """Update README and statistics in the repository."""
         # Generate statistics
@@ -313,6 +373,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 - `daily/` - Historical data organized by date
 - `latest/` - Most recent data for each scraper
 - `sqlite/` - SQLite database exports for Datasette
+- `content_store/` - Content deduplication store (if configured)
 
 ## Usage
 
@@ -364,6 +425,19 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
             if dates:
                 stats["date_range"] = f"{min(dates)} to {max(dates)}"
             stats["sources"] = len(sources)
+
+        # Add content store statistics if available
+        try:
+            from app.content_store.config import get_content_store
+
+            content_store = get_content_store()
+            if content_store:
+                cs_stats = content_store.get_statistics()
+                stats["content_store_total"] = cs_stats["total_content"]
+                stats["content_store_processed"] = cs_stats["processed_content"]
+                stats["content_store_pending"] = cs_stats["pending_content"]
+        except Exception as e:
+            logger.debug(f"Could not get content store statistics: {e}")
 
         return stats
 
@@ -667,6 +741,9 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
 
             # Sync files
             self._sync_files_to_repo(new_files)
+
+            # Sync content store if configured
+            self._sync_content_store()
 
             # Update metadata
             self._update_repository_metadata()

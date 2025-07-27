@@ -99,3 +99,6 @@ node_modules/
 package-lock.json
 yarn.lock
 pantry_pirate_radio.sqlite
+
+# Content store test data
+/content_store/

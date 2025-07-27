@@ -44,7 +44,10 @@ def sample_llm_response() -> LLMResponse:
 
 
 def test_process_llm_job_coroutine_success(
-    sample_job: LLMJob, mock_provider: MagicMock, sample_llm_response: LLMResponse
+    sample_job: LLMJob,
+    mock_provider: MagicMock,
+    sample_llm_response: LLMResponse,
+    no_content_store,
 ) -> None:
     """Test successful processing of LLM job with coroutine result."""
 
@@ -89,7 +92,10 @@ def test_process_llm_job_coroutine_success(
 
 
 def test_process_llm_job_async_generator_success(
-    sample_job: LLMJob, mock_provider: MagicMock, sample_llm_response: LLMResponse
+    sample_job: LLMJob,
+    mock_provider: MagicMock,
+    sample_llm_response: LLMResponse,
+    no_content_store,
 ) -> None:
     """Test successful processing of LLM job with async generator result."""
 
@@ -377,7 +383,10 @@ def test_process_llm_job_settings_fallback(
 
 
 def test_process_llm_job_event_loop_cleanup(
-    sample_job: LLMJob, mock_provider: MagicMock, sample_llm_response: LLMResponse
+    sample_job: LLMJob,
+    mock_provider: MagicMock,
+    sample_llm_response: LLMResponse,
+    no_content_store,
 ) -> None:
     """Test that event loop is properly cleaned up."""
 
@@ -421,7 +430,7 @@ def test_process_llm_job_exception_with_loop_cleanup(
 
 
 def test_process_llm_job_provider_without_model_name(
-    sample_job: LLMJob, sample_llm_response: LLMResponse
+    sample_job: LLMJob, sample_llm_response: LLMResponse, no_content_store
 ) -> None:
     """Test handling of provider without model_name attribute."""
     # Create provider without model_name

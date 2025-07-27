@@ -8,9 +8,11 @@ The HAARRRvest Publisher Service is a dedicated service that monitors recorder o
 - **Immediate Processing**: Runs on startup for manual triggering
 - **Branch-Based Publishing**: Creates date-based branches (e.g., `data-update-2025-01-25`)
 - **Merge Commits**: Merges branches to main with proper commit history
+- **Content Store Sync**: Automatically backs up content deduplication store
 - **SQLite Export**: Generates SQLite database for Datasette
 - **Map Data Generation**: Runs HAARRRvest's location export for web maps
 - **State Tracking**: Remembers processed files to avoid duplicates
+- **Repository Sync**: Always pulls latest changes before processing
 
 ## Usage
 
@@ -76,7 +78,9 @@ python test_haarrrvest_publisher.py
 ### 3. Data Synchronization
 - Copies new files to HAARRRvest repository structure
 - Maintains same directory layout (`daily/`, `latest/`)
+- Syncs content store to `content_store/` directory for durability
 - Updates repository metadata (README.md, STATS.md)
+- Includes content store statistics in repository metadata
 
 ### 4. Database Operations
 - Runs database rebuild if script is available
@@ -93,6 +97,38 @@ python test_haarrrvest_publisher.py
 - Merges to main with `--no-ff` (creates merge commit)
 - Pushes to remote repository
 - Deletes the feature branch
+
+## Content Store Integration
+
+The HAARRRvest publisher automatically syncs the content deduplication store:
+
+### How It Works
+
+1. **Automatic Detection**: Checks if content store is configured
+2. **Incremental Sync**: Only copies new or updated files
+3. **Preserves History**: Never deletes existing content store data
+4. **Statistics**: Includes deduplication metrics in STATS.md
+
+### Synced Data
+
+```
+HAARRRvest/
+├── content_store/
+│   └── content-store/
+│       ├── index.db          # SQLite index of all content
+│       └── content/          # SHA-256 organized content files
+│           ├── ab/
+│           │   └── cd/
+│           │       └── abcdef...json
+│           └── ...
+```
+
+### Benefits
+
+- **Durability**: Content store backed up to Git repository
+- **History**: Git tracks all changes to content store
+- **Recovery**: Can restore content store from HAARRRvest
+- **Analytics**: Track deduplication effectiveness over time
 
 ## Directory Structure
 

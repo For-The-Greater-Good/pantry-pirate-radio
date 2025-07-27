@@ -59,6 +59,54 @@ class WorkerConfig(BaseModel):
     )
 ```
 
+## Content Store Integration
+
+The worker system integrates with the content deduplication store to prevent duplicate LLM processing:
+
+### Deduplication Check
+
+Before processing, workers check if content has already been processed:
+
+```python
+async def should_process_job(self, job: Job) -> bool:
+    """Check if job needs processing or already has results"""
+    content_store = get_content_store()
+    if not content_store:
+        return True  # No content store, process normally
+
+    if "content_hash" in job.metadata:
+        result = content_store.get_result(job.metadata["content_hash"])
+        if result:
+            # Already processed, skip LLM
+            await self.store_cached_result(job.id, result)
+            return False
+
+    return True
+```
+
+### Result Storage
+
+After successful LLM processing, results are stored in content store:
+
+```python
+async def store_llm_result(self, job: Job, result: LLMResponse) -> None:
+    """Store LLM result in content store for future use"""
+    content_store = get_content_store()
+    if content_store and "content_hash" in job.metadata:
+        content_store.store_result(
+            job.metadata["content_hash"],
+            result.text,
+            job.id
+        )
+```
+
+### Benefits
+
+- **Cost Reduction**: Avoid redundant LLM API calls
+- **Performance**: Instant results for duplicate content
+- **Consistency**: Same content always produces same result
+- **Durability**: Results backed up to HAARRRvest repository
+
 ## Job Processing
 
 ### Job Lifecycle
@@ -97,6 +145,20 @@ class WorkerConfig(BaseModel):
 
 3. Completion/Error
    ```python
+   async def handle_job_completion(self, job: Job, result: Any) -> None:
+       """Handle successful job completion"""
+       # Store result in content store if applicable
+       content_store = get_content_store()
+       if content_store and "content_hash" in job.metadata:
+           content_store.store_result(
+               job.metadata["content_hash"],
+               result.text,
+               job.id
+           )
+
+       # Update job status
+       await self.update_status(job.id, JobStatus.COMPLETED)
+
    async def handle_job_error(
        self,
        job: Job,
