@@ -32,10 +32,11 @@ The scraper lifecycle consists of the following steps:
 1. **Initialization**: The scraper is instantiated with a unique ID.
 2. **Data Collection**: The scraper downloads and processes data from its source.
 3. **Data Enrichment**: The scraper enriches the data with additional information (e.g., geocoding addresses).
-4. **Job Submission**: The scraper submits each processed item to the queue for further processing.
-5. **Summary**: The scraper generates a summary of its operation.
+4. **Content Deduplication**: The system checks if content was already processed (automatic).
+5. **Job Submission**: New content is submitted to the queue for LLM processing.
+6. **Summary**: The scraper generates a summary of its operation.
 
-This lifecycle is managed by the `ScraperJob` base class, which provides the `run()` method that orchestrates the process. Subclasses only need to implement the `scrape()` method to define their specific data collection logic.
+This lifecycle is managed by the `ScraperJob` base class, which provides the `run()` method that orchestrates the process. Subclasses only need to implement the `scrape()` method to define their specific data collection logic. Content deduplication happens automatically when calling `queue_for_processing()`.
 
 ## Scraper Base Class
 
@@ -108,11 +109,35 @@ points = utils.get_state_grid_points("nj")  # New Jersey
 
 Key methods:
 
-- `queue_for_processing(content, metadata)`: Queue content for processing
+- `queue_for_processing(content, metadata)`: Queue content for processing (with automatic deduplication)
 - `get_us_grid_points()`: Get grid points covering the continental US
 - `get_grid_points(bounds)`: Get grid points for a specific bounding box
 - `get_state_grid_points(state_code)`: Get grid points for a US state
 - `get_grid_points_from_geojson(geojson_path)`: Generate grid points from a GeoJSON file
+
+#### Content Deduplication
+
+The `queue_for_processing` method automatically integrates with the content deduplication store:
+
+```python
+# When queueing content, the system automatically:
+# 1. Generates SHA-256 hash of content
+# 2. Checks if content was already processed
+# 3. Returns existing job_id if duplicate found
+# 4. Queues for LLM processing only if new
+
+job_id = utils.queue_for_processing(content, metadata={"source": "my_source"})
+
+# The job_id returned could be:
+# - A new job ID (content queued for processing)
+# - An existing job ID (content already processed)
+```
+
+Benefits:
+- **Automatic**: No code changes needed in scrapers
+- **Cost Savings**: Prevents duplicate LLM API calls
+- **Performance**: Instant results for duplicate content
+- **Transparent**: Scrapers don't need to know about deduplication
 
 ### GeocoderUtils
 

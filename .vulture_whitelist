@@ -8,3 +8,7 @@ GeoDataFrame    # app/models/geographic.py - used in type annotations
 # These are dependencies required by fixtures but not used in the test functions themselves
 mock_redis_url  # tests/test_scraper/test_utils.py - pytest fixture parameter
 mock_prompt_file  # tests/test_scraper/test_utils.py - pytest fixture parameter
+no_content_store  # tests/test_llm/test_processor.py - pytest fixture parameter
+no_content_store  # tests/test_llm/test_queue.py - pytest fixture parameter
+no_content_store  # tests/test_llm/test_queue_processor.py - pytest fixture parameter
+no_content_store  # tests/test_scraper/test_scraper_utils.py - pytest fixture parameter

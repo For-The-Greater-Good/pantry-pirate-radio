@@ -48,6 +48,7 @@ def test_queue_job(
     mock_queue: Queue,
     mock_prompt_file: Path,
     monkeypatch: pytest.MonkeyPatch,
+    no_content_store,
 ) -> None:
     """Test queueing content for processing."""
     # Mock prompt file path

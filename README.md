@@ -404,11 +404,13 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 - **Automated Backups**: Scheduled backups with configurable retention policies
 
 ### Data Pipeline Flow
-1. **Scrapers** → Collect raw data → **Redis Queue**
-2. **Workers** → Process with LLM → **Database** (source-specific records)
-3. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
-4. **Recorder** → Archive results → **Compressed archives**
-5. **API** → Serve HSDS-compliant data → **Client applications**
+1. **Scrapers** → Collect raw data → **Content Store** (deduplication check)
+2. **Content Store** → New content only → **Redis Queue**
+3. **Workers** → Process with LLM → **Database** (source-specific records)
+4. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
+5. **Recorder** → Archive results → **Compressed archives**
+6. **API** → Serve HSDS-compliant data → **Client applications**
+7. **HAARRRvest Publisher** → Sync content store → **Durable backup**
 
 ## 🔍 Explore the Data
 
@@ -456,6 +458,10 @@ LLM_MODEL_NAME=gpt-4
 OUTPUT_DIR=outputs/                   # Job output directory
 BACKUP_KEEP_DAYS=30                  # Database backup retention
 CLAUDE_HEALTH_SERVER=true            # Enable health monitoring
+
+# Content Store Configuration (for deduplication)
+CONTENT_STORE_PATH=/path/to/store    # Path to content store directory
+CONTENT_STORE_ENABLED=true           # Enable/disable content store (default: enabled if path set)
 ```
 
 ### Key Dependencies

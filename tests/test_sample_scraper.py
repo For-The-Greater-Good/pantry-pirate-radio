@@ -101,28 +101,31 @@ class TestSampleScraper:
         assert second_job_data["collection_category"] == "food_assistance"
 
     @pytest.mark.asyncio
-    async def test_run_with_default_file_path(self):
-        """Test run method using default file path."""
+    async def test_run_with_default_embedded_data(self):
+        """Test run method using default embedded data."""
         scraper = SampleScraper()
 
-        # Mock the file existence and content
-        mock_data = [{"features": [{"properties": {"name": "Test Pantry"}}]}]
-
-        with patch("pathlib.Path.exists", return_value=True), patch(
-            "builtins.open", mock_open_with_data(json.dumps(mock_data))
-        ), patch.object(
-            scraper, "submit_to_queue", return_value="job-1"
+        # Mock the submit_to_queue method
+        with patch.object(
+            scraper, "submit_to_queue", side_effect=["job-1", "job-2"]
         ) as mock_submit:
 
             await scraper.run()
 
-            # Check that submit_to_queue was called
-            mock_submit.assert_called_once()
+            # Check that submit_to_queue was called twice (for 2 features)
+            assert mock_submit.call_count == 2
 
-            # Verify the job data
-            call_args = mock_submit.call_args[0][0]
+            # Verify the first job data
+            call_args = mock_submit.call_args_list[0][0][0]
             job_data = json.loads(call_args)
-            assert job_data["name"] == "Test Pantry"
+            assert job_data["name"] == "Sample Food Pantry 1"
+            assert job_data["address"] == "123 Main St, New York, NY 10001"
+
+            # Verify the second job data
+            call_args2 = mock_submit.call_args_list[1][0][0]
+            job_data2 = json.loads(call_args2)
+            assert job_data2["name"] == "Sample Food Pantry 2"
+            assert job_data2["address"] == "456 Broadway, New York, NY 10013"
 
     @pytest.mark.asyncio
     async def test_run_file_not_found(self):
@@ -132,15 +135,6 @@ class TestSampleScraper:
 
         with pytest.raises(FileNotFoundError, match="GeoJSON file not found"):
             await scraper.run()
-
-    @pytest.mark.asyncio
-    async def test_run_default_file_not_found(self):
-        """Test run method when default file doesn't exist."""
-        scraper = SampleScraper()
-
-        with patch("pathlib.Path.exists", return_value=False):
-            with pytest.raises(FileNotFoundError, match="GeoJSON file not found"):
-                await scraper.run()
 
     @pytest.mark.asyncio
     async def test_run_malformed_json(self, temp_test_file):
@@ -156,19 +150,20 @@ class TestSampleScraper:
             await scraper.run()
 
     @pytest.mark.asyncio
-    async def test_run_no_features(self):
+    async def test_run_no_features(self, temp_test_file):
         """Test run method with collection that has no features."""
         scraper = SampleScraper()
 
-        # Mock data without features
+        # Create test data without features
         mock_data = [{"name": "Empty Collection"}]
 
-        with patch("pathlib.Path.exists", return_value=True), patch(
-            "builtins.open", mock_open_with_data(json.dumps(mock_data))
-        ), patch.object(scraper, "submit_to_queue") as mock_submit:
+        with open(temp_test_file, "w") as f:
+            json.dump(mock_data, f)
 
+        scraper.set_test_file(temp_test_file)
+
+        with patch.object(scraper, "submit_to_queue") as mock_submit:
             await scraper.run()
-
             # Should not submit any jobs
             mock_submit.assert_not_called()
 
