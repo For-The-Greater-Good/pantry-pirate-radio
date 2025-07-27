@@ -103,11 +103,9 @@ jobs:
             echo "   gh secret set REPO_SETTINGS_PAT --body 'your-pat-here'"
           else
             echo "Updating repository settings..."
-            gh api repos/${{ github.repository }} \
-              --method PATCH \
-              --input - << 'EOF'
-            ${{ steps.settings.outputs.repo_update }}
-            EOF
+            cat << 'JSON_EOF' | gh api repos/${{ github.repository }} --method PATCH --input -
+          ${{ steps.settings.outputs.repo_update }}
+          JSON_EOF
           fi
 
       - name: Update repository topics
