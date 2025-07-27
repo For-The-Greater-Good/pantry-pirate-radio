@@ -33,7 +33,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        target: [app, worker, recorder, scraper, test, datasette-exporter]
+        target: [app, worker, recorder, scraper, test, datasette-exporter, haarrrvest-publisher]
 
     steps:
       - name: Checkout repository
@@ -157,6 +157,7 @@ jobs:
             - `ghcr.io/${{ github.repository }}:recorder-${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}:scraper-${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}:datasette-exporter-${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository }}:haarrrvest-publisher-${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}:datasette-${{ github.ref_name }}`
 
             ### Testing
@@ -169,6 +170,7 @@ jobs:
             docker pull ghcr.io/${{ github.repository }}:recorder-${{ github.ref_name }}
             docker pull ghcr.io/${{ github.repository }}:scraper-${{ github.ref_name }}
             docker pull ghcr.io/${{ github.repository }}:datasette-exporter-${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository }}:haarrrvest-publisher-${{ github.ref_name }}
             docker pull ghcr.io/${{ github.repository }}:datasette-${{ github.ref_name }}
             ```
 
