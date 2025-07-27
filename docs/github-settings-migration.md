@@ -67,7 +67,20 @@ A bash script that recreates:
    git push origin main
    ```
 
-### Step 2: Apply Repository Settings
+### Step 2: Configure Personal Access Token (Required for Full Functionality)
+
+1. Create a Personal Access Token with `repo` scope:
+   - Go to https://github.com/settings/tokens
+   - Click "Generate new token (classic)"
+   - Select the `repo` scope
+   - Generate and copy the token
+
+2. Add the PAT as a repository secret:
+   ```bash
+   gh secret set REPO_SETTINGS_PAT --body 'your-pat-here' --repo For-The-Greater-Good/pantry-pirate-radio
+   ```
+
+### Step 3: Apply Repository Settings
 
 1. Ensure the settings files are in place:
    - `.github/settings.yml`
@@ -94,7 +107,7 @@ A bash script that recreates:
    gh workflow run sync-repository-settings.yml -f dry_run=false
    ```
 
-### Step 3: Setup Environments
+### Step 4: Setup Environments
 
 Run the environment setup script:
 
@@ -106,7 +119,7 @@ Run the environment setup script:
 ./.github/scripts/setup-environments.sh For-The-Greater-Good/pantry-pirate-radio
 ```
 
-### Step 4: Add Secrets
+### Step 5: Add Secrets
 
 Add repository secrets (these cannot be stored in code for security reasons):
 
@@ -118,7 +131,7 @@ gh secret set OPENROUTER_API_KEY --repo For-The-Greater-Good/pantry-pirate-radio
 gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo For-The-Greater-Good/pantry-pirate-radio
 ```
 
-### Step 5: Verify Settings
+### Step 6: Verify Settings
 
 1. Check repository settings:
 
