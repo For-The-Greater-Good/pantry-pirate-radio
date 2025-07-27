@@ -1,0 +1,154 @@
+# Repository settings for github.com/apps/settings
+# These settings are synced to GitHub by https://probot.github.io/apps/settings/
+
+repository:
+  # Basic repository information
+  name: pantry-pirate-radio
+  description: Breaking down barriers to food security through unified resource access
+  homepage: https://for-the-greater-good.github.io/HAARRRvest/
+  topics: food-security, hsds, openreferral, data-aggregation, python, fastapi, postgresql, redis, docker
+
+  # Repository visibility and features
+  private: true
+  has_issues: true
+  has_projects: false
+  has_wiki: false
+  has_downloads: true
+
+  # Default branch
+  default_branch: main
+
+  # Merge settings
+  allow_squash_merge: true
+  allow_merge_commit: true
+  allow_rebase_merge: false
+  delete_branch_on_merge: true
+
+  # Other settings
+  enable_automated_security_fixes: true
+  enable_vulnerability_alerts: true
+
+# Labels configuration
+labels:
+  - name: bug
+    color: d73a4a
+    description: Something isn't working
+
+  - name: documentation
+    color: 0075ca
+    description: Improvements or additions to documentation
+
+  - name: duplicate
+    color: cfd3d7
+    description: This issue or pull request already exists
+
+  - name: enhancement
+    color: a2eeef
+    description: New feature or request
+
+  - name: food-bank
+    color: 1D76DB
+    description: Food bank related issue
+
+  - name: good first issue
+    color: 7057ff
+    description: Good for newcomers
+
+  - name: help wanted
+    color: 008672
+    description: Extra attention is needed
+
+  - name: invalid
+    color: e4e669
+    description: This doesn't seem right
+
+  - name: question
+    color: d876e3
+    description: Further information is requested
+
+  - name: scraper
+    color: 5319E7
+    description: Scraper implementation task
+
+  - name: wontfix
+    color: ffffff
+    description: This will not be worked on
+
+# Branch protection rules
+branches:
+  - name: main
+    # https://docs.github.com/en/rest/reference/repos#update-branch-protection
+    protection:
+      # Required status checks
+      required_status_checks:
+        strict: true  # Require branches to be up to date before merging
+        contexts:
+          - "setup"
+          - "formatting-and-linting"
+          - "mypy"
+          - "pytest"
+          - "vulture"
+          - "bandit"
+          - "safety"
+          - "pip-audit"
+          - "xenon"
+
+      # Required pull request reviews
+      required_pull_request_reviews:
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
+        require_code_owner_reviews: true
+        dismissal_restrictions:
+          users: []
+          teams: []
+
+      # Enforce for administrators
+      enforce_admins: false
+
+      # Prevent force pushes and deletions
+      allow_force_pushes: false
+      allow_deletions: false
+
+      # Required linear history (no merge commits)
+      required_linear_history: false
+
+      # Allow specific users/teams/apps to bypass
+      restrictions: null
+
+      # Require conversation resolution before merging
+      required_conversation_resolution: true
+
+      # Lock branch (read-only)
+      lock_branch: false
+
+      # Allow fork syncing
+      allow_fork_syncing: true
+
+  - name: develop
+    protection:
+      required_status_checks:
+        strict: false
+        contexts:
+          - "formatting-and-linting"
+          - "mypy"
+          - "pytest"
+
+      required_pull_request_reviews: null
+
+      enforce_admins: false
+      restrictions: null
+
+# Teams configuration (if needed)
+# teams:
+#   - name: developers
+#     permission: push
+#   - name: admins
+#     permission: admin
+
+# Collaborators (if needed)
+# collaborators:
+#   - username: octocat
+#     permission: push
+
+# Environment configuration is not supported by github-settings app
+# See the GitHub Actions workflow or migration documentation for environment setup
