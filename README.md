@@ -116,30 +116,44 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 ### Core Services
 
 ```mermaid
-graph TD
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#1976d2', 'primaryTextColor':'#fff', 'primaryBorderColor':'#0d47a1', 'lineColor':'#424242', 'secondaryColor':'#ff6f00', 'tertiaryColor':'#4a148c', 'background':'#fafafa', 'mainBkg':'#e3f2fd', 'secondBkg':'#fff3e0', 'tertiaryBkg':'#f3e5f5'}}}%%
+flowchart TB
     %% Data Collection Layer
-    Scrapers[Scrapers<br/>12+ sources] --> ContentStore[Content Store<br/>Dedup Check]
-    ContentStore --> RedisQueue[Redis Queue]
+    Scrapers[Scrapers<br/>12+ sources] --> |submits jobs| RedisQueue[Redis Queue<br/>Job Queue]
     
-    %% Processing Layer
-    RedisQueue --> Workers[Workers<br/>Scalable]
-    Workers --> LLM[LLM Providers]
-    Workers --> Reconciler[Reconciler<br/>Service]
-    Workers --> Recorder[Recorder<br/>Service]
+    %% Content Store checks happen during job submission
+    Scrapers --> |checks dedup| ContentStore[Content Store<br/>Deduplication]
+    ContentStore --> |if new content| RedisQueue
+    ContentStore --> |if duplicate| SkipLLM[Skip LLM<br/>Return existing job]
     
-    %% LLM updates Content Store
-    LLM --> ContentStore
+    %% LLM Processing Layer
+    RedisQueue --> LLMWorkers[LLM Workers<br/>Scalable]
+    LLMWorkers --> LLM[LLM Providers<br/>OpenAI/Claude]
+    LLM --> |HSDS aligned data| LLMWorkers
+    
+    %% LLM Workers create new jobs
+    LLMWorkers --> |creates reconciler job| ReconcilerQueue[Reconciler Jobs]
+    LLMWorkers --> |creates recorder job| RecorderQueue[Recorder Jobs]
+    
+    %% Update Content Store after processing
+    LLMWorkers --> |marks complete| ContentStore
+    
+    %% Reconciler Processing
+    ReconcilerQueue --> Reconciler[Reconciler Service<br/>• Location matching<br/>• Entity deduplication<br/>• Version tracking]
+    
+    %% Recorder Processing
+    RecorderQueue --> Recorder[Recorder Service<br/>• Archive JSON data]
     
     %% Storage Layer
-    Reconciler --> PostgreSQL[(PostgreSQL +<br/>PostGIS)]
-    Recorder --> OutputsFolder[outputs/<br/>Folder]
+    Reconciler --> PostgreSQL[(PostgreSQL +<br/>PostGIS<br/>HSDS Database)]
+    Recorder --> OutputsFolder[outputs/<br/>JSON Files]
     
     %% API Layer
     PostgreSQL --> FastAPI[FastAPI<br/>Server]
     
     %% Publishing Layer
-    PostgreSQL --> |exports to SQLite| Publisher[HAARRRvest Publisher<br/>• Reads outputs/ & content_store/<br/>• Exports DB to SQLite<br/>• Generates location data]
-    OutputsFolder --> Publisher
+    OutputsFolder --> |reads JSON files| Publisher[HAARRRvest Publisher<br/>• Builds location map data<br/>• Exports DB to SQLite<br/>• Syncs content store]
+    PostgreSQL --> |exports to SQLite| Publisher
     ContentStore -.-> |syncs for backup| Publisher
     
     Publisher --> HAARRRvest[HAARRRvest<br/>Repository]
@@ -148,10 +162,12 @@ graph TD
     classDef service fill:#e1f5fe,stroke:#01579b,stroke-width:2px
     classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px
     classDef external fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef queue fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
     
-    class Scrapers,Workers,Reconciler,Recorder,FastAPI,Publisher service
-    class ContentStore,RedisQueue,PostgreSQL,OutputsFolder storage
+    class Scrapers,LLMWorkers,Reconciler,Recorder,FastAPI,Publisher service
+    class ContentStore,PostgreSQL,OutputsFolder storage
     class LLM,HAARRRvest external
+    class RedisQueue,ReconcilerQueue,RecorderQueue,SkipLLM queue
 ```
 
 ### Service Components
