@@ -143,8 +143,9 @@ class HAARRRvestPublisher:
 
             # Use authenticated URL for cloning
             clone_url = self._get_authenticated_url()
+            # Shallow clone to save space and time
             code, out, err = self._run_command(
-                ["git", "clone", clone_url, str(self.data_repo_path)]
+                ["git", "clone", "--depth", "1", clone_url, str(self.data_repo_path)]
             )
             if code != 0:
                 raise Exception(f"Failed to clone repository: {err}")
@@ -196,9 +197,9 @@ class HAARRRvestPublisher:
                 logger.error(f"Failed to checkout main: {err}")
                 raise Exception(f"Cannot switch to main branch: {err}")
 
-            # Fetch latest changes
+            # Fetch latest changes (shallow to maintain repository size)
             code, out, err = self._run_command(
-                ["git", "fetch", "origin"], cwd=self.data_repo_path
+                ["git", "fetch", "--depth", "1", "origin"], cwd=self.data_repo_path
             )
             if code != 0:
                 logger.error(f"Failed to fetch: {err}")
@@ -215,8 +216,9 @@ class HAARRRvestPublisher:
                 logger.info(
                     f"Local repository is {behind_count} commits behind origin/main, pulling updates"
                 )
+                # Pull with depth to maintain shallow clone
                 code, out, err = self._run_command(
-                    ["git", "pull", "origin", "main"], cwd=self.data_repo_path
+                    ["git", "pull", "--depth", "1", "origin", "main"], cwd=self.data_repo_path
                 )
                 if code != 0:
                     logger.error(f"Failed to pull: {err}")

@@ -259,7 +259,7 @@ docker compose logs -f haarrrvest-publisher
 
 **Startup Process**:
 1. PostgreSQL and Redis start first
-2. HAARRRvest publisher clones the data repository
+2. HAARRRvest publisher shallow clones the data repository (depth=1 for efficiency)
 3. Database initializer populates ~90 days of historical data
 4. All services start once the database is ready
 

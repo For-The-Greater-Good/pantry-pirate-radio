@@ -82,9 +82,10 @@ docker compose -f docker-compose.yml -f docker-compose.with-init.yml --profile w
 
 ### HAARRRvest Publisher (haarrrvest-publisher)
 - **Purpose**: Manages HAARRRvest repository and publishes new data
-- **Startup**: Clones repository on first run, pulls updates on subsequent runs
+- **Startup**: Shallow clones repository on first run (depth=1), pulls updates on subsequent runs
 - **Health Check**: Verifies repository exists at `/data-repo/.git`
 - **Volume**: `haarrrvest_repo` shared with other services
+- **Note**: Uses shallow cloning to minimize storage and speed up initialization
 
 ### Database Initializer (db-init)
 - **Purpose**: Populates database with historical data from HAARRRvest
