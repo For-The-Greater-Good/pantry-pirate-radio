@@ -309,8 +309,8 @@ def replay_directory(
     # Security: Only allow files from the specified directory
     allowed_dirs = [str(dir_path.resolve())]
 
-    # Find all matching files
-    files = list(dir_path.glob(pattern))
+    # Find all matching files recursively
+    files = list(dir_path.rglob(pattern))
     logger.info(f"Found {len(files)} files matching pattern '{pattern}'")
 
     stats = {"total_files": len(files), "successful": 0, "failed": 0}

@@ -69,7 +69,7 @@ check_db_schema() {
     fi
 }
 
-# Function to check if data repo exists
+# Function to check and wait for data repo to be ready
 check_data_repo() {
     if [ ! -d "$DATA_REPO_PATH" ]; then
         warn "HAARRRvest data repository not found at $DATA_REPO_PATH"
@@ -77,13 +77,16 @@ check_data_repo() {
         return 1
     fi
 
-    if [ ! -d "$DATA_REPO_PATH/daily" ]; then
-        warn "No daily data directory found in HAARRRvest repository"
+    # Use the wait script to ensure repository is fully cloned
+    log "Waiting for HAARRRvest repository to be fully cloned..."
+    if /app/scripts/wait-for-repo-ready.sh; then
+        log "HAARRRvest repository is ready"
+        return 0
+    else
+        warn "Failed to wait for repository to be ready"
         warn "Skipping data population - database will start empty"
         return 1
     fi
-
-    return 0
 }
 
 # Function to count existing records

@@ -120,40 +120,40 @@ flowchart TB
     %% Data Collection
     Scrapers[Scrapers<br/>12+ sources]
     ContentStore{Content Store<br/>Deduplication}
-    
+
     Scrapers --> ContentStore
     ContentStore -->|New content| Queue[Redis Queue]
     ContentStore -->|Duplicate| Skip[Return existing]
-    
+
     %% Processing
     Queue --> Workers[LLM Workers]
     Workers <--> LLM[LLM Providers]
-    
+
     %% Job Distribution
     Workers --> Jobs{Create Jobs}
     Jobs --> ReconcilerQ[Reconciler Queue]
     Jobs --> RecorderQ[Recorder Queue]
-    
+
     %% Services
     ReconcilerQ --> Reconciler[Reconciler<br/>Location matching]
     RecorderQ --> Recorder[Recorder<br/>Archive JSON]
-    
+
     %% Storage
     Reconciler --> DB[(PostgreSQL<br/>PostGIS)]
     Recorder --> Files[JSON Files]
-    
+
     %% Output
     DB --> API[FastAPI]
     DB --> Publisher[HAARRRvest<br/>Publisher]
     Files --> Publisher
     Publisher --> GitHub[HAARRRvest<br/>Repository]
-    
+
     %% Style
     classDef service fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
     classDef storage fill:#ffe0b2,stroke:#ef6c00,stroke-width:2px,color:#000
     classDef external fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
     classDef queue fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
-    
+
     class Scrapers,Workers,Reconciler,Recorder,API,Publisher service
     class ContentStore,DB,Files storage
     class LLM,GitHub external
@@ -248,11 +248,11 @@ cp .env.example .env
 
 # 3. Start all services WITH latest HAARRRvest data (recommended)
 # This will populate the database with ~90 days of food resource data
-docker-compose --profile with-init up -d
+docker compose -f docker-compose.yml -f docker-compose.with-init.yml --profile with-init up -d
 
 # 4. Monitor initialization (takes 5-15 minutes)
-docker-compose logs -f db-init
-docker-compose logs -f haarrrvest-publisher
+docker compose logs -f db-init
+docker compose logs -f haarrrvest-publisher
 
 # 5. Access the API at http://localhost:8000/docs
 ```
@@ -263,7 +263,7 @@ docker-compose logs -f haarrrvest-publisher
 3. Database initializer populates ~90 days of historical data
 4. All services start once the database is ready
 
-**Note**: The `--profile with-init` flag runs full initialization. For subsequent runs, use `docker-compose up -d` for faster startup. See [Docker Startup Documentation](docs/docker-startup-sequence.md) for details.
+**Note**: The initialization command uses both compose files to ensure proper dependency handling. For subsequent runs, use `docker compose up -d` for faster startup. See [Docker Startup Documentation](docs/docker-startup-sequence.md) for details.
 
 ### Manual Setup
 ```bash
@@ -284,7 +284,7 @@ git config core.hooksPath .githooks
 poetry install
 
 # 5. Start all services
-docker-compose up -d
+docker compose up -d
 
 # FastAPI server will be available at http://localhost:8000
 # Workers will start automatically
@@ -304,10 +304,10 @@ export LLM_PROVIDER=claude
 export ANTHROPIC_API_KEY=your_api_key_here  # Optional
 
 # Start services
-docker-compose up -d
+docker compose up -d
 
 # Setup authentication (interactive)
-docker-compose exec worker python -m app.claude_auth_manager setup
+docker compose exec worker python -m app.claude_auth_manager setup
 
 # Check authentication status
 curl http://localhost:8080/health
@@ -327,7 +327,7 @@ export OPENROUTER_API_KEY=your_api_key_here
 export LLM_MODEL_NAME=gpt-4
 
 # Start services
-docker-compose up -d
+docker compose up -d
 ```
 
 ## Service URLs (Development)
@@ -353,26 +353,26 @@ docker-compose up -d
 ### Service Management
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Start specific service
-docker-compose up -d app                    # FastAPI server
-docker-compose up -d worker                 # LLM workers
-docker-compose up -d recorder               # Recorder service
-docker-compose up -d reconciler             # Reconciler service
-docker-compose up -d haarrrvest-publisher   # HAARRRvest publisher
-docker-compose up -d db-backup              # Database backup service
+docker compose up -d app                    # FastAPI server
+docker compose up -d worker                 # LLM workers
+docker compose up -d recorder               # Recorder service
+docker compose up -d reconciler             # Reconciler service
+docker compose up -d haarrrvest-publisher   # HAARRRvest publisher
+docker compose up -d db-backup              # Database backup service
 
 # View logs
-docker-compose logs -f app                  # FastAPI logs
-docker-compose logs -f worker               # Worker logs
-docker-compose logs -f recorder             # Recorder logs
-docker-compose logs -f reconciler           # Reconciler logs
-docker-compose logs -f haarrrvest-publisher # Publisher logs
-docker-compose logs -f db-backup            # Database backup logs
+docker compose logs -f app                  # FastAPI logs
+docker compose logs -f worker               # Worker logs
+docker compose logs -f recorder             # Recorder logs
+docker compose logs -f reconciler           # Reconciler logs
+docker compose logs -f haarrrvest-publisher # Publisher logs
+docker compose logs -f db-backup            # Database backup logs
 
 # Scale workers
-docker-compose up -d --scale worker=3  # Run 3 worker instances
+docker compose up -d --scale worker=3  # Run 3 worker instances
 ```
 
 ### Development Commands
@@ -432,8 +432,8 @@ docker build --target test -t pantry-pirate-radio:test .
 docker run --rm pantry-pirate-radio:test
 
 # Debug service containers
-docker-compose exec app bash
-docker-compose exec worker bash
+docker compose exec app bash
+docker compose exec worker bash
 ```
 
 ### Quality Standards

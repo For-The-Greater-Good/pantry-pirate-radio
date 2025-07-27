@@ -31,7 +31,7 @@ graph TD
 For development or when you don't need pre-populated data:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 **What happens:**
@@ -52,8 +52,10 @@ docker-compose up -d
 For production-like environment with real data:
 
 ```bash
-docker-compose --profile with-init up -d
+docker compose -f docker-compose.yml -f docker-compose.with-init.yml --profile with-init up -d
 ```
+
+**Important**: You must use both `-f` flags to merge the compose files AND the `--profile with-init` flag. The profile alone is not sufficient because the dependency overrides are in the `docker-compose.with-init.yml` file.
 
 **What happens:**
 1. PostgreSQL starts and initializes with HSDS schema
@@ -138,28 +140,28 @@ healthcheck:
 
 ### View Service Status
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 ### Monitor Initialization Progress
 ```bash
 # Watch all services starting
-docker-compose logs -f
+docker compose logs -f
 
 # Monitor specific service
-docker-compose logs -f db-init
+docker compose logs -f db-init
 
 # Check HAARRRvest repository clone
-docker-compose logs -f haarrrvest-publisher
+docker compose logs -f haarrrvest-publisher
 ```
 
 ### Check Health Status
 ```bash
 # Check if services are healthy
-docker-compose ps | grep healthy
+docker compose ps | grep healthy
 
 # Manually run health check
-docker-compose exec haarrrvest-publisher /app/scripts/check-haarrrvest-repo.sh
+docker compose exec haarrrvest-publisher /app/scripts/check-haarrrvest-repo.sh
 ```
 
 ## Troubleshooting
@@ -168,23 +170,23 @@ docker-compose exec haarrrvest-publisher /app/scripts/check-haarrrvest-repo.sh
 
 1. **Check dependencies**: Ensure required services are healthy
    ```bash
-   docker-compose ps
+   docker compose ps
    ```
 
 2. **View logs**: Look for error messages
    ```bash
-   docker-compose logs service-name
+   docker compose logs service-name
    ```
 
 3. **Verify repository**: Check if HAARRRvest cloned successfully
    ```bash
-   docker-compose exec haarrrvest-publisher ls -la /data-repo
+   docker compose exec haarrrvest-publisher ls -la /data-repo
    ```
 
 ### Slow Initialization
 
 - DB-init can take 5-15 minutes depending on data volume
-- Monitor progress: `docker-compose logs -f db-init`
+- Monitor progress: `docker compose logs -f db-init`
 - Reduce data: Set `DB_INIT_DAYS_TO_SYNC=7` for faster init
 
 ### Repository Clone Failures
@@ -198,13 +200,13 @@ docker-compose exec haarrrvest-publisher /app/scripts/check-haarrrvest-repo.sh
 
 ```bash
 # Stop everything
-docker-compose down
+docker compose down
 
 # Remove volumes if you need a clean start
-docker-compose down -v
+docker compose down -v
 
-# Start again
-docker-compose --profile with-init up -d
+# Start again with initialization
+docker compose -f docker-compose.yml -f docker-compose.with-init.yml --profile with-init up -d
 ```
 
 ## CI/CD Considerations
@@ -216,9 +218,9 @@ environment:
   CI: true
 ```
 
-Or use the standard docker-compose without the profile:
+Or use the standard docker compose without the profile:
 ```bash
-docker-compose up -d  # No --profile with-init
+docker compose up -d  # No --profile with-init
 ```
 
 ## Best Practices
@@ -247,7 +249,7 @@ DATA_REPO_TOKEN=<production_token>
 ### Verification
 Check the logs to confirm push status:
 ```bash
-docker-compose logs haarrrvest-publisher | grep -E "(PUSH ENABLED|READ-ONLY)"
+docker compose logs haarrrvest-publisher | grep -E "(PUSH ENABLED|READ-ONLY)"
 ```
 
 You should see either:
@@ -271,7 +273,7 @@ services:
 
 Run with:
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.custom.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.custom.yml up -d
 ```
 
 ### Partial Startup
@@ -279,11 +281,11 @@ docker-compose -f docker-compose.yml -f docker-compose.custom.yml up -d
 Start only specific services:
 ```bash
 # Just database and cache
-docker-compose up -d db cache
+docker compose up -d db cache
 
 # Add HAARRRvest publisher
-docker-compose up -d haarrrvest-publisher
+docker compose up -d haarrrvest-publisher
 
 # Then other services
-docker-compose up -d
+docker compose up -d
 ```
