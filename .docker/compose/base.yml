@@ -37,14 +37,7 @@ services:
         condition: service_healthy
       cache:
         condition: service_started
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '2.0'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
+
 
   recorder:
     build:
