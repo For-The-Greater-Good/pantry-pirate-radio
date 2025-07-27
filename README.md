@@ -118,34 +118,34 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 ```mermaid
 flowchart LR
     %% Input
-    A[Scrapers<br/>12+ sources] --> B{Content<br/>Store}
+    A["&nbsp;Scrapers&nbsp;<br/>&nbsp;12+ sources&nbsp;"] --> B{"&nbsp;Content&nbsp;<br/>&nbsp;Store&nbsp;"}
     
     %% Deduplication
-    B -->|New| C[Redis<br/>Queue]
-    B -->|Duplicate| D[Return<br/>Existing]
+    B -->|New| C["&nbsp;Redis&nbsp;<br/>&nbsp;Queue&nbsp;"]
+    B -->|Duplicate| D["&nbsp;&nbsp;Return&nbsp;&nbsp;<br/>&nbsp;Existing&nbsp;"]
     
     %% Processing
-    C --> E[LLM<br/>Workers]
-    E --> F[LLM<br/>Providers]
+    C --> E["&nbsp;&nbsp;LLM&nbsp;&nbsp;<br/>&nbsp;Workers&nbsp;"]
+    E --> F["&nbsp;&nbsp;LLM&nbsp;&nbsp;<br/>&nbsp;Providers&nbsp;"]
     F --> E
     
     %% Job Creation
-    E --> G[Reconciler<br/>Jobs]
-    E --> H[Recorder<br/>Jobs]
+    E --> G["&nbsp;Reconciler&nbsp;<br/>&nbsp;Jobs&nbsp;"]
+    E --> H["&nbsp;Recorder&nbsp;<br/>&nbsp;Jobs&nbsp;"]
     
     %% Services
-    G --> I[Reconciler]
-    H --> J[Recorder]
+    G --> I["&nbsp;Reconciler&nbsp;"]
+    H --> J["&nbsp;Recorder&nbsp;"]
     
     %% Storage
-    I --> K[(PostgreSQL<br/>PostGIS)]
-    J --> L[JSON<br/>Files]
+    I --> K[("&nbsp;PostgreSQL&nbsp;<br/>&nbsp;PostGIS&nbsp;")]
+    J --> L["&nbsp;&nbsp;JSON&nbsp;&nbsp;<br/>&nbsp;Files&nbsp;"]
     
     %% Output
-    K --> M[FastAPI]
-    L --> N[Publisher]
+    K --> M["&nbsp;FastAPI&nbsp;"]
+    L --> N["&nbsp;Publisher&nbsp;"]
     K --> N
-    N --> O[HAARRRvest<br/>Repo]
+    N --> O["&nbsp;HAARRRvest&nbsp;<br/>&nbsp;Repo&nbsp;"]
     
     %% Update tracking
     E -.-> |complete| B
