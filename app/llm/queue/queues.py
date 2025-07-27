@@ -26,14 +26,18 @@ try:
     redis_client = redis.Redis(connection_pool=redis_pool, decode_responses=False)
     # Verify connection
     redis_client.ping()
-    logger.debug("Connected to Redis at %s with connection pool (max_connections=50)", REDIS_URL)
+    logger.debug(
+        "Connected to Redis at %s with connection pool (max_connections=50)", REDIS_URL
+    )
 except Exception as e:
     logger.error("Failed to connect to Redis at %s: %s", REDIS_URL, e)
     raise
 
 # Create queues with separate connections from the pool
 llm_queue = Queue("llm", connection=redis.Redis(connection_pool=redis_pool))
-reconciler_queue = Queue("reconciler", connection=redis.Redis(connection_pool=redis_pool))
+reconciler_queue = Queue(
+    "reconciler", connection=redis.Redis(connection_pool=redis_pool)
+)
 recorder_queue = Queue("recorder", connection=redis.Redis(connection_pool=redis_pool))
 
 # Export queue types for type hints

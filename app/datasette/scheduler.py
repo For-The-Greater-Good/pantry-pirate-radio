@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 def wait_for_database(max_retries: int = 60, retry_interval: int = 5) -> bool:
     """Wait for PostgreSQL to be ready.
-    
+
     Args:
         max_retries: Maximum number of connection attempts
         retry_interval: Seconds between attempts
-        
+
     Returns:
         True if connected successfully, False if timed out
     """
@@ -29,7 +29,7 @@ def wait_for_database(max_retries: int = 60, retry_interval: int = 5) -> bool:
         f"user={os.environ.get('POSTGRES_USER', 'pantry_pirate_radio')} "
         f"password={os.environ.get('POSTGRES_PASSWORD', 'pantry_pirate_radio')}"
     )
-    
+
     for attempt in range(max_retries):
         try:
             conn = psycopg2.connect(pg_conn_string)
@@ -38,10 +38,14 @@ def wait_for_database(max_retries: int = 60, retry_interval: int = 5) -> bool:
             return True
         except psycopg2.OperationalError as e:
             if attempt < max_retries - 1:
-                logger.warning(f"PostgreSQL not ready (attempt {attempt + 1}/{max_retries}), waiting {retry_interval}s...")
+                logger.warning(
+                    f"PostgreSQL not ready (attempt {attempt + 1}/{max_retries}), waiting {retry_interval}s..."
+                )
                 time.sleep(retry_interval)
             else:
-                logger.error(f"Failed to connect to PostgreSQL after {max_retries} attempts")
+                logger.error(
+                    f"Failed to connect to PostgreSQL after {max_retries} attempts"
+                )
                 return False
     return False
 

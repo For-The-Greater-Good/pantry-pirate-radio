@@ -78,5 +78,5 @@ def _create_content_store() -> ContentStore | None:
 
     # Get Redis URL from environment
     redis_url = os.getenv("REDIS_URL", "redis://cache:6379")
-    
+
     return ContentStore(store_path=store_path, redis_url=redis_url)

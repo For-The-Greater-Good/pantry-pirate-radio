@@ -31,7 +31,9 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         ValueError: If job processing fails
         Retry: If quota exceeded, schedules retry with exponential backoff
     """
-    logger.info(f"Starting to process LLM job {job.id} with provider {provider.model_name}")
+    logger.info(
+        f"Starting to process LLM job {job.id} with provider {provider.model_name}"
+    )
 
     # Run async generate in sync context
     loop = asyncio.new_event_loop()
@@ -73,7 +75,9 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
                 failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
             )
-            logger.info(f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}")
+            logger.info(
+                f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
+            )
         except Exception as e:
             logger.error(f"Failed to enqueue reconciler job for LLM job {job.id}: {e}")
             # Re-raise to ensure the LLM job fails and can be retried
@@ -93,7 +97,9 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
                 failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
             )
-            logger.info(f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}")
+            logger.info(
+                f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
+            )
         except Exception as e:
             logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
             # Re-raise to ensure the LLM job fails and can be retried

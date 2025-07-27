@@ -218,7 +218,8 @@ class HAARRRvestPublisher:
                 )
                 # Pull with depth to maintain shallow clone
                 code, out, err = self._run_command(
-                    ["git", "pull", "--depth", "1", "origin", "main"], cwd=self.data_repo_path
+                    ["git", "pull", "--depth", "1", "origin", "main"],
+                    cwd=self.data_repo_path,
                 )
                 if code != 0:
                     logger.error(f"Failed to pull: {err}")

@@ -168,7 +168,10 @@ class ContentStore:
             # Check if the job is still active
             if self._is_job_active(existing_job_id):
                 return ContentEntry(
-                    hash=content_hash, status="pending", result=None, job_id=existing_job_id
+                    hash=content_hash,
+                    status="pending",
+                    result=None,
+                    job_id=existing_job_id,
                 )
             else:
                 # Job is no longer active (failed, expired, etc.)
@@ -286,8 +289,7 @@ class ContentStore:
 
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "UPDATE content_index SET job_id = NULL WHERE hash = ?",
-                (content_hash,)
+                "UPDATE content_index SET job_id = NULL WHERE hash = ?", (content_hash,)
             )
             conn.commit()
 

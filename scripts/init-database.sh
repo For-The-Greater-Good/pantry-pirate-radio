@@ -136,20 +136,20 @@ run_replay() {
     # Run replay and capture output, showing progress periodically
     local line_count=0
     local last_progress_time=$(date +%s)
-    
+
     if python -m app.replay --directory "$DATA_REPO_PATH/daily" --pattern "*.json" 2>&1 | while IFS= read -r line; do
         # Count lines for progress estimation
         ((line_count++))
-        
+
         # Show progress every 30 seconds instead of all output
         local current_time=$(date +%s)
         local time_diff=$((current_time - last_progress_time))
-        
+
         if [ $time_diff -ge 30 ]; then
             log "Still processing... (this may take up to 30 minutes for large datasets)"
             last_progress_time=$current_time
         fi
-        
+
         # Only show actual errors or important messages
         # Exclude common/expected warnings about missing descriptions, merge strategies, and empty phone numbers
         if echo "$line" | grep -E "(ERROR|complete|Progress:|failed)" >/dev/null; then
