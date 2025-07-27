@@ -1262,13 +1262,20 @@ More custom content here.
         assert "Data Structure" in updated_content
 
         # Verify existing content was preserved
-        assert "This is a custom introduction added by the maintainer." in updated_content
+        assert (
+            "This is a custom introduction added by the maintainer." in updated_content
+        )
         assert "## Custom Section" in updated_content
-        assert "This is important documentation that should be preserved." in updated_content
+        assert (
+            "This is important documentation that should be preserved."
+            in updated_content
+        )
         assert "## Another Section" in updated_content
         assert "More custom content here." in updated_content
 
-    def test_should_update_existing_harvester_section_in_readme(self, publisher, temp_dirs):
+    def test_should_update_existing_harvester_section_in_readme(
+        self, publisher, temp_dirs
+    ):
         """Test updating existing harvester section without affecting other content."""
         _, repo_dir = temp_dirs
 
@@ -1299,7 +1306,9 @@ This should be preserved.
 
         # Create some test data to generate different statistics
         (repo_dir / "daily" / "2025-01-25" / "scrapers" / "test").mkdir(parents=True)
-        (repo_dir / "daily" / "2025-01-25" / "scrapers" / "test" / "file.json").write_text("{}")
+        (
+            repo_dir / "daily" / "2025-01-25" / "scrapers" / "test" / "file.json"
+        ).write_text("{}")
 
         # Update repository metadata
         publisher._update_repository_metadata()
@@ -1358,8 +1367,10 @@ Some content here.
         updated_content = readme_path.read_text()
 
         # Verify harvester section was added at the beginning
-        assert updated_content.startswith("<!-- HARVESTER AUTO-GENERATED SECTION START -->")
-        
+        assert updated_content.startswith(
+            "<!-- HARVESTER AUTO-GENERATED SECTION START -->"
+        )
+
         # Verify existing content was preserved
         assert "This is a README without a title." in updated_content
         assert "Some content here." in updated_content

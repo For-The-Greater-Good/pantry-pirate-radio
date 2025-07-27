@@ -357,7 +357,7 @@ class HAARRRvestPublisher:
 
         # Update README - preserve existing content, only update harvester section
         readme_path = self.data_repo_path / "README.md"
-        
+
         # Harvester-generated section content
         harvester_section = f"""<!-- HARVESTER AUTO-GENERATED SECTION START -->
 ## Last Update
@@ -385,31 +385,37 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
         if readme_path.exists():
             with open(readme_path, "r") as f:
                 existing_content = f.read()
-            
+
             # Look for harvester section markers
             start_marker = "<!-- HARVESTER AUTO-GENERATED SECTION START -->"
             end_marker = "<!-- HARVESTER AUTO-GENERATED SECTION END -->"
-            
+
             start_idx = existing_content.find(start_marker)
             end_idx = existing_content.find(end_marker)
-            
+
             if start_idx != -1 and end_idx != -1:
                 # Replace existing harvester section
                 end_idx += len(end_marker)
                 new_content = (
-                    existing_content[:start_idx] +
-                    harvester_section +
-                    existing_content[end_idx:]
+                    existing_content[:start_idx]
+                    + harvester_section
+                    + existing_content[end_idx:]
                 )
             else:
                 # Add harvester section at the top (after title if present)
-                lines = existing_content.split('\n')
-                if lines and lines[0].startswith('# '):
+                lines = existing_content.split("\n")
+                if lines and lines[0].startswith("# "):
                     # Insert after title
-                    new_content = lines[0] + '\n\n' + harvester_section + '\n\n' + '\n'.join(lines[1:])
+                    new_content = (
+                        lines[0]
+                        + "\n\n"
+                        + harvester_section
+                        + "\n\n"
+                        + "\n".join(lines[1:])
+                    )
                 else:
                     # Insert at the beginning
-                    new_content = harvester_section + '\n\n' + existing_content
+                    new_content = harvester_section + "\n\n" + existing_content
         else:
             # Create new README with default title and harvester section
             new_content = f"""# HAARRRvest - Food Resource Data
