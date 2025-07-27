@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from rq import get_current_job
 
+from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.models import JobResult, JobStatus, LLMJob
@@ -67,8 +68,8 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         reconciler_queue.enqueue_call(
             func="app.reconciler.job_processor.process_job_result",
             args=(job_result,),
-            result_ttl=86400,  # Keep results for 24 hours
-            failure_ttl=86400,  # Keep failed jobs for 24 hours
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
         )
 
         recorder_queue.enqueue_call(
@@ -81,8 +82,8 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     "error": None,
                 },
             ),
-            result_ttl=86400,  # Keep results for 24 hours
-            failure_ttl=86400,  # Keep failed jobs for 24 hours
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
         )
 
         # Store result in content store if available
@@ -131,8 +132,8 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                         provider,
                         job_id=f"{job.id}_auth_retry_{retry_count + 1}",
                         meta={"auth_retry_count": retry_count + 1},
-                        result_ttl=86400,
-                        failure_ttl=86400,
+                        result_ttl=settings.REDIS_TTL_SECONDS,
+                        failure_ttl=settings.REDIS_TTL_SECONDS,
                     )
 
                     logger.info(
@@ -166,8 +167,6 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 retry_count = getattr(current_job.meta, "quota_retry_count", 0)
 
                 # Calculate exponential backoff delay
-                from app.core.config import settings
-
                 base_delay = getattr(settings, "CLAUDE_QUOTA_RETRY_DELAY", 3600)
                 max_delay = getattr(
                     settings, "CLAUDE_QUOTA_MAX_DELAY", 14400
@@ -197,8 +196,8 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     provider,
                     job_id=f"{job.id}_retry_{retry_count + 1}",
                     meta={"quota_retry_count": retry_count + 1},
-                    result_ttl=86400,
-                    failure_ttl=86400,
+                    result_ttl=settings.REDIS_TTL_SECONDS,
+                    failure_ttl=settings.REDIS_TTL_SECONDS,
                 )
 
                 logger.info(

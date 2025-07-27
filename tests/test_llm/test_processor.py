@@ -222,7 +222,7 @@ def test_process_llm_job_claude_quota_exceeded_first_retry(
     mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
 
     with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.core.config.settings", mock_settings):
+        with patch("app.llm.queue.processor.settings", mock_settings):
             with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
                 mock_retry_job = MagicMock()
                 mock_retry_job.id = "retry-job-123"
@@ -267,7 +267,7 @@ def test_process_llm_job_claude_quota_exceeded_exponential_backoff(
     mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
 
     with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.core.config.settings", mock_settings):
+        with patch("app.llm.queue.processor.settings", mock_settings):
             with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
                 mock_retry_job = MagicMock()
                 mock_retry_job.id = "retry-job-123"
@@ -307,7 +307,7 @@ def test_process_llm_job_claude_quota_exceeded_max_delay(
     mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
 
     with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.core.config.settings", mock_settings):
+        with patch("app.llm.queue.processor.settings", mock_settings):
             with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
                 mock_retry_job = MagicMock()
                 mock_retry_job.id = "retry-job-123"
@@ -370,7 +370,7 @@ def test_process_llm_job_settings_fallback(
     del mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER
 
     with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.core.config.settings", mock_settings):
+        with patch("app.llm.queue.processor.settings", mock_settings):
             with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
                 mock_retry_job = MagicMock()
                 mock_retry_job.id = "retry-job-123"
@@ -499,7 +499,7 @@ def test_process_llm_job_quota_error_provider_without_model_name(
     mock_job.save_meta = MagicMock()  # Mock the save_meta method
 
     with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.core.config.settings") as mock_settings:
+        with patch("app.llm.queue.processor.settings") as mock_settings:
             mock_settings.CLAUDE_QUOTA_RETRY_DELAY = 3600
             mock_settings.CLAUDE_QUOTA_MAX_DELAY = 14400
             mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5

@@ -13,6 +13,7 @@ from prometheus_client import Counter
 from redis import Redis
 
 # Job import removed - not used
+from app.core.config import settings
 from app.core.grid import GridGenerator
 from app.llm.hsds_aligner.schema_converter import SchemaConverter
 from app.llm.hsds_aligner.validation import ValidationConfig
@@ -297,8 +298,8 @@ class ScraperUtils:
             args=(job, provider),
             job_id=job.id,
             meta={"job": job.model_dump()},
-            result_ttl=86400,  # Keep results for 24 hours
-            failure_ttl=86400,  # Keep failed jobs for 24 hours
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
         )
         if result is None:
             raise RuntimeError("Failed to enqueue job")

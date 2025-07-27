@@ -159,3 +159,201 @@ def test_redis_connection_error(
     with pytest.raises(ConnectionError) as exc_info:
         ScraperUtils(scraper_id="test_scraper")
     assert "Failed to connect to Redis" in str(exc_info.value)
+
+
+class TestScraperTTLConfiguration:
+    """Test TTL configuration in scraper queue operations."""
+
+    def test_should_use_configured_ttl_for_scraper_jobs(
+        self,
+        mock_redis_url: str,
+        mock_queue: Queue,
+        mock_prompt_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        no_content_store,
+    ) -> None:
+        """Test that scraper jobs use the configured TTL values."""
+        # Arrange
+        custom_ttl = 43200  # 12 hours
+
+        # Mock settings to use custom TTL
+        from app.core.config import Settings
+
+        mock_settings = Settings()
+        mock_settings.REDIS_TTL_SECONDS = custom_ttl
+        monkeypatch.setattr("app.scraper.utils.settings", mock_settings)
+
+        # Mock prompt file path
+        def mock_exists(self: Path) -> bool:
+            return str(self).endswith("food_pantry_mapper.prompt")
+
+        def mock_read_text(self: Path) -> str:
+            return "Test system prompt"
+
+        monkeypatch.setattr(Path, "exists", mock_exists)
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+        monkeypatch.setattr(
+            "app.scraper.utils.__file__", str(Path("/workspace/app/scraper/utils.py"))
+        )
+
+        # Mock SchemaConverter to avoid file system dependency
+        from app.llm.hsds_aligner.schema_converter import SchemaConverter
+
+        mock_schema_converter = object()
+        monkeypatch.setattr(SchemaConverter, "__init__", lambda self, schema_path: None)
+        monkeypatch.setattr(
+            SchemaConverter,
+            "convert_to_llm_schema",
+            lambda self, schema_type: {"json_schema": {"type": "object"}},
+        )
+
+        # Mock llm_queue to use test queue
+        monkeypatch.setattr("app.scraper.utils.llm_queue", mock_queue)
+
+        # Mock the queue enqueue_call to capture TTL arguments
+        original_enqueue_call = mock_queue.enqueue_call
+        called_with_ttl = {}
+
+        def mock_enqueue_call(*args, **kwargs):
+            called_with_ttl.update(kwargs)
+            return original_enqueue_call(*args, **kwargs)
+
+        monkeypatch.setattr(mock_queue, "enqueue_call", mock_enqueue_call)
+
+        # Act
+        scraper = ScraperJob(scraper_id="test_ttl_scraper")
+        job_id = scraper.submit_to_queue("Test content for TTL")
+
+        # Assert
+        assert job_id is not None
+        assert called_with_ttl.get("result_ttl") == custom_ttl
+        assert called_with_ttl.get("failure_ttl") == custom_ttl
+
+    def test_should_use_default_ttl_when_environment_not_set(
+        self,
+        mock_redis_url: str,
+        mock_queue: Queue,
+        mock_prompt_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        no_content_store,
+    ) -> None:
+        """Test that scraper jobs use default TTL when environment variable not set."""
+        # Arrange
+        default_ttl = 2592000  # 30 days default
+
+        # Mock settings to use default TTL (no need to change anything)
+        from app.core.config import Settings
+
+        mock_settings = Settings()
+        # Default should already be 2592000, but let's be explicit
+        mock_settings.REDIS_TTL_SECONDS = default_ttl
+        monkeypatch.setattr("app.scraper.utils.settings", mock_settings)
+
+        # Mock prompt file path
+        def mock_exists(self: Path) -> bool:
+            return str(self).endswith("food_pantry_mapper.prompt")
+
+        def mock_read_text(self: Path) -> str:
+            return "Test system prompt"
+
+        monkeypatch.setattr(Path, "exists", mock_exists)
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+        monkeypatch.setattr(
+            "app.scraper.utils.__file__", str(Path("/workspace/app/scraper/utils.py"))
+        )
+
+        # Mock SchemaConverter to avoid file system dependency
+        from app.llm.hsds_aligner.schema_converter import SchemaConverter
+
+        monkeypatch.setattr(SchemaConverter, "__init__", lambda self, schema_path: None)
+        monkeypatch.setattr(
+            SchemaConverter,
+            "convert_to_llm_schema",
+            lambda self, schema_type: {"json_schema": {"type": "object"}},
+        )
+
+        # Mock llm_queue to use test queue
+        monkeypatch.setattr("app.scraper.utils.llm_queue", mock_queue)
+
+        # Mock the queue enqueue_call to capture TTL arguments
+        original_enqueue_call = mock_queue.enqueue_call
+        called_with_ttl = {}
+
+        def mock_enqueue_call(*args, **kwargs):
+            called_with_ttl.update(kwargs)
+            return original_enqueue_call(*args, **kwargs)
+
+        monkeypatch.setattr(mock_queue, "enqueue_call", mock_enqueue_call)
+
+        # Act
+        scraper = ScraperJob(scraper_id="test_default_ttl_scraper")
+        job_id = scraper.submit_to_queue("Test content for default TTL")
+
+        # Assert
+        assert job_id is not None
+        assert called_with_ttl.get("result_ttl") == default_ttl
+        assert called_with_ttl.get("failure_ttl") == default_ttl
+
+    def test_should_handle_zero_ttl_for_scraper_jobs(
+        self,
+        mock_redis_url: str,
+        mock_queue: Queue,
+        mock_prompt_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        no_content_store,
+    ) -> None:
+        """Test that scraper jobs handle zero TTL (no expiration) correctly."""
+        # Arrange
+        zero_ttl = 0  # No expiration
+
+        # Mock settings to use zero TTL
+        from app.core.config import Settings
+
+        mock_settings = Settings()
+        mock_settings.REDIS_TTL_SECONDS = zero_ttl
+        monkeypatch.setattr("app.scraper.utils.settings", mock_settings)
+
+        # Mock prompt file path
+        def mock_exists(self: Path) -> bool:
+            return str(self).endswith("food_pantry_mapper.prompt")
+
+        def mock_read_text(self: Path) -> str:
+            return "Test system prompt"
+
+        monkeypatch.setattr(Path, "exists", mock_exists)
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+        monkeypatch.setattr(
+            "app.scraper.utils.__file__", str(Path("/workspace/app/scraper/utils.py"))
+        )
+
+        # Mock SchemaConverter to avoid file system dependency
+        from app.llm.hsds_aligner.schema_converter import SchemaConverter
+
+        monkeypatch.setattr(SchemaConverter, "__init__", lambda self, schema_path: None)
+        monkeypatch.setattr(
+            SchemaConverter,
+            "convert_to_llm_schema",
+            lambda self, schema_type: {"json_schema": {"type": "object"}},
+        )
+
+        # Mock llm_queue to use test queue
+        monkeypatch.setattr("app.scraper.utils.llm_queue", mock_queue)
+
+        # Mock the queue enqueue_call to capture TTL arguments
+        original_enqueue_call = mock_queue.enqueue_call
+        called_with_ttl = {}
+
+        def mock_enqueue_call(*args, **kwargs):
+            called_with_ttl.update(kwargs)
+            return original_enqueue_call(*args, **kwargs)
+
+        monkeypatch.setattr(mock_queue, "enqueue_call", mock_enqueue_call)
+
+        # Act
+        scraper = ScraperJob(scraper_id="test_zero_ttl_scraper")
+        job_id = scraper.submit_to_queue("Test content for zero TTL")
+
+        # Assert
+        assert job_id is not None
+        assert called_with_ttl.get("result_ttl") == zero_ttl
+        assert called_with_ttl.get("failure_ttl") == zero_ttl
