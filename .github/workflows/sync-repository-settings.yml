@@ -1,5 +1,15 @@
 name: Sync Repository Settings
 
+# NOTE: This workflow requires a Personal Access Token (PAT) for full functionality
+# 
+# To enable all features:
+# 1. Create a PAT with 'repo' scope at https://github.com/settings/tokens
+# 2. Add it as a repository secret named REPO_SETTINGS_PAT
+#    gh secret set REPO_SETTINGS_PAT --body 'your-pat-here'
+#
+# Without PAT, the workflow can only update: labels, topics
+# With PAT, it can also update: repository settings, branch protection
+
 on:
   workflow_dispatch:
     inputs:
@@ -16,8 +26,9 @@ on:
       - '.github/workflows/sync-repository-settings.yml'
 
 permissions:
-  contents: read
+  contents: write
   actions: write
+  pull-requests: write
 
 jobs:
   sync-settings:
@@ -82,14 +93,22 @@ jobs:
       - name: Update repository settings
         if: github.event.inputs.dry_run != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT || github.token }}
         run: |
-          echo "Updating repository settings..."
-          gh api repos/${{ github.repository }} \
-            --method PATCH \
-            --input - << 'EOF'
-          ${{ steps.settings.outputs.repo_update }}
-          EOF
+          if [[ -z "${{ secrets.REPO_SETTINGS_PAT }}" ]]; then
+            echo "⚠️  Skipping repository settings update - REPO_SETTINGS_PAT secret not found"
+            echo "To enable repository settings sync:"
+            echo "1. Create a Personal Access Token with 'repo' scope"
+            echo "2. Add it as a secret named REPO_SETTINGS_PAT"
+            echo "   gh secret set REPO_SETTINGS_PAT --body 'your-pat-here'"
+          else
+            echo "Updating repository settings..."
+            gh api repos/${{ github.repository }} \
+              --method PATCH \
+              --input - << 'EOF'
+            ${{ steps.settings.outputs.repo_update }}
+            EOF
+          fi
 
       - name: Update repository topics
         if: github.event.inputs.dry_run != 'true'
@@ -169,8 +188,13 @@ jobs:
       - name: Configure branch protection
         if: steps.settings.outputs.has_branches == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT || github.token }}
         run: |
+          if [[ -z "${{ secrets.REPO_SETTINGS_PAT }}" ]]; then
+            echo "⚠️  Skipping branch protection update - REPO_SETTINGS_PAT secret not found"
+            echo "Branch protection requires a Personal Access Token with 'repo' scope"
+            exit 0
+          fi
           python << 'EOF'
           import yaml
           import json
