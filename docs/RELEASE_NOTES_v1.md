@@ -29,7 +29,7 @@ Like the radio pirates of old who broke broadcasting monopolies to bring music t
 - **Claude Integration**: Native Claude Code SDK with two authentication methods:
   - API key authentication for production deployments
   - CLI authentication with shared state across scaled workers
-- Intelligent retry logic: 
+- Intelligent retry logic:
   - Authentication failures: 5-minute retries for 1 hour
   - Quota exceeded: Exponential backoff (1h → 4h max)
 - Provider selection via `LLM_PROVIDER` environment variable
@@ -70,7 +70,7 @@ Build scrapers in minutes with our comprehensive toolkit:
 class YourScraper(ScraperJob):
     def __init__(self):
         super().__init__(scraper_id="your_scraper")
-    
+
     async def scrape(self) -> str:
         # Your data collection logic here
         return json.dumps(data)
@@ -208,7 +208,7 @@ Licensed under the **Sandia Non-Commercial Open Source License (FTGG Variant)** 
 
 *"Information wants to be free, especially when it helps feed people!"*
 
-**Fair winds and following seas,**  
+**Fair winds and following seas,**
 The Pantry Pirate Radio Crew 🏴‍☠️
 
 [GitHub](https://github.com/For-The-Greater-Good/pantry-pirate-radio) | [API Docs](https://github.com/For-The-Greater-Good/pantry-pirate-radio/blob/main/API_DOCUMENTATION.md) | [Architecture](https://github.com/For-The-Greater-Good/pantry-pirate-radio/blob/main/docs/architecture.md)
