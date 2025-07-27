@@ -18,6 +18,22 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 <img width="1024" height="1024" alt="ChatGPT Image Jul 12, 2025 at 07_16_15 PM" src="https://github.com/user-attachments/assets/4e3945ff-2606-40ab-b64f-08c612f09566" />
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Features](#core-features)
+- [System Architecture](#system-architecture)
+- [Quick Start](#quick-start)
+- [LLM Provider Configuration](#llm-provider-configuration)
+- [Service URLs](#service-urls-development)
+- [Development](#development)
+- [HSDS Implementation & Database](#hsds-implementation--database)
+- [🔍 Explore the Data](#-explore-the-data)
+- [📚 Documentation](#-documentation)
+- [Environment Configuration](#environment-configuration)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
 Pantry Pirate Radio is a distributed food security data aggregation system implementing the **OpenReferral Human Services Data Specification (HSDS) v3.1.1**. The system unifies scattered food resource data through AI-powered normalization, intelligent deduplication, and geographic optimization to provide comprehensive, HSDS-compliant food security information.
@@ -205,7 +221,9 @@ code .
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Copy and configure environment
+# 2. Setup environment
+./scripts/setup-secrets.sh  # Interactive setup (recommended)
+# OR manually:
 cp .env.example .env
 # Edit .env with your API keys and settings
 
@@ -234,7 +252,9 @@ docker-compose logs -f haarrrvest-publisher
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Copy environment variables
+# 2. Setup environment
+./scripts/setup-secrets.sh  # Interactive setup (recommended)
+# OR manually copy and edit:
 cp .env.example .env
 # Edit .env with your configuration (API keys, passwords, etc.)
 
@@ -451,19 +471,48 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 - 📁 Organized JSON archives
 - 🏴‍☠️ No installation required
 
-## Documentation
-- [Architecture Details](docs/architecture.md)
-- [API Reference](docs/api.md)
-- [HSDS Implementation](docs/HSDS/)
-- [LLM System](docs/llm.md)
-- [Reconciler Service](docs/reconciler.md)
-- [HAARRRvest Quick Start](docs/haarrvest-quickstart.md)
-- [Recorder Service](docs/recorder.md)
-- [Worker System](docs/worker.md)
-- [Database Backup](docs/database-backup.md)
-- [Deployment Guide](docs/deployment.md)
-- [GitHub Workflows Guide](docs/GITHUB_WORKFLOWS.md)
-- [Troubleshooting](docs/troubleshooting.md)
+## 📚 Documentation
+
+### Getting Started
+- **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
+- **[Getting Started Locally](docs/getting-started-locally.md)** - Detailed local setup
+- **[HAARRRvest Quick Start](docs/haarrvest-quickstart.md)** - Access our data repository
+- **[API Examples](docs/api-examples.md)** - Practical API usage examples
+
+### Core Documentation
+- **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[API Reference](docs/api.md)** - Complete API documentation
+- **[HSDS Implementation](docs/hsds_index.md)** - OpenReferral HSDS compliance details
+- **[Deployment Guide](docs/deployment.md)** - Production deployment instructions
+
+### Service Components
+- **[Scrapers](docs/scrapers.md)** - Data collection system ([12+ scrapers](app/scraper/))
+- **[LLM System](docs/llm.md)** - AI-powered HSDS alignment
+- **[Worker System](docs/worker.md)** - Distributed job processing
+- **[Reconciler Service](docs/reconciler.md)** - Data consistency and versioning
+- **[Recorder Service](docs/recorder.md)** - Job archival and storage
+- **[HAARRRvest Publisher](docs/haarrrvest-publisher.md)** - Automated data publishing
+- **[Database Backup](docs/database-backup.md)** - Backup strategies
+
+### Development & Operations
+- **[Docker Startup Sequence](docs/docker-startup-sequence.md)** - Container orchestration
+- **[Multi-Worker Support](docs/multi-worker-support.md)** - Scaling workers
+- **[Secret Management](docs/secret-management.md)** - Managing credentials
+- **[GitHub Workflows](docs/GITHUB_WORKFLOWS.md)** - CI/CD pipeline
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
+
+### Setup Guides
+- **[DevContainer Setup](docs/codespaces-setup.md)** - VSCode DevContainer guide
+- **[Claude Setup Guide](claude_setup_guide.md)** - LLM provider configuration
+- **[GitHub Pages Setup](docs/setup-github-pages-data.md)** - Publishing data
+
+### Reference Materials
+- **[HSDS Specification](docs/HSDS/)** - Complete HSDS v3.1.1 documentation
+- **[SQL Queries](docs/queries/)** - Example database queries
+- **[GeoJSON Data](docs/GeoJson/States/)** - US state geographic data
+- **[Contributing Guidelines](CONTRIBUTING.md)** - How to contribute
+- **[Security Policy](SECURITY.md)** - Security guidelines
+- **[Privacy Policy](PRIVACY.md)** - Data privacy practices
 
 ## Environment Configuration
 

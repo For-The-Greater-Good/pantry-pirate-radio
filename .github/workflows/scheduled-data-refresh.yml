@@ -1,0 +1,164 @@
+name: Scheduled Data Refresh
+
+on:
+  # schedule:
+  #   # Run daily at 2 AM UTC
+  #   - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      days_to_sync:
+        description: 'Number of days to sync'
+        required: false
+        default: '7'
+      push_enabled:
+        description: 'Enable pushing to HAARRRvest'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  refresh-data:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create temporary directory for outputs
+        run: |
+          mkdir -p outputs archives
+          chmod 777 outputs archives
+
+      - name: Run data refresh
+        env:
+          # Database
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+
+          # LLM Configuration
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # HAARRRvest Configuration
+          DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+          PUBLISHER_PUSH_ENABLED: ${{ github.event.inputs.push_enabled || (github.event_name == 'schedule' && 'true') || 'false' }}
+          DAYS_TO_SYNC: ${{ github.event.inputs.days_to_sync || '7' }}
+
+          # Other configurations from repository variables
+          LLM_MODEL_NAME: ${{ vars.LLM_MODEL_NAME || 'google/gemini-2.0-flash-001' }}
+          LLM_TEMPERATURE: ${{ vars.LLM_TEMPERATURE || '0.7' }}
+          LLM_MAX_TOKENS: ${{ vars.LLM_MAX_TOKENS || '64768' }}
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'https://openrouter.ai/api/v1' }}
+        run: |
+          # Use GitHub Actions compose file
+          docker-compose -f docker-compose.github-actions.yml up -d db cache
+
+          # Wait for services to be ready
+          echo "Waiting for database..."
+          timeout 60 bash -c 'until docker-compose -f docker-compose.github-actions.yml exec -T db pg_isready -U postgres; do sleep 2; done'
+
+          echo "Waiting for Redis..."
+          timeout 60 bash -c 'until docker-compose -f docker-compose.github-actions.yml exec -T cache redis-cli ping; do sleep 2; done'
+
+          # Start HAARRRvest publisher
+          echo "Starting HAARRRvest publisher..."
+          docker-compose -f docker-compose.github-actions.yml up -d haarrrvest-publisher
+
+          # Wait for HAARRRvest to be ready
+          echo "Waiting for HAARRRvest repository to be ready..."
+          timeout 120 bash -c 'until docker-compose -f docker-compose.github-actions.yml exec -T haarrrvest-publisher test -d /data-repo/.git; do sleep 5; done'
+
+          # Initialize database with recent data (optional)
+          if [ "${{ vars.RUN_DB_INIT }}" == "true" ]; then
+            echo "Initializing database with recent data..."
+            docker-compose -f docker-compose.github-actions.yml --profile with-init up db-init
+          fi
+
+          # Start worker and reconciler
+          echo "Starting worker and reconciler services..."
+          docker-compose -f docker-compose.github-actions.yml up -d worker reconciler
+
+          # Run all scrapers
+          echo "Running scrapers..."
+          docker-compose -f docker-compose.github-actions.yml run --rm scraper python -m app.scraper --all
+
+          # Run recorder to generate output files
+          echo "Running recorder..."
+          docker-compose -f docker-compose.github-actions.yml run --rm recorder
+
+          # Give publisher time to process and push changes
+          if [ "$PUBLISHER_PUSH_ENABLED" == "true" ]; then
+            echo "Waiting for publisher to push changes..."
+            sleep 60
+          fi
+
+      - name: Check scraper results
+        run: |
+          echo "Checking scraper results..."
+          docker-compose -f docker-compose.github-actions.yml exec -T db psql -U postgres -d pantry_pirate_radio -c "
+            SELECT
+              source_name,
+              COUNT(*) as record_count,
+              MAX(created_at) as latest_record
+            FROM source_specific_records
+            WHERE created_at > NOW() - INTERVAL '1 day'
+            GROUP BY source_name
+            ORDER BY source_name;
+          "
+
+      - name: Archive outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-refresh-outputs-${{ github.run_number }}
+          path: |
+            outputs/
+            archives/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.github-actions.yml down -v
+          docker system prune -f
+
+  notify-on-failure:
+    needs: refresh-data
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue on failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Data Refresh Failed - ${date}`,
+              body: `The scheduled data refresh workflow failed.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['bug', 'automated']
+            });

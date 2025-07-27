@@ -81,6 +81,7 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ github.ref_name }}
+          # Ensure no secrets are passed as build args
 
   build-datasette:
     runs-on: ubuntu-latest
@@ -146,35 +147,3 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
-          body: |
-            ## Docker Images
-
-            This release includes the following Docker images:
-
-            ### Application Services
-            - `ghcr.io/${{ github.repository }}:app-${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository }}:worker-${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository }}:recorder-${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository }}:scraper-${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository }}:datasette-exporter-${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository }}:datasette-${{ github.ref_name }}`
-
-            ### Testing
-            - `ghcr.io/${{ github.repository }}:test-${{ github.ref_name }}`
-
-            ### Pull Images
-            ```bash
-            docker pull ghcr.io/${{ github.repository }}:app-${{ github.ref_name }}
-            docker pull ghcr.io/${{ github.repository }}:worker-${{ github.ref_name }}
-            docker pull ghcr.io/${{ github.repository }}:recorder-${{ github.ref_name }}
-            docker pull ghcr.io/${{ github.repository }}:scraper-${{ github.ref_name }}
-            docker pull ghcr.io/${{ github.repository }}:datasette-exporter-${{ github.ref_name }}
-            docker pull ghcr.io/${{ github.repository }}:datasette-${{ github.ref_name }}
-            ```
-
-            ### Docker Compose Usage
-            Update your `.env` file:
-            ```env
-            DOCKER_REGISTRY=ghcr.io/${{ github.repository }}
-            DOCKER_TAG=${{ github.ref_name }}
-            ```

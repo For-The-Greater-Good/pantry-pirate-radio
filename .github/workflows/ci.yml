@@ -158,10 +158,15 @@ jobs:
         run: |
           # Create .env file from example
           cp .env.example .env
+          # Update PostgreSQL password for CI
+          sed -i 's/your_secure_password/pirate/' .env
+          sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio|' .env
           # Set API key from GitHub secret if available
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
             sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env
           fi
+          # Disable HAARRRvest push for CI
+          sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env
 
       - name: Start services with Docker Compose
         run: docker compose up -d db cache app
