@@ -7,8 +7,8 @@ name: Sync Repository Settings
 # 2. Add it as a repository secret named REPO_SETTINGS_PAT
 #    gh secret set REPO_SETTINGS_PAT --body 'your-pat-here'
 #
-# Without PAT, the workflow can only update: labels, topics
-# With PAT, it can also update: repository settings, branch protection
+# Without PAT, the workflow can only update: labels
+# With PAT, it can update: repository settings, topics, branch protection, labels
 
 on:
   workflow_dispatch:
@@ -111,12 +111,17 @@ jobs:
       - name: Update repository topics
         if: github.event.inputs.dry_run != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT || github.token }}
         run: |
-          echo "Updating repository topics..."
-          gh api repos/${{ github.repository }}/topics \
-            --method PUT \
-            --field names='${{ steps.settings.outputs.topics }}'
+          if [[ -z "${{ secrets.REPO_SETTINGS_PAT }}" ]]; then
+            echo "⚠️  Skipping repository topics update - REPO_SETTINGS_PAT secret not found"
+            echo "Topics update requires a Personal Access Token with 'repo' scope"
+          else
+            echo "Updating repository topics..."
+            gh api repos/${{ github.repository }}/topics \
+              --method PUT \
+              --field names='${{ steps.settings.outputs.topics }}'
+          fi
 
       - name: Sync labels
         if: steps.settings.outputs.has_labels == 'true'
