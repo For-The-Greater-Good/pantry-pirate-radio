@@ -168,6 +168,181 @@ python -m app.scraper.test_scrapers --all
 
 ## Architecture Overview
 
+Pantry Pirate Radio is a distributed microservices system that aggregates food security data from multiple sources, processes it with AI for HSDS compliance, and provides a unified API.
+
+### Data Flow Architecture
+```
+Scrapers → Redis Queue → LLM Workers → Reconciler → PostgreSQL → API
+    ↓                                       ↓
+Recorder → JSON Files → HAARRRvest Publisher → HAARRRvest Repository
+```
+
+### Key Architectural Patterns
+
+#### 1. **Job-Based Processing Pipeline**
+- All data flows through Redis-based job queues
+- Jobs have metadata (scraper_id, source_type, priority) and data payloads
+- Workers process jobs asynchronously with retry logic
+- Dead letter queue captures failed jobs for analysis
+
+#### 2. **HSDS Schema Alignment**
+- AI-powered normalization using LLM providers (OpenAI/Claude)
+- Confidence scoring with weighted field validation:
+  - Top-level fields: 0.15-0.25 deduction for missing
+  - Entity fields: 0.10-0.20 deduction for missing
+  - Required fields enforced by entity type
+- Structured output with hallucination detection
+- Field coherence validation ensures data quality
+
+#### 3. **Geographic Intelligence**
+- Continental US grid system (25°N-49°N, -125°W to -67°W)
+- PostGIS spatial indexing for fast queries
+- Smart grid generation for large area coverage (80-mile diagonal max)
+- Bounding box and radius search capabilities
+
+#### 4. **Content-Addressable Storage**
+- SHA-256 based deduplication system in `app/content_store/`
+- Prevents duplicate LLM processing of identical content
+- SQLite index for fast lookups with status tracking
+- Stores raw and processed data for traceability
+- Configurable via CONTENT_STORE_PATH environment variable
+
+#### 5. **Version Control System**
+- Every record maintains complete version history
+- Reconciler tracks changes across sources
+- Enables rollback and audit capabilities
+- Prevents data loss during updates
+
+### Service Responsibilities
+
+#### **Scrapers** (`app/scraper/`)
+- Extract data from 12+ food security sources
+- Inherit from `ScraperJob` base class
+- Generate geographic grids for API-based sources
+- Submit jobs to Redis queue with proper metadata
+- Handle rate limiting and error recovery
+
+#### **LLM Workers** (`app/llm/`)
+- Process jobs from Redis queue
+- Apply HSDS schema alignment using AI
+- Validate with confidence scoring (min 0.85 required)
+- Handle provider-specific authentication:
+  - OpenAI: API key authentication
+  - Claude: CLI or API key authentication with shared state
+
+#### **Reconciler** (`app/reconciler/`)
+- Create canonical records from multiple sources
+- Handle entity deduplication using location matching
+- Maintain version history with `record_version` table
+- Process in order: organizations → locations → services
+
+#### **Recorder** (`app/recorder/`)
+- Save all job results as JSON files
+- Organize in `outputs/daily/YYYY-MM-DD/` structure
+- Maintain `latest/` symlink
+- Create daily summary files
+
+#### **API Server** (`app/api/`)
+- Provide read-only HSDS-compliant endpoints
+- Geographic search with tile-based caching
+- Cursor-based pagination
+- OpenAPI documentation at `/docs`
+
+#### **HAARRRvest Publisher** (`app/haarrrvest_publisher/`)
+- Monitor recorder outputs every 5 minutes
+- Create date-based branches (e.g., `data-update-2025-01-25`)
+- Sync files to HAARRRvest repository
+- Generate SQLite database for Datasette
+- Export location data for web maps
+- Merge branches to main with proper commit history
+
+### Database Schema
+- PostgreSQL with PostGIS extension
+- HSDS v3.1.1 compliant schema
+- Key tables: organization, service, location, service_at_location
+- Spatial indexes on location.coordinates
+- Version tracking in record_version table
+
+### Environment Configuration
+Key environment variables (see `.env.example`):
+- `DATABASE_URL`: PostgreSQL connection
+- `REDIS_URL`: Redis connection
+- `LLM_PROVIDER`: Choose between 'openai' or 'claude'
+- `CONTENT_STORE_PATH`: Content-addressable storage location
+- `DATA_REPO_URL`: HAARRRvest repository URL
+- `DATA_REPO_TOKEN`: GitHub personal access token
+- `REDIS_TTL_SECONDS`: Job result TTL (default: 30 days)
+
+### LLM Provider Details
+
+#### OpenAI Provider
+- Uses OpenRouter API for model access
+- Requires `OPENROUTER_API_KEY` environment variable
+- Supports structured output with JSON schema
+- Models: GPT-4o, Claude via OpenRouter, etc.
+
+#### Claude Provider
+- Uses Claude Code SDK via subprocess
+- Authentication options:
+  1. API key via `ANTHROPIC_API_KEY`
+  2. CLI authentication (recommended for Claude Max)
+- Shared authentication across scaled workers
+- Intelligent retry on quota/auth errors:
+  - Auth errors: 5-minute retry for 1 hour
+  - Quota errors: Exponential backoff (1h → 4h max)
+
+#### Claude Authentication Commands
+```bash
+# Check authentication status
+curl http://localhost:8080/health
+
+# Interactive setup
+docker-compose exec worker python -m app.claude_auth_manager setup
+
+# Check status
+docker-compose exec worker python -m app.claude_auth_manager status
+
+# Test request
+docker-compose exec worker python -m app.claude_auth_manager test
+```
+
+### HSDS Validation Details
+
+#### Required Fields by Entity
+- **Organization**: name, description, services, phones, organization_identifiers, contacts, metadata
+- **Service**: name, description, status, phones, schedules
+- **Location**: name, location_type, addresses, phones, accessibility, contacts, schedules, languages, metadata
+- **Phone**: number, type, languages
+
+#### Confidence Scoring
+- Base score: 1.0
+- Deductions for missing fields (0.05-0.25 per field)
+- Higher deductions for known/required fields
+- Minimum confidence for acceptance: 0.85
+- Retry threshold: 0.5
+
+#### Field Validation Types
+- Format validation (URI, email, dates, times)
+- Type constraints (coordinates, age ranges, financial amounts)
+- Enum validation (service status, location types, phone types)
+- Relationship validation (services must link to organizations)
+
+### HAARRRvest Publisher Commands
+```bash
+# Start the publisher service
+docker-compose up -d haarrrvest-publisher
+
+# View logs
+docker-compose logs -f haarrrvest-publisher
+
+# Trigger immediate processing
+docker-compose restart haarrrvest-publisher
+
+# Manual testing without Docker
+export DATABASE_URL=postgresql://user:pass@localhost:5432/pantry_pirate_radio
+python test_haarrrvest_publisher.py
+```
+
 ## TDD Memories
 
 ### TDD Philosophy and Best Practices

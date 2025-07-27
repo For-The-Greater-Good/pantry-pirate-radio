@@ -1,6 +1,6 @@
-<img width="1024" height="1024" alt="ChatGPT Image Jul 11, 2025 at 09_59_43 AM" src="https://github.com/user-attachments/assets/1f6a1f2a-adf1-4bfe-8969-d13c4c315de7" />
 
 # 🎧 Pantry Pirate Radio
+<img width="1024" height="1024" alt="PPR" src="https://github.com/user-attachments/assets/a68bc691-3f20-489a-b756-da1c0dcff082" />
 
 ⚠️ WARNING: Licensed under sandia-ftgg-nc-os-1.0 ⚠️
 
@@ -16,7 +16,6 @@
 [![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
 [![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-<img width="1024" height="1024" alt="ChatGPT Image Jul 12, 2025 at 07_16_15 PM" src="https://github.com/user-attachments/assets/4e3945ff-2606-40ab-b64f-08c612f09566" />
 
 ## Table of Contents
 

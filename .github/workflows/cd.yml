@@ -33,6 +33,7 @@ jobs:
       packages: write
     strategy:
       matrix:
+        # Note: haarrrvest-publisher uses production-base, not a separate target
         target: [app, worker, recorder, scraper, test, datasette-exporter]
 
     steps:

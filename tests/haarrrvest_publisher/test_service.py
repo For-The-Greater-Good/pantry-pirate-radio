@@ -1453,3 +1453,149 @@ class TestHAARRRvestPublisher:
                 call for call in mock_run_cmd.call_args_list if "push" in str(call)
             ]
             assert len(push_calls) > 0
+
+    def test_should_preserve_existing_readme_content(self, publisher, temp_dirs):
+        """Test preserving existing README content while updating harvester section."""
+        _, repo_dir = temp_dirs
+
+        # Create existing README with custom content
+        readme_path = repo_dir / "README.md"
+        existing_content = """# HAARRRvest - Food Resource Data
+
+This is a custom introduction added by the maintainer.
+
+## Custom Section
+
+This is important documentation that should be preserved.
+
+## Another Section
+
+More custom content here.
+"""
+        readme_path.write_text(existing_content)
+
+        # Update repository metadata
+        publisher._update_repository_metadata()
+
+        # Read the updated content
+        updated_content = readme_path.read_text()
+
+        # Verify harvester section was added
+        assert "<!-- HARVESTER AUTO-GENERATED SECTION START -->" in updated_content
+        assert "<!-- HARVESTER AUTO-GENERATED SECTION END -->" in updated_content
+        assert "Last Update" in updated_content
+        assert "Data Structure" in updated_content
+
+        # Verify existing content was preserved
+        assert (
+            "This is a custom introduction added by the maintainer." in updated_content
+        )
+        assert "## Custom Section" in updated_content
+        assert (
+            "This is important documentation that should be preserved."
+            in updated_content
+        )
+        assert "## Another Section" in updated_content
+        assert "More custom content here." in updated_content
+
+    def test_should_update_existing_harvester_section_in_readme(
+        self, publisher, temp_dirs
+    ):
+        """Test updating existing harvester section without affecting other content."""
+        _, repo_dir = temp_dirs
+
+        # Create README with existing harvester section
+        readme_path = repo_dir / "README.md"
+        existing_content = """# HAARRRvest - Food Resource Data
+
+Custom intro text here.
+
+<!-- HARVESTER AUTO-GENERATED SECTION START -->
+## Last Update
+
+- **Date**: 2025-01-01 12:00:00 UTC
+- **Total Records**: 100
+- **Data Sources**: 5
+- **Date Range**: 2025-01-01 to 2025-01-02
+
+## Data Structure
+
+Old structure info...
+<!-- HARVESTER AUTO-GENERATED SECTION END -->
+
+## Manual Documentation
+
+This should be preserved.
+"""
+        readme_path.write_text(existing_content)
+
+        # Create some test data to generate different statistics
+        (repo_dir / "daily" / "2025-01-25" / "scrapers" / "test").mkdir(parents=True)
+        (
+            repo_dir / "daily" / "2025-01-25" / "scrapers" / "test" / "file.json"
+        ).write_text("{}")
+
+        # Update repository metadata
+        publisher._update_repository_metadata()
+
+        # Read the updated content
+        updated_content = readme_path.read_text()
+
+        # Verify harvester section was updated (different date)
+        assert "2025-01-01 12:00:00 UTC" not in updated_content  # Old date removed
+        assert "Last Update" in updated_content  # New section present
+        assert "Total Records" in updated_content
+
+        # Verify other content was preserved
+        assert "Custom intro text here." in updated_content
+        assert "## Manual Documentation" in updated_content
+        assert "This should be preserved." in updated_content
+
+    def test_should_create_readme_when_none_exists(self, publisher, temp_dirs):
+        """Test creating README when none exists."""
+        _, repo_dir = temp_dirs
+
+        # Ensure no README exists
+        readme_path = repo_dir / "README.md"
+        assert not readme_path.exists()
+
+        # Update repository metadata
+        publisher._update_repository_metadata()
+
+        # Verify README was created
+        assert readme_path.exists()
+        content = readme_path.read_text()
+
+        # Verify it contains expected sections
+        assert "# HAARRRvest - Food Resource Data" in content
+        assert "This repository contains food resource data" in content
+        assert "<!-- HARVESTER AUTO-GENERATED SECTION START -->" in content
+        assert "Last Update" in content
+        assert "Data Structure" in content
+
+    def test_should_handle_readme_without_title(self, publisher, temp_dirs):
+        """Test handling README that doesn't start with a title."""
+        _, repo_dir = temp_dirs
+
+        # Create README without title
+        readme_path = repo_dir / "README.md"
+        existing_content = """This is a README without a title.
+
+Some content here.
+"""
+        readme_path.write_text(existing_content)
+
+        # Update repository metadata
+        publisher._update_repository_metadata()
+
+        # Read the updated content
+        updated_content = readme_path.read_text()
+
+        # Verify harvester section was added at the beginning
+        assert updated_content.startswith(
+            "<!-- HARVESTER AUTO-GENERATED SECTION START -->"
+        )
+
+        # Verify existing content was preserved
+        assert "This is a README without a title." in updated_content
+        assert "Some content here." in updated_content
