@@ -1,6 +1,6 @@
 """Application configuration."""
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Redis Settings
     REDIS_URL: str = "redis://localhost:6379"
     REDIS_POOL_SIZE: int = 10
+    REDIS_TTL_SECONDS: int = Field(
+        default=2592000, ge=0
+    )  # 30 days default TTL for job results and failures
 
     # Logging Settings
     LOG_LEVEL: str = "INFO"

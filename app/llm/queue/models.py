@@ -5,6 +5,7 @@ from typing import Any, Generic, TypeVar, cast
 import redis
 from rq import Queue
 
+from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.job import LLMJob
@@ -49,8 +50,8 @@ class RedisQueue(Generic[T]):
             args=(job, provider),
             job_id=getattr(job, "id", None),
             meta={"job": job.model_dump() if hasattr(job, "model_dump") else job},
-            result_ttl=86400,  # Keep results for 24 hours
-            failure_ttl=86400,  # Keep failed jobs for 24 hours
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
         )
         return str(rq_job.id)
 

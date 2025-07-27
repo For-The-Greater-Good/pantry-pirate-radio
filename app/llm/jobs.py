@@ -6,6 +6,7 @@ from typing import Any, cast
 
 from redis import Redis
 
+from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.models import JobResult, JobStatus, LLMJob
@@ -65,8 +66,8 @@ class JobProcessor:
             args=(job, self.provider),
             job_id=job.id,
             meta={"job": job.model_dump()},
-            result_ttl=86400,  # Keep results for 24 hours
-            failure_ttl=86400,  # Keep failed jobs for 24 hours
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
         )
 
         return str(rq_job.id)
