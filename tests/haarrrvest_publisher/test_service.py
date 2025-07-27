@@ -42,6 +42,8 @@ def publisher(temp_dirs, monkeypatch):
     output_dir, repo_dir = temp_dirs
     # Ensure no token is set for tests
     monkeypatch.delenv("DATA_REPO_TOKEN", raising=False)
+    # Default to push disabled for safety
+    monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "false")
     return HAARRRvestPublisher(
         output_dir=str(output_dir),
         data_repo_path=str(repo_dir),
@@ -464,8 +466,18 @@ class TestHAARRRvestPublisher:
                 ), f"No unique branch checkout found. Calls: {checkout_calls}"
 
     @patch("subprocess.run")
-    def test_should_handle_git_push_failure(self, mock_run, publisher):
-        """Test handling git push failures."""
+    def test_should_handle_git_push_failure(self, mock_run, temp_dirs, monkeypatch):
+        """Test handling git push failures when push is enabled."""
+        output_dir, repo_dir = temp_dirs
+        # Enable push for this test
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "true")
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
         # Mock the entire sequence up to push failure
         mock_run.side_effect = [
             Mock(returncode=0, stdout="", stderr=""),  # checkout main
@@ -609,8 +621,11 @@ class TestHAARRRvestPublisher:
             if call_count >= 2:
                 raise KeyboardInterrupt()
 
-        with patch.object(publisher, "process_once", side_effect=side_effect):
-            publisher.run()
+        with patch.object(
+            publisher, "_setup_git_repo"
+        ):  # Mock setup to avoid real git calls
+            with patch.object(publisher, "process_once", side_effect=side_effect):
+                publisher.run()
 
         # Verify process_once was called multiple times
         assert call_count == 2
@@ -636,8 +651,11 @@ class TestHAARRRvestPublisher:
 
         # Patch the logger to suppress error output
         with patch("app.haarrrvest_publisher.service.logger"):
-            with patch.object(publisher, "process_once", side_effect=side_effect):
-                publisher.run()
+            with patch.object(
+                publisher, "_setup_git_repo"
+            ):  # Mock setup to avoid real git calls
+                with patch.object(publisher, "process_once", side_effect=side_effect):
+                    publisher.run()
 
         # Verify it ran 3 times: startup, error, then shutdown
         assert call_count == 3
@@ -854,9 +872,10 @@ class TestHAARRRvestPublisher:
     def test_should_push_with_token_authentication(
         self, mock_run, temp_dirs, monkeypatch
     ):
-        """Test pushing with token authentication."""
+        """Test pushing with token authentication when push is enabled."""
         output_dir, repo_dir = temp_dirs
         monkeypatch.setenv("DATA_REPO_TOKEN", "test_token_123")
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "true")  # Enable push
 
         publisher = HAARRRvestPublisher(
             output_dir=str(output_dir),
@@ -1223,8 +1242,214 @@ class TestHAARRRvestPublisher:
                 raise KeyboardInterrupt()
 
         with patch("time.sleep"):  # Mock sleep to speed up test
-            with patch.object(publisher, "process_once", side_effect=side_effect):
-                publisher.run()
+            with patch.object(
+                publisher, "_setup_git_repo"
+            ):  # Mock setup to avoid real git calls
+                with patch.object(publisher, "process_once", side_effect=side_effect):
+                    publisher.run()
 
         # Should have run 3 times before shutdown
         assert call_count == 3
+
+    def test_push_enabled_environment_variable_true(self, temp_dirs, monkeypatch):
+        """Test that push is enabled when PUBLISHER_PUSH_ENABLED=true."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "true")
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        assert publisher.push_enabled is True
+
+    def test_push_enabled_environment_variable_false(self, temp_dirs, monkeypatch):
+        """Test that push is disabled when PUBLISHER_PUSH_ENABLED=false."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "false")
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        assert publisher.push_enabled is False
+
+    def test_push_enabled_environment_variable_default(self, temp_dirs, monkeypatch):
+        """Test that push is disabled by default when env var not set."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.delenv("PUBLISHER_PUSH_ENABLED", raising=False)
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        assert publisher.push_enabled is False
+
+    def test_push_enabled_case_insensitive(self, temp_dirs, monkeypatch):
+        """Test that PUBLISHER_PUSH_ENABLED is case-insensitive."""
+        output_dir, repo_dir = temp_dirs
+
+        # Test various case combinations
+        for value in ["TRUE", "True", "TrUe"]:
+            monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", value)
+            publisher = HAARRRvestPublisher(
+                output_dir=str(output_dir),
+                data_repo_path=str(repo_dir),
+                data_repo_url="https://github.com/test/repo.git",
+            )
+            assert publisher.push_enabled is True, f"Failed for value: {value}"
+
+    @patch("app.haarrrvest_publisher.service.logger")
+    def test_push_enabled_logs_warning(self, mock_logger, temp_dirs, monkeypatch):
+        """Test that enabling push logs a warning."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "true")
+
+        HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        # Should log warning when push is enabled
+        mock_logger.warning.assert_called_once()
+        assert "PUBLISHER PUSH ENABLED" in mock_logger.warning.call_args[0][0]
+
+    @patch("app.haarrrvest_publisher.service.logger")
+    def test_push_disabled_logs_info(self, mock_logger, temp_dirs, monkeypatch):
+        """Test that disabling push logs info message."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "false")
+
+        HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        # Should log info when push is disabled
+        mock_logger.info.assert_called()
+        info_calls = [
+            call
+            for call in mock_logger.info.call_args_list
+            if "READ-ONLY mode" in str(call)
+        ]
+        assert len(info_calls) == 1
+
+    @patch("subprocess.run")
+    def test_push_disabled_prevents_git_push(self, mock_run, temp_dirs, monkeypatch):
+        """Test that push is prevented when PUBLISHER_PUSH_ENABLED=false."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "false")
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        # Mock git commands with changes to commit
+        mock_run.return_value = Mock(returncode=0, stdout="M file.txt", stderr="")
+
+        with patch.object(publisher, "_run_command") as mock_run_cmd:
+
+            def side_effect(cmd, cwd=None):
+                if "status --porcelain" in " ".join(cmd):
+                    return 0, "M file.txt", ""  # Changes exist
+                return 0, "", ""
+
+            mock_run_cmd.side_effect = side_effect
+
+            # Create test branch
+            publisher._create_and_merge_branch("test-branch")
+
+            # Verify push was NOT called
+            push_calls = [
+                call for call in mock_run_cmd.call_args_list if "push" in str(call)
+            ]
+            assert len(push_calls) == 0
+
+    @patch("subprocess.run")
+    @patch("app.haarrrvest_publisher.service.logger")
+    def test_push_disabled_logs_warning_instead_of_push(
+        self, mock_logger, mock_run, temp_dirs, monkeypatch
+    ):
+        """Test that warning is logged instead of pushing when disabled."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "false")
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        # Mock git commands with changes to commit
+        mock_run.return_value = Mock(returncode=0, stdout="M file.txt", stderr="")
+
+        with patch.object(publisher, "_run_command") as mock_run_cmd:
+
+            def side_effect(cmd, cwd=None):
+                if "status --porcelain" in " ".join(cmd):
+                    return 0, "M file.txt", ""  # Changes exist
+                return 0, "", ""
+
+            mock_run_cmd.side_effect = side_effect
+
+            # Create test branch
+            publisher._create_and_merge_branch("test-branch")
+
+            # Should log warning about push being disabled
+            warning_calls = [
+                call
+                for call in mock_logger.warning.call_args_list
+                if "PUSH DISABLED" in str(call)
+            ]
+            assert len(warning_calls) == 1
+
+            # Should also log info about enabling push
+            info_calls = [
+                call
+                for call in mock_logger.info.call_args_list
+                if "PUBLISHER_PUSH_ENABLED=true" in str(call)
+            ]
+            assert len(info_calls) == 1
+
+    @patch("subprocess.run")
+    def test_push_enabled_allows_git_push(self, mock_run, temp_dirs, monkeypatch):
+        """Test that push occurs when PUBLISHER_PUSH_ENABLED=true."""
+        output_dir, repo_dir = temp_dirs
+        monkeypatch.setenv("PUBLISHER_PUSH_ENABLED", "true")
+        monkeypatch.setenv("DATA_REPO_TOKEN", "test_token")
+
+        publisher = HAARRRvestPublisher(
+            output_dir=str(output_dir),
+            data_repo_path=str(repo_dir),
+            data_repo_url="https://github.com/test/repo.git",
+        )
+
+        # Mock git commands
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        with patch.object(publisher, "_run_command") as mock_run_cmd:
+
+            def side_effect(cmd, cwd=None):
+                if "status --porcelain" in " ".join(cmd):
+                    return 0, "M file.txt", ""  # Changes exist
+                return 0, "", ""
+
+            mock_run_cmd.side_effect = side_effect
+
+            # Create test branch
+            publisher._create_and_merge_branch("test-branch")
+
+            # Verify push WAS called
+            push_calls = [
+                call for call in mock_run_cmd.call_args_list if "push" in str(call)
+            ]
+            assert len(push_calls) > 0

@@ -52,8 +52,10 @@ psql -d pantry_pirate_radio -c "CREATE EXTENSION postgis;"
 ### Running the Application
 
 #### Full Stack with Docker Compose
+
+##### Quick Start (Empty Database)
 ```bash
-# Start all services
+# Start all services with empty database
 docker-compose up -d
 
 # View service status
@@ -64,6 +66,32 @@ docker-compose logs -f app
 docker-compose logs -f worker
 docker-compose logs -f haarrrvest-publisher
 ```
+
+##### Start with HAARRRvest Data (Recommended)
+```bash
+# Start all services AND populate database with latest HAARRRvest data
+# This will run the replay utility to load ~90 days of data per scraper
+docker-compose --profile with-init up -d
+
+# OR use the override file:
+docker-compose -f docker-compose.yml -f docker-compose.with-init.yml up -d
+
+# Monitor initialization progress
+docker-compose logs -f db-init
+docker-compose logs -f haarrrvest-publisher
+
+# Once initialized, services will start automatically
+# Check service status
+docker-compose ps
+```
+
+**Startup sequence**:
+1. Database and cache start first
+2. HAARRRvest publisher clones/updates the repository
+3. DB-init waits for repository then populates database
+4. All other services start once database is ready
+
+**Note**: Database initialization can take 5-15 minutes. The initialization only runs once - subsequent restarts skip it if data exists. See [Docker Startup Sequence](docker-startup-sequence.md) for detailed information.
 
 #### Individual Services
 ```bash

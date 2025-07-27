@@ -26,7 +26,7 @@ class HAARRRvestPublisher:
         self,
         output_dir: str = "/app/outputs",
         data_repo_path: str = "/data-repo",
-        data_repo_url: str = None,
+        data_repo_url: Optional[str] = None,
         check_interval: int = 300,  # 5 minutes
         days_to_sync: int = 7,
         error_retry_delay: int = 60,  # 1 minute
@@ -46,6 +46,21 @@ class HAARRRvestPublisher:
         self.git_user_name = os.getenv("GIT_USER_NAME", "Pantry Pirate Radio Publisher")
         self.processed_files: Set[str] = set()
         self._load_processed_files()
+
+        # Check if push is enabled via environment
+        self.push_enabled = (
+            os.getenv("PUBLISHER_PUSH_ENABLED", "false").lower() == "true"
+        )
+
+        # Log push permission status
+        if self.push_enabled:
+            logger.warning(
+                "⚠️  PUBLISHER PUSH ENABLED - This instance WILL push to remote repository!"
+            )
+        else:
+            logger.info(
+                "✅ Publisher running in READ-ONLY mode - no remote pushes will occur"
+            )
 
     def _load_processed_files(self):
         """Load list of already processed files."""
@@ -511,22 +526,30 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
         self._run_command(["git", "branch", "-d", branch_name], cwd=self.data_repo_path)
 
         # Push to remote
-        logger.info("Pushing to remote repository")
+        if self.push_enabled:
+            logger.info("Pushing to remote repository")
 
-        # Use authenticated URL for push if token is available
-        if self.data_repo_token:
-            push_url = self._get_authenticated_url()
-            code, out, err = self._run_command(
-                ["git", "push", push_url, "main"], cwd=self.data_repo_path
-            )
+            # Use authenticated URL for push if token is available
+            if self.data_repo_token:
+                push_url = self._get_authenticated_url()
+                code, out, err = self._run_command(
+                    ["git", "push", push_url, "main"], cwd=self.data_repo_path
+                )
+            else:
+                code, out, err = self._run_command(
+                    ["git", "push", "origin", "main"], cwd=self.data_repo_path
+                )
+
+            if code != 0:
+                logger.error(f"Failed to push: {err}")
+                raise Exception(f"Git push failed: {err}")
         else:
-            code, out, err = self._run_command(
-                ["git", "push", "origin", "main"], cwd=self.data_repo_path
+            logger.warning(
+                "PUSH DISABLED - Changes committed locally but NOT pushed to remote"
             )
-
-        if code != 0:
-            logger.error(f"Failed to push: {err}")
-            raise Exception(f"Git push failed: {err}")
+            logger.info(
+                "To enable pushing, set PUBLISHER_PUSH_ENABLED=true in environment"
+            )
 
     def _export_to_sqlite(self):
         """Export PostgreSQL data to SQLite for Datasette."""
@@ -581,7 +604,12 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
             raise Exception(f"Failed to export SQLite database: {e}")
 
     def _sync_database_from_haarrrvest(self):
-        """Sync database with recent HAARRRvest data using replay tool."""
+        """Sync database with recent HAARRRvest data using replay tool.
+
+        NOTE: This method is no longer called during normal operation.
+        Database synchronization is now handled by the db-init service
+        during container startup. This method is kept for manual/testing purposes.
+        """
         from app.replay.replay import replay_file
         from datetime import datetime, timedelta
 
@@ -732,9 +760,8 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
 
             logger.info(f"Found {len(new_files)} new files to process")
 
-            # Sync database with existing HAARRRvest data first
-            logger.info("Syncing database with HAARRRvest data")
-            self._sync_database_from_haarrrvest()
+            # Skip database sync - now handled by db-init service
+            # Database should already be populated when this service starts
 
             # Create branch
             branch_name = self._create_branch_name()
@@ -768,6 +795,16 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
         logger.info(
             f"Starting HAARRRvest publisher service (check interval: {self.check_interval}s)"
         )
+
+        # Setup repository first (needed for db-init to work)
+        try:
+            logger.info("Setting up HAARRRvest repository...")
+            self._setup_git_repo()
+            logger.info("HAARRRvest repository ready")
+        except Exception as e:
+            logger.error(f"Failed to setup repository: {e}", exc_info=True)
+            # Exit with error so container restarts
+            raise
 
         # Run once on startup
         self.process_once()

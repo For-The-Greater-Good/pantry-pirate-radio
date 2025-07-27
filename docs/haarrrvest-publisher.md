@@ -41,7 +41,13 @@ DATA_REPO_TOKEN=your_github_personal_access_token  # Required for private repos
 # Publishing settings
 PUBLISHER_CHECK_INTERVAL=300  # Check every 5 minutes (in seconds)
 DAYS_TO_SYNC=7               # Sync last 7 days of data
+
+# CRITICAL: Push permission - MUST be explicitly enabled for production
+# Default is 'false' to prevent accidental pushes from dev environments
+PUBLISHER_PUSH_ENABLED=false  # Set to 'true' ONLY for production deployments
 ```
+
+⚠️ **IMPORTANT**: The publisher will NOT push to remote by default. You must explicitly set `PUBLISHER_PUSH_ENABLED=true` for production deployments that should push data to HAARRRvest.
 
 ### Manual Testing
 

@@ -24,6 +24,7 @@ env:
   LLM_MAX_TOKENS: 64768
   LLM_RESPONSE_FORMAT: json_object
   LLM_TIMEOUT: 30
+  CI: true  # Skip heavy database initialization
 
 jobs:
   setup:

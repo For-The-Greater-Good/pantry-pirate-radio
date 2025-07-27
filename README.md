@@ -199,6 +199,35 @@ code .
 # DevContainer will handle all setup automatically
 ```
 
+### Using Docker Compose (Fastest)
+```bash
+# 1. Clone repository
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
+
+# 2. Copy and configure environment
+cp .env.example .env
+# Edit .env with your API keys and settings
+
+# 3. Start all services WITH latest HAARRRvest data (recommended)
+# This will populate the database with ~90 days of food resource data
+docker-compose --profile with-init up -d
+
+# 4. Monitor initialization (takes 5-15 minutes)
+docker-compose logs -f db-init
+docker-compose logs -f haarrrvest-publisher
+
+# 5. Access the API at http://localhost:8000/docs
+```
+
+**Startup Process**:
+1. PostgreSQL and Redis start first
+2. HAARRRvest publisher clones the data repository
+3. Database initializer populates ~90 days of historical data
+4. All services start once the database is ready
+
+**Note**: The `--profile with-init` flag runs full initialization. For subsequent runs, use `docker-compose up -d` for faster startup. See [Docker Startup Documentation](docs/docker-startup-sequence.md) for details.
+
 ### Manual Setup
 ```bash
 # 1. Clone repository
