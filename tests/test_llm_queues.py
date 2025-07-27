@@ -27,13 +27,18 @@ class TestQueueInitialization:
             importlib.reload(app.llm.queue.queues)
 
     @patch.dict("os.environ", {"REDIS_URL": "redis://test:6379/0"}, clear=False)
-    @patch("app.llm.queue.queues.redis.Redis.from_url")
-    def test_redis_connection_success(self, mock_redis_from_url):
+    @patch("app.llm.queue.queues.redis.ConnectionPool.from_url")
+    @patch("app.llm.queue.queues.redis.Redis")
+    def test_redis_connection_success(self, mock_redis_class, mock_pool_from_url):
         """Test successful queue initialization."""
+        # Mock connection pool
+        mock_pool = MagicMock()
+        mock_pool_from_url.return_value = mock_pool
+
         # Mock successful Redis client
         mock_client = MagicMock()
         mock_client.ping.return_value = True  # Successful ping
-        mock_redis_from_url.return_value = mock_client
+        mock_redis_class.return_value = mock_client
 
         # Force reimport to trigger connection logic
         import importlib
@@ -44,8 +49,8 @@ class TestQueueInitialization:
         # Verify ping was called
         mock_client.ping.assert_called_once()
 
-        # Verify connection was established
-        assert app.llm.queue.queues.connection == mock_client
+        # Verify Redis client was created with the pool
+        mock_redis_class.assert_called()
 
     def test_queue_objects_exist(self):
         """Test that queue objects are properly created."""

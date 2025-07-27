@@ -23,11 +23,18 @@ class TestContentStore:
     @pytest.fixture
     def content_store(self, temp_store_path):
         """Create a ContentStore instance with temporary storage."""
-        return ContentStore(store_path=temp_store_path)
+        with patch("redis.from_url") as mock_redis:
+            # Mock Redis connection
+            mock_conn = Mock()
+            mock_redis.return_value = mock_conn
+            return ContentStore(store_path=temp_store_path)
 
     def test_should_initialize_with_store_path(self, temp_store_path):
         """ContentStore should initialize with a store path."""
-        store = ContentStore(store_path=temp_store_path)
+        with patch("redis.from_url") as mock_redis:
+            mock_conn = Mock()
+            mock_redis.return_value = mock_conn
+            store = ContentStore(store_path=temp_store_path)
         assert store.store_path == temp_store_path
         assert (temp_store_path / "content-store").exists()
         assert (temp_store_path / "content-store" / "content").exists()
@@ -201,20 +208,24 @@ class TestContentStore:
         content = '{"name": "Duplicate Pantry", "address": "789 Pine St"}'
         metadata = {"scraper_id": "test_scraper"}
 
-        # First time: store content
-        entry1 = content_store.store_content(content, metadata)
-        assert entry1.status == "pending"
-        assert entry1.job_id is None
+        # Mock the _is_job_active method to return True for our job
+        with patch.object(content_store, "_is_job_active") as mock_is_active:
+            mock_is_active.return_value = True
 
-        # Link a job
-        job_id = "job-999"
-        content_store.link_job(entry1.hash, job_id)
+            # First time: store content
+            entry1 = content_store.store_content(content, metadata)
+            assert entry1.status == "pending"
+            assert entry1.job_id is None
 
-        # Second time: should return existing job ID
-        entry2 = content_store.store_content(content, metadata)
-        assert entry2.hash == entry1.hash
-        assert entry2.status == "pending"
-        assert entry2.job_id == job_id
+            # Link a job
+            job_id = "job-999"
+            content_store.link_job(entry1.hash, job_id)
+
+            # Second time: should return existing job ID
+            entry2 = content_store.store_content(content, metadata)
+            assert entry2.hash == entry1.hash
+            assert entry2.status == "pending"
+            assert entry2.job_id == job_id
 
     def test_should_prioritize_completed_over_pending(self, content_store):
         """Should return completed result even if job_id exists for pending."""

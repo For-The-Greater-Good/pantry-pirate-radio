@@ -12,6 +12,8 @@ import subprocess  # nosec B404
 import json
 import uuid
 import re
+import signal
+import atexit
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any
@@ -389,6 +391,7 @@ class HAARRRvestPublisher:
 
 - `daily/` - Historical data organized by date
 - `latest/` - Most recent data for each scraper
+- `sql_dumps/` - PostgreSQL dumps for fast initialization
 - `sqlite/` - SQLite database exports for Datasette
 - `content_store/` - Content deduplication store (if configured)
 
@@ -650,6 +653,200 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             logger.error(f"SQLite export error: {e}")
             raise Exception(f"Failed to export SQLite database: {e}")
 
+    def _export_to_sql_dump(self):
+        """Export PostgreSQL database to compressed SQL dump for fast initialization."""
+        logger.info("Creating PostgreSQL SQL dump")
+
+        try:
+            # Create sql_dumps directory in repo
+            sql_dumps_dir = self.data_repo_path / "sql_dumps"
+            sql_dumps_dir.mkdir(exist_ok=True)
+
+            # Get database connection info from environment
+            db_host = os.getenv("POSTGRES_HOST", "db")
+            db_port = os.getenv("POSTGRES_PORT", "5432")
+            db_user = os.getenv("POSTGRES_USER", "pantry_pirate_radio")
+            db_name = os.getenv("POSTGRES_DB", "pantry_pirate_radio")
+            db_password = os.getenv("POSTGRES_PASSWORD")
+
+            # Safety check: Get current database record count
+            env = os.environ.copy()
+            env["PGPASSWORD"] = db_password
+            check_cmd = [
+                "psql",
+                "-h",
+                db_host,
+                "-p",
+                db_port,
+                "-U",
+                db_user,
+                "-d",
+                db_name,
+                "-t",
+                "-c",
+                "SELECT COUNT(*) FROM organization;",
+            ]
+            result = subprocess.run(check_cmd, env=env, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                logger.error(f"Failed to check database record count: {result.stderr}")
+                raise Exception("Cannot verify database state before dump")
+
+            current_count = int(result.stdout.strip())
+            logger.info(f"Current database has {current_count} organizations")
+
+            # Load or initialize ratchet file
+            ratchet_file = sql_dumps_dir / ".record_count_ratchet"
+            max_known_count = 0
+
+            if ratchet_file.exists():
+                try:
+                    ratchet_data = json.loads(ratchet_file.read_text())
+                    max_known_count = ratchet_data.get("max_record_count", 0)
+                    logger.info(f"Previous maximum record count: {max_known_count}")
+                except Exception as e:
+                    logger.warning(f"Could not read ratchet file: {e}")
+
+            # Check against ratcheting threshold
+            allow_empty_dump = (
+                os.getenv("ALLOW_EMPTY_SQL_DUMP", "false").lower() == "true"
+            )
+            allow_percentage = float(
+                os.getenv("SQL_DUMP_RATCHET_PERCENTAGE", "0.9")
+            )  # Default 90%
+
+            if max_known_count > 0:
+                # We have a previous high water mark
+                threshold = int(max_known_count * allow_percentage)
+                if current_count < threshold and not allow_empty_dump:
+                    logger.error(f"Database has only {current_count} records")
+                    logger.error(
+                        f"This is below {allow_percentage*100}% of maximum known count ({max_known_count})"
+                    )
+                    logger.error(f"Threshold: {threshold} records")
+                    logger.error("Refusing to create SQL dump to prevent data loss")
+                    logger.error("To override, set ALLOW_EMPTY_SQL_DUMP=true")
+                    raise Exception(
+                        f"Database record count {current_count} below ratchet threshold {threshold} (90% of {max_known_count})"
+                    )
+            else:
+                # First dump or no ratchet file - use minimum threshold
+                min_record_threshold = int(os.getenv("SQL_DUMP_MIN_RECORDS", "100"))
+                if current_count < min_record_threshold and not allow_empty_dump:
+                    # Check if we have existing dumps (legacy check)
+                    existing_dumps = list(
+                        sql_dumps_dir.glob("pantry_pirate_radio_*.sql")
+                    )
+                    if existing_dumps:
+                        logger.error(
+                            f"Database has only {current_count} records (minimum: {min_record_threshold})"
+                        )
+                        logger.error("Refusing to create SQL dump to prevent data loss")
+                        logger.error("To override, set ALLOW_EMPTY_SQL_DUMP=true")
+                        raise Exception(
+                            f"Database record count {current_count} below minimum threshold {min_record_threshold}"
+                        )
+                    else:
+                        # First dump ever, allow it
+                        logger.warning(
+                            f"Creating initial dump with {current_count} records"
+                        )
+
+            # Update ratchet if current count is higher
+            if current_count > max_known_count:
+                logger.info(f"New record count high water mark: {current_count}")
+                ratchet_data = {
+                    "max_record_count": current_count,
+                    "updated_at": datetime.now().isoformat(),
+                    "updated_by": "haarrrvest_publisher",
+                }
+                ratchet_file.write_text(json.dumps(ratchet_data, indent=2))
+
+            # Generate filename with timestamp for more frequent dumps
+            dump_filename = f"pantry_pirate_radio_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.sql"
+            dump_path = sql_dumps_dir / dump_filename
+
+            # Create a plain SQL dump without compression for better git tracking
+            # Git can efficiently track text file changes
+            # Run pg_dump without shell
+            logger.info(f"Running pg_dump to create {dump_filename}")
+            env = os.environ.copy()
+            env["PGPASSWORD"] = db_password
+            dump_cmd = [
+                "pg_dump",
+                "-h",
+                db_host,
+                "-p",
+                db_port,
+                "-U",
+                db_user,
+                "-d",
+                db_name,
+                "--no-owner",
+                "--no-privileges",
+                "--if-exists",
+                "--clean",
+            ]
+            with open(dump_path, "w") as dump_file:
+                result = subprocess.run(
+                    dump_cmd,
+                    env=env,
+                    stdout=dump_file,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+
+            if result.returncode == 0:
+                # Get file size
+                file_size_mb = dump_path.stat().st_size / (1024 * 1024)
+                logger.info(
+                    f"Successfully created SQL dump: {dump_filename} ({file_size_mb:.1f} MB)"
+                )
+
+                # Create a latest symlink for easy access
+                latest_link = sql_dumps_dir / "latest.sql"
+                if latest_link.exists():
+                    latest_link.unlink()
+                latest_link.symlink_to(dump_filename)
+                logger.info("Updated latest.sql symlink")
+
+                # Keep only recent dumps (last 24 hours worth)
+                self._cleanup_old_dumps(sql_dumps_dir, keep_hours=24)
+
+            else:
+                logger.error(f"pg_dump failed: {result.stderr}")
+                raise Exception(f"Failed to create SQL dump: {result.stderr}")
+
+        except Exception as e:
+            logger.error(f"SQL dump export error: {e}")
+            # Don't fail the entire pipeline if SQL dump fails
+            logger.warning("Continuing without SQL dump")
+
+    def _cleanup_old_dumps(self, sql_dumps_dir: Path, keep_hours: int = 24):
+        """Remove SQL dumps older than keep_hours."""
+        cutoff_time = datetime.now() - timedelta(hours=keep_hours)
+
+        for dump_file in sql_dumps_dir.glob("pantry_pirate_radio_*.sql"):
+            # Skip the latest symlink
+            if dump_file.name == "latest.sql":
+                continue
+
+            # Extract timestamp from filename
+            match = re.match(
+                r"pantry_pirate_radio_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.sql",
+                dump_file.name,
+            )
+            if match:
+                try:
+                    file_time = datetime.strptime(match.group(1), "%Y-%m-%d_%H-%M-%S")
+                    if file_time < cutoff_time:
+                        logger.info(f"Removing old SQL dump: {dump_file.name}")
+                        dump_file.unlink()
+                except ValueError:
+                    logger.warning(
+                        f"Could not parse timestamp from filename: {dump_file.name}"
+                    )
+
     def _sync_database_from_haarrrvest(self):
         """Sync database with recent HAARRRvest data using replay tool.
 
@@ -785,11 +982,43 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             if code != 0:
                 logger.error(f"Database rebuild failed: {err}")
 
+        # SQL dump export for fast initialization
+        self._export_to_sql_dump()
+
         # SQLite export - use our own method
         self._export_to_sqlite()
 
         # Run HAARRRvest's location export script for map data
         self._run_location_export()
+
+    def _check_for_changes(self) -> bool:
+        """Check if there are any changes that need publishing."""
+        # Always run the pipeline to ensure SQL dumps are current
+        # This ensures we capture database state on every run
+        has_changes = False
+
+        # Check for new JSON files
+        new_files = self._find_new_files()
+        if new_files:
+            logger.info(f"Found {len(new_files)} new JSON files")
+            has_changes = True
+
+        # Always create SQL dumps to capture current database state
+        logger.info("Will create SQL dump to capture current database state")
+        has_changes = True
+
+        # Check content store for changes
+        try:
+            from app.content_store.config import get_content_store
+
+            content_store = get_content_store()
+            if content_store:
+                logger.info("Content store configured, will sync")
+                has_changes = True
+        except Exception as e:
+            logger.debug(f"Content store check skipped: {e}")
+
+        return has_changes
 
     def process_once(self):
         """Run the publishing pipeline once."""
@@ -799,22 +1028,21 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             # Setup repository
             self._setup_git_repo()
 
-            # Find new files
-            new_files = self._find_new_files()
-            if not new_files:
-                logger.info("No new files to process")
+            # Check if there are any changes to publish
+            if not self._check_for_changes():
+                logger.info("No changes to publish")
                 return
 
-            logger.info(f"Found {len(new_files)} new files to process")
-
-            # Skip database sync - now handled by db-init service
-            # Database should already be populated when this service starts
+            # Find new files
+            new_files = self._find_new_files()
 
             # Create branch
             branch_name = self._create_branch_name()
 
-            # Sync files
-            self._sync_files_to_repo(new_files)
+            # Sync files if any
+            if new_files:
+                logger.info(f"Syncing {len(new_files)} new files")
+                self._sync_files_to_repo(new_files)
 
             # Sync content store if configured
             self._sync_content_store()
@@ -822,8 +1050,15 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             # Update metadata
             self._update_repository_metadata()
 
-            # Run database operations
-            self._run_database_operations()
+            # Run database operations (includes SQL dump)
+            try:
+                self._run_database_operations()
+            except Exception as e:
+                if "below safety threshold" in str(e):
+                    logger.error("Skipping commit due to SQL dump safety check failure")
+                    logger.error("Database appears to be empty or corrupted")
+                    return
+                raise
 
             # Commit and merge
             self._create_and_merge_branch(branch_name)
@@ -837,11 +1072,26 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             logger.error(f"Publishing pipeline failed: {e}", exc_info=True)
             raise
 
+    def _shutdown_handler(self, signum=None, frame=None):
+        """Handle shutdown by creating a final SQL dump."""
+        logger.info("Received shutdown signal, creating final SQL dump...")
+        try:
+            # Create a final SQL dump before shutdown
+            self._export_to_sql_dump()
+            logger.info("Final SQL dump created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create final SQL dump: {e}")
+
     def run(self):
         """Run the service continuously."""
         logger.info(
             f"Starting HAARRRvest publisher service (check interval: {self.check_interval}s)"
         )
+
+        # Register shutdown handlers
+        signal.signal(signal.SIGTERM, self._shutdown_handler)
+        signal.signal(signal.SIGINT, self._shutdown_handler)
+        atexit.register(self._shutdown_handler)
 
         # Setup repository first (needed for db-init to work)
         try:

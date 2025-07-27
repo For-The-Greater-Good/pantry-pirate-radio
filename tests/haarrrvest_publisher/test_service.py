@@ -592,7 +592,8 @@ class TestHAARRRvestPublisher:
 
         # Verify all steps were called
         mock_setup.assert_called_once()
-        mock_find.assert_called_once()
+        # _find_new_files is called twice: once in _check_for_changes and once in main flow
+        assert mock_find.call_count == 2
         mock_sync.assert_called_once_with([test_file])
         mock_metadata.assert_called_once()
         mock_db_ops.assert_called_once()
@@ -600,15 +601,25 @@ class TestHAARRRvestPublisher:
         mock_save.assert_called_once()
 
     def test_should_skip_processing_when_no_new_files(self, publisher):
-        """Test skipping processing when no new files found."""
+        """Test that processing still happens even with no new files (for SQL dumps)."""
         with patch.object(publisher, "_setup_git_repo"):
             with patch.object(publisher, "_find_new_files", return_value=[]):
                 with patch.object(publisher, "_sync_files_to_repo") as mock_sync:
+                    with patch.object(
+                        publisher, "_run_database_operations"
+                    ) as mock_db_ops:
+                        with patch.object(
+                            publisher, "_create_and_merge_branch"
+                        ) as mock_merge:
+                            with patch.object(
+                                publisher, "_update_repository_metadata"
+                            ) as mock_metadata:
+                                publisher.process_once()
 
-                    publisher.process_once()
-
-                    # Verify sync was not called
-                    mock_sync.assert_not_called()
+                                # Even with no new files, we still run database operations for SQL dumps
+                                mock_db_ops.assert_called_once()
+                                # Sync should not be called when there are no files
+                                mock_sync.assert_not_called()
 
     @patch("time.sleep")
     def test_should_run_continuously_with_interval(self, mock_sleep, publisher):

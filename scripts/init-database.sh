@@ -96,72 +96,56 @@ count_records() {
     echo $count
 }
 
-# Function to run replay for database population
-run_replay() {
-    log "Starting database population from HAARRRvest data..."
+# Function to restore from SQL dump
+restore_from_sql_dump() {
+    log "Looking for SQL dumps in HAARRRvest repository..."
 
-    # Check if we've already completed initialization
-    if [ -f "$INIT_STATE_FILE" ]; then
-        local last_run=$(cat "$INIT_STATE_FILE")
-        log "Database was previously initialized on $last_run"
-
-        local record_count=$(count_records)
-        log "Current record count: $record_count organizations"
-
-        if [ "$record_count" -gt "0" ]; then
-            log "Database already contains data, skipping replay"
-            return 0
-        fi
+    local sql_dumps_dir="$DATA_REPO_PATH/sql_dumps"
+    if [ ! -d "$sql_dumps_dir" ]; then
+        log "No sql_dumps directory found, will use JSON replay instead"
+        return 1
     fi
 
-    # Count files to process
-    local total_files=$(find "$DATA_REPO_PATH/daily" -name "*.json" -type f | wc -l)
-    log "Found $total_files JSON files in HAARRRvest repository"
-
-    if [ "$total_files" -eq "0" ]; then
-        warn "No JSON files found to process"
-        return 0
+    # Look for latest SQL dump
+    local latest_dump="$sql_dumps_dir/latest.sql"
+    if [ ! -f "$latest_dump" ]; then
+        # Look for any SQL dump files
+        local dump_files=$(find "$sql_dumps_dir" -name "pantry_pirate_radio_*.sql" -type f | sort -r)
+        if [ -z "$dump_files" ]; then
+            log "No SQL dump files found"
+            return 1
+        fi
+        # Use the most recent dump
+        latest_dump=$(echo "$dump_files" | head -n1)
     fi
 
-    # Run replay with progress tracking
-    log "Running replay utility to populate database..."
-    log "This may take several minutes depending on data volume..."
-    log "Processing $total_files files..."
+    log "Found SQL dump: $(basename "$latest_dump")"
 
-    cd /app
+    # Get file size
+    local file_size_mb=$(stat -f%z "$latest_dump" 2>/dev/null || stat -c%s "$latest_dump" 2>/dev/null)
+    file_size_mb=$((file_size_mb / 1024 / 1024))
+    log "SQL dump size: ${file_size_mb} MB"
 
-    # Use Python unbuffered output for real-time progress
-    export PYTHONUNBUFFERED=1
+    # Restore from SQL dump
+    log "Restoring database from SQL dump..."
+    log "This should take less than 5 minutes..."
 
-    # Run replay and capture output, showing progress periodically
-    local line_count=0
-    local last_progress_time=$(date +%s)
+    # Drop existing database and recreate
+    log "Preparing database for restore..."
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "DROP DATABASE IF EXISTS $DB_NAME;" 2>/dev/null || true
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE DATABASE $DB_NAME;" || {
+        error "Failed to create database"
+        return 1
+    }
 
-    if python -m app.replay --directory "$DATA_REPO_PATH/daily" --pattern "*.json" 2>&1 | while IFS= read -r line; do
-        # Count lines for progress estimation
-        ((line_count++))
-
-        # Show progress every 30 seconds instead of all output
-        local current_time=$(date +%s)
-        local time_diff=$((current_time - last_progress_time))
-
-        if [ $time_diff -ge 30 ]; then
-            log "Still processing... (this may take up to 30 minutes for large datasets)"
-            last_progress_time=$current_time
-        fi
-
-        # Only show actual errors or important messages
-        # Exclude common/expected warnings about missing descriptions, merge strategies, and empty phone numbers
-        if echo "$line" | grep -E "(ERROR|complete|Progress:|failed)" >/dev/null; then
-            echo "[REPLAY] $line"
-        elif echo "$line" | grep -E "WARN" >/dev/null; then
-            # Only show warnings that aren't about expected conditions
-            if ! echo "$line" | grep -E "(Missing description|Falling back to default merge strategy|Empty phone number)" >/dev/null; then
-                echo "[REPLAY] $line"
-            fi
+    # Restore using psql for plain SQL dumps
+    if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$latest_dump" 2>&1 | while IFS= read -r line; do
+        # Filter out common warnings
+        if echo "$line" | grep -E "(ERROR|FATAL|failed)" >/dev/null; then
+            echo "[RESTORE] $line"
         fi
     done; then
-        log "Replay completed successfully!"
+        log "SQL dump restored successfully!"
 
         # Mark initialization as complete
         date -u +"%Y-%m-%d %H:%M:%S UTC" > "$INIT_STATE_FILE"
@@ -172,10 +156,11 @@ run_replay() {
 
         return 0
     else
-        error "Replay failed!"
+        error "SQL dump restore failed!"
         return 1
     fi
 }
+
 
 # Main initialization flow
 main() {
@@ -215,10 +200,13 @@ main() {
 
     # Step 3: Check if data repo exists
     if check_data_repo; then
-        # Step 4: Run replay to populate data
-        if ! run_replay; then
-            error "Database population failed"
-            exit 1
+        # Step 4: Restore from SQL dump
+        log "Looking for SQL dump to restore..."
+        if ! restore_from_sql_dump; then
+            warn "No SQL dump available for database initialization"
+            warn "To create a SQL dump, run the HAARRRvest publisher or use:"
+            warn "  docker compose exec app bash /app/scripts/create-sql-dump.sh"
+            log "Database will remain empty - populate it manually if needed"
         fi
     else
         log "Proceeding without data population"

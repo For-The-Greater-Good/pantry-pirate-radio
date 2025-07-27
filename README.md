@@ -233,6 +233,18 @@ code .
 # DevContainer will handle all setup automatically
 ```
 
+#### DevContainer with Database Initialization
+To start the dev environment with pre-populated data from HAARRRvest:
+```bash
+# Start dev environment with initialization
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
+
+# Monitor initialization progress
+docker compose logs -f db-init
+
+# This will populate ~90 days of historical data from HAARRRvest
+```
+
 ### Using Docker Compose (Fastest)
 ```bash
 # 1. Clone repository
@@ -513,7 +525,9 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 - **[Database Backup](docs/database-backup.md)** - Backup strategies
 
 ### Development & Operations
+- **[Docker Development](docs/docker-development.md)** - Development environment setup
 - **[Docker Startup Sequence](docs/docker-startup-sequence.md)** - Container orchestration
+- **[Docker Quick Start](docs/docker-quickstart.md)** - Fast Docker setup guide
 - **[Multi-Worker Support](docs/multi-worker-support.md)** - Scaling workers
 - **[Secret Management](docs/secret-management.md)** - Managing credentials
 - **[GitHub Workflows](docs/GITHUB_WORKFLOWS.md)** - CI/CD pipeline

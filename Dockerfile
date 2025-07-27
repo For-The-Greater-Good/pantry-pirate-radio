@@ -9,10 +9,16 @@
 FROM python:3.11-slim-bullseye AS base
 
 # Install system dependencies including Node.js for Claude CLI
+# First add PostgreSQL 15 repository to get matching client version
 RUN apt-get update && apt-get install -y \
-    postgresql-client \
     curl \
     git \
+    lsb-release \
+    gnupg \
+    && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && apt-get update \
+    && apt-get install -y postgresql-client-15 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (v18 LTS)

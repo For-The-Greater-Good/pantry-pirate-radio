@@ -1,0 +1,3 @@
+# This directory stores PostgreSQL SQL dumps
+# Dumps are created by HAARRRvest publisher for fast database initialization
+# Files matching *.sql, *.sql.gz, and *.sql.bz2 are ignored by git

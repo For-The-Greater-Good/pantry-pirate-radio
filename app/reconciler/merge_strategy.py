@@ -97,6 +97,11 @@ class MergeStrategy(BaseReconciler):
         try:
             # Use safer conversion method
             source_records = [self._row_to_dict(row, result) for row in rows]
+
+            # Check if any records are empty (conversion failed)
+            if any(not record for record in source_records):
+                raise ValueError("Row conversion resulted in empty records")
+
         except Exception as e:
             # Log error with more details
             self.logger.error(f"Error converting result to dict: {e}")
@@ -253,6 +258,11 @@ class MergeStrategy(BaseReconciler):
         try:
             # Use safer conversion method
             source_records = [self._row_to_dict(row, result) for row in rows]
+
+            # Check if any records are empty (conversion failed)
+            if any(not record for record in source_records):
+                raise ValueError("Row conversion resulted in empty records")
+
         except Exception as e:
             # Log the error and check the actual data structure
             self.logger.error(f"Error converting result to dict: {e}")

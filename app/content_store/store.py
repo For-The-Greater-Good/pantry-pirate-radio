@@ -206,8 +206,11 @@ class ContentStore:
                 )
                 conn.commit()
 
+        # Check if we have a linked job_id for this content
+        job_id = self.get_job_id(content_hash)
+
         return ContentEntry(
-            hash=content_hash, status="pending", result=None, job_id=None
+            hash=content_hash, status="pending", result=None, job_id=job_id
         )
 
     def store_result(self, content_hash: str, result: str, job_id: str):
