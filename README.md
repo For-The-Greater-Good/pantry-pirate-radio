@@ -117,45 +117,36 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 
 ```mermaid
 flowchart TB
-    %% Data Collection Layer
-    Scrapers[Scrapers<br/>12+ sources] --> |submits jobs| RedisQueue[Redis Queue<br/>Job Queue]
+    %% Data Collection
+    Scrapers[Scrapers<br/>12+ sources]
+    ContentStore{Content Store<br/>Deduplication}
     
-    %% Content Store checks happen during job submission
-    Scrapers --> |checks dedup| ContentStore{Content Store<br/>Deduplication}
-    ContentStore --> |if new content| RedisQueue
-    ContentStore --> |if duplicate| SkipLLM[Skip LLM<br/>Return existing job]
+    Scrapers --> ContentStore
+    ContentStore -->|New content| Queue[Redis Queue]
+    ContentStore -->|Duplicate| Skip[Return existing]
     
-    %% LLM Processing Layer
-    RedisQueue --> LLMWorkers[LLM Workers<br/>Scalable]
-    LLMWorkers --> LLM[LLM Providers<br/>OpenAI/Claude]
-    LLM --> |HSDS aligned data| LLMWorkers
+    %% Processing
+    Queue --> Workers[LLM Workers]
+    Workers <--> LLM[LLM Providers]
     
-    %% LLM Workers create new jobs
-    LLMWorkers --> |creates reconciler job| ReconcilerQueue[Reconciler Jobs]
-    LLMWorkers --> |creates recorder job| RecorderQueue[Recorder Jobs]
+    %% Job Distribution
+    Workers --> Jobs{Create Jobs}
+    Jobs --> ReconcilerQ[Reconciler Queue]
+    Jobs --> RecorderQ[Recorder Queue]
     
-    %% Update Content Store after processing
-    LLMWorkers --> |marks complete| ContentStore
+    %% Services
+    ReconcilerQ --> Reconciler[Reconciler<br/>Location matching]
+    RecorderQ --> Recorder[Recorder<br/>Archive JSON]
     
-    %% Reconciler Processing
-    ReconcilerQueue --> Reconciler[Reconciler Service<br/>• Location matching<br/>• Entity deduplication<br/>• Version tracking]
+    %% Storage
+    Reconciler --> DB[(PostgreSQL<br/>PostGIS)]
+    Recorder --> Files[JSON Files]
     
-    %% Recorder Processing
-    RecorderQueue --> Recorder[Recorder Service<br/>• Archive JSON data]
-    
-    %% Storage Layer
-    Reconciler --> PostgreSQL[(PostgreSQL +<br/>PostGIS<br/>HSDS Database)]
-    Recorder --> OutputsFolder[outputs/<br/>JSON Files]
-    
-    %% API Layer
-    PostgreSQL --> FastAPI[FastAPI<br/>Server]
-    
-    %% Publishing Layer
-    OutputsFolder --> |reads JSON files| Publisher[HAARRRvest Publisher<br/>• Builds location map data<br/>• Exports DB to SQLite<br/>• Syncs content store]
-    PostgreSQL --> |exports to SQLite| Publisher
-    ContentStore -.-> |syncs for backup| Publisher
-    
-    Publisher --> HAARRRvest[HAARRRvest<br/>Repository]
+    %% Output
+    DB --> API[FastAPI]
+    DB --> Publisher[HAARRRvest<br/>Publisher]
+    Files --> Publisher
+    Publisher --> GitHub[HAARRRvest<br/>Repository]
     
     %% Style
     classDef service fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
@@ -163,10 +154,10 @@ flowchart TB
     classDef external fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
     classDef queue fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
     
-    class Scrapers,LLMWorkers,Reconciler,Recorder,FastAPI,Publisher service
-    class ContentStore,PostgreSQL,OutputsFolder storage
-    class LLM,HAARRRvest external
-    class RedisQueue,ReconcilerQueue,RecorderQueue,SkipLLM queue
+    class Scrapers,Workers,Reconciler,Recorder,API,Publisher service
+    class ContentStore,DB,Files storage
+    class LLM,GitHub external
+    class Queue,ReconcilerQ,RecorderQ,Skip,Jobs queue
 ```
 
 ### Service Components
