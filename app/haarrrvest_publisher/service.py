@@ -383,7 +383,7 @@ For more information, visit the [Pantry Pirate Radio project](https://github.com
 
         # Read existing README if it exists
         if readme_path.exists():
-            with open(readme_path, "r") as f:
+            with open(readme_path) as f:
                 existing_content = f.read()
 
             # Look for harvester section markers
