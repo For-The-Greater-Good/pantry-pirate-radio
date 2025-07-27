@@ -117,28 +117,46 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 
 ```plaintext
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Scrapers  │───▶│    Redis    │◀───│   Workers   │
-│   [12+]     │    │    Queue    │    │ [Scalable]  │
+│   Scrapers  │───▶│   Content   │───▶│    Redis    │
+│   [12+]     │    │    Store    │    │    Queue    │
+└─────────────┘    │(Dedup Check)│    └──────┬──────┘
+                   └─────────────┘           │
+                          ▲                  ▼
+                          │           ┌─────────────┐
+                          └───────────│   Workers   │
+                                     │ [Scalable]  │
+                                     └──────┬──────┘
+                                            │
+                   ┌────────────────────────┴────────────────┐
+                   ▼                ▼                        ▼
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│     LLM     │    │ Reconciler  │    │  Recorder   │
+│  Providers  │    │  Service    │    │  Service    │
 └─────────────┘    └──────┬──────┘    └──────┬──────┘
-                          │                  │
-                          ▼                  ▼
+                          │                   │
+                          ▼                   ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Recorder   │    │ Reconciler  │    │     LLM     │
-│  Service    │    │  Service    │    │ Providers   │
-└──────┬──────┘    └──────┬──────┘    └─────────────┘
-       │                  │
-       ▼                  ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  outputs/   │    │PostgreSQL + │    │   FastAPI   │
-│   Folder    │    │   PostGIS   │◀───│   Server    │
-│ (JSON Files)│    └─────────────┘    └─────────────┘
-└──────┬──────┘
-       │ (reads)
-       ▼
-┌─────────────┐    ┌─────────────┐
-│ HAARRRvest  │───▶│ HAARRRvest  │
-│ Publisher   │    │ Repository  │
-└─────────────┘    └─────────────┘
+│PostgreSQL + │◀───│   FastAPI   │    │  outputs/   │
+│   PostGIS   │    │   Server    │    │   Folder    │
+└──────┬──────┘    └─────────────┘    └──────┬──────┘
+       │                                      │
+       │ (exports to SQLite)                  │
+       │                                      │
+       └──────────────┬───────────────────────┘
+                      │
+                      ▼
+┌──────────────────────────────────────┐
+│         HAARRRvest Publisher         │
+│ • Reads outputs/ and content_store/  │
+│ • Exports DB to SQLite               │
+│ • Generates location data            │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+        ┌─────────────┐
+        │ HAARRRvest  │
+        │ Repository  │
+        └─────────────┘
 ```
 
 ### Service Components
