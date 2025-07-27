@@ -129,34 +129,34 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
                                             │
                    ┌────────────────────────┴────────────────┐
                    ▼                ▼                        ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│     LLM     │    │ Reconciler  │    │  Recorder   │
-│  Providers  │    │  Service    │    │  Service    │
-└─────────────┘    └──────┬──────┘    └──────┬──────┘
-                          │                   │
-                          ▼                   ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│PostgreSQL + │◀───│   FastAPI   │    │  outputs/   │
-│   PostGIS   │    │   Server    │    │   Folder    │
-└──────┬──────┘    └─────────────┘    └──────┬──────┘
-       │                                      │
-       │ (exports to SQLite)                  │
-       │                                      │
-       └──────────────┬───────────────────────┘
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+│     LLM     │   │ Reconciler  │   │  Recorder   │
+│  Providers  │   │  Service    │   │  Service    │
+└─────────────┘   └──────┬──────┘   └──────┬──────┘
+                         │                  │
+                         ▼                  ▼
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+│PostgreSQL + │◀──│   FastAPI   │   │  outputs/   │
+│   PostGIS   │   │   Server    │   │   Folder    │
+└──────┬──────┘   └─────────────┘   └──────┬──────┘
+       │                                    │
+       │ (exports to SQLite)                │
+       │                                    │
+       └──────────────┬─────────────────────┘
                       │
                       ▼
-┌──────────────────────────────────────┐
-│         HAARRRvest Publisher         │
-│ • Reads outputs/ and content_store/  │
-│ • Exports DB to SQLite               │
-│ • Generates location data            │
-└──────────────┬───────────────────────┘
-               │
-               ▼
-        ┌─────────────┐
-        │ HAARRRvest  │
-        │ Repository  │
-        └─────────────┘
+        ┌──────────────────────────────────────┐
+        │         HAARRRvest Publisher         │
+        │ • Reads outputs/ and content_store/  │
+        │ • Exports DB to SQLite               │
+        │ • Generates location data            │
+        └──────────────┬───────────────────────┘
+                       │
+                       ▼
+                ┌─────────────┐
+                │ HAARRRvest  │
+                │ Repository  │
+                └─────────────┘
 ```
 
 ### Service Components
