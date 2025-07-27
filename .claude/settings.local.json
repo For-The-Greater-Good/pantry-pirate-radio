@@ -47,7 +47,8 @@
       "Bash(sqlite3:*)",
       "Bash(gh pr view:*)",
       "Bash(git restore:*)",
-      "Bash(git submodule:*)"
+      "Bash(git submodule:*)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }

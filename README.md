@@ -237,7 +237,7 @@ code .
 To start the dev environment with pre-populated data from HAARRRvest:
 ```bash
 # Start dev environment with initialization
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
+./docker.sh up --dev --with-init
 
 # Monitor initialization progress
 docker compose logs -f db-init
@@ -259,7 +259,7 @@ cp .env.example .env
 
 # 3. Start all services WITH latest HAARRRvest data (recommended)
 # This will populate the database with ~90 days of food resource data
-docker compose -f docker-compose.yml -f docker-compose.with-init.yml --profile with-init up -d
+./docker.sh up --with-init
 
 # 4. Monitor initialization (takes 5-15 minutes)
 docker compose logs -f db-init

@@ -25,7 +25,7 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # Start with database initialization
-docker compose -f docker-compose.yml -f docker-compose.with-init.yml --profile with-init up -d
+./docker.sh up --with-init
 
 # Monitor progress (5-15 minutes with SQL dumps, 30+ minutes without)
 docker compose logs -f db-init
@@ -42,10 +42,10 @@ For active development with hot reload and debugging:
 
 ```bash
 # Start development environment
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+./docker.sh up --dev
 
 # Or with pre-populated data
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
+./docker.sh up --dev --with-init
 ```
 
 See [Docker Development Guide](docker-development.md) for detailed dev setup.

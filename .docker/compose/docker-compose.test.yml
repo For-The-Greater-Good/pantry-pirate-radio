@@ -11,8 +11,8 @@ services:
     ports:
       - "0:5432"  # Random port allocation
     volumes:
-      - ./docs/HSDS/database/database_postgresql.sql:/docker-entrypoint-initdb.d/01-hsds-schema.sql:ro
-      - ./init-scripts/01-init-db.sql:/docker-entrypoint-initdb.d/02-init-db.sql:ro
+      - ../../docs/HSDS/database/database_postgresql.sql:/docker-entrypoint-initdb.d/01-hsds-schema.sql:ro
+      - ../../init-scripts/01-init-db.sql:/docker-entrypoint-initdb.d/02-init-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s

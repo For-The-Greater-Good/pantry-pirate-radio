@@ -1,0 +1,254 @@
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: app
+    ports:
+      - "8000:8000"
+    env_file: ../../.env
+    # All environment variables are loaded from .env file
+    # Override specific values as needed for your environment
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: worker
+    command: rq worker llm
+    ports:
+      - "8080-8089:8080"  # Claude health check port range for scaling
+    env_file: ../../.env
+    environment:
+      # Worker-specific overrides
+      - CLAUDE_HEALTH_SERVER=true
+      - QUEUE_NAME=llm
+    volumes:
+      - claude_config:/root/.config/claude  # Shared Claude authentication
+      - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  recorder:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: recorder
+    env_file: ../../.env
+    environment:
+      # Recorder-specific paths
+      - OUTPUT_DIR=/app/outputs
+    depends_on:
+      db:
+        condition: service_started
+      cache:
+        condition: service_started
+      haarrrvest-publisher:
+        condition: service_healthy
+    volumes:
+      - ../../outputs:/app/outputs
+      - ../../archives:/app/archives
+
+  scraper:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: scraper
+    command: tail -f /dev/null  # Keep container running
+    env_file: ../../.env
+    # All environment variables are loaded from .env file
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    volumes:
+      - ../../docs:/app/docs
+      - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
+
+  reconciler:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: simple-worker
+    command: rq worker reconciler
+    env_file: ../../.env
+    # All environment variables are loaded from .env file
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  haarrrvest-publisher:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: production-base
+    command: python -m app.haarrrvest_publisher.service
+    env_file: ../../.env
+    environment:
+      # Publisher-specific paths and defaults
+      - OUTPUT_DIR=/app/outputs
+      - DATA_REPO_PATH=/data-repo
+      - DATA_REPO_URL=${DATA_REPO_URL:-https://github.com/For-The-Greater-Good/HAARRRvest.git}
+      - PUBLISHER_PUSH_ENABLED=${PUBLISHER_PUSH_ENABLED:-false}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - ../../scripts:/app/scripts:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/app/scripts/check-haarrrvest-repo.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  db:
+    image: postgis/postgis:15-3.3
+    env_file: ../../.env
+    # Database credentials loaded from .env file
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-init:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: production-base
+    command: /app/scripts/init-database.sh
+    env_file: ../../.env
+    environment:
+      # Database connection overrides for init
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - DATA_REPO_PATH=/data-repo
+      - DB_INIT_DAYS_TO_SYNC=${DB_INIT_DAYS_TO_SYNC:-90}
+      - SKIP_DB_INIT=${SKIP_DB_INIT:-false}
+      # Repository stability check settings
+      - REPO_STABILITY_CHECK_INTERVAL=${REPO_STABILITY_CHECK_INTERVAL:-10}
+      - REPO_STABILITY_THRESHOLD=${REPO_STABILITY_THRESHOLD:-3}
+      - REPO_MAX_WAIT_TIME=${REPO_MAX_WAIT_TIME:-1800}
+    volumes:
+      - ../../scripts:/app/scripts:ro
+      - haarrrvest_repo:/data-repo:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      haarrrvest-publisher:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scripts/wait-for-db-ready.sh", "init"]
+      interval: 30s
+      timeout: 10s
+      retries: 100
+      start_period: 600s  # 10 minutes grace period for initial data load
+    profiles:
+      - with-init  # Only runs when explicitly requested
+
+  cache:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rq-dashboard:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: simple-worker
+    command: rq-dashboard -H cache
+    ports:
+      - "9181:9181"
+    env_file: ../../.env
+    # Redis URL loaded from .env file
+    depends_on:
+      - cache
+
+  datasette-exporter:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: datasette-exporter
+    env_file: ../../.env
+    environment:
+      # Datasette exporter specific settings
+      - OUTPUT_DIR=/data
+      - EXPORT_INTERVAL=3600  # Seconds between exports (1 hour default)
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - datasette_data:/data
+      - ../../datasette-metadata.json:/data/metadata.json
+
+  datasette:
+    build:
+      context: ../..
+      dockerfile: .docker/images/datasette/Dockerfile
+    ports:
+      - "8001:8001"
+    command: [
+      "sh", "-c",
+      "while [ ! -f /data/latest.sqlite ]; do echo 'Waiting for SQLite database...'; sleep 5; done; exec datasette -p 8001 -h 0.0.0.0 --metadata /data/metadata.json --setting sql_time_limit_ms 10000 --setting max_returned_rows 5000 --setting allow_download 1 --setting default_page_size 50 --setting base_url / /data/latest.sqlite"
+    ]
+    volumes:
+      - datasette_data:/data
+    depends_on:
+      - datasette-exporter
+
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:15
+    env_file: ../../.env
+    environment:
+      # Backup specific configuration
+      - POSTGRES_HOST=db
+      - SCHEDULE=*/15 * * * *
+      - BACKUP_KEEP_DAYS=7
+      - BACKUP_KEEP_WEEKS=4
+      - BACKUP_KEEP_MONTHS=12
+      - HEALTHCHECK_PORT=8080
+    volumes:
+      - postgres_backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  datasette_data:
+  postgres_backups:
+  claude_config:  # Shared Claude authentication across worker containers
+  haarrrvest_repo:  # HAARRRvest repository managed by publisher service

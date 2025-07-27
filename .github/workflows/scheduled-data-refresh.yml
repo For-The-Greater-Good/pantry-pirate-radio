@@ -74,40 +74,40 @@ jobs:
           API_BASE_URL: ${{ vars.API_BASE_URL || 'https://openrouter.ai/api/v1' }}
         run: |
           # Use GitHub Actions compose file
-          docker-compose -f docker-compose.github-actions.yml up -d db cache
+          docker compose -f .docker/compose/docker-compose.github-actions.yml up -d db cache
 
           # Wait for services to be ready
           echo "Waiting for database..."
-          timeout 60 bash -c 'until docker-compose -f docker-compose.github-actions.yml exec -T db pg_isready -U postgres; do sleep 2; done'
+          timeout 60 bash -c 'until docker compose -f .docker/compose/docker-compose.github-actions.yml exec -T db pg_isready -U postgres; do sleep 2; done'
 
           echo "Waiting for Redis..."
-          timeout 60 bash -c 'until docker-compose -f docker-compose.github-actions.yml exec -T cache redis-cli ping; do sleep 2; done'
+          timeout 60 bash -c 'until docker compose -f .docker/compose/docker-compose.github-actions.yml exec -T cache redis-cli ping; do sleep 2; done'
 
           # Start HAARRRvest publisher
           echo "Starting HAARRRvest publisher..."
-          docker-compose -f docker-compose.github-actions.yml up -d haarrrvest-publisher
+          docker compose -f .docker/compose/docker-compose.github-actions.yml up -d haarrrvest-publisher
 
           # Wait for HAARRRvest to be ready
           echo "Waiting for HAARRRvest repository to be ready..."
-          timeout 120 bash -c 'until docker-compose -f docker-compose.github-actions.yml exec -T haarrrvest-publisher test -d /data-repo/.git; do sleep 5; done'
+          timeout 120 bash -c 'until docker compose -f .docker/compose/docker-compose.github-actions.yml exec -T haarrrvest-publisher test -d /data-repo/.git; do sleep 5; done'
 
           # Initialize database with recent data (optional)
           if [ "${{ vars.RUN_DB_INIT }}" == "true" ]; then
             echo "Initializing database with recent data..."
-            docker-compose -f docker-compose.github-actions.yml --profile with-init up db-init
+            docker compose -f .docker/compose/docker-compose.github-actions.yml --profile with-init up db-init
           fi
 
           # Start worker and reconciler
           echo "Starting worker and reconciler services..."
-          docker-compose -f docker-compose.github-actions.yml up -d worker reconciler
+          docker compose -f .docker/compose/docker-compose.github-actions.yml up -d worker reconciler
 
           # Run all scrapers
           echo "Running scrapers..."
-          docker-compose -f docker-compose.github-actions.yml run --rm scraper python -m app.scraper --all
+          docker compose -f .docker/compose/docker-compose.github-actions.yml run --rm scraper python -m app.scraper --all
 
           # Run recorder to generate output files
           echo "Running recorder..."
-          docker-compose -f docker-compose.github-actions.yml run --rm recorder
+          docker compose -f .docker/compose/docker-compose.github-actions.yml run --rm recorder
 
           # Give publisher time to process and push changes
           if [ "$PUBLISHER_PUSH_ENABLED" == "true" ]; then
@@ -118,7 +118,7 @@ jobs:
       - name: Check scraper results
         run: |
           echo "Checking scraper results..."
-          docker-compose -f docker-compose.github-actions.yml exec -T db psql -U postgres -d pantry_pirate_radio -c "
+          docker compose -f .docker/compose/docker-compose.github-actions.yml exec -T db psql -U postgres -d pantry_pirate_radio -c "
             SELECT
               source_name,
               COUNT(*) as record_count,
@@ -142,7 +142,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker-compose -f docker-compose.github-actions.yml down -v
+          docker compose -f .docker/compose/docker-compose.github-actions.yml down -v
           docker system prune -f
 
   notify-on-failure:
