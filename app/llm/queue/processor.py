@@ -31,6 +31,7 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         ValueError: If job processing fails
         Retry: If quota exceeded, schedules retry with exponential backoff
     """
+    logger.info(f"Starting to process LLM job {job.id} with provider {provider.model_name}")
 
     # Run async generate in sync context
     loop = asyncio.new_event_loop()
@@ -65,26 +66,38 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         )
 
         # Enqueue follow-up jobs for reconciler and recorder
-        reconciler_queue.enqueue_call(
-            func="app.reconciler.job_processor.process_job_result",
-            args=(job_result,),
-            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-        )
+        try:
+            reconciler_job = reconciler_queue.enqueue_call(
+                func="app.reconciler.job_processor.process_job_result",
+                args=(job_result,),
+                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
+            )
+            logger.info(f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}")
+        except Exception as e:
+            logger.error(f"Failed to enqueue reconciler job for LLM job {job.id}: {e}")
+            # Re-raise to ensure the LLM job fails and can be retried
+            raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
 
-        recorder_queue.enqueue_call(
-            func="app.recorder.utils.record_result",
-            args=(
-                {
-                    "job_id": job.id,
-                    "job": job.model_dump(),
-                    "result": llm_result,
-                    "error": None,
-                },
-            ),
-            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-        )
+        try:
+            recorder_job = recorder_queue.enqueue_call(
+                func="app.recorder.utils.record_result",
+                args=(
+                    {
+                        "job_id": job.id,
+                        "job": job.model_dump(),
+                        "result": llm_result,
+                        "error": None,
+                    },
+                ),
+                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
+            )
+            logger.info(f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}")
+        except Exception as e:
+            logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
+            # Re-raise to ensure the LLM job fails and can be retried
+            raise ValueError(f"Failed to enqueue recorder job: {e}") from e
 
         # Store result in content store if available
         from app.content_store.config import get_content_store

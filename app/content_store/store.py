@@ -8,6 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import redis
+from rq import Queue
+from rq.job import Job
+
 from app.content_store.models import ContentEntry
 
 
@@ -17,14 +21,16 @@ class ContentStore:
     # SHA-256 produces 64 hex characters
     _HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
-    def __init__(self, store_path: Path):
+    def __init__(self, store_path: Path, redis_url: str = "redis://cache:6379"):
         """Initialize content store.
 
         Args:
             store_path: Base path for content store (e.g., HAARRRvest repo path)
+            redis_url: Redis connection URL for checking job status
         """
         self.store_path = store_path
         self.content_store_path = store_path / "content-store"
+        self.redis_conn = redis.from_url(redis_url)
 
         # Create directory structure
         self._init_directories()
@@ -67,6 +73,23 @@ class ContentStore:
             Hex string of SHA-256 hash
         """
         return hashlib.sha256(content.encode()).hexdigest()
+
+    def _is_job_active(self, job_id: str) -> bool:
+        """Check if a job is still active (queued or running).
+
+        Args:
+            job_id: RQ job ID
+
+        Returns:
+            True if job is queued or running, False otherwise
+        """
+        try:
+            job = Job.fetch(job_id, connection=self.redis_conn)
+            status = job.get_status()
+            return status in ["queued", "started", "deferred", "scheduled"]
+        except Exception:
+            # Job doesn't exist or can't be fetched
+            return False
 
     def has_content(self, content_hash: str) -> bool:
         """Check if content exists in store.
@@ -142,9 +165,15 @@ class ContentStore:
         # Check if content already exists with a job_id (pending or processing)
         existing_job_id = self.get_job_id(content_hash)
         if existing_job_id:
-            return ContentEntry(
-                hash=content_hash, status="pending", result=None, job_id=existing_job_id
-            )
+            # Check if the job is still active
+            if self._is_job_active(existing_job_id):
+                return ContentEntry(
+                    hash=content_hash, status="pending", result=None, job_id=existing_job_id
+                )
+            else:
+                # Job is no longer active (failed, expired, etc.)
+                # Clear the old job_id so content can be reprocessed
+                self.clear_job_id(content_hash)
 
         # Store content if not already stored
         content_path = self._get_content_path(content_hash)
@@ -242,6 +271,25 @@ class ContentStore:
             )
             result = cursor.fetchone()
             return result[0] if result and result[0] else None
+
+    def clear_job_id(self, content_hash: str):
+        """Clear job ID for a content hash.
+
+        Args:
+            content_hash: SHA-256 hash of content
+
+        Raises:
+            ValueError: If hash format is invalid
+        """
+        self._validate_hash(content_hash)
+        db_path = self.content_store_path / "index.db"
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE content_index SET job_id = NULL WHERE hash = ?",
+                (content_hash,)
+            )
+            conn.commit()
 
     def link_job(self, content_hash: str, job_id: str):
         """Link a job ID to a content hash.

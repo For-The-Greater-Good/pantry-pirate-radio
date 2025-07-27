@@ -6,7 +6,7 @@
 # =============================================================================
 
 # Base stage with common dependencies
-FROM python:3.11-slim-bullseye as base
+FROM python:3.11-slim-bullseye AS base
 
 # Install system dependencies including Node.js for Claude CLI
 RUN apt-get update && apt-get install -y \
@@ -38,7 +38,7 @@ COPY pyproject.toml poetry.lock ./
 # =============================================================================
 # PRODUCTION BASE - Install only production dependencies
 # =============================================================================
-FROM base as production-base
+FROM base AS production-base
 
 # Install production dependencies
 RUN poetry install --without dev --no-interaction --no-ansi
@@ -52,7 +52,7 @@ ENV PYTHONPATH=/app
 # =============================================================================
 # DEVELOPMENT/TEST BASE - Install all dependencies including dev
 # =============================================================================
-FROM base as development-base
+FROM base AS development-base
 
 # Install all dependencies including dev dependencies
 RUN poetry install --no-interaction --no-ansi
@@ -66,7 +66,7 @@ ENV PYTHONPATH=/app
 # =============================================================================
 # FASTAPI APPLICATION SERVICE
 # =============================================================================
-FROM production-base as app
+FROM production-base AS app
 
 # Expose the port the app runs on
 EXPOSE 8000
@@ -77,7 +77,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # =============================================================================
 # LLM WORKER SERVICE (with Claude authentication and multi-worker support)
 # =============================================================================
-FROM production-base as worker
+FROM production-base AS worker
 
 # Copy startup scripts
 COPY scripts/container_startup.sh /usr/local/bin/container_startup.sh
@@ -91,7 +91,7 @@ CMD ["rq", "worker", "llm"]
 # =============================================================================
 # SIMPLE RQ WORKER SERVICE (for other queues without Claude setup)
 # =============================================================================
-FROM production-base as simple-worker
+FROM production-base AS simple-worker
 
 # Start RQ worker directly without startup scripts
 CMD ["rq", "worker"]
@@ -99,7 +99,7 @@ CMD ["rq", "worker"]
 # =============================================================================
 # RECORDER SERVICE
 # =============================================================================
-FROM production-base as recorder
+FROM production-base AS recorder
 
 # Create directories for outputs and archives
 RUN mkdir -p /app/outputs /app/archives
@@ -110,7 +110,7 @@ CMD ["rq", "worker", "recorder"]
 # =============================================================================
 # SCRAPER SERVICE
 # =============================================================================
-FROM production-base as scraper
+FROM production-base AS scraper
 
 # Install system dependencies required by Playwright
 RUN apt-get update && apt-get install -y \
@@ -162,7 +162,7 @@ CMD ["python", "-m", "app.scraper"]
 # =============================================================================
 # TEST SERVICE
 # =============================================================================
-FROM development-base as test
+FROM development-base AS test
 
 # Run tests
 CMD ["poetry", "run", "pytest"]
@@ -170,7 +170,7 @@ CMD ["poetry", "run", "pytest"]
 # =============================================================================
 # DATASETTE EXPORTER SERVICE
 # =============================================================================
-FROM production-base as datasette-exporter
+FROM production-base AS datasette-exporter
 
 # Install additional build dependencies
 RUN apt-get update && \
@@ -196,4 +196,4 @@ CMD ["schedule", "--verbose"]
 # =============================================================================
 # DEFAULT STAGE - FastAPI Application
 # =============================================================================
-FROM app as default
+FROM app AS default

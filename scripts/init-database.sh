@@ -126,15 +126,40 @@ run_replay() {
     # Run replay with progress tracking
     log "Running replay utility to populate database..."
     log "This may take several minutes depending on data volume..."
+    log "Processing $total_files files..."
 
     cd /app
 
     # Use Python unbuffered output for real-time progress
     export PYTHONUNBUFFERED=1
 
-    # Run replay and capture output
+    # Run replay and capture output, showing progress periodically
+    local line_count=0
+    local last_progress_time=$(date +%s)
+    
     if python -m app.replay --directory "$DATA_REPO_PATH/daily" --pattern "*.json" 2>&1 | while IFS= read -r line; do
-        echo "[REPLAY] $line"
+        # Count lines for progress estimation
+        ((line_count++))
+        
+        # Show progress every 30 seconds instead of all output
+        local current_time=$(date +%s)
+        local time_diff=$((current_time - last_progress_time))
+        
+        if [ $time_diff -ge 30 ]; then
+            log "Still processing... (this may take up to 30 minutes for large datasets)"
+            last_progress_time=$current_time
+        fi
+        
+        # Only show actual errors or important messages
+        # Exclude common/expected warnings about missing descriptions, merge strategies, and empty phone numbers
+        if echo "$line" | grep -E "(ERROR|complete|Progress:|failed)" >/dev/null; then
+            echo "[REPLAY] $line"
+        elif echo "$line" | grep -E "WARN" >/dev/null; then
+            # Only show warnings that aren't about expected conditions
+            if ! echo "$line" | grep -E "(Missing description|Falling back to default merge strategy|Empty phone number)" >/dev/null; then
+                echo "[REPLAY] $line"
+            fi
+        fi
     done; then
         log "Replay completed successfully!"
 

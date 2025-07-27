@@ -169,10 +169,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/scripts/wait-for-db-ready.sh", "init"]
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 30s
+      interval: 30s
+      timeout: 10s
+      retries: 100
+      start_period: 600s  # 10 minutes grace period for initial data load
     profiles:
       - with-init  # Only runs when explicitly requested
 

@@ -49,7 +49,16 @@ class MergeStrategy(BaseReconciler):
             return dict(row._asdict())
         # Manual mapping using column names and values
         else:
-            column_names = result.keys()
+            column_names = list(result.keys())
+            # Handle case where row might be a single value instead of tuple
+            if isinstance(row, str) or not hasattr(row, '__iter__'):
+                # Single value result - likely just the ID
+                if len(column_names) == 1:
+                    return {column_names[0]: row}
+                else:
+                    # This shouldn't happen but log it
+                    self.logger.error(f"Single value row with multiple columns: {row}, columns: {column_names}")
+                    return {}
             return dict(zip(column_names, row, strict=False))
 
     def merge_location(self, location_id: str) -> None:

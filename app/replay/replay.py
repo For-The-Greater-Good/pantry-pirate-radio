@@ -316,7 +316,10 @@ def replay_directory(
     stats = {"total_files": len(files), "successful": 0, "failed": 0}
 
     # Process each file
-    for file_path in files:
+    for i, file_path in enumerate(files, 1):
+        # Log progress every 500 files (reduced frequency for cleaner output)
+        if i % 500 == 0 or i == 1 or i == len(files):
+            logger.info(f"Progress: {i}/{len(files)} files ({(i/len(files)*100):.1f}%)")
         try:
             if replay_file(str(file_path), dry_run=dry_run, allowed_dirs=allowed_dirs):
                 stats["successful"] += 1

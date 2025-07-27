@@ -186,9 +186,10 @@ docker compose exec haarrrvest-publisher /app/scripts/check-haarrrvest-repo.sh
 
 ### Slow Initialization
 
-- DB-init can take 5-15 minutes depending on data volume
+- DB-init can take 5-30 minutes depending on data volume (17k+ files)
 - Monitor progress: `docker compose logs -f db-init`
 - Reduce data: Set `DB_INIT_DAYS_TO_SYNC=7` for faster init
+- Health check has a 10-minute grace period before starting checks
 
 ### Repository Clone Failures
 
