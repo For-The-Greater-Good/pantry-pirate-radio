@@ -115,48 +115,43 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 
 ### Core Services
 
-```plaintext
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Scrapers  │───▶│   Content   │───▶│    Redis    │
-│   [12+]     │    │    Store    │    │    Queue    │
-└─────────────┘    │(Dedup Check)│    └──────┬──────┘
-                   └─────────────┘           │
-                          ▲                  ▼
-                          │           ┌─────────────┐
-                          └───────────│   Workers   │
-                                     │ [Scalable]  │
-                                     └──────┬──────┘
-                                            │
-                   ┌────────────────────────┴────────────────┐
-                   ▼                ▼                        ▼
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│     LLM     │   │ Reconciler  │   │  Recorder   │
-│  Providers  │   │  Service    │   │  Service    │
-└─────────────┘   └──────┬──────┘   └──────┬──────┘
-                         │                  │
-                         ▼                  ▼
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│PostgreSQL + │◀──│   FastAPI   │   │  outputs/   │
-│   PostGIS   │   │   Server    │   │   Folder    │
-└──────┬──────┘   └─────────────┘   └──────┬──────┘
-       │                                    │
-       │ (exports to SQLite)                │
-       │                                    │
-       └──────────────┬─────────────────────┘
-                      │
-                      ▼
-        ┌──────────────────────────────────────┐
-        │         HAARRRvest Publisher         │
-        │ • Reads outputs/ and content_store/  │
-        │ • Exports DB to SQLite               │
-        │ • Generates location data            │
-        └──────────────┬───────────────────────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │ HAARRRvest  │
-                │ Repository  │
-                └─────────────┘
+```mermaid
+graph TD
+    %% Data Collection Layer
+    Scrapers[Scrapers<br/>12+ sources] --> ContentStore[Content Store<br/>Dedup Check]
+    ContentStore --> RedisQueue[Redis Queue]
+    
+    %% Processing Layer
+    RedisQueue --> Workers[Workers<br/>Scalable]
+    Workers --> LLM[LLM Providers]
+    Workers --> Reconciler[Reconciler<br/>Service]
+    Workers --> Recorder[Recorder<br/>Service]
+    
+    %% LLM updates Content Store
+    LLM --> ContentStore
+    
+    %% Storage Layer
+    Reconciler --> PostgreSQL[(PostgreSQL +<br/>PostGIS)]
+    Recorder --> OutputsFolder[outputs/<br/>Folder]
+    
+    %% API Layer
+    PostgreSQL --> FastAPI[FastAPI<br/>Server]
+    
+    %% Publishing Layer
+    PostgreSQL --> |exports to SQLite| Publisher[HAARRRvest Publisher<br/>• Reads outputs/ & content_store/<br/>• Exports DB to SQLite<br/>• Generates location data]
+    OutputsFolder --> Publisher
+    ContentStore -.-> |syncs for backup| Publisher
+    
+    Publisher --> HAARRRvest[HAARRRvest<br/>Repository]
+    
+    %% Style
+    classDef service fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef external fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    
+    class Scrapers,Workers,Reconciler,Recorder,FastAPI,Publisher service
+    class ContentStore,RedisQueue,PostgreSQL,OutputsFolder storage
+    class LLM,HAARRRvest external
 ```
 
 ### Service Components
