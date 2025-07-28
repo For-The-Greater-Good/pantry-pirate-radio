@@ -510,6 +510,7 @@ See **[Documentation Index](docs/README.md)** for complete navigation through al
 - **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
 - **[API Examples](docs/api-examples.md)** - Practical API usage examples
 - **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[Test Environment Setup](docs/test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
 ## Environment Configuration

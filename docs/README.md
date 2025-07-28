@@ -19,6 +19,7 @@ A comprehensive guide to understanding, using, and contributing to Pantry Pirate
 ### 👨‍💻 Development
 - **[Docker Development](docker-development.md)** - Container-based development
 - **[Docker Startup Sequence](docker-startup-sequence.md)** - Service orchestration details
+- **[Test Environment Setup](test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
 - **[Scraper Implementation Guide](scrapers.md)** - Adding data sources
 - **[LLM System](llm.md)** - AI-powered data processing
 - **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
