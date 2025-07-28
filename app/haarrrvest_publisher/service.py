@@ -660,7 +660,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
         try:
             # Create sql_dumps directory in repo
             sql_dumps_dir = self.data_repo_path / "sql_dumps"
-            sql_dumps_dir.mkdir(exist_ok=True)
+            sql_dumps_dir.mkdir(parents=True, exist_ok=True)
 
             # Get database connection info from environment
             db_host = os.getenv("POSTGRES_HOST", "db")
