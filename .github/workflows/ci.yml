@@ -187,6 +187,22 @@ jobs:
           echo "Creating test database..."
           docker compose -f .docker/compose/base.yml exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
           echo "Test database created or already exists"
+          
+      - name: Initialize test database
+        run: |
+          echo "Initializing test database with HSDS schema..."
+          # Apply init scripts to test database
+          for script in init-scripts/*.sql; do
+            if [ -f "$script" ]; then
+              echo "Applying $script to test database..."
+              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < "$script"
+            fi
+          done
+          # Apply HSDS schema to test database
+          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
+            echo "Applying HSDS schema to test database..."
+            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
+          fi
 
       - name: Initialize database
         run: |
