@@ -139,11 +139,14 @@ jobs:
           fi
           # Disable HAARRRvest push for tests
           sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
+          # Also create .env for services
+          cp .env.test .env
 
       - name: Run tests
         run: |
           chmod +x ./bouy
-          ./bouy test --pytest
+          # Run with --programmatic for better CI output
+          ./bouy --programmatic test --pytest
 
       - name: Extract coverage data
         run: |
