@@ -73,7 +73,35 @@ open http://localhost:8000/docs
 
 ## Essential Commands
 
-### Service Management
+### Using docker.sh Helper (Recommended)
+
+```bash
+# Service management
+./docker.sh up                    # Start in dev mode
+./docker.sh up --prod            # Start in production mode
+./docker.sh up --with-init       # Start with data initialization
+./docker.sh down                 # Stop all services
+./docker.sh ps                   # View service status
+./docker.sh logs app             # View service logs
+./docker.sh shell app            # Open shell in container
+./docker.sh clean                # Stop and remove volumes
+
+# Running scrapers
+./docker.sh scraper --list       # List available scrapers
+./docker.sh scraper nyc_efap_programs  # Run specific scraper
+./docker.sh scraper --all        # Run all scrapers
+
+# Testing
+./docker.sh test                 # Run all CI checks
+./docker.sh test --pytest        # Run tests only
+./docker.sh test --black         # Format code
+./docker.sh test --mypy          # Type checking
+
+# Claude authentication
+./docker.sh claude-auth          # Authenticate Claude provider
+```
+
+### Using Docker Compose Directly
 
 ```bash
 # View all services
@@ -87,18 +115,10 @@ docker compose down
 
 # Stop and remove data
 docker compose down -v
-```
 
-### Running Scrapers
-
-```bash
-# List available scrapers
+# Running scrapers
 docker compose exec scraper python -m app.scraper --list
-
-# Run a specific scraper
 docker compose exec scraper python -m app.scraper nyc_efap_programs
-
-# Run all scrapers
 docker compose exec scraper python -m app.scraper --all
 ```
 
@@ -167,6 +187,58 @@ lsof -i :5432  # Database port
 # Or scale down workers
 docker compose up -d --scale worker=1
 ```
+
+## Programmatic Usage
+
+The docker.sh script supports programmatic mode for automation:
+
+### Flags for Automation
+```bash
+# Structured output mode
+./docker.sh --programmatic COMMAND    # Timestamped logs to stderr
+./docker.sh --json COMMAND           # JSON output where supported
+./docker.sh --quiet COMMAND          # Suppress non-error output
+./docker.sh --no-color COMMAND       # Disable colored output
+
+# Combine flags
+./docker.sh --programmatic --quiet up
+./docker.sh --json --verbose ps
+```
+
+### Non-Interactive Execution
+```bash
+# Commands run without TTY allocation in programmatic mode
+./docker.sh --programmatic exec app python --version
+./docker.sh --programmatic scraper --list
+
+# Logs are limited to last 100 lines (no follow)
+./docker.sh --programmatic logs app
+```
+
+### Exit Codes
+- `0` - Success
+- `1` - General error or command failure
+- Non-zero - Command-specific errors
+
+### Example: Python Automation
+```python
+import subprocess
+import json
+
+# Get service status as JSON
+result = subprocess.run(
+    ["./docker.sh", "--json", "ps"],
+    capture_output=True,
+    text=True
+)
+
+# Parse each line as JSON (one service per line)
+for line in result.stdout.strip().split('\n'):
+    service = json.loads(line)
+    print(f"{service['Service']}: {service['Status']}")
+```
+
+See `examples/docker-automation.py` for a complete automation example.
 
 ## Next Steps
 

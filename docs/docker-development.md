@@ -11,7 +11,23 @@ The development environment uses Docker Compose with multiple configuration file
 
 ## Quick Start
 
-### Basic Development Environment
+### Using docker.sh Helper (Recommended)
+
+```bash
+# Start development services (empty database)
+./docker.sh up --dev
+
+# Start with pre-populated data from HAARRRvest
+./docker.sh up --dev --with-init
+
+# View logs
+./docker.sh logs app
+
+# Stop services
+./docker.sh down
+```
+
+### Using Docker Compose Directly
 
 ```bash
 # Start development services (empty database)
@@ -29,7 +45,13 @@ docker compose down
 To start with ~90 days of historical data from HAARRRvest:
 
 ```bash
-# Start dev environment with database initialization
+# Using docker.sh (recommended)
+./docker.sh up --dev --with-init
+
+# Monitor initialization progress
+./docker.sh logs db-init
+
+# Or using docker compose directly
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
 
 # Monitor initialization progress (takes 5-15 minutes)
@@ -87,41 +109,71 @@ docker compose exec db-backup /backup.sh
 ### 2. Running Tests
 
 ```bash
-# Run tests in container
+# Using docker.sh with bind-mounted code (recommended)
+./docker.sh test                   # Run all CI checks
+./docker.sh test --pytest          # Run tests with coverage
+./docker.sh test --mypy            # Type checking
+./docker.sh test --black           # Format code (updates local files)
+./docker.sh test --ruff            # Run linter
+./docker.sh test --bandit          # Security scan
+
+# Or run directly in container
 docker compose exec app poetry run pytest
-
-# Run specific test file
 docker compose exec app poetry run pytest tests/test_api.py
-
-# Run with coverage
 docker compose exec app poetry run pytest --cov
 ```
 
 ### 3. Code Quality
 
 ```bash
-# Format code
+# Using docker.sh (updates local files)
+./docker.sh test --black           # Format code
+./docker.sh test --ruff            # Run linter
+./docker.sh test --mypy            # Type checking
+
+# Or run directly
 docker compose exec app poetry run black .
-
-# Run linter
 docker compose exec app poetry run ruff .
-
-# Type checking
 docker compose exec app poetry run mypy .
 ```
 
 ### 4. Debugging
 
 ```bash
-# View service logs
+# Using docker.sh
+./docker.sh logs app               # View service logs
+./docker.sh logs worker           # View worker logs
+./docker.sh shell app             # Shell access
+./docker.sh exec app python       # Python REPL
+
+# Or directly
 docker compose logs -f app
 docker compose logs -f worker
-
-# Shell access
 docker compose exec app bash
-
-# Python REPL with app context
 docker compose exec app python
+```
+
+### 5. Running Scrapers
+
+```bash
+# Using docker.sh
+./docker.sh scraper --list        # List available scrapers
+./docker.sh scraper nyc_efap_programs  # Run specific scraper
+./docker.sh scraper --all         # Run all scrapers
+
+# Or directly
+docker compose exec scraper python -m app.scraper --list
+docker compose exec scraper python -m app.scraper nyc_efap_programs
+```
+
+### 6. Claude Authentication
+
+```bash
+# Authenticate Claude provider
+./docker.sh claude-auth
+
+# Or directly
+docker compose exec worker claude
 ```
 
 ## Environment Configuration
@@ -163,7 +215,11 @@ DATA_REPO_TOKEN=your_github_token
 ### Starting Fresh
 
 ```bash
-# Remove all data and start clean
+# Using docker.sh
+./docker.sh clean                  # Remove all data
+./docker.sh up --dev              # Start fresh
+
+# Or manually
 docker compose down -v
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```

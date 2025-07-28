@@ -2,12 +2,108 @@
 set -e
 
 # Docker management convenience script
-COMPOSE_FILES="-f .docker/compose/base.yml"
+# Use the symlinked docker-compose.yml as the base
+COMPOSE_FILES="-f docker-compose.yml"
 COMPOSE_CMD="docker compose"
+
+# Default behavior flags
+PROGRAMMATIC_MODE=0
+VERBOSE=0
+QUIET=0
+JSON_OUTPUT=0
+NO_COLOR=0
+
+# Parse global flags
+while [[ $# -gt 0 ]] && [[ "$1" =~ ^-- ]]; do
+    case $1 in
+        --programmatic)
+            PROGRAMMATIC_MODE=1
+            NO_COLOR=1
+            shift
+            ;;
+        --json)
+            JSON_OUTPUT=1
+            PROGRAMMATIC_MODE=1
+            NO_COLOR=1
+            shift
+            ;;
+        --verbose)
+            VERBOSE=1
+            shift
+            ;;
+        --quiet)
+            QUIET=1
+            shift
+            ;;
+        --no-color)
+            NO_COLOR=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Output functions for programmatic mode
+output() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [ $QUIET -eq 1 ] && [ "$level" != "error" ] && [ "$level" != "result" ]; then
+        return
+    fi
+
+    if [ $JSON_OUTPUT -eq 1 ]; then
+        # Escape quotes in message for JSON
+        message="${message//\"/\\\"}"
+        echo "{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"$message\"}"
+    elif [ $PROGRAMMATIC_MODE -eq 1 ]; then
+        echo "[$timestamp] [$level] $message" >&2
+    elif [ "$level" = "result" ]; then
+        # Results always go to stdout
+        echo "$message"
+    else
+        # Normal mode - colored output to stderr
+        if [ $NO_COLOR -eq 0 ]; then
+            case "$level" in
+                error)
+                    echo -e "\033[31m[ERROR]\033[0m $message" >&2
+                    ;;
+                warning)
+                    echo -e "\033[33m[WARNING]\033[0m $message" >&2
+                    ;;
+                info)
+                    echo -e "\033[34m[INFO]\033[0m $message" >&2
+                    ;;
+                success)
+                    echo -e "\033[32m[SUCCESS]\033[0m $message" >&2
+                    ;;
+                *)
+                    echo "$message" >&2
+                    ;;
+            esac
+        else
+            echo "[$level] $message" >&2
+        fi
+    fi
+}
 
 # Function to show usage
 usage() {
-    echo "Usage: ./docker.sh COMMAND [OPTIONS]"
+    echo "Usage: ./docker.sh [GLOBAL_OPTIONS] COMMAND [OPTIONS]"
+    echo ""
+    echo "Global Options:"
+    echo "  --programmatic      Enable programmatic mode (structured output)"
+    echo "  --json              Output in JSON format (implies --programmatic)"
+    echo "  --verbose           Enable verbose output"
+    echo "  --quiet             Suppress non-error output"
+    echo "  --no-color          Disable colored output"
     echo ""
     echo "Commands:"
     echo "  up [SERVICE]        Start services (dev mode by default)"
@@ -17,8 +113,24 @@ usage() {
     echo "  shell SERVICE       Open shell in service container"
     echo "  exec SERVICE CMD    Execute command in service container"
     echo "  ps                  List running services"
-    echo "  test                Run tests in Docker"
+    echo "  test [OPTIONS]      Run tests with various options"
+    echo "  scraper [NAME|--all] Run specific scraper or all scrapers"
+    echo "  claude-auth         Authenticate Claude in worker container"
     echo "  clean               Stop services and remove volumes"
+    echo ""
+    echo "Test options:"
+    echo "  test                Run all CI checks"
+    echo "  test --pytest       Run only pytest"
+    echo "  test --mypy         Run only mypy type checking"
+    echo "  test --black        Run only black formatting"
+    echo "  test --ruff         Run only ruff linting"
+    echo "  test --bandit       Run only bandit security check"
+    echo "  test --coverage     Run pytest with coverage"
+    echo ""
+    echo "Scraper options:"
+    echo "  scraper --list      List all available scrapers"
+    echo "  scraper --all       Run all scrapers"
+    echo "  scraper NAME        Run specific scraper by name"
     echo ""
     echo "Environment modes (use with 'up'):"
     echo "  --dev               Development mode (default)"
@@ -33,6 +145,11 @@ usage() {
     echo "  ./docker.sh logs app              # View app logs"
     echo "  ./docker.sh shell app             # Open shell in app container"
     echo "  ./docker.sh test                  # Run tests"
+    echo ""
+    echo "Programmatic Examples:"
+    echo "  ./docker.sh --json ps             # Get service status as JSON"
+    echo "  ./docker.sh --quiet up            # Start services with minimal output"
+    echo "  ./docker.sh --programmatic exec app python --version"
 }
 
 # Parse environment mode
@@ -60,10 +177,10 @@ parse_mode() {
             COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.dev.yml"
             ;;
         prod)
-            COMPOSE_FILES="-f .docker/compose/docker-compose.prod.yml"
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.prod.yml"
             ;;
         test)
-            COMPOSE_FILES="-f .docker/compose/docker-compose.test.yml"
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.test.yml"
             ;;
     esac
 }
@@ -85,23 +202,50 @@ case "$1" in
             esac
         done
 
-        echo "Starting services with: $COMPOSE_CMD $COMPOSE_FILES"
-        $COMPOSE_CMD $COMPOSE_FILES up -d $services
+        output info "Starting services with: $COMPOSE_CMD $COMPOSE_FILES"
+        # Check if --with-init was used
+        if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
+            if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services; then
+                output success "Services started successfully"
+            else
+                output error "Failed to start services"
+                exit 1
+            fi
+        else
+            if $COMPOSE_CMD $COMPOSE_FILES up -d $services; then
+                output success "Services started successfully"
+            else
+                output error "Failed to start services"
+                exit 1
+            fi
+        fi
 
         # Show status
-        echo ""
-        $COMPOSE_CMD $COMPOSE_FILES ps
-        echo ""
-        echo "Services started! Access points:"
-        echo "  - API: http://localhost:8000"
-        echo "  - API Docs: http://localhost:8000/docs"
-        echo "  - Datasette: http://localhost:8001"
-        echo "  - RQ Dashboard: http://localhost:9181"
+        if [ $PROGRAMMATIC_MODE -eq 0 ]; then
+            echo ""
+            $COMPOSE_CMD $COMPOSE_FILES ps
+            echo ""
+            echo "Services started! Access points:"
+            echo "  - API: http://localhost:8000"
+            echo "  - API Docs: http://localhost:8000/docs"
+            echo "  - Datasette: http://localhost:8001"
+            echo "  - RQ Dashboard: http://localhost:9181"
+        else
+            # In programmatic mode, output JSON with service URLs
+            if [ $JSON_OUTPUT -eq 1 ]; then
+                echo '{"status":"started","endpoints":{"api":"http://localhost:8000","docs":"http://localhost:8000/docs","datasette":"http://localhost:8001","rq_dashboard":"http://localhost:9181"}}'
+            fi
+        fi
         ;;
 
     down)
-        # Find all running compose projects
-        $COMPOSE_CMD $COMPOSE_FILES down
+        output info "Stopping all services..."
+        if $COMPOSE_CMD $COMPOSE_FILES down; then
+            output success "All services stopped"
+        else
+            output error "Failed to stop services"
+            exit 1
+        fi
         ;;
 
     build)
@@ -117,17 +261,30 @@ case "$1" in
                     ;;
             esac
         done
-        $COMPOSE_CMD $COMPOSE_FILES build $services
+        output info "Building services..."
+        if $COMPOSE_CMD $COMPOSE_FILES build $services; then
+            output success "Build complete"
+        else
+            output error "Build failed"
+            exit 1
+        fi
         ;;
 
     logs)
         shift
         parse_mode "$@"
         service="$1"
+
+        # In programmatic mode, don't follow logs by default
+        LOG_FLAGS="-f"
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            LOG_FLAGS="--tail 100"
+        fi
+
         if [ -z "$service" ]; then
-            $COMPOSE_CMD $COMPOSE_FILES logs -f
+            $COMPOSE_CMD $COMPOSE_FILES logs $LOG_FLAGS
         else
-            $COMPOSE_CMD $COMPOSE_FILES logs -f "$service"
+            $COMPOSE_CMD $COMPOSE_FILES logs $LOG_FLAGS "$service"
         fi
         ;;
 
@@ -136,8 +293,12 @@ case "$1" in
         parse_mode "$@"
         service="$1"
         if [ -z "$service" ]; then
-            echo "Error: Please specify a service name"
-            echo "Example: ./docker.sh shell app"
+            output error "Please specify a service name"
+            output error "Example: ./docker.sh shell app"
+            exit 1
+        fi
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            output error "Shell command requires interactive mode. Run without --programmatic flag."
             exit 1
         fi
         $COMPOSE_CMD $COMPOSE_FILES exec "$service" bash || \
@@ -150,27 +311,210 @@ case "$1" in
         service="$1"
         shift
         if [ -z "$service" ]; then
-            echo "Error: Please specify a service name and command"
-            echo "Example: ./docker.sh exec app python --version"
+            output error "Please specify a service name and command"
+            output error "Example: ./docker.sh exec app python --version"
             exit 1
         fi
-        $COMPOSE_CMD $COMPOSE_FILES exec "$service" "$@"
+        EXEC_FLAGS=""
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            EXEC_FLAGS="-T"
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS "$service" "$@"
         ;;
 
     ps)
         parse_mode "$@"
-        $COMPOSE_CMD $COMPOSE_FILES ps
+        if [ $JSON_OUTPUT -eq 1 ]; then
+            # Try to use docker compose ps --format json if available
+            if $COMPOSE_CMD $COMPOSE_FILES ps --format json 2>/dev/null; then
+                :
+            else
+                # Fallback: parse regular output into JSON
+                output warning "JSON format not supported by this docker compose version"
+                $COMPOSE_CMD $COMPOSE_FILES ps
+            fi
+        else
+            $COMPOSE_CMD $COMPOSE_FILES ps
+        fi
         ;;
 
     test)
-        echo "Running tests in Docker..."
-        $COMPOSE_CMD -f .docker/compose/docker-compose.test.yml run --rm test
+        shift
+        test_cmd=""
+
+        # Parse test options
+        case "${1:-all}" in
+            --pytest)
+                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
+                ;;
+            --mypy)
+                test_cmd="poetry run mypy app tests"
+                ;;
+            --black)
+                test_cmd="poetry run black app tests"
+                ;;
+            --ruff)
+                test_cmd="poetry run ruff check app tests"
+                ;;
+            --bandit)
+                test_cmd="poetry run bandit -r app"
+                ;;
+            --coverage)
+                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch && bash scripts/coverage-check.sh"
+                ;;
+            all|"")
+                test_cmd="bash scripts/run-ci-checks.sh"
+                ;;
+            *)
+                output error "Unknown test option: $1"
+                output error "Use: test [--pytest|--mypy|--black|--ruff|--bandit|--coverage]"
+                exit 1
+                ;;
+        esac
+
+        output info "Running tests with bind-mounted code..."
+
+        # Ensure the test image is built
+        if ! docker image inspect pantry-pirate-radio-test:latest &> /dev/null; then
+            output info "Building test image..."
+            if ! docker build -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .; then
+                output error "Failed to build test image"
+                exit 1
+            fi
+        fi
+
+        # Use test environment file
+        if [ ! -f .env.test ]; then
+            output error ".env.test file not found!"
+            output error "Please ensure .env.test exists with proper test database configuration."
+            exit 1
+        fi
+
+        # Check if we're in a TTY (disable TTY in programmatic mode)
+        TTY_FLAG=""
+        if [ -t 0 ] && [ $PROGRAMMATIC_MODE -eq 0 ]; then
+            TTY_FLAG="-it"
+        fi
+
+        # Run tests in a temporary container with current code mounted
+        docker run --rm $TTY_FLAG \
+            -v $(pwd):/app:cached \
+            -w /app \
+            --network pantry-pirate-radio_default \
+            --env-file .env.test \
+            -e TEST_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-your_secure_password}@db:5432/test_pantry_pirate_radio \
+            -e TEST_REDIS_URL=redis://cache:6379/1 \
+            pantry-pirate-radio-test:latest \
+            bash -c "$test_cmd"
+        ;;
+
+    scraper)
+        shift
+        parse_mode "$@"
+
+        # Check if scraper service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps scraper 2>/dev/null | grep -q "Up"; then
+            output info "Scraper service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start scraper service"
+                exit 1
+            fi
+        fi
+
+        # Parse scraper options
+        case "${1:-help}" in
+            --list)
+                output info "Listing available scrapers..."
+                # Use -T flag to disable TTY in programmatic mode
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --list
+                ;;
+            --all)
+                output info "Running all scrapers..."
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --all
+                ;;
+            help|"")
+                if [ $PROGRAMMATIC_MODE -eq 0 ]; then
+                    echo "Usage: ./docker.sh scraper [--list|--all|SCRAPER_NAME]"
+                    echo ""
+                    echo "Available scrapers:"
+                    $COMPOSE_CMD $COMPOSE_FILES exec scraper python -m app.scraper --list
+                else
+                    output error "No scraper command specified. Use --list, --all, or provide a scraper name."
+                    exit 1
+                fi
+                ;;
+            *)
+                # Filter out mode flags
+                scraper_name=""
+                for arg in "$@"; do
+                    case $arg in
+                        --dev|--prod|--test|--with-init)
+                            ;;
+                        *)
+                            scraper_name="$arg"
+                            break
+                            ;;
+                    esac
+                done
+
+                if [ -n "$scraper_name" ]; then
+                    output info "Running scraper: $scraper_name"
+                    EXEC_FLAGS=""
+                    if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                        EXEC_FLAGS="-T"
+                    fi
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper "$scraper_name"
+                else
+                    output error "No scraper name provided"
+                    exit 1
+                fi
+                ;;
+        esac
+        ;;
+
+    claude-auth)
+        parse_mode "$@"
+
+        # Check if worker service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
+            output info "Worker service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start worker service"
+                exit 1
+            fi
+        fi
+
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            output error "Claude authentication requires interactive mode. Run without --programmatic flag."
+            exit 1
+        fi
+
+        output info "Authenticating Claude in worker container..."
+        output info "This will open an interactive Claude authentication session."
+        echo ""
+        $COMPOSE_CMD $COMPOSE_FILES exec worker claude
         ;;
 
     clean)
-        echo "Stopping services and removing volumes..."
-        $COMPOSE_CMD $COMPOSE_FILES down -v
-        echo "Clean complete!"
+        output info "Stopping services and removing volumes..."
+        if $COMPOSE_CMD $COMPOSE_FILES down -v; then
+            output success "Clean complete!"
+        else
+            output error "Clean failed"
+            exit 1
+        fi
         ;;
 
     *)

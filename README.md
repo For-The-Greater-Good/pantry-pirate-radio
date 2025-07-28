@@ -318,6 +318,8 @@ export ANTHROPIC_API_KEY=your_api_key_here  # Optional
 docker compose up -d
 
 # Setup authentication (interactive)
+./docker.sh claude-auth                   # Recommended: Interactive Claude CLI auth
+# OR
 docker compose exec worker python -m app.claude_auth_manager setup
 
 # Check authentication status
@@ -362,6 +364,57 @@ docker compose up -d
 - Redis 7.0+
 
 ### Service Management
+
+#### Using docker.sh Helper Script (Recommended)
+```bash
+# Start all services
+./docker.sh up                      # Start in dev mode (default)
+./docker.sh up --prod              # Start in production mode
+./docker.sh up --with-init         # Start with database initialization from HAARRRvest
+
+# Service management
+./docker.sh down                   # Stop all services
+./docker.sh ps                     # List running services
+./docker.sh logs app               # View specific service logs
+./docker.sh shell app              # Open shell in service container
+./docker.sh exec app python --version  # Execute command in container
+./docker.sh clean                  # Stop services and remove volumes
+
+# Testing
+./docker.sh test                   # Run all CI checks
+./docker.sh test --pytest          # Run only pytest
+./docker.sh test --mypy            # Run only type checking
+./docker.sh test --black           # Run only code formatting
+./docker.sh test --ruff            # Run only linting
+./docker.sh test --bandit          # Run only security checks
+./docker.sh test --coverage        # Run tests with coverage
+
+# Scraper management
+./docker.sh scraper --list         # List available scrapers
+./docker.sh scraper --all          # Run all scrapers
+./docker.sh scraper nyc_efap_programs  # Run specific scraper
+
+# Claude authentication
+./docker.sh claude-auth            # Authenticate Claude in worker container
+```
+
+#### Programmatic Mode (For Automation)
+```bash
+# Enable programmatic mode for structured output
+./docker.sh --programmatic up      # Structured logging to stderr
+./docker.sh --json ps              # Get service status as JSON
+./docker.sh --quiet up             # Suppress non-error output
+./docker.sh --no-color logs app    # Disable colored output
+
+# Combine flags for automation
+./docker.sh --programmatic --quiet exec app python --version
+./docker.sh --json --verbose ps   # JSON output with debug info
+
+# Non-interactive execution (no TTY)
+./docker.sh --programmatic exec scraper python -m app.scraper --list
+```
+
+#### Using Docker Compose Directly
 ```bash
 # Start all services
 docker compose up -d
@@ -390,10 +443,17 @@ docker compose up -d --scale worker=3  # Run 3 worker instances
 
 #### **Testing & Quality**
 ```bash
-# Run all tests with coverage
-poetry run pytest
+# Using docker.sh (with bind-mounted code for auto-formatting)
+./docker.sh test                        # Run all CI checks
+./docker.sh test --pytest               # Run tests with coverage
+./docker.sh test --mypy                 # Type checking
+./docker.sh test --black                # Code formatting (updates local files)
+./docker.sh test --ruff                 # Linting
+./docker.sh test --bandit               # Security scan
+./docker.sh test --coverage             # Tests with coverage check
 
-# Run specific test types
+# Or run locally with poetry
+poetry run pytest                       # Run all tests with coverage
 poetry run pytest -m integration        # Integration tests
 poetry run pytest -m asyncio           # Async tests
 poetry run pytest tests/test_scraper/  # Scraper tests
@@ -402,7 +462,7 @@ poetry run pytest tests/test_scraper/  # Scraper tests
 bash scripts/coverage-report.sh        # Comprehensive coverage
 poetry run coverage report --show-missing --sort=Cover
 
-# Code quality checks
+# Code quality checks (local)
 poetry run mypy .                       # Type checking
 poetry run black .                      # Code formatting
 poetry run ruff .                       # Linting
@@ -410,21 +470,27 @@ poetry run bandit -r app/               # Security scan
 poetry run vulture app/                 # Unused code detection
 
 # Run all CI checks
-./scripts/run-ci-checks.sh
+./docker.sh test                        # Using Docker (recommended)
+./scripts/run-ci-checks-docker.sh      # Alternative Docker method
+./scripts/run-ci-checks.sh             # Using local poetry installation
 ```
 
 #### **Scraper Management**
 ```bash
-# List available scrapers
+# Using docker.sh (recommended)
+./docker.sh scraper --list              # List available scrapers
+./docker.sh scraper nyc_efap_programs   # Run specific scraper
+./docker.sh scraper --all               # Run all scrapers
+
+# Or run directly in the container
+docker compose exec scraper python -m app.scraper --list
+docker compose exec scraper python -m app.scraper nyc_efap_programs
+docker compose exec scraper python -m app.scraper --all
+
+# Or run locally with poetry
 python -m app.scraper --list
-
-# Run specific scraper
 python -m app.scraper nyc_efap_programs
-
-# Run all scrapers
 python -m app.scraper --all
-
-# Run scrapers in parallel
 python -m app.scraper --all --parallel --max-workers 4
 
 # Test scrapers without processing
