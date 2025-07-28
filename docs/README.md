@@ -6,7 +6,7 @@ A comprehensive guide to understanding, using, and contributing to Pantry Pirate
 
 ### 🚀 Getting Started
 - **[Quick Start Guide](quickstart.md)** - API usage in minutes
-- **[Docker Quick Start](docker-quickstart.md)** - Run with Docker (`./docker.sh up --with-init`)
+- **[Docker Quick Start](docker-quickstart.md)** - Run with Docker (`./bouy up --with-init`)
 - **[Local Development Setup](getting-started-locally.md)** - Full development environment
 - **[HAARRRvest Data Access](haarrvest-quickstart.md)** - Access our food resource data
 
@@ -81,10 +81,10 @@ A comprehensive guide to understanding, using, and contributing to Pantry Pirate
 
 ```bash
 # Quick start with data
-./docker.sh up --with-init
+./bouy up --with-init
 
 # Development mode
-./docker.sh up --dev
+./bouy up --dev
 
 # Run tests
 poetry run pytest

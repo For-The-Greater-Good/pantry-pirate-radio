@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Example of using docker.sh programmatically from another application.
+Example of using bouy programmatically from another application.
 Demonstrates how to control the Docker fleet with structured output.
 """
 
@@ -13,13 +13,13 @@ from typing import Dict, List, Optional
 class DockerFleetController:
     """Controller for managing Pantry Pirate Radio Docker services."""
 
-    def __init__(self, script_path: str = "./docker.sh"):
+    def __init__(self, script_path: str = "./bouy"):
         self.script_path = script_path
 
     def _run_command(
         self, args: List[str], capture_output: bool = True
     ) -> subprocess.CompletedProcess:
-        """Run docker.sh command with given arguments."""
+        """Run bouy command with given arguments."""
         cmd = [self.script_path, *args]
 
         return subprocess.run(

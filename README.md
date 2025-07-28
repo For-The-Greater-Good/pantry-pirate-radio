@@ -237,7 +237,7 @@ code .
 To start the dev environment with pre-populated data from HAARRRvest:
 ```bash
 # Start dev environment with initialization
-./docker.sh up --dev --with-init
+./bouy up --dev --with-init
 
 # Monitor initialization progress
 docker compose logs -f db-init
@@ -259,7 +259,7 @@ cp .env.example .env
 
 # 3. Start all services WITH latest HAARRRvest data (recommended)
 # This will populate the database with ~90 days of food resource data
-./docker.sh up --with-init
+./bouy up --with-init
 
 # 4. Monitor initialization (takes 5-15 minutes)
 docker compose logs -f db-init
@@ -318,7 +318,7 @@ export ANTHROPIC_API_KEY=your_api_key_here  # Optional
 docker compose up -d
 
 # Setup authentication (interactive)
-./docker.sh claude-auth                   # Recommended: Interactive Claude CLI auth
+./bouy claude-auth                   # Recommended: Interactive Claude CLI auth
 # OR
 docker compose exec worker python -m app.claude_auth_manager setup
 
@@ -365,53 +365,53 @@ docker compose up -d
 
 ### Service Management
 
-#### Using docker.sh Helper Script (Recommended)
+#### Using bouy (Recommended)
 ```bash
 # Start all services
-./docker.sh up                      # Start in dev mode (default)
-./docker.sh up --prod              # Start in production mode
-./docker.sh up --with-init         # Start with database initialization from HAARRRvest
+./bouy up                      # Start in dev mode (default)
+./bouy up --prod              # Start in production mode
+./bouy up --with-init         # Start with database initialization from HAARRRvest
 
 # Service management
-./docker.sh down                   # Stop all services
-./docker.sh ps                     # List running services
-./docker.sh logs app               # View specific service logs
-./docker.sh shell app              # Open shell in service container
-./docker.sh exec app python --version  # Execute command in container
-./docker.sh clean                  # Stop services and remove volumes
+./bouy down                   # Stop all services
+./bouy ps                     # List running services
+./bouy logs app               # View specific service logs
+./bouy shell app              # Open shell in service container
+./bouy exec app python --version  # Execute command in container
+./bouy clean                  # Stop services and remove volumes
 
 # Testing
-./docker.sh test                   # Run all CI checks
-./docker.sh test --pytest          # Run only pytest
-./docker.sh test --mypy            # Run only type checking
-./docker.sh test --black           # Run only code formatting
-./docker.sh test --ruff            # Run only linting
-./docker.sh test --bandit          # Run only security checks
-./docker.sh test --coverage        # Run tests with coverage
+./bouy test                   # Run all CI checks
+./bouy test --pytest          # Run only pytest
+./bouy test --mypy            # Run only type checking
+./bouy test --black           # Run only code formatting
+./bouy test --ruff            # Run only linting
+./bouy test --bandit          # Run only security checks
+./bouy test --coverage        # Run tests with coverage
 
 # Scraper management
-./docker.sh scraper --list         # List available scrapers
-./docker.sh scraper --all          # Run all scrapers
-./docker.sh scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper --list         # List available scrapers
+./bouy scraper --all          # Run all scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
 
 # Claude authentication
-./docker.sh claude-auth            # Authenticate Claude in worker container
+./bouy claude-auth            # Authenticate Claude in worker container
 ```
 
 #### Programmatic Mode (For Automation)
 ```bash
 # Enable programmatic mode for structured output
-./docker.sh --programmatic up      # Structured logging to stderr
-./docker.sh --json ps              # Get service status as JSON
-./docker.sh --quiet up             # Suppress non-error output
-./docker.sh --no-color logs app    # Disable colored output
+./bouy --programmatic up      # Structured logging to stderr
+./bouy --json ps              # Get service status as JSON
+./bouy --quiet up             # Suppress non-error output
+./bouy --no-color logs app    # Disable colored output
 
 # Combine flags for automation
-./docker.sh --programmatic --quiet exec app python --version
-./docker.sh --json --verbose ps   # JSON output with debug info
+./bouy --programmatic --quiet exec app python --version
+./bouy --json --verbose ps   # JSON output with debug info
 
 # Non-interactive execution (no TTY)
-./docker.sh --programmatic exec scraper python -m app.scraper --list
+./bouy --programmatic exec scraper python -m app.scraper --list
 ```
 
 #### Using Docker Compose Directly
@@ -444,13 +444,13 @@ docker compose up -d --scale worker=3  # Run 3 worker instances
 #### **Testing & Quality**
 ```bash
 # Using docker.sh (with bind-mounted code for auto-formatting)
-./docker.sh test                        # Run all CI checks
-./docker.sh test --pytest               # Run tests with coverage
-./docker.sh test --mypy                 # Type checking
-./docker.sh test --black                # Code formatting (updates local files)
-./docker.sh test --ruff                 # Linting
-./docker.sh test --bandit               # Security scan
-./docker.sh test --coverage             # Tests with coverage check
+./bouy test                        # Run all CI checks
+./bouy test --pytest               # Run tests with coverage
+./bouy test --mypy                 # Type checking
+./bouy test --black                # Code formatting (updates local files)
+./bouy test --ruff                 # Linting
+./bouy test --bandit               # Security scan
+./bouy test --coverage             # Tests with coverage check
 
 # Or run locally with poetry
 poetry run pytest                       # Run all tests with coverage
@@ -470,7 +470,7 @@ poetry run bandit -r app/               # Security scan
 poetry run vulture app/                 # Unused code detection
 
 # Run all CI checks
-./docker.sh test                        # Using Docker (recommended)
+./bouy test                        # Using Docker (recommended)
 ./scripts/run-ci-checks-docker.sh      # Alternative Docker method
 ./scripts/run-ci-checks.sh             # Using local poetry installation
 ```
@@ -478,9 +478,9 @@ poetry run vulture app/                 # Unused code detection
 #### **Scraper Management**
 ```bash
 # Using docker.sh (recommended)
-./docker.sh scraper --list              # List available scrapers
-./docker.sh scraper nyc_efap_programs   # Run specific scraper
-./docker.sh scraper --all               # Run all scrapers
+./bouy scraper --list              # List available scrapers
+./bouy scraper nyc_efap_programs   # Run specific scraper
+./bouy scraper --all               # Run all scrapers
 
 # Or run directly in the container
 docker compose exec scraper python -m app.scraper --list

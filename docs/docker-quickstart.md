@@ -25,7 +25,7 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # Start with database initialization
-./docker.sh up --with-init
+./bouy up --with-init
 
 # Monitor progress (5-15 minutes with SQL dumps, 30+ minutes without)
 docker compose logs -f db-init
@@ -42,10 +42,10 @@ For active development with hot reload and debugging:
 
 ```bash
 # Start development environment
-./docker.sh up --dev
+./bouy up --dev
 
 # Or with pre-populated data
-./docker.sh up --dev --with-init
+./bouy up --dev --with-init
 ```
 
 See [Docker Development Guide](docker-development.md) for detailed dev setup.
@@ -73,32 +73,32 @@ open http://localhost:8000/docs
 
 ## Essential Commands
 
-### Using docker.sh Helper (Recommended)
+### Using bouy Helper (Recommended)
 
 ```bash
 # Service management
-./docker.sh up                    # Start in dev mode
-./docker.sh up --prod            # Start in production mode
-./docker.sh up --with-init       # Start with data initialization
-./docker.sh down                 # Stop all services
-./docker.sh ps                   # View service status
-./docker.sh logs app             # View service logs
-./docker.sh shell app            # Open shell in container
-./docker.sh clean                # Stop and remove volumes
+./bouy up                    # Start in dev mode
+./bouy up --prod            # Start in production mode
+./bouy up --with-init       # Start with data initialization
+./bouy down                 # Stop all services
+./bouy ps                   # View service status
+./bouy logs app             # View service logs
+./bouy shell app            # Open shell in container
+./bouy clean                # Stop and remove volumes
 
 # Running scrapers
-./docker.sh scraper --list       # List available scrapers
-./docker.sh scraper nyc_efap_programs  # Run specific scraper
-./docker.sh scraper --all        # Run all scrapers
+./bouy scraper --list       # List available scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper --all        # Run all scrapers
 
 # Testing
-./docker.sh test                 # Run all CI checks
-./docker.sh test --pytest        # Run tests only
-./docker.sh test --black         # Format code
-./docker.sh test --mypy          # Type checking
+./bouy test                 # Run all CI checks
+./bouy test --pytest        # Run tests only
+./bouy test --black         # Format code
+./bouy test --mypy          # Type checking
 
 # Claude authentication
-./docker.sh claude-auth          # Authenticate Claude provider
+./bouy claude-auth          # Authenticate Claude provider
 ```
 
 ### Using Docker Compose Directly
@@ -190,29 +190,29 @@ docker compose up -d --scale worker=1
 
 ## Programmatic Usage
 
-The docker.sh script supports programmatic mode for automation:
+The bouy script supports programmatic mode for automation:
 
 ### Flags for Automation
 ```bash
 # Structured output mode
-./docker.sh --programmatic COMMAND    # Timestamped logs to stderr
-./docker.sh --json COMMAND           # JSON output where supported
-./docker.sh --quiet COMMAND          # Suppress non-error output
-./docker.sh --no-color COMMAND       # Disable colored output
+./bouy --programmatic COMMAND    # Timestamped logs to stderr
+./bouy --json COMMAND           # JSON output where supported
+./bouy --quiet COMMAND          # Suppress non-error output
+./bouy --no-color COMMAND       # Disable colored output
 
 # Combine flags
-./docker.sh --programmatic --quiet up
-./docker.sh --json --verbose ps
+./bouy --programmatic --quiet up
+./bouy --json --verbose ps
 ```
 
 ### Non-Interactive Execution
 ```bash
 # Commands run without TTY allocation in programmatic mode
-./docker.sh --programmatic exec app python --version
-./docker.sh --programmatic scraper --list
+./bouy --programmatic exec app python --version
+./bouy --programmatic scraper --list
 
 # Logs are limited to last 100 lines (no follow)
-./docker.sh --programmatic logs app
+./bouy --programmatic logs app
 ```
 
 ### Exit Codes
@@ -227,7 +227,7 @@ import json
 
 # Get service status as JSON
 result = subprocess.run(
-    ["./docker.sh", "--json", "ps"],
+    ["./bouy", "--json", "ps"],
     capture_output=True,
     text=True
 )

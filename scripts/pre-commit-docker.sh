@@ -8,29 +8,29 @@ set -e
 COMMAND="$1"
 shift
 
-# Use docker.sh for everything to ensure consistency
+# Use bouy for everything to ensure consistency
 case "$COMMAND" in
     black)
         # Black needs to run on specific files passed by pre-commit
         if [ $# -gt 0 ]; then
             # Run black on the specific files
-            ./docker.sh --programmatic --quiet test --black
+            ./bouy --programmatic --quiet test --black
         fi
         ;;
     ruff)
         # Ruff needs to run on specific files passed by pre-commit
         if [ $# -gt 0 ]; then
             # Run ruff on the specific files
-            ./docker.sh --programmatic --quiet test --ruff
+            ./bouy --programmatic --quiet test --ruff
         fi
         ;;
     mypy)
         # Mypy always runs on the whole codebase
-        ./docker.sh --programmatic --quiet test --mypy
+        ./bouy --programmatic --quiet test --mypy
         ;;
     pytest)
         # Pytest runs the test suite
-        ./docker.sh --programmatic --quiet test --pytest
+        ./bouy --programmatic --quiet test --pytest
         ;;
     *)
         echo "Usage: $0 {black|ruff|mypy|pytest} [files...]"

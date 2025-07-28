@@ -4,40 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Quick Command Reference
 
-**IMPORTANT: All commands use docker.sh - no local dependencies except Docker required!**
+**IMPORTANT: All commands use bouy - no local dependencies except Docker required!**
 
 ```bash
 # Essential Commands
-./docker.sh up                    # Start all services
-./docker.sh down                  # Stop all services
-./docker.sh test                  # Run all tests and checks
-./docker.sh logs app              # View service logs
-./docker.sh shell app             # Open shell in container
+./bouy up                    # Start all services
+./bouy down                  # Stop all services
+./bouy test                  # Run all tests and checks
+./bouy logs app              # View service logs
+./bouy shell app             # Open shell in container
 
 # Testing Commands
-./docker.sh test --pytest         # Run tests only
-./docker.sh test --mypy          # Type checking only
-./docker.sh test --black         # Format checking only
-./docker.sh test --ruff          # Linting only
-./docker.sh test --bandit        # Security scan only
+./bouy test --pytest         # Run tests only
+./bouy test --mypy          # Type checking only
+./bouy test --black         # Format checking only
+./bouy test --ruff          # Linting only
+./bouy test --bandit        # Security scan only
 
 # Scraper Commands
-./docker.sh scraper --list       # List all scrapers
-./docker.sh scraper --all        # Run all scrapers
-./docker.sh scraper NAME         # Run specific scraper
+./bouy scraper --list       # List all scrapers
+./bouy scraper --all        # Run all scrapers
+./bouy scraper NAME         # Run specific scraper
 
 # Programmatic Mode (for CI/automation)
-./docker.sh --programmatic test  # Structured output
-./docker.sh --json ps            # JSON output
-./docker.sh --quiet up           # Minimal output
-./docker.sh --no-color logs app  # No color codes
+./bouy --programmatic test  # Structured output
+./bouy --json ps            # JSON output
+./bouy --quiet up           # Minimal output
+./bouy --no-color logs app  # No color codes
 ```
 
 ## Development Commands
 
 ### IMPORTANT: Docker-Only Development
 
-**All development commands must use docker.sh** - no local Python dependencies are required except Docker.
+**All development commands must use bouy** - no local Python dependencies are required except Docker.
 
 ### Test-Driven Development (TDD) Workflow
 
@@ -53,47 +53,47 @@ This project follows Test-Driven Development principles. Always write tests befo
 touch tests/test_new_feature.py
 
 # 2. Write failing test and run with Docker
-./docker.sh test --pytest  # Should fail
+./bouy test --pytest  # Should fail
 
 # 3. Implement minimal code to pass
 # ... write implementation ...
 
 # 4. Run test again
-./docker.sh test --pytest  # Should pass
+./bouy test --pytest  # Should pass
 
 # 5. Refactor and ensure tests still pass
-./docker.sh test --pytest
+./bouy test --pytest
 
 # 6. Run full test suite before committing
-./docker.sh test  # Runs all CI checks
+./bouy test  # Runs all CI checks
 ```
 
 ### Running Tests with Docker
 ```bash
 # Run all tests with coverage (runs all CI checks)
-./docker.sh test
+./bouy test
 
 # Run only pytest with coverage
-./docker.sh test --pytest
+./bouy test --pytest
 
 # Run specific test types
-./docker.sh test --mypy      # Type checking only
-./docker.sh test --black     # Code formatting only
-./docker.sh test --ruff      # Linting only
-./docker.sh test --bandit    # Security scan only
-./docker.sh test --coverage  # Pytest with coverage check
+./bouy test --mypy      # Type checking only
+./bouy test --black     # Code formatting only
+./bouy test --ruff      # Linting only
+./bouy test --bandit    # Security scan only
+./bouy test --coverage  # Pytest with coverage check
 
 # Programmatic mode for automation
-./docker.sh --programmatic test --pytest          # Structured output
-./docker.sh --json ps                             # JSON output
-./docker.sh --quiet test --mypy                   # Minimal output
-./docker.sh --programmatic --quiet test --black   # Combined flags
+./bouy --programmatic test --pytest          # Structured output
+./bouy --json ps                             # JSON output
+./bouy --quiet test --mypy                   # Minimal output
+./bouy --programmatic --quiet test --black   # Combined flags
 ```
 
 ### Coverage Analysis
 ```bash
 # Run tests with coverage check
-./docker.sh test --coverage
+./bouy test --coverage
 
 # Coverage reports are generated in the container and available at:
 # - htmlcov/index.html (HTML report)
@@ -107,83 +107,83 @@ open htmlcov/index.html
 ### Code Quality Checks
 ```bash
 # Run all quality checks
-./docker.sh test
+./bouy test
 
 # Run individual checks
-./docker.sh test --mypy      # Type checking
-./docker.sh test --black     # Code formatting
-./docker.sh test --ruff      # Linting
-./docker.sh test --bandit    # Security scan
+./bouy test --mypy      # Type checking
+./bouy test --black     # Code formatting
+./bouy test --ruff      # Linting
+./bouy test --bandit    # Security scan
 
 # For programmatic use in CI/CD
-./docker.sh --programmatic --quiet test --mypy
-./docker.sh --programmatic --quiet test --black
-./docker.sh --programmatic --quiet test --ruff
-./docker.sh --programmatic --quiet test --bandit
+./bouy --programmatic --quiet test --mypy
+./bouy --programmatic --quiet test --black
+./bouy --programmatic --quiet test --ruff
+./bouy --programmatic --quiet test --bandit
 ```
 
 ### Development Setup
 ```bash
 # Start all services (no local dependencies needed)
-./docker.sh up                    # Development mode (default)
-./docker.sh up --prod            # Production mode
-./docker.sh up --with-init       # With database initialization
+./bouy up                    # Development mode (default)
+./bouy up --prod            # Production mode
+./bouy up --with-init       # With database initialization
 
 # Start specific services
-./docker.sh up app worker        # Start only app and worker
+./bouy up app worker        # Start only app and worker
 
 # Service management
-./docker.sh down                 # Stop all services
-./docker.sh ps                   # List running services
-./docker.sh logs app             # View service logs
-./docker.sh shell app            # Open shell in container
-./docker.sh exec app python --version  # Execute command
-./docker.sh clean                # Stop and remove volumes
+./bouy down                 # Stop all services
+./bouy ps                   # List running services
+./bouy logs app             # View service logs
+./bouy shell app            # Open shell in container
+./bouy exec app python --version  # Execute command
+./bouy clean                # Stop and remove volumes
 
 # Programmatic mode for automation
-./docker.sh --json ps            # Get service status as JSON
-./docker.sh --quiet up           # Start with minimal output
+./bouy --json ps            # Get service status as JSON
+./bouy --quiet up           # Start with minimal output
 ```
 
 ### Docker Build Commands
 ```bash
 # Build all services
-./docker.sh build
+./bouy build
 
 # Build specific service
-./docker.sh build app
-./docker.sh build worker
+./bouy build app
+./bouy build worker
 
 # The test image is automatically built when running tests
-./docker.sh test  # Builds test image if needed
+./bouy test  # Builds test image if needed
 ```
 
 ### Running Scrapers
 ```bash
 # List available scrapers
-./docker.sh scraper --list
+./bouy scraper --list
 
 # Run specific scraper
-./docker.sh scraper nyc_efap_programs
+./bouy scraper nyc_efap_programs
 
 # Run all scrapers
-./docker.sh scraper --all
+./bouy scraper --all
 
 # Programmatic mode for automation
-./docker.sh --programmatic scraper --list
-./docker.sh --programmatic --quiet scraper nyc_efap_programs
+./bouy --programmatic scraper --list
+./bouy --programmatic --quiet scraper nyc_efap_programs
 ```
 
 ### CI Checks
 ```bash
 # Run all CI checks using Docker
-./docker.sh test
+./bouy test
 
 # Or use the Docker-based CI script directly
-./scripts/run-ci-checks-docker.sh
+./scripts/run-ci-checks-bouy
 
 # For GitHub Actions or other CI systems
-./docker.sh --programmatic --quiet test
+./bouy --programmatic --quiet test
 ```
 
 ## Architecture Overview
@@ -314,15 +314,15 @@ Key environment variables (see `.env.example`):
 #### Claude Authentication Commands
 ```bash
 # Authenticate Claude (interactive)
-./docker.sh claude-auth
+./bouy claude-auth
 
 # Check authentication status
 curl http://localhost:8080/health
 
 # Alternative manual commands
-./docker.sh exec worker python -m app.claude_auth_manager setup
-./docker.sh exec worker python -m app.claude_auth_manager status
-./docker.sh exec worker python -m app.claude_auth_manager test
+./bouy exec worker python -m app.claude_auth_manager setup
+./bouy exec worker python -m app.claude_auth_manager status
+./bouy exec worker python -m app.claude_auth_manager test
 ```
 
 ### HSDS Validation Details
@@ -349,16 +349,16 @@ curl http://localhost:8080/health
 ### HAARRRvest Publisher Commands
 ```bash
 # Start the publisher service
-./docker.sh up haarrrvest-publisher
+./bouy up haarrrvest-publisher
 
 # View logs
-./docker.sh logs haarrrvest-publisher
+./bouy logs haarrrvest-publisher
 
 # Restart to trigger immediate processing
-./docker.sh exec haarrrvest-publisher supervisorctl restart all
+./bouy exec haarrrvest-publisher supervisorctl restart all
 
 # Check service status
-./docker.sh ps
+./bouy ps
 ```
 
 ## TDD Memories
@@ -394,10 +394,10 @@ git commit --no-verify -m "Emergency fix"
 ```
 
 ### Hook Configuration
-The `.pre-commit-config.yaml` is configured to run all Python tools via `docker.sh`:
+The `.pre-commit-config.yaml` is configured to run all Python tools via `bouy`:
 - **black-docker**: Code formatting
 - **ruff-docker**: Linting
 - **mypy-docker**: Type checking
 - **pytest-docker**: Test suite
 
-All hooks use `./docker.sh --programmatic --quiet test --TOOL` for consistent Docker execution.
+All hooks use `./bouy --programmatic --quiet test --TOOL` for consistent Docker execution.

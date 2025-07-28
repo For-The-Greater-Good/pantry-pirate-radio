@@ -2,7 +2,7 @@
 
 # CI checks script - runs checks using local poetry installation
 # For Docker-based checks, use: ./scripts/run-ci-checks-docker.sh
-# Or simply: ./docker.sh test
+# Or simply: ./bouy test
 
 # Initialize error tracking
 errors=0

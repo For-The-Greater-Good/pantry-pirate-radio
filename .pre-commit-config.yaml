@@ -11,12 +11,12 @@ repos:
       - id: check-added-large-files
       - id: trailing-whitespace
 
-  # All Python tools run via docker.sh test command
+  # All Python tools run via bouy test command
   - repo: local
     hooks:
       - id: black-docker
         name: black (docker)
-        entry: bash -c './docker.sh --programmatic --quiet test --black'
+        entry: bash -c './bouy --programmatic --quiet test --black'
         pass_filenames: false
         language: system
         types: [python]
@@ -24,7 +24,7 @@ repos:
 
       - id: ruff-docker
         name: ruff (docker)
-        entry: bash -c './docker.sh --programmatic --quiet test --ruff'
+        entry: bash -c './bouy --programmatic --quiet test --ruff'
         pass_filenames: false
         language: system
         types: [python]
@@ -32,7 +32,7 @@ repos:
 
       - id: mypy-docker
         name: mypy (docker)
-        entry: bash -c './docker.sh --programmatic --quiet test --mypy || true'
+        entry: bash -c './bouy --programmatic --quiet test --mypy || true'
         pass_filenames: false
         language: system
         types: [python]
@@ -40,7 +40,7 @@ repos:
 
       - id: pytest-docker
         name: pytest (docker)
-        entry: bash -c './docker.sh --programmatic --quiet test --pytest || true'
+        entry: bash -c './bouy --programmatic --quiet test --pytest || true'
         pass_filenames: false
         language: system
         types: [python]

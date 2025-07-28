@@ -11,20 +11,20 @@ The development environment uses Docker Compose with multiple configuration file
 
 ## Quick Start
 
-### Using docker.sh Helper (Recommended)
+### Using bouy Helper (Recommended)
 
 ```bash
 # Start development services (empty database)
-./docker.sh up --dev
+./bouy up --dev
 
 # Start with pre-populated data from HAARRRvest
-./docker.sh up --dev --with-init
+./bouy up --dev --with-init
 
 # View logs
-./docker.sh logs app
+./bouy logs app
 
 # Stop services
-./docker.sh down
+./bouy down
 ```
 
 ### Using Docker Compose Directly
@@ -45,11 +45,11 @@ docker compose down
 To start with ~90 days of historical data from HAARRRvest:
 
 ```bash
-# Using docker.sh (recommended)
-./docker.sh up --dev --with-init
+# Using bouy (recommended)
+./bouy up --dev --with-init
 
 # Monitor initialization progress
-./docker.sh logs db-init
+./bouy logs db-init
 
 # Or using docker compose directly
 docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
@@ -109,13 +109,13 @@ docker compose exec db-backup /backup.sh
 ### 2. Running Tests
 
 ```bash
-# Using docker.sh with bind-mounted code (recommended)
-./docker.sh test                   # Run all CI checks
-./docker.sh test --pytest          # Run tests with coverage
-./docker.sh test --mypy            # Type checking
-./docker.sh test --black           # Format code (updates local files)
-./docker.sh test --ruff            # Run linter
-./docker.sh test --bandit          # Security scan
+# Using bouy (recommended)
+./bouy test                   # Run all CI checks
+./bouy test --pytest          # Run tests with coverage
+./bouy test --mypy            # Type checking
+./bouy test --black           # Format code (updates local files)
+./bouy test --ruff            # Run linter
+./bouy test --bandit          # Security scan
 
 # Or run directly in container
 docker compose exec app poetry run pytest
@@ -126,10 +126,10 @@ docker compose exec app poetry run pytest --cov
 ### 3. Code Quality
 
 ```bash
-# Using docker.sh (updates local files)
-./docker.sh test --black           # Format code
-./docker.sh test --ruff            # Run linter
-./docker.sh test --mypy            # Type checking
+# Using bouy (updates local files)
+./bouy test --black           # Format code
+./bouy test --ruff            # Run linter
+./bouy test --mypy            # Type checking
 
 # Or run directly
 docker compose exec app poetry run black .
@@ -140,11 +140,11 @@ docker compose exec app poetry run mypy .
 ### 4. Debugging
 
 ```bash
-# Using docker.sh
-./docker.sh logs app               # View service logs
-./docker.sh logs worker           # View worker logs
-./docker.sh shell app             # Shell access
-./docker.sh exec app python       # Python REPL
+# Using bouy
+./bouy logs app               # View service logs
+./bouy logs worker           # View worker logs
+./bouy shell app             # Shell access
+./bouy exec app python       # Python REPL
 
 # Or directly
 docker compose logs -f app
@@ -157,29 +157,29 @@ docker compose exec app python
 
 ```bash
 # List and run scrapers
-./docker.sh scraper --list        # List available scrapers
-./docker.sh scraper nyc_efap_programs  # Run specific scraper
-./docker.sh scraper --all         # Run all scrapers
+./bouy scraper --list        # List available scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper --all         # Run all scrapers
 
 # Programmatic mode for automation
-./docker.sh --programmatic scraper --list
-./docker.sh --programmatic --quiet scraper nyc_efap_programs
-./docker.sh --programmatic --quiet scraper --all
+./bouy --programmatic scraper --list
+./bouy --programmatic --quiet scraper nyc_efap_programs
+./bouy --programmatic --quiet scraper --all
 
 # Monitor scraper output
-./docker.sh logs scraper          # View scraper logs
+./bouy logs scraper          # View scraper logs
 ```
 
 ### 6. Claude Authentication
 
 ```bash
 # Authenticate Claude (interactive)
-./docker.sh claude-auth
+./bouy claude-auth
 
 # Check status and manage auth
-./docker.sh exec worker python -m app.claude_auth_manager status
-./docker.sh exec worker python -m app.claude_auth_manager setup
-./docker.sh exec worker python -m app.claude_auth_manager test
+./bouy exec worker python -m app.claude_auth_manager status
+./bouy exec worker python -m app.claude_auth_manager setup
+./bouy exec worker python -m app.claude_auth_manager test
 
 # Health check endpoint
 curl http://localhost:8080/health
@@ -225,42 +225,42 @@ DATA_REPO_TOKEN=your_github_token
 
 ```bash
 # Clean and restart
-./docker.sh clean                  # Remove all data and volumes
-./docker.sh up                     # Start fresh (dev mode by default)
-./docker.sh up --with-init        # Start with populated database
+./bouy clean                  # Remove all data and volumes
+./bouy up                     # Start fresh (dev mode by default)
+./bouy up --with-init        # Start with populated database
 
 # Check everything is running
-./docker.sh ps
-./docker.sh --json ps             # JSON output for scripts
+./bouy ps
+./bouy --json ps             # JSON output for scripts
 ```
 
 ### Switching Between Empty and Populated Database
 
 ```bash
 # Start with populated database
-./docker.sh clean                  # Clear existing data
-./docker.sh up --with-init        # Start with HAARRRvest data
+./bouy clean                  # Clear existing data
+./bouy up --with-init        # Start with HAARRRvest data
 
 # Start with empty database
-./docker.sh clean                  # Clear existing data
-./docker.sh up                     # Start fresh
+./bouy clean                  # Clear existing data
+./bouy up                     # Start fresh
 
 # Monitor initialization
-./docker.sh logs db-init          # Watch database population
-./docker.sh logs haarrrvest-publisher  # Watch data sync
+./bouy logs db-init          # Watch database population
+./bouy logs haarrrvest-publisher  # Watch data sync
 ```
 
 ### Updating Dependencies
 
 ```bash
 # Update dependencies in container
-./docker.sh exec app poetry update
-./docker.sh exec app poetry lock
+./bouy exec app poetry update
+./bouy exec app poetry lock
 
 # Rebuild containers after changes
-./docker.sh build                  # Rebuild all services
-./docker.sh build app             # Rebuild specific service
-./docker.sh build --no-cache app  # Force rebuild
+./bouy build                  # Rebuild all services
+./bouy build app             # Rebuild specific service
+./bouy build --no-cache app  # Force rebuild
 ```
 
 ## CI/CD Integration
@@ -269,28 +269,28 @@ DATA_REPO_TOKEN=your_github_token
 ```yaml
 - name: Run Tests
   run: |
-    ./docker.sh --programmatic --quiet test
+    ./bouy --programmatic --quiet test
 
 - name: Check Types
   run: |
-    ./docker.sh --programmatic --quiet test --mypy
+    ./bouy --programmatic --quiet test --mypy
 
 - name: Run Linter
   run: |
-    ./docker.sh --programmatic --quiet test --ruff
+    ./bouy --programmatic --quiet test --ruff
 ```
 
 ### Jenkins Pipeline Example
 ```groovy
 stage('Test') {
     steps {
-        sh './docker.sh --programmatic --quiet test'
+        sh './bouy --programmatic --quiet test'
     }
 }
 
 stage('Deploy') {
     steps {
-        sh './docker.sh --programmatic up --prod'
+        sh './bouy --programmatic up --prod'
     }
 }
 ```
@@ -299,11 +299,11 @@ stage('Deploy') {
 ```yaml
 test:
   script:
-    - ./docker.sh --programmatic --quiet test
+    - ./bouy --programmatic --quiet test
 
 deploy:
   script:
-    - ./docker.sh --programmatic up --prod
+    - ./bouy --programmatic up --prod
 ```
 
 ## Troubleshooting

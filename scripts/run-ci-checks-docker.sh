@@ -7,11 +7,11 @@
 errors=0
 error_list=""
 
-# Check if we should use docker.sh or fallback to direct docker commands
-if [ -x "./docker.sh" ]; then
-    DOCKER_CMD="./docker.sh test"
+# Check if we should use bouy or fallback to direct docker commands
+if [ -x "./bouy" ]; then
+    DOCKER_CMD="./bouy test"
 else
-    echo "docker.sh not found, using direct docker commands"
+    echo "bouy not found, using direct docker commands"
     DOCKER_CMD="docker run --rm -v $(pwd):/app -w /app --env-file .env.test pantry-pirate-radio-test:latest poetry run"
 
     # Ensure test image is built
@@ -34,8 +34,8 @@ run_check() {
 
 echo "Running CI checks using Docker..."
 
-# If using docker.sh, run all checks at once
-if [ "$DOCKER_CMD" = "./docker.sh test" ]; then
+# If using bouy, run all checks at once
+if [ "$DOCKER_CMD" = "./bouy test" ]; then
     echo -e "\n=== Running All CI Checks ==="
     if ! $DOCKER_CMD; then
         echo -e "\nCI checks failed!"

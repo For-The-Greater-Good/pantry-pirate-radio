@@ -1,6 +1,7 @@
 #!/bin/bash
-# Docker API Script - Designed for programmatic use
-# Provides structured output and proper exit codes for automation
+# Bouy API - Advanced programmatic interface for fleet management
+# Navigate container seas with precise control
+# Version: 1.0.0
 
 set -e
 
