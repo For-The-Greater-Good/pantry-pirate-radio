@@ -2,7 +2,42 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Quick Command Reference
+
+**IMPORTANT: All commands use docker.sh - no local dependencies except Docker required!**
+
+```bash
+# Essential Commands
+./docker.sh up                    # Start all services
+./docker.sh down                  # Stop all services
+./docker.sh test                  # Run all tests and checks
+./docker.sh logs app              # View service logs
+./docker.sh shell app             # Open shell in container
+
+# Testing Commands
+./docker.sh test --pytest         # Run tests only
+./docker.sh test --mypy          # Type checking only
+./docker.sh test --black         # Format checking only
+./docker.sh test --ruff          # Linting only
+./docker.sh test --bandit        # Security scan only
+
+# Scraper Commands
+./docker.sh scraper --list       # List all scrapers
+./docker.sh scraper --all        # Run all scrapers
+./docker.sh scraper NAME         # Run specific scraper
+
+# Programmatic Mode (for CI/automation)
+./docker.sh --programmatic test  # Structured output
+./docker.sh --json ps            # JSON output
+./docker.sh --quiet up           # Minimal output
+./docker.sh --no-color logs app  # No color codes
+```
+
 ## Development Commands
+
+### IMPORTANT: Docker-Only Development
+
+**All development commands must use docker.sh** - no local Python dependencies are required except Docker.
 
 ### Test-Driven Development (TDD) Workflow
 
@@ -17,153 +52,138 @@ This project follows Test-Driven Development principles. Always write tests befo
 # 1. Create test file first
 touch tests/test_new_feature.py
 
-# 2. Write failing test
-poetry run pytest tests/test_new_feature.py -v  # Should fail
+# 2. Write failing test and run with Docker
+./docker.sh test --pytest  # Should fail
 
 # 3. Implement minimal code to pass
 # ... write implementation ...
 
 # 4. Run test again
-poetry run pytest tests/test_new_feature.py -v  # Should pass
+./docker.sh test --pytest  # Should pass
 
 # 5. Refactor and ensure tests still pass
-poetry run pytest tests/test_new_feature.py -v
+./docker.sh test --pytest
 
 # 6. Run full test suite before committing
-poetry run pytest
+./docker.sh test  # Runs all CI checks
 ```
 
-### Running Tests
+### Running Tests with Docker
 ```bash
-# Run all tests (coverage included by default)
-poetry run pytest
+# Run all tests with coverage (runs all CI checks)
+./docker.sh test
 
-# Run tests with specific coverage reports
-poetry run pytest --cov=app --cov-report=html --cov-report=xml --cov-report=json
+# Run only pytest with coverage
+./docker.sh test --pytest
 
-# Run tests without coverage (if needed)
-poetry run pytest --no-cov
+# Run specific test types
+./docker.sh test --mypy      # Type checking only
+./docker.sh test --black     # Code formatting only
+./docker.sh test --ruff      # Linting only
+./docker.sh test --bandit    # Security scan only
+./docker.sh test --coverage  # Pytest with coverage check
 
-# Run specific test file
-poetry run pytest tests/test_filename.py
-
-# Run integration tests
-poetry run pytest -m integration
-
-# Run async tests
-poetry run pytest -m asyncio
-
-# Watch mode - rerun tests on file changes (requires pytest-watch)
-poetry run ptw
-
-# Run tests in parallel (requires pytest-xdist)
-poetry run pytest -n auto
-
-# Run only tests that failed in the last run
-poetry run pytest --lf
-
-# Run tests with verbose output and show local variables on failure
-poetry run pytest -vvl
+# Programmatic mode for automation
+./docker.sh --programmatic test --pytest          # Structured output
+./docker.sh --json ps                             # JSON output
+./docker.sh --quiet test --mypy                   # Minimal output
+./docker.sh --programmatic --quiet test --black   # Combined flags
 ```
 
 ### Coverage Analysis
 ```bash
-# Generate comprehensive coverage report
-bash scripts/coverage-report.sh
+# Run tests with coverage check
+./docker.sh test --coverage
 
-# Check coverage with ratcheting mechanism
-bash scripts/coverage-check.sh
+# Coverage reports are generated in the container and available at:
+# - htmlcov/index.html (HTML report)
+# - coverage.xml (XML report for CI)
+# - coverage.json (JSON report for automation)
 
 # View coverage report in browser
 open htmlcov/index.html
-
-# Display coverage summary
-poetry run coverage report --show-missing --sort=Cover
-
-# Generate coverage reports in different formats
-poetry run coverage html    # HTML report
-poetry run coverage xml     # XML report (for CI)
-poetry run coverage json    # JSON report (for automation)
 ```
 
-### Code Quality
+### Code Quality Checks
 ```bash
-# Type checking
-poetry run mypy .
+# Run all quality checks
+./docker.sh test
 
-# Code formatting
-poetry run black .
+# Run individual checks
+./docker.sh test --mypy      # Type checking
+./docker.sh test --black     # Code formatting
+./docker.sh test --ruff      # Linting
+./docker.sh test --bandit    # Security scan
 
-# Linting
-poetry run ruff .
-
-# Security scan
-poetry run bandit -r app/
-
-# Check unused code
-poetry run vulture app/
+# For programmatic use in CI/CD
+./docker.sh --programmatic --quiet test --mypy
+./docker.sh --programmatic --quiet test --black
+./docker.sh --programmatic --quiet test --ruff
+./docker.sh --programmatic --quiet test --bandit
 ```
 
 ### Development Setup
 ```bash
-# Install dependencies
-poetry install
+# Start all services (no local dependencies needed)
+./docker.sh up                    # Development mode (default)
+./docker.sh up --prod            # Production mode
+./docker.sh up --with-init       # With database initialization
 
-# Start all services (uses consolidated Dockerfile with multi-stage builds)
-docker compose up -d
+# Start specific services
+./docker.sh up app worker        # Start only app and worker
 
-# Start specific service
-docker compose up -d app worker recorder reconciler
+# Service management
+./docker.sh down                 # Stop all services
+./docker.sh ps                   # List running services
+./docker.sh logs app             # View service logs
+./docker.sh shell app            # Open shell in container
+./docker.sh exec app python --version  # Execute command
+./docker.sh clean                # Stop and remove volumes
 
-# View logs
-docker compose logs -f [service_name]
-
-# Scale workers
-docker compose up -d --scale worker=3
-
-# Run FastAPI server locally
-poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Programmatic mode for automation
+./docker.sh --json ps            # Get service status as JSON
+./docker.sh --quiet up           # Start with minimal output
 ```
 
 ### Docker Build Commands
 ```bash
-# Build all services (uses multi-stage Dockerfile)
-docker compose build
+# Build all services
+./docker.sh build
 
-# Build specific service target
-docker build --target app -t pantry-pirate-radio:app .
-docker build --target worker -t pantry-pirate-radio:worker .
-docker build --target recorder -t pantry-pirate-radio:recorder .
-docker build --target scraper -t pantry-pirate-radio:scraper .
-docker build --target test -t pantry-pirate-radio:test .
+# Build specific service
+./docker.sh build app
+./docker.sh build worker
 
-# Run tests using Docker
-docker build --target test -t pantry-pirate-radio:test .
-docker run --rm pantry-pirate-radio:test
+# The test image is automatically built when running tests
+./docker.sh test  # Builds test image if needed
 ```
 
 ### Running Scrapers
 ```bash
 # List available scrapers
-python -m app.scraper --list
+./docker.sh scraper --list
 
 # Run specific scraper
-python -m app.scraper nyc_efap_programs
+./docker.sh scraper nyc_efap_programs
 
 # Run all scrapers
-python -m app.scraper --all
+./docker.sh scraper --all
 
-# Run scrapers in parallel
-python -m app.scraper --all --parallel --max-workers 4
-
-# Test scrapers without processing
-python -m app.scraper.test_scrapers --all
+# Programmatic mode for automation
+./docker.sh --programmatic scraper --list
+./docker.sh --programmatic --quiet scraper nyc_efap_programs
 ```
 
 ### CI Checks
 ```bash
-# Run all expected CI checks
-./scripts/run-ci-checks.sh
+# Run all CI checks using Docker
+./docker.sh test
+
+# Or use the Docker-based CI script directly
+./scripts/run-ci-checks-docker.sh
+
+# For GitHub Actions or other CI systems
+./docker.sh --programmatic --quiet test
 ```
 
 ## Architecture Overview
@@ -293,17 +313,16 @@ Key environment variables (see `.env.example`):
 
 #### Claude Authentication Commands
 ```bash
+# Authenticate Claude (interactive)
+./docker.sh claude-auth
+
 # Check authentication status
 curl http://localhost:8080/health
 
-# Interactive setup
-docker-compose exec worker python -m app.claude_auth_manager setup
-
-# Check status
-docker-compose exec worker python -m app.claude_auth_manager status
-
-# Test request
-docker-compose exec worker python -m app.claude_auth_manager test
+# Alternative manual commands
+./docker.sh exec worker python -m app.claude_auth_manager setup
+./docker.sh exec worker python -m app.claude_auth_manager status
+./docker.sh exec worker python -m app.claude_auth_manager test
 ```
 
 ### HSDS Validation Details
@@ -330,17 +349,16 @@ docker-compose exec worker python -m app.claude_auth_manager test
 ### HAARRRvest Publisher Commands
 ```bash
 # Start the publisher service
-docker-compose up -d haarrrvest-publisher
+./docker.sh up haarrrvest-publisher
 
 # View logs
-docker-compose logs -f haarrrvest-publisher
+./docker.sh logs haarrrvest-publisher
 
-# Trigger immediate processing
-docker-compose restart haarrrvest-publisher
+# Restart to trigger immediate processing
+./docker.sh exec haarrrvest-publisher supervisorctl restart all
 
-# Manual testing without Docker
-export DATABASE_URL=postgresql://user:pass@localhost:5432/pantry_pirate_radio
-python test_haarrrvest_publisher.py
+# Check service status
+./docker.sh ps
 ```
 
 ## TDD Memories
@@ -355,4 +373,31 @@ python test_haarrrvest_publisher.py
 
 ### Docker Compose Naming
 - It's "docker compose" (space), not "docker-compose" (hyphen)
+
+## Pre-commit Hooks
+
+All pre-commit hooks run in Docker containers. No local Python installation required!
+
+```bash
+# Install pre-commit hooks (one-time setup)
+pre-commit install
+
+# Run all hooks manually
+pre-commit run --all-files
+
+# Run specific hook
+pre-commit run black-docker --all-files
+pre-commit run mypy-docker --all-files
+
+# Skip hooks for a commit (use sparingly!)
+git commit --no-verify -m "Emergency fix"
 ```
+
+### Hook Configuration
+The `.pre-commit-config.yaml` is configured to run all Python tools via `docker.sh`:
+- **black-docker**: Code formatting
+- **ruff-docker**: Linting
+- **mypy-docker**: Type checking
+- **pytest-docker**: Test suite
+
+All hooks use `./docker.sh --programmatic --quiet test --TOOL` for consistent Docker execution.

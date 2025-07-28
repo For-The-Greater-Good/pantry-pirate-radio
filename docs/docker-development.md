@@ -156,24 +156,33 @@ docker compose exec app python
 ### 5. Running Scrapers
 
 ```bash
-# Using docker.sh
+# List and run scrapers
 ./docker.sh scraper --list        # List available scrapers
 ./docker.sh scraper nyc_efap_programs  # Run specific scraper
 ./docker.sh scraper --all         # Run all scrapers
 
-# Or directly
-docker compose exec scraper python -m app.scraper --list
-docker compose exec scraper python -m app.scraper nyc_efap_programs
+# Programmatic mode for automation
+./docker.sh --programmatic scraper --list
+./docker.sh --programmatic --quiet scraper nyc_efap_programs
+./docker.sh --programmatic --quiet scraper --all
+
+# Monitor scraper output
+./docker.sh logs scraper          # View scraper logs
 ```
 
 ### 6. Claude Authentication
 
 ```bash
-# Authenticate Claude provider
+# Authenticate Claude (interactive)
 ./docker.sh claude-auth
 
-# Or directly
-docker compose exec worker claude
+# Check status and manage auth
+./docker.sh exec worker python -m app.claude_auth_manager status
+./docker.sh exec worker python -m app.claude_auth_manager setup
+./docker.sh exec worker python -m app.claude_auth_manager test
+
+# Health check endpoint
+curl http://localhost:8080/health
 ```
 
 ## Environment Configuration
@@ -215,35 +224,86 @@ DATA_REPO_TOKEN=your_github_token
 ### Starting Fresh
 
 ```bash
-# Using docker.sh
-./docker.sh clean                  # Remove all data
-./docker.sh up --dev              # Start fresh
+# Clean and restart
+./docker.sh clean                  # Remove all data and volumes
+./docker.sh up                     # Start fresh (dev mode by default)
+./docker.sh up --with-init        # Start with populated database
 
-# Or manually
-docker compose down -v
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Check everything is running
+./docker.sh ps
+./docker.sh --json ps             # JSON output for scripts
 ```
 
 ### Switching Between Empty and Populated Database
 
 ```bash
-# From empty to populated
-docker compose down
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
+# Start with populated database
+./docker.sh clean                  # Clear existing data
+./docker.sh up --with-init        # Start with HAARRRvest data
 
-# From populated to empty
-docker compose down -v  # -v removes volumes
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Start with empty database
+./docker.sh clean                  # Clear existing data
+./docker.sh up                     # Start fresh
+
+# Monitor initialization
+./docker.sh logs db-init          # Watch database population
+./docker.sh logs haarrrvest-publisher  # Watch data sync
 ```
 
 ### Updating Dependencies
 
 ```bash
-# Update Poetry dependencies
-docker compose exec app poetry update
+# Update dependencies in container
+./docker.sh exec app poetry update
+./docker.sh exec app poetry lock
 
-# Rebuild containers after Dockerfile changes
-docker compose build --no-cache
+# Rebuild containers after changes
+./docker.sh build                  # Rebuild all services
+./docker.sh build app             # Rebuild specific service
+./docker.sh build --no-cache app  # Force rebuild
+```
+
+## CI/CD Integration
+
+### GitHub Actions Example
+```yaml
+- name: Run Tests
+  run: |
+    ./docker.sh --programmatic --quiet test
+
+- name: Check Types
+  run: |
+    ./docker.sh --programmatic --quiet test --mypy
+
+- name: Run Linter
+  run: |
+    ./docker.sh --programmatic --quiet test --ruff
+```
+
+### Jenkins Pipeline Example
+```groovy
+stage('Test') {
+    steps {
+        sh './docker.sh --programmatic --quiet test'
+    }
+}
+
+stage('Deploy') {
+    steps {
+        sh './docker.sh --programmatic up --prod'
+    }
+}
+```
+
+### GitLab CI Example
+```yaml
+test:
+  script:
+    - ./docker.sh --programmatic --quiet test
+
+deploy:
+  script:
+    - ./docker.sh --programmatic up --prod
 ```
 
 ## Troubleshooting
