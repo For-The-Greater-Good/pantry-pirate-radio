@@ -277,18 +277,20 @@ class TestScraperUtilsContentStore:
 
         content = '{"dedup": "test", "timestamp": 12345}'
 
-        # First submission
-        with patch("app.scraper.utils.llm_queue.enqueue_call") as mock_enqueue:
-            mock_job = Mock(spec=Job)
-            mock_job.id = "job-dedup-1"
-            mock_enqueue.return_value = mock_job
+        # Mock the _is_job_active method to return True
+        with patch.object(content_store, "_is_job_active", return_value=True):
+            # First submission
+            with patch("app.scraper.utils.llm_queue.enqueue_call") as mock_enqueue:
+                mock_job = Mock(spec=Job)
+                mock_job.id = "job-dedup-1"
+                mock_enqueue.return_value = mock_job
 
-            job_id1 = scraper_utils.queue_for_processing(content)
-            assert mock_enqueue.called
-            assert job_id1 == "job-dedup-1"
+                job_id1 = scraper_utils.queue_for_processing(content)
+                assert mock_enqueue.called
+                assert job_id1 == "job-dedup-1"
 
-        # Second submission before processing - should return same job ID
-        with patch("app.scraper.utils.llm_queue.enqueue_call") as mock_enqueue:
-            job_id2 = scraper_utils.queue_for_processing(content)
-            assert not mock_enqueue.called  # Should not queue again
-            assert job_id2 == "job-dedup-1"  # Same job ID as first submission
+            # Second submission before processing - should return same job ID
+            with patch("app.scraper.utils.llm_queue.enqueue_call") as mock_enqueue:
+                job_id2 = scraper_utils.queue_for_processing(content)
+                assert not mock_enqueue.called  # Should not queue again
+                assert job_id2 == "job-dedup-1"  # Same job ID as first submission

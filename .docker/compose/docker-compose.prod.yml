@@ -58,8 +58,8 @@ services:
       - db
       - cache
     volumes:
-      - ./outputs:/app/outputs
-      - ./archives:/app/archives
+      - ../../outputs:/app/outputs
+      - ../../archives:/app/archives
 
   reconciler:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
@@ -81,7 +81,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
+      - ../../init-scripts:/docker-entrypoint-initdb.d
     # NO PORTS EXPOSED - access only through Docker network for security
 
   cache:
@@ -112,7 +112,7 @@ services:
       - db
     volumes:
       - datasette_data:/data
-      - ./datasette-metadata.json:/data/metadata.json
+      - ../../datasette-metadata.json:/data/metadata.json
 
   datasette:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-${DOCKER_TAG:-latest}

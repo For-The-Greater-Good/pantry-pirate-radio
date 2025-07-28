@@ -110,16 +110,16 @@ poetry run vulture app/
 poetry install
 
 # Start all services (uses consolidated Dockerfile with multi-stage builds)
-docker-compose up -d
+docker compose up -d
 
 # Start specific service
-docker-compose up -d app worker recorder reconciler
+docker compose up -d app worker recorder reconciler
 
 # View logs
-docker-compose logs -f [service_name]
+docker compose logs -f [service_name]
 
 # Scale workers
-docker-compose up -d --scale worker=3
+docker compose up -d --scale worker=3
 
 # Run FastAPI server locally
 poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -128,7 +128,7 @@ poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ### Docker Build Commands
 ```bash
 # Build all services (uses multi-stage Dockerfile)
-docker-compose build
+docker compose build
 
 # Build specific service target
 docker build --target app -t pantry-pirate-radio:app .
@@ -352,3 +352,7 @@ python test_haarrrvest_publisher.py
 ### Commit Philosophy
 - **Atomic Commits Rule**: Each commit must represent one complete, logical change that could stand alone - if you can't describe your commit in a single sentence without using "and", you're committing too much. Atomic commits aren't just good practice, they're your future self's lifeline: they make git bisect actually useful, code reviews focused and meaningful, and rollbacks surgical instead of catastrophic. When you bundle multiple changes into one commit, you're not saving time, you're creating archaeological puzzles for whoever has to debug your code later. The discipline of atomic commits forces you to think in discrete problem-solving steps rather than chaotic coding sessions, and each commit becomes a breadcrumb trail showing exactly how you solved each piece of the puzzle. Mixed commits are technical debt in disguise - they look efficient in the moment but cost exponentially more when you need to understand, revert, or cherry-pick changes months later.
 - **Commit-As-You-Go TDD Rule**: Commit at every stage of the red-green-refactor cycle - failing test, passing implementation, and clean refactor each deserve their own atomic commit because your git history should tell the story of how you solved the problem, not just what the final solution looks like. Waiting until "everything is done" to commit is like writing a book and only saving it at the end - you're one power outage away from losing hours of thoughtful work. Each TDD phase commit creates a safety net: if your refactoring goes sideways, you can instantly return to working code; if your implementation gets too complex, you can restart from the clean failing test. The three-commit TDD rhythm creates a narrative that future developers (including yourself) can follow: "here's what they wanted to achieve, here's how they made it work, here's how they made it clean." When you commit continuously through TDD, you're not just saving your work, you're creating a masterclass in problem-solving that turns your git log into executable documentation of your thought process.
+
+### Docker Compose Naming
+- It's "docker compose" (space), not "docker-compose" (hyphen)
+```

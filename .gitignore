@@ -102,3 +102,8 @@ pantry_pirate_radio.sqlite
 
 # Content store test data
 /content_store/
+
+# SQL dump files
+sql_dumps/*.sql
+sql_dumps/*.sql.gz
+sql_dumps/*.sql.bz2

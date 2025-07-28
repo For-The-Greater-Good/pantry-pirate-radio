@@ -87,6 +87,9 @@ def test_queue_processing_integration(
     from rq import SimpleWorker
     from app.llm.providers.test_mock import MockProvider
 
+    # Clear the queue before test to ensure isolation
+    queue.queue.empty()
+
     # Mock the processor to return a successful response
     mock_response = LLMResponse(
         text="Test response",

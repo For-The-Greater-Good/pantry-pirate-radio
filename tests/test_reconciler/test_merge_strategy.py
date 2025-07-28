@@ -193,9 +193,14 @@ def test_merge_location_conversion_error_fallback(mock_db: MagicMock) -> None:
     mock_result1.fetchall.return_value = [problematic_row]
     mock_result1.keys.return_value = [
         "id",
+        "scraper_id",
         "name",
         "description",
-    ]  # Provide keys but conversion will still fail
+        "latitude",
+        "longitude",
+        "created_at",
+        "updated_at",
+    ]  # All expected columns from the query
 
     # Mock the fallback query
     mock_result2 = MagicMock()
@@ -229,9 +234,14 @@ def test_merge_location_fallback_no_location_found(mock_db: MagicMock) -> None:
     mock_result1.fetchall.return_value = [object()]  # Problematic row
     mock_result1.keys.return_value = [
         "id",
+        "scraper_id",
         "name",
         "description",
-    ]  # Provide keys but conversion will still fail
+        "latitude",
+        "longitude",
+        "created_at",
+        "updated_at",
+    ]  # All expected columns from the query
 
     # Mock fallback query to return None
     mock_result2 = MagicMock()

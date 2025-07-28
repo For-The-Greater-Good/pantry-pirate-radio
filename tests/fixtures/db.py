@@ -25,6 +25,14 @@ async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
     Yields:
         AsyncEngine for test database
     """
+    # Safety check: ensure we're using test database
+    db_url = settings.DATABASE_URL.lower()
+    if "test" not in db_url:
+        raise ValueError(
+            f"Database URL '{settings.DATABASE_URL}' doesn't appear to be a test database! "
+            "Test database URL should contain 'test' to prevent data loss."
+        )
+
     # Convert sync database URL to async for testing
     async_url = settings.DATABASE_URL.replace(
         "postgresql+psycopg2://", "postgresql+asyncpg://"
@@ -96,6 +104,14 @@ def db_session_sync() -> Generator[Session, None, None]:
     Yields:
         Synchronous database session
     """
+    # Safety check: ensure we're using test database
+    db_url = settings.DATABASE_URL.lower()
+    if "test" not in db_url:
+        raise ValueError(
+            f"Database URL '{settings.DATABASE_URL}' doesn't appear to be a test database! "
+            "Test database URL should contain 'test' to prevent data loss."
+        )
+
     # Ensure sync database URL uses psycopg2
     sync_url = settings.DATABASE_URL
     if "postgresql+asyncpg://" in sync_url:

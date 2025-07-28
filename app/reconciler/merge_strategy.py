@@ -49,7 +49,18 @@ class MergeStrategy(BaseReconciler):
             return dict(row._asdict())
         # Manual mapping using column names and values
         else:
-            column_names = result.keys()
+            column_names = list(result.keys())
+            # Handle case where row might be a single value instead of tuple
+            if isinstance(row, str) or not hasattr(row, "__iter__"):
+                # Single value result - likely just the ID
+                if len(column_names) == 1:
+                    return {column_names[0]: row}
+                else:
+                    # This shouldn't happen but log it
+                    self.logger.error(
+                        f"Single value row with multiple columns: {row}, columns: {column_names}"
+                    )
+                    return {}
             return dict(zip(column_names, row, strict=False))
 
     def merge_location(self, location_id: str) -> None:
@@ -86,6 +97,11 @@ class MergeStrategy(BaseReconciler):
         try:
             # Use safer conversion method
             source_records = [self._row_to_dict(row, result) for row in rows]
+
+            # Check if any records are empty (conversion failed)
+            if any(not record for record in source_records):
+                raise ValueError("Row conversion resulted in empty records")
+
         except Exception as e:
             # Log error with more details
             self.logger.error(f"Error converting result to dict: {e}")
@@ -242,6 +258,11 @@ class MergeStrategy(BaseReconciler):
         try:
             # Use safer conversion method
             source_records = [self._row_to_dict(row, result) for row in rows]
+
+            # Check if any records are empty (conversion failed)
+            if any(not record for record in source_records):
+                raise ValueError("Row conversion resulted in empty records")
+
         except Exception as e:
             # Log the error and check the actual data structure
             self.logger.error(f"Error converting result to dict: {e}")

@@ -1,0 +1,264 @@
+# Docker Compose configuration optimized for GitHub Actions
+# This file is designed to run in CI/CD environments where secrets
+# are provided via environment variables from GitHub Secrets
+#
+# Usage in GitHub Actions:
+#   docker-compose -f docker-compose.github-actions.yml up -d
+#
+# Required GitHub Secrets:
+#   - POSTGRES_PASSWORD
+#   - OPENROUTER_API_KEY or ANTHROPIC_API_KEY (depending on LLM_PROVIDER)
+#   - DATA_REPO_TOKEN (for HAARRRvest push access)
+
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: pantry_pirate_radio
+
+      # Redis
+      REDIS_URL: redis://cache:6379/0
+
+      # LLM Configuration
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      API_BASE_URL: ${API_BASE_URL:-https://openrouter.ai/api/v1}
+      API_VERSION: ${API_VERSION:-2024-02-01}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-google/gemini-2.0-flash-001}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-64768}
+      LLM_RESPONSE_FORMAT: ${LLM_RESPONSE_FORMAT:-json_object}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-30}
+
+      # Application
+      APP_TITLE: ${APP_TITLE:-Pantry Pirate Radio}
+      HTTP_REFERER: ${HTTP_REFERER:-https://github.com/openrouter-ai/openrouter-python}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JSON_LOGS: ${JSON_LOGS:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    command: rq worker llm
+    environment:
+      # Database
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+
+      # Redis
+      REDIS_URL: redis://cache:6379/0
+
+      # LLM Configuration (same as app)
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      API_BASE_URL: ${API_BASE_URL:-https://openrouter.ai/api/v1}
+      API_VERSION: ${API_VERSION:-2024-02-01}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-google/gemini-2.0-flash-001}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-64768}
+      LLM_RESPONSE_FORMAT: ${LLM_RESPONSE_FORMAT:-json_object}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-30}
+
+      # Worker specific
+      WORKER_COUNT: ${WORKER_COUNT:-1}
+      QUEUE_NAME: llm
+      CONTENT_STORE_PATH: ${CONTENT_STORE_PATH:-/data-repo/content_store}
+      CONTENT_STORE_ENABLED: ${CONTENT_STORE_ENABLED:-true}
+
+      # Claude specific (if using Claude)
+      CLAUDE_QUOTA_RETRY_DELAY: ${CLAUDE_QUOTA_RETRY_DELAY:-3600}
+      CLAUDE_QUOTA_MAX_DELAY: ${CLAUDE_QUOTA_MAX_DELAY:-14400}
+      CLAUDE_QUOTA_BACKOFF_MULTIPLIER: ${CLAUDE_QUOTA_BACKOFF_MULTIPLIER:-1.5}
+    volumes:
+      - haarrrvest_repo:/data-repo
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: scraper
+    command: python -m app.scraper --all
+    environment:
+      # Database
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+
+      # Redis
+      REDIS_URL: redis://cache:6379/0
+
+      # LLM Configuration (same as app)
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      API_BASE_URL: ${API_BASE_URL:-https://openrouter.ai/api/v1}
+      API_VERSION: ${API_VERSION:-2024-02-01}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-google/gemini-2.0-flash-001}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-64768}
+      LLM_RESPONSE_FORMAT: ${LLM_RESPONSE_FORMAT:-json_object}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-30}
+
+      # Content store
+      CONTENT_STORE_PATH: ${CONTENT_STORE_PATH:-/data-repo/content_store}
+      CONTENT_STORE_ENABLED: ${CONTENT_STORE_ENABLED:-true}
+    volumes:
+      - haarrrvest_repo:/data-repo
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+      haarrrvest-publisher:
+        condition: service_healthy
+
+  recorder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: recorder
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+      REDIS_URL: redis://cache:6379/0
+      OUTPUT_DIR: /app/outputs
+    volumes:
+      - ./outputs:/app/outputs
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+      haarrrvest-publisher:
+        condition: service_healthy
+
+  reconciler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: simple-worker
+    command: rq worker reconciler
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+      REDIS_URL: redis://cache:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+
+  haarrrvest-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production-base
+    command: python -m app.haarrrvest_publisher.service
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+      REDIS_URL: redis://cache:6379/0
+      OUTPUT_DIR: /app/outputs
+      DATA_REPO_PATH: /data-repo
+      DATA_REPO_URL: ${DATA_REPO_URL:-https://github.com/For-The-Greater-Good/HAARRRvest.git}
+      DATA_REPO_TOKEN: ${DATA_REPO_TOKEN}
+      PUBLISHER_CHECK_INTERVAL: ${PUBLISHER_CHECK_INTERVAL:-300}
+      DAYS_TO_SYNC: ${DAYS_TO_SYNC:-7}
+      PUBLISHER_PUSH_ENABLED: ${PUBLISHER_PUSH_ENABLED:-false}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-github-actions[bot]@users.noreply.github.com}
+      GIT_USER_NAME: ${GIT_USER_NAME:-GitHub Actions}
+    volumes:
+      - ./outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/scripts/check-haarrrvest-repo.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  db:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: pantry_pirate_radio
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pantry_pirate_radio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Include db-init for initial data load
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production-base
+    command: /app/scripts/init-database.sh
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: pantry_pirate_radio
+      DATA_REPO_PATH: /data-repo
+      DB_INIT_DAYS_TO_SYNC: ${DB_INIT_DAYS_TO_SYNC:-90}
+      SKIP_DB_INIT: ${SKIP_DB_INIT:-false}
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - haarrrvest_repo:/data-repo:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      haarrrvest-publisher:
+        condition: service_healthy
+    profiles:
+      - with-init
+
+volumes:
+  postgres_data:
+  redis_data:
+  haarrrvest_repo:

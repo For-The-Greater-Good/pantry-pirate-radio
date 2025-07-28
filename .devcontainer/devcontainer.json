@@ -1,8 +1,8 @@
 {
 	"name": "Pantry Pirate Radio",
 	"dockerComposeFile": [
-		"../docker-compose.yml",
-		"../docker-compose.dev.yml"
+		"../.docker/compose/base.yml",
+		"../.docker/compose/docker-compose.dev.yml"
 	],
 	"mounts": [
 		"source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly"

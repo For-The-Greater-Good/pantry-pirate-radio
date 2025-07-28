@@ -24,6 +24,7 @@ env:
   LLM_MAX_TOKENS: 64768
   LLM_RESPONSE_FORMAT: json_object
   LLM_TIMEOUT: 30
+  CI: true  # Skip heavy database initialization
 
 jobs:
   setup:
@@ -157,47 +158,81 @@ jobs:
         run: |
           # Create .env file from example
           cp .env.example .env
+          # Update PostgreSQL password for CI
+          sed -i 's/your_secure_password/pirate/' .env
+          sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio|' .env
           # Set API key from GitHub secret if available
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
             sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env
           fi
+          # Disable HAARRRvest push for CI
+          sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env
+
+          # Add TEST environment variables for CI (use regular service names)
+          echo "" >> .env
+          echo "# Test environment variables for CI" >> .env
+          echo "TEST_DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio" >> .env
+          echo "TEST_REDIS_URL=redis://cache:6379/1" >> .env
 
       - name: Start services with Docker Compose
-        run: docker compose up -d db cache app
+        run: docker compose -f .docker/compose/base.yml up -d db cache app
 
       - name: Wait for services
         run: |
-          timeout 60 bash -c 'until docker compose exec db pg_isready -U postgres; do sleep 2; done'
-          timeout 60 bash -c 'until docker compose exec cache redis-cli ping; do sleep 2; done'
+          timeout 60 bash -c 'until docker compose -f .docker/compose/base.yml exec db pg_isready -U postgres; do sleep 2; done'
+          timeout 60 bash -c 'until docker compose -f .docker/compose/base.yml exec cache redis-cli ping; do sleep 2; done'
+
+      - name: Create test database
+        run: |
+          echo "Creating test database..."
+          docker compose -f .docker/compose/base.yml exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
+          echo "Test database created or already exists"
+          
+      - name: Initialize test database
+        run: |
+          echo "Initializing test database with HSDS schema..."
+          # Apply init scripts to test database
+          for script in init-scripts/*.sql; do
+            if [ -f "$script" ]; then
+              echo "Applying $script to test database..."
+              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < "$script"
+            fi
+          done
+          # Apply HSDS schema to test database
+          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
+            echo "Applying HSDS schema to test database..."
+            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
+          fi
+
       - name: Initialize database
         run: |
           # Apply init scripts in order
           for script in init-scripts/*.sql; do
             if [ -f "$script" ]; then
               echo "Applying $script..."
-              docker compose exec -T db psql -U postgres -d pantry_pirate_radio -f - < "$script"
+              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d pantry_pirate_radio -f - < "$script"
             fi
           done
           # Apply HSDS schema if exists
           if [ -f docs/HSDS/database/database_postgresql.sql ]; then
             echo "Applying HSDS schema..."
-            docker compose exec -T db psql -U postgres -d pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
+            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
           fi
       - name: Install test dependencies and run tests
         run: |
           # Copy tests directory, docs, scripts, and .env to app container
-          docker compose cp tests app:/app/tests
-          docker compose cp docs app:/app/docs
-          docker compose cp scripts app:/app/scripts
-          docker compose cp .env app:/app/.env
+          docker compose -f .docker/compose/base.yml cp tests app:/app/tests
+          docker compose -f .docker/compose/base.yml cp docs app:/app/docs
+          docker compose -f .docker/compose/base.yml cp scripts app:/app/scripts
+          docker compose -f .docker/compose/base.yml cp .env app:/app/.env
           # Install test dependencies and run tests with coverage, excluding integration tests
-          docker compose exec app sh -c "poetry install && poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=xml --cov-report=json --cov-branch"
+          docker compose -f .docker/compose/base.yml exec app sh -c "poetry install && poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=xml --cov-report=json --cov-branch"
 
       - name: Extract coverage data
         run: |
           # Copy coverage reports from container
-          docker compose cp app:/app/coverage.xml ./coverage.xml
-          docker compose cp app:/app/coverage.json ./coverage.json
+          docker compose -f .docker/compose/base.yml cp app:/app/coverage.xml ./coverage.xml
+          docker compose -f .docker/compose/base.yml cp app:/app/coverage.json ./coverage.json
 
       - name: Display coverage summary
         run: |
@@ -222,14 +257,14 @@ jobs:
         run: |
           # Copy coverage baseline if it exists
           if [ -f .coverage-baseline ]; then
-            docker compose cp .coverage-baseline app:/app/.coverage-baseline
+            docker compose -f .docker/compose/base.yml cp .coverage-baseline app:/app/.coverage-baseline
           fi
           # Copy coverage scripts
-          docker compose cp scripts app:/app/scripts
+          docker compose -f .docker/compose/base.yml cp scripts app:/app/scripts
           # Run coverage check with ratcheting
-          docker compose exec app sh -c "bash scripts/coverage-check.sh"
+          docker compose -f .docker/compose/base.yml exec app sh -c "bash scripts/coverage-check.sh"
           # Copy updated baseline back
-          docker compose cp app:/app/.coverage-baseline ./.coverage-baseline || true
+          docker compose -f .docker/compose/base.yml cp app:/app/.coverage-baseline ./.coverage-baseline || true
 
       - name: Save coverage baseline to cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -240,7 +275,7 @@ jobs:
 
       - name: Stop services
         if: always()
-        run: docker compose down
+        run: docker compose -f .docker/compose/base.yml down
 
   vulture:
     needs: setup
