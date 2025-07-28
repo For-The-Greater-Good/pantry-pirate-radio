@@ -70,7 +70,6 @@ ENV PYTHONPATH=/app
 COPY app app/
 COPY tests tests/
 COPY scripts scripts/
-COPY docs docs/
 COPY .env.example .
 COPY pytest.ini .
 
