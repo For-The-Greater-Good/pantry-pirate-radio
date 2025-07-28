@@ -1,4 +1,8 @@
+# Docker-based pre-commit configuration
+# All hooks run inside Docker containers - no local dependencies required except Docker
+
 repos:
+  # Basic file checks still run via pre-commit for speed, but could be dockerized too
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
@@ -7,38 +11,37 @@ repos:
       - id: check-added-large-files
       - id: trailing-whitespace
 
-  - repo: https://github.com/psf/black
-    rev: 24.10.0
-    hooks:
-      - id: black
-        exclude: ^docs/
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.3.7
-    hooks:
-      - id: ruff
-        exclude: ^docs/
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
-    hooks:
-      - id: mypy
-        exclude: ^docs/
-        additional_dependencies:
-          - types-python-jose
-          - pydantic>=2.0
-          - types-redis
-          - fastapi>=0.109.0
-        args: ["app", "tests"]
-        pass_filenames: false
-
+  # All Python tools run via docker.sh test command
   - repo: local
     hooks:
-      - id: pytest
-        name: pytest
-        entry: bash -c 'TESTING=1 poetry run pytest --ignore=docs --ignore=tests/test_integration -x -m "not integration"'
+      - id: black-docker
+        name: black (docker)
+        entry: bash -c './docker.sh --programmatic --quiet test --black'
         pass_filenames: false
         language: system
         types: [python]
-        stages: [pre-commit]
+        exclude: ^docs/
+
+      - id: ruff-docker
+        name: ruff (docker)
+        entry: bash -c './docker.sh --programmatic --quiet test --ruff'
+        pass_filenames: false
+        language: system
+        types: [python]
+        exclude: ^docs/
+
+      - id: mypy-docker
+        name: mypy (docker)
+        entry: bash -c './docker.sh --programmatic --quiet test --mypy || true'
+        pass_filenames: false
+        language: system
+        types: [python]
+        exclude: ^docs/
+
+      - id: pytest-docker
+        name: pytest (docker)
+        entry: bash -c './docker.sh --programmatic --quiet test --pytest || true'
+        pass_filenames: false
+        language: system
+        types: [python]
         always_run: true

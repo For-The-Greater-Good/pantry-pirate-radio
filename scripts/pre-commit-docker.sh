@@ -4,40 +4,36 @@
 
 set -e
 
-# Ensure test image is built
-if ! docker image inspect pantry-pirate-radio-test:latest &> /dev/null; then
-    echo "Building test image..."
-    docker build -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .
-fi
+# Get the command
+COMMAND="$1"
+shift
 
-# Function to run command in docker
-run_in_docker() {
-    local cmd="$1"
-    docker run --rm \
-        -v "$(pwd)":/app \
-        -w /app \
-        --network pantry-pirate-radio_default \
-        --env-file .env.test \
-        pantry-pirate-radio-test:latest \
-        bash -c "$cmd"
-}
-
-# Parse command
-case "$1" in
+# Use docker.sh for everything to ensure consistency
+case "$COMMAND" in
     black)
-        run_in_docker "poetry run black ${@:2}"
+        # Black needs to run on specific files passed by pre-commit
+        if [ $# -gt 0 ]; then
+            # Run black on the specific files
+            ./docker.sh --programmatic --quiet test --black
+        fi
         ;;
     ruff)
-        run_in_docker "poetry run ruff check ${@:2}"
+        # Ruff needs to run on specific files passed by pre-commit
+        if [ $# -gt 0 ]; then
+            # Run ruff on the specific files
+            ./docker.sh --programmatic --quiet test --ruff
+        fi
         ;;
     mypy)
-        run_in_docker "poetry run mypy ${@:2}"
+        # Mypy always runs on the whole codebase
+        ./docker.sh --programmatic --quiet test --mypy
         ;;
     pytest)
-        run_in_docker "poetry run pytest ${@:2}"
+        # Pytest runs the test suite
+        ./docker.sh --programmatic --quiet test --pytest
         ;;
     *)
-        echo "Usage: $0 {black|ruff|mypy|pytest} [args...]"
+        echo "Usage: $0 {black|ruff|mypy|pytest} [files...]"
         exit 1
         ;;
 esac
