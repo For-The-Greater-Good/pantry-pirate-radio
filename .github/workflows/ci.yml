@@ -131,6 +131,11 @@ jobs:
           # Create .env.test file
           cp .env.example .env.test
           
+          # Remove inline comments that break Pydantic parsing
+          sed -i 's/\(CLAUDE_QUOTA_RETRY_DELAY=\)[^#]*/\13600/' .env.test
+          sed -i 's/\(CLAUDE_QUOTA_MAX_DELAY=\)[^#]*/\114400/' .env.test
+          sed -i 's/\(CLAUDE_QUOTA_BACKOFF_MULTIPLIER=\)[^#]*/\11.5/' .env.test
+          
           # Update database password for CI
           sed -i 's/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=pirate/' .env.test
           
