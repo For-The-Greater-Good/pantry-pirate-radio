@@ -503,48 +503,14 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 
 ## 📚 Documentation
 
-### Getting Started
+See **[Documentation Index](docs/README.md)** for complete navigation through all available documentation.
+
+### Quick Links
 - **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
-- **[Getting Started Locally](docs/getting-started-locally.md)** - Detailed local setup
-- **[HAARRRvest Quick Start](docs/haarrvest-quickstart.md)** - Access our data repository
+- **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
 - **[API Examples](docs/api-examples.md)** - Practical API usage examples
-
-### Core Documentation
 - **[Architecture Overview](docs/architecture.md)** - System design and components
-- **[API Reference](docs/api.md)** - Complete API documentation
-- **[HSDS Implementation](docs/hsds_index.md)** - OpenReferral HSDS compliance details
-- **[Deployment Guide](docs/deployment.md)** - Production deployment instructions
-
-### Service Components
-- **[Scrapers](docs/scrapers.md)** - Data collection system ([12+ scrapers](app/scraper/))
-- **[LLM System](docs/llm.md)** - AI-powered HSDS alignment
-- **[Worker System](docs/worker.md)** - Distributed job processing
-- **[Reconciler Service](docs/reconciler.md)** - Data consistency and versioning
-- **[Recorder Service](docs/recorder.md)** - Job archival and storage
-- **[HAARRRvest Publisher](docs/haarrrvest-publisher.md)** - Automated data publishing
-- **[Database Backup](docs/database-backup.md)** - Backup strategies
-
-### Development & Operations
-- **[Docker Development](docs/docker-development.md)** - Development environment setup
-- **[Docker Startup Sequence](docs/docker-startup-sequence.md)** - Container orchestration
-- **[Docker Quick Start](docs/docker-quickstart.md)** - Fast Docker setup guide
-- **[Multi-Worker Support](docs/multi-worker-support.md)** - Scaling workers
-- **[Secret Management](docs/secret-management.md)** - Managing credentials
-- **[GitHub Workflows](docs/GITHUB_WORKFLOWS.md)** - CI/CD pipeline
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
-
-### Setup Guides
-- **[DevContainer Setup](docs/codespaces-setup.md)** - VSCode DevContainer guide
-- **[Claude Setup Guide](claude_setup_guide.md)** - LLM provider configuration
-- **[GitHub Pages Setup](docs/setup-github-pages-data.md)** - Publishing data
-
-### Reference Materials
-- **[HSDS Specification](docs/HSDS/)** - Complete HSDS v3.1.1 documentation
-- **[SQL Queries](docs/queries/)** - Example database queries
-- **[GeoJSON Data](docs/GeoJson/States/)** - US state geographic data
-- **[Contributing Guidelines](CONTRIBUTING.md)** - How to contribute
-- **[Security Policy](SECURITY.md)** - Security guidelines
-- **[Privacy Policy](PRIVACY.md)** - Data privacy practices
 
 ## Environment Configuration
 
