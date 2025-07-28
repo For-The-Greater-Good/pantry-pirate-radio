@@ -401,3 +401,8 @@ The `.pre-commit-config.yaml` is configured to run all Python tools via `bouy`:
 - **pytest-docker**: Test suite
 
 All hooks use `./bouy --programmatic --quiet test --TOOL` for consistent Docker execution.
+
+## CLI and Development Tools
+
+### CLI Tools
+- **gh is available. it's much preferable to trying to interact with github.com**

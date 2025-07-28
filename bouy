@@ -413,13 +413,13 @@ case "$1" in
         # Ensure the test image is built
         if ! docker image inspect pantry-pirate-radio-test:latest &> /dev/null; then
             output info "Building test image..."
-            
+
             # Use buildx with cache if available
             BUILD_CMD="docker build"
             if command -v docker buildx &> /dev/null; then
                 BUILD_CMD="docker buildx build --load"
             fi
-            
+
             if ! $BUILD_CMD -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .; then
                 output error "Failed to build test image"
                 exit 1
@@ -437,11 +437,11 @@ case "$1" in
 
         # Start test services if not already running
         output info "Ensuring test services are running..."
-        
+
         # Start services
         output info "Starting database and cache services..."
         $COMPOSE_CMD $COMPOSE_FILES up -d db cache
-        
+
         # Wait for PostgreSQL to be ready
         output info "Waiting for database to be ready..."
         max_attempts=30
@@ -461,7 +461,7 @@ case "$1" in
             echo "Waiting for database... (attempt $attempt/$max_attempts)"
             sleep 2
         done
-        
+
         # Wait for Redis to be ready
         output info "Waiting for cache to be ready..."
         attempt=0
@@ -480,10 +480,20 @@ case "$1" in
             echo "Waiting for cache... (attempt $attempt/$max_attempts)"
             sleep 2
         done
-        
+
         # Create test database
         output info "Creating test database..."
         $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
+
+        # Initialize test database schema
+        output info "Initializing test database schema..."
+        for init_script in ./init-scripts/*.sql; do
+            if [ -f "$init_script" ]; then
+                script_name=$(basename "$init_script")
+                output info "Running $script_name on test database..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d test_pantry_pirate_radio -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
+            fi
+        done
 
         # Check if we're in a TTY (disable TTY in programmatic mode)
         TTY_FLAG=""
@@ -493,7 +503,7 @@ case "$1" in
 
         # Get the network name
         NETWORK_NAME="${COMPOSE_PROJECT_NAME:-pantry-pirate-radio}_default"
-        
+
         # Run tests in a temporary container with current code mounted
         docker run --rm $TTY_FLAG \
             -v $(pwd):/app:cached \

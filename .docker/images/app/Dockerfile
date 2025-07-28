@@ -63,11 +63,16 @@ FROM base AS development-base
 # Install all dependencies including dev dependencies
 RUN poetry install --no-interaction --no-ansi
 
-# Copy all application code and config files
-COPY . .
-
 # Set Python path
 ENV PYTHONPATH=/app
+
+# Copy only necessary files for tests (not everything)
+COPY app app/
+COPY tests tests/
+COPY scripts scripts/
+COPY docs docs/
+COPY .env.example .
+COPY pytest.ini .
 
 # =============================================================================
 # FASTAPI APPLICATION SERVICE
