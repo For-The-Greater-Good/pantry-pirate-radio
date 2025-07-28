@@ -126,7 +126,11 @@ usage() {
     echo "  ps                  List running services"
     echo "  test [OPTIONS]      Run tests with various options"
     echo "  scraper [NAME|--all] Run specific scraper or all scrapers"
-    echo "  claude-auth         Authenticate Claude in worker container"
+    echo "  claude-auth [CMD]   Manage Claude authentication"
+    echo "  reconciler [ARGS]   Run the reconciler service"
+    echo "  recorder [ARGS]     Run the recorder service"
+    echo "  content-store [CMD] Manage content store"
+    echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
     echo "  clean               Stop services and remove volumes"
     echo ""
     echo "Test options:"
@@ -142,6 +146,25 @@ usage() {
     echo "  scraper --list      List all available scrapers"
     echo "  scraper --all       Run all scrapers"
     echo "  scraper NAME        Run specific scraper by name"
+    echo ""
+    echo "Claude auth options:"
+    echo "  claude-auth         Interactive Claude authentication"
+    echo "  claude-auth setup   Setup Claude authentication"
+    echo "  claude-auth status  Check authentication status"
+    echo "  claude-auth test    Test Claude connection"
+    echo "  claude-auth config  Show Claude configuration"
+    echo ""
+    echo "Content store options:"
+    echo "  content-store status      Show content store status"
+    echo "  content-store report      Generate detailed report"
+    echo "  content-store duplicates  Find duplicate content"
+    echo "  content-store efficiency  Analyze storage efficiency"
+    echo ""
+    echo "HAARRRvest publisher options:"
+    echo "  haarrrvest              Manually trigger publishing run"
+    echo "  haarrrvest run          Manually trigger publishing run"
+    echo "  haarrrvest logs         Follow publisher logs"
+    echo "  haarrrvest status       Check publisher service status"
     echo ""
     echo "Environment modes (use with 'up'):"
     echo "  --dev               Development mode (default)"
@@ -518,6 +541,7 @@ case "$1" in
         ;;
 
     claude-auth)
+        shift
         parse_mode "$@"
 
         # Check if worker service is running
@@ -531,15 +555,194 @@ case "$1" in
             fi
         fi
 
-        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
-            output error "Claude authentication requires interactive mode. Run without --programmatic flag."
-            exit 1
+        # Parse subcommand
+        case "${1:-interactive}" in
+            interactive|"")
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    output error "Claude authentication requires interactive mode. Run without --programmatic flag."
+                    exit 1
+                fi
+                output info "Authenticating Claude in worker container..."
+                output info "This will open an interactive Claude authentication session."
+                echo ""
+                $COMPOSE_CMD $COMPOSE_FILES exec worker claude
+                ;;
+            setup)
+                output info "Setting up Claude authentication..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager setup
+                ;;
+            status)
+                output info "Checking Claude authentication status..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager status
+                ;;
+            test)
+                output info "Testing Claude authentication..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager test
+                ;;
+            config)
+                output info "Showing Claude configuration..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager config
+                ;;
+            *)
+                output error "Unknown claude-auth subcommand: $1"
+                output error "Use: claude-auth [interactive|setup|status|test|config]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    reconciler)
+        shift
+        parse_mode "$@"
+
+        # Check if reconciler service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps reconciler 2>/dev/null | grep -q "Up"; then
+            output info "Reconciler service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d reconciler; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start reconciler service"
+                exit 1
+            fi
         fi
 
-        output info "Authenticating Claude in worker container..."
-        output info "This will open an interactive Claude authentication session."
-        echo ""
-        $COMPOSE_CMD $COMPOSE_FILES exec worker claude
+        # Build command
+        cmd="python -m app.reconciler"
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    cmd="$cmd $arg"
+                    ;;
+            esac
+        done
+
+        output info "Running reconciler..."
+        EXEC_FLAGS=""
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            EXEC_FLAGS="-T"
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS reconciler bash -c "$cmd"
+        ;;
+
+    recorder)
+        shift
+        parse_mode "$@"
+
+        # Check if recorder service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps recorder 2>/dev/null | grep -q "Up"; then
+            output info "Recorder service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d recorder; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start recorder service"
+                exit 1
+            fi
+        fi
+
+        # Build command
+        cmd="python -m app.recorder"
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    cmd="$cmd $arg"
+                    ;;
+            esac
+        done
+
+        output info "Running recorder..."
+        EXEC_FLAGS=""
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            EXEC_FLAGS="-T"
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS recorder bash -c "$cmd"
+        ;;
+
+    content-store)
+        shift
+        parse_mode "$@"
+
+        # Content store commands run in worker container
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
+            output info "Worker service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start worker service"
+                exit 1
+            fi
+        fi
+
+        # Parse subcommand
+        subcmd="${1:-status}"
+        shift || true
+
+        case "$subcmd" in
+            status)
+                output info "Checking content store status..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store status
+                ;;
+            report)
+                output info "Generating content store report..."
+                # Pass through any additional arguments
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store report "$@"
+                ;;
+            duplicates)
+                output info "Finding content store duplicates..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store duplicates
+                ;;
+            efficiency)
+                output info "Analyzing content store efficiency..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store efficiency
+                ;;
+            *)
+                output error "Unknown content-store subcommand: $subcmd"
+                output error "Use: content-store [status|report|duplicates|efficiency]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    haarrrvest|publisher)
+        shift
+        parse_mode "$@"
+
+        # Check if haarrrvest-publisher service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher 2>/dev/null | grep -q "Up"; then
+            output info "HAARRRvest publisher service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d haarrrvest-publisher; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start HAARRRvest publisher service"
+                exit 1
+            fi
+        fi
+
+        # Parse subcommand
+        case "${1:-run}" in
+            run|"")
+                output info "Manually triggering HAARRRvest publisher..."
+                output info "This will process all pending recorder outputs and push to HAARRRvest repository."
+                # Run the publisher module directly to trigger immediate processing
+                $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher python -m app.haarrrvest_publisher.service --once
+                ;;
+            logs)
+                output info "Showing HAARRRvest publisher logs..."
+                $COMPOSE_CMD $COMPOSE_FILES logs -f haarrrvest-publisher
+                ;;
+            status)
+                output info "Checking HAARRRvest publisher status..."
+                $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher
+                ;;
+            *)
+                output error "Unknown haarrrvest subcommand: $1"
+                output error "Use: haarrrvest [run|logs|status]"
+                exit 1
+                ;;
+        esac
         ;;
 
     clean)
