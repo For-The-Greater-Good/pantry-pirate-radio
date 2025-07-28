@@ -482,13 +482,16 @@ case "$1" in
             TTY_FLAG="-it"
         fi
 
+        # Get the network name
+        NETWORK_NAME="${COMPOSE_PROJECT_NAME:-pantry-pirate-radio}_default"
+        
         # Run tests in a temporary container with current code mounted
         docker run --rm $TTY_FLAG \
             -v $(pwd):/app:cached \
             -w /app \
-            --network pantry-pirate-radio_default \
+            --network "$NETWORK_NAME" \
             --env-file .env.test \
-            -e TEST_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-your_secure_password}@db:5432/test_pantry_pirate_radio \
+            -e TEST_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-pirate}@db:5432/test_pantry_pirate_radio \
             -e TEST_REDIS_URL=redis://cache:6379/1 \
             pantry-pirate-radio-test:latest \
             bash -c "$test_cmd"

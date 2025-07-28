@@ -130,6 +130,8 @@ jobs:
         run: |
           # Create .env.test file
           cp .env.example .env.test
+          # Update database password for CI
+          sed -i 's/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=pirate/' .env.test
           # Update database URLs for CI test environment
           sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio|' .env.test
           sed -i 's|redis://cache:6379/0|redis://cache:6379/1|' .env.test
@@ -141,6 +143,8 @@ jobs:
           sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
           # Also create .env for services
           cp .env.test .env
+          # Export POSTGRES_PASSWORD for bouy to use
+          echo "POSTGRES_PASSWORD=pirate" >> $GITHUB_ENV
 
       - name: Run tests
         run: |
