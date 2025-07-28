@@ -64,7 +64,7 @@ def test_queue_job(
 
     # Mock llm_queue to use test queue
     monkeypatch.setattr("app.llm.queue.queues.llm_queue", mock_queue)
-    
+
     # Also mock the global import in utils
     monkeypatch.setattr("app.scraper.utils.llm_queue", mock_queue)
 
