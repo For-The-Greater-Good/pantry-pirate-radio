@@ -103,6 +103,120 @@ output() {
     fi
 }
 
+# Helper function to check database schema
+check_database_schema() {
+    local db_name="${1:-pantry_pirate_radio}"
+    output info "Checking database schema in $db_name..."
+    
+    # Check if record_version table exists (indicates schema is initialized)
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -c "SELECT 1 FROM record_version LIMIT 1;" >/dev/null 2>&1; then
+        output success "Database schema is initialized"
+        return 0
+    else
+        output warning "Database schema not initialized"
+        return 1
+    fi
+}
+
+# Helper function to initialize database schema
+init_database_schema() {
+    local db_name="${1:-pantry_pirate_radio}"
+    output info "Initializing database schema in $db_name..."
+    
+    for init_script in ./init-scripts/*.sql; do
+        if [ -f "$init_script" ]; then
+            script_name=$(basename "$init_script")
+            output info "Running $script_name..."
+            $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
+        fi
+    done
+    output success "Database schema initialized"
+}
+
+# Helper function to check Redis connectivity
+check_redis_connectivity() {
+    output info "Checking Redis connectivity..."
+    
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
+        output success "Redis is accessible"
+        return 0
+    else
+        output error "Redis is not accessible"
+        return 1
+    fi
+}
+
+# Helper function to check if directory exists and is writable
+check_directory_writable() {
+    local dir_path="$1"
+    local service="$2"
+    
+    output info "Checking directory: $dir_path"
+    
+    # Check if directory exists in container
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -d "$dir_path" 2>/dev/null; then
+        # Check if writable
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -w "$dir_path" 2>/dev/null; then
+            output success "Directory is writable: $dir_path"
+            return 0
+        else
+            output error "Directory is not writable: $dir_path"
+            return 1
+        fi
+    else
+        output warning "Directory does not exist: $dir_path"
+        # Try to create it
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" mkdir -p "$dir_path" 2>/dev/null; then
+            output success "Created directory: $dir_path"
+            return 0
+        else
+            output error "Failed to create directory: $dir_path"
+            return 1
+        fi
+    fi
+}
+
+# Helper function to wait for database to be ready
+wait_for_database() {
+    output info "Waiting for database to be ready..."
+    local max_attempts=30
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+            output success "Database is ready!"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        if [ $attempt -eq $max_attempts ]; then
+            output error "Database failed to become ready"
+            return 1
+        fi
+        echo "Waiting for database... (attempt $attempt/$max_attempts)"
+        sleep 2
+    done
+}
+
+# Helper function to check git configuration
+check_git_config() {
+    local service="$1"
+    output info "Checking git configuration..."
+    
+    # Check git user.name
+    if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name >/dev/null 2>&1; then
+        output warning "Git user.name not set, using default"
+        $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name "Pantry Pirate Radio" || true
+    fi
+    
+    # Check git user.email
+    if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email >/dev/null 2>&1; then
+        output warning "Git user.email not set, using default"
+        $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email "pantry-pirate-radio@example.com" || true
+    fi
+    
+    output success "Git configuration verified"
+}
+
 # Function to show usage
 usage() {
     echo "⚓ Bouy v$VERSION - Docker Fleet Management ⚓"
@@ -126,11 +240,14 @@ usage() {
     echo "  ps                  List running services"
     echo "  test [OPTIONS]      Run tests with various options"
     echo "  scraper [NAME|--all] Run specific scraper or all scrapers"
+    echo "  scraper-test [NAME] Test scrapers without processing"
     echo "  claude-auth [CMD]   Manage Claude authentication"
     echo "  reconciler [ARGS]   Run the reconciler service"
     echo "  recorder [ARGS]     Run the recorder service"
     echo "  content-store [CMD] Manage content store"
     echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
+    echo "  datasette [CMD]     Export database to SQLite for Datasette"
+    echo "  replay [OPTIONS]    Replay recorded JSON files"
     echo "  clean               Stop services and remove volumes"
     echo ""
     echo "Test options:"
@@ -165,6 +282,23 @@ usage() {
     echo "  haarrrvest run          Manually trigger publishing run"
     echo "  haarrrvest logs         Follow publisher logs"
     echo "  haarrrvest status       Check publisher service status"
+    echo ""
+    echo "Datasette options:"
+    echo "  datasette              Export database to SQLite immediately"
+    echo "  datasette export       Export database to SQLite immediately"
+    echo "  datasette schedule     Start periodic export scheduler"
+    echo "  datasette status       Check export status and SQLite file"
+    echo ""
+    echo "Replay options:"
+    echo "  replay                          Show replay help"
+    echo "  replay --file FILE              Replay single JSON file"
+    echo "  replay --directory DIR          Replay all files in directory"
+    echo "  replay --use-default-output-dir Use default outputs directory"
+    echo "  replay --dry-run               Preview without executing"
+    echo ""
+    echo "Scraper test options:"
+    echo "  scraper-test --all     Test all scrapers (dry run)"
+    echo "  scraper-test NAME      Test specific scraper (dry run)"
     echo ""
     echo "Environment modes (use with 'up'):"
     echo "  --dev               Development mode (default)"
@@ -520,6 +654,23 @@ case "$1" in
         shift
         parse_mode "$@"
 
+        # Ensure cache is running for job queue
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+            output info "Cache service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start cache service"
+                exit 1
+            fi
+        fi
+
+        # Check Redis connectivity
+        if ! check_redis_connectivity; then
+            output error "Redis is required for scraper job queue"
+            exit 1
+        fi
+
         # Check if scraper service is running
         if ! $COMPOSE_CMD $COMPOSE_FILES ps scraper 2>/dev/null | grep -q "Up"; then
             output info "Scraper service is not running. Starting it..."
@@ -528,6 +679,16 @@ case "$1" in
             else
                 output error "Failed to start scraper service"
                 exit 1
+            fi
+        fi
+
+        # Check content store if enabled
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
+            output info "Content store is enabled, checking configuration..."
+            if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content-store" 2>/dev/null; then
+                output warning "Content store directory not found - deduplication may not work"
+            else
+                output success "Content store directory found"
             fi
         fi
 
@@ -645,6 +806,23 @@ case "$1" in
         shift
         parse_mode "$@"
 
+        # Ensure database is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output info "Database schema needs initialization"
+            init_database_schema || exit 1
+        fi
+
         # Check if reconciler service is running
         if ! $COMPOSE_CMD $COMPOSE_FILES ps reconciler 2>/dev/null | grep -q "Up"; then
             output info "Reconciler service is not running. Starting it..."
@@ -680,6 +858,23 @@ case "$1" in
         shift
         parse_mode "$@"
 
+        # Ensure cache is running for job queue
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+            output info "Cache service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start cache service"
+                exit 1
+            fi
+        fi
+
+        # Check Redis connectivity
+        if ! check_redis_connectivity; then
+            output error "Redis is required for recorder job queue"
+            exit 1
+        fi
+
         # Check if recorder service is running
         if ! $COMPOSE_CMD $COMPOSE_FILES ps recorder 2>/dev/null | grep -q "Up"; then
             output info "Recorder service is not running. Starting it..."
@@ -690,6 +885,9 @@ case "$1" in
                 exit 1
             fi
         fi
+
+        # Check output directory
+        check_directory_writable "/app/outputs" "recorder" || output warning "Output directory may not be writable"
 
         # Build command
         cmd="python -m app.recorder"
@@ -723,6 +921,24 @@ case "$1" in
             else
                 output error "Failed to start worker service"
                 exit 1
+            fi
+        fi
+
+        # Check content store directory in data repo
+        output info "Checking content store configuration..."
+        
+        # Check if content store directory exists
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -d "/data-repo/content-store" 2>/dev/null; then
+            output warning "Content store directory not found in data repo"
+            output info "Content store may be disabled or not yet initialized"
+        else
+            output success "Content store directory found"
+            
+            # Check for SQLite database
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -f "/data-repo/content-store/index.db" 2>/dev/null; then
+                output success "Content store SQLite database found"
+            else
+                output warning "Content store SQLite database not found - will be created on first use"
             fi
         fi
 
@@ -760,6 +976,23 @@ case "$1" in
         shift
         parse_mode "$@"
 
+        # Ensure database is running for data export
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output info "Database schema needs initialization"
+            init_database_schema || exit 1
+        fi
+
         # Check if haarrrvest-publisher service is running
         if ! $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher 2>/dev/null | grep -q "Up"; then
             output info "HAARRRvest publisher service is not running. Starting it..."
@@ -769,6 +1002,23 @@ case "$1" in
                 output error "Failed to start HAARRRvest publisher service"
                 exit 1
             fi
+        fi
+
+        # Check git configuration
+        check_git_config "haarrrvest-publisher"
+
+        # Check if HAARRRvest repository is initialized
+        output info "Checking HAARRRvest repository..."
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher test -d "/data-repo/.git" 2>/dev/null; then
+            output warning "HAARRRvest repository not initialized"
+            output info "The publisher service will clone the repository on first run"
+        else
+            output success "HAARRRvest repository found"
+        fi
+
+        # Check output directory
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher test -d "/app/outputs" 2>/dev/null; then
+            output warning "Output directory not found - no files to publish"
         fi
 
         # Parse subcommand
@@ -791,6 +1041,212 @@ case "$1" in
                 output error "Unknown haarrrvest subcommand: $1"
                 output error "Use: haarrrvest [run|logs|status]"
                 exit 1
+                ;;
+        esac
+        ;;
+
+    datasette)
+        shift
+        parse_mode "$@"
+
+        # Ensure database is running for export
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output error "Database schema must be initialized before export"
+            exit 1
+        fi
+
+        # Check if datasette-exporter service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter 2>/dev/null | grep -q "Up"; then
+            output info "Datasette exporter service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start datasette exporter service"
+                exit 1
+            fi
+        fi
+
+        # Parse subcommand
+        case "${1:-export}" in
+            export|"")
+                output info "Exporting database to SQLite for Datasette..."
+                # Run the export directly
+                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
+                ;;
+            schedule)
+                output info "Starting Datasette export scheduler..."
+                output info "Exports will run periodically based on EXPORT_INTERVAL setting"
+                $COMPOSE_CMD $COMPOSE_FILES exec datasette-exporter python -m app.datasette schedule
+                ;;
+            status)
+                output info "Checking Datasette exporter status..."
+                $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter
+                # Check if SQLite file exists
+                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
+                    output success "Latest SQLite export found"
+                else
+                    output warning "No SQLite export found yet"
+                fi
+                ;;
+            *)
+                output error "Unknown datasette subcommand: $1"
+                output error "Use: datasette [export|schedule|status]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    replay)
+        shift
+        parse_mode "$@"
+
+        # Ensure database is running for replay
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output error "Database schema must be initialized before replay"
+            exit 1
+        fi
+
+        # Ensure cache is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+            output info "Cache service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start cache service"
+                exit 1
+            fi
+        fi
+
+        # Use worker container for replay since it has all dependencies
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
+            output info "Worker service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start worker service"
+                exit 1
+            fi
+        fi
+
+        # Build replay command
+        cmd="python -m app.replay"
+        
+        # Parse replay options
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    cmd="$cmd $arg"
+                    ;;
+            esac
+        done
+
+        # If no args provided, show help
+        if [ "$#" -eq 0 ]; then
+            output info "Replay recorded JSON files to recreate database records"
+            output info ""
+            output info "Usage: bouy replay [OPTIONS]"
+            output info "  --file FILE         Replay a single JSON file"
+            output info "  --directory DIR     Replay all JSON files in directory"
+            output info "  --use-default-output-dir  Use default outputs directory"
+            output info "  --pattern PATTERN   File pattern (default: *.json)"
+            output info "  --dry-run          Show what would be done without executing"
+            output info ""
+            output info "Example: bouy replay --use-default-output-dir --dry-run"
+        else
+            output info "Running replay..."
+            EXEC_FLAGS=""
+            if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                EXEC_FLAGS="-T"
+            fi
+            $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS worker bash -c "$cmd"
+        fi
+        ;;
+
+    scraper-test)
+        shift
+        parse_mode "$@"
+
+        # Check if scraper service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps scraper 2>/dev/null | grep -q "Up"; then
+            output info "Scraper service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start scraper service"
+                exit 1
+            fi
+        fi
+
+        # Parse test options
+        case "${1:-help}" in
+            --all)
+                output info "Testing all scrapers (dry run)..."
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers --all
+                ;;
+            help|"")
+                if [ $PROGRAMMATIC_MODE -eq 0 ]; then
+                    echo "Usage: bouy scraper-test [--all|SCRAPER_NAME]"
+                    echo ""
+                    echo "Test scrapers without processing results"
+                    echo "This runs scrapers in dry-run mode to verify they work"
+                else
+                    output error "No scraper test command specified. Use --all or provide a scraper name."
+                    exit 1
+                fi
+                ;;
+            *)
+                # Test specific scraper
+                scraper_name=""
+                for arg in "$@"; do
+                    case $arg in
+                        --dev|--prod|--test|--with-init)
+                            ;;
+                        *)
+                            scraper_name="$arg"
+                            break
+                            ;;
+                    esac
+                done
+
+                if [ -n "$scraper_name" ]; then
+                    output info "Testing scraper: $scraper_name"
+                    EXEC_FLAGS=""
+                    if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                        EXEC_FLAGS="-T"
+                    fi
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers "$scraper_name"
+                else
+                    output error "No scraper name provided"
+                    exit 1
+                fi
                 ;;
         esac
         ;;
