@@ -140,25 +140,10 @@ jobs:
           # Disable HAARRRvest push for tests
           sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
 
-      - name: Start services
+      - name: Run tests
         run: |
           chmod +x ./bouy
-          ./bouy up db cache --test
-
-      - name: Wait for services
-        run: |
-          # Wait for database to be ready
-          timeout 60 bash -c 'until docker compose ps db | grep -q "healthy\\|running"; do echo "Waiting for db..."; sleep 2; done'
-          # Wait for Redis to be ready  
-          timeout 60 bash -c 'until docker compose ps cache | grep -q "healthy\\|running"; do echo "Waiting for cache..."; sleep 2; done'
-
-      - name: Create test database
-        run: |
-          # Create test database
-          ./bouy exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
-
-      - name: Run tests
-        run: ./bouy test --pytest
+          ./bouy test --pytest
 
       - name: Extract coverage data
         run: |

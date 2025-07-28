@@ -403,6 +403,28 @@ case "$1" in
             exit 1
         fi
 
+        # Start test services if not already running
+        output info "Ensuring test services are running..."
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up\|Running"; then
+            output info "Starting database service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d db cache
+            
+            # Wait for services to be ready
+            output info "Waiting for services to be ready..."
+            timeout 60 bash -c "until $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q 'healthy\|running'; do echo 'Waiting for db...'; sleep 2; done" || {
+                output error "Database service failed to start"
+                exit 1
+            }
+            timeout 60 bash -c "until $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q 'healthy\|running'; do echo 'Waiting for cache...'; sleep 2; done" || {
+                output error "Cache service failed to start"
+                exit 1
+            }
+            
+            # Create test database
+            output info "Creating test database..."
+            $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
+        fi
+
         # Check if we're in a TTY (disable TTY in programmatic mode)
         TTY_FLAG=""
         if [ -t 0 ] && [ $PROGRAMMATIC_MODE -eq 0 ]; then
