@@ -144,9 +144,9 @@ jobs:
           target: test
           tags: |
             pantry-pirate-radio-test:latest
-            ghcr.io/${{ github.repository_owner }}/pantry-pirate-radio-test:cache
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/pantry-pirate-radio-test:cache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/pantry-pirate-radio-test:cache,mode=max
+            ghcr.io/for-the-greater-good/pantry-pirate-radio-test:cache
+          cache-from: type=registry,ref=ghcr.io/for-the-greater-good/pantry-pirate-radio-test:cache
+          cache-to: type=registry,ref=ghcr.io/for-the-greater-good/pantry-pirate-radio-test:cache,mode=max
           load: true
 
       - name: Create test environment file
