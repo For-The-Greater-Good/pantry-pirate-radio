@@ -118,7 +118,6 @@ jobs:
         run: poetry run mypy app tests
 
   pytest:
-    needs: setup
     runs-on: ubuntu-latest
     environment: ci
     steps:
@@ -127,103 +126,39 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Initialize and update submodules
+      - name: Create test environment file
         run: |
-          git submodule update --init --recursive --force
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev postgresql-client gcc python3-dev cmake build-essential redis-tools
-      - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          poetry config virtualenvs.create false
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pypoetry
-          key: ${{ needs.setup.outputs.cache-key }}
-
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi
-
-      - name: Create environment file
-        run: |
-          # Create .env file from example
-          cp .env.example .env
-          # Update PostgreSQL password for CI
-          sed -i 's/your_secure_password/pirate/' .env
-          sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio|' .env
+          # Create .env.test file
+          cp .env.example .env.test
+          # Update database URLs for CI test environment
+          sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio|' .env.test
+          sed -i 's|redis://cache:6379/0|redis://cache:6379/1|' .env.test
           # Set API key from GitHub secret if available
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
-            sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env
+            sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env.test
           fi
-          # Disable HAARRRvest push for CI
-          sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env
+          # Disable HAARRRvest push for tests
+          sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
 
-          # Add TEST environment variables for CI (use regular service names)
-          echo "" >> .env
-          echo "# Test environment variables for CI" >> .env
-          echo "TEST_DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio" >> .env
-          echo "TEST_REDIS_URL=redis://cache:6379/1" >> .env
-
-      - name: Start services with Docker Compose
-        run: docker compose -f .docker/compose/base.yml up -d db cache app
+      - name: Start services
+        run: |
+          chmod +x ./bouy
+          ./bouy up db cache --test
 
       - name: Wait for services
         run: |
-          timeout 60 bash -c 'until docker compose -f .docker/compose/base.yml exec db pg_isready -U postgres; do sleep 2; done'
-          timeout 60 bash -c 'until docker compose -f .docker/compose/base.yml exec cache redis-cli ping; do sleep 2; done'
+          # Wait for database to be ready
+          timeout 60 bash -c 'until docker compose ps db | grep -q "healthy\\|running"; do echo "Waiting for db..."; sleep 2; done'
+          # Wait for Redis to be ready  
+          timeout 60 bash -c 'until docker compose ps cache | grep -q "healthy\\|running"; do echo "Waiting for cache..."; sleep 2; done'
 
       - name: Create test database
         run: |
-          echo "Creating test database..."
-          docker compose -f .docker/compose/base.yml exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
-          echo "Test database created or already exists"
+          # Create test database
+          ./bouy exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
 
-      - name: Initialize test database
-        run: |
-          echo "Initializing test database with HSDS schema..."
-          # Apply init scripts to test database
-          for script in init-scripts/*.sql; do
-            if [ -f "$script" ]; then
-              echo "Applying $script to test database..."
-              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < "$script"
-            fi
-          done
-          # Apply HSDS schema to test database
-          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
-            echo "Applying HSDS schema to test database..."
-            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
-          fi
-
-      - name: Initialize database
-        run: |
-          # Apply init scripts in order
-          for script in init-scripts/*.sql; do
-            if [ -f "$script" ]; then
-              echo "Applying $script..."
-              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d pantry_pirate_radio -f - < "$script"
-            fi
-          done
-          # Apply HSDS schema if exists
-          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
-            echo "Applying HSDS schema..."
-            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
-          fi
-      - name: Install test dependencies and run tests
-        run: |
-          # Make bouy executable
-          chmod +x ./bouy
-          # Run tests using bouy
-          ./bouy test --pytest
+      - name: Run tests
+        run: ./bouy test --pytest
 
       - name: Extract coverage data
         run: |
@@ -264,7 +199,7 @@ jobs:
 
       - name: Stop services
         if: always()
-        run: docker compose -f .docker/compose/base.yml down
+        run: ./bouy down
 
   vulture:
     needs: setup
