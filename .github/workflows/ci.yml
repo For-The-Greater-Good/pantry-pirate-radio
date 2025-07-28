@@ -187,7 +187,7 @@ jobs:
           echo "Creating test database..."
           docker compose -f .docker/compose/base.yml exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
           echo "Test database created or already exists"
-          
+
       - name: Initialize test database
         run: |
           echo "Initializing test database with HSDS schema..."
@@ -220,19 +220,16 @@ jobs:
           fi
       - name: Install test dependencies and run tests
         run: |
-          # Copy tests directory, docs, scripts, and .env to app container
-          docker compose -f .docker/compose/base.yml cp tests app:/app/tests
-          docker compose -f .docker/compose/base.yml cp docs app:/app/docs
-          docker compose -f .docker/compose/base.yml cp scripts app:/app/scripts
-          docker compose -f .docker/compose/base.yml cp .env app:/app/.env
-          # Install test dependencies and run tests with coverage, excluding integration tests
-          docker compose -f .docker/compose/base.yml exec app sh -c "poetry install && poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=xml --cov-report=json --cov-branch"
+          # Make bouy executable
+          chmod +x ./bouy
+          # Run tests using bouy
+          ./bouy test --pytest
 
       - name: Extract coverage data
         run: |
-          # Copy coverage reports from container
-          docker compose -f .docker/compose/base.yml cp app:/app/coverage.xml ./coverage.xml
-          docker compose -f .docker/compose/base.yml cp app:/app/coverage.json ./coverage.json
+          # Coverage reports are already in the local directory from bouy test
+          echo "Coverage reports available:"
+          ls -la coverage.* || echo "No coverage files found"
 
       - name: Display coverage summary
         run: |
@@ -255,16 +252,8 @@ jobs:
 
       - name: Check coverage ratcheting
         run: |
-          # Copy coverage baseline if it exists
-          if [ -f .coverage-baseline ]; then
-            docker compose -f .docker/compose/base.yml cp .coverage-baseline app:/app/.coverage-baseline
-          fi
-          # Copy coverage scripts
-          docker compose -f .docker/compose/base.yml cp scripts app:/app/scripts
-          # Run coverage check with ratcheting
-          docker compose -f .docker/compose/base.yml exec app sh -c "bash scripts/coverage-check.sh"
-          # Copy updated baseline back
-          docker compose -f .docker/compose/base.yml cp app:/app/.coverage-baseline ./.coverage-baseline || true
+          # Run coverage check with ratcheting using bouy
+          ./bouy test --coverage
 
       - name: Save coverage baseline to cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
