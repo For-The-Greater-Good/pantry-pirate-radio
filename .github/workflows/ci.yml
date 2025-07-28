@@ -130,19 +130,33 @@ jobs:
         run: |
           # Create .env.test file
           cp .env.example .env.test
+          
           # Update database password for CI
           sed -i 's/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=pirate/' .env.test
-          # Update database URLs for CI test environment
-          sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio|' .env.test
-          sed -i 's|redis://cache:6379/0|redis://cache:6379/1|' .env.test
+          
+          # Set main database URL
+          sed -i 's|DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio|' .env.test
+          
+          # Set TEST database URL (different database)
+          sed -i 's|TEST_DATABASE_URL=.*|TEST_DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio|' .env.test
+          
+          # Set main Redis URL (database 0)
+          sed -i 's|REDIS_URL=.*|REDIS_URL=redis://cache:6379/0|' .env.test
+          
+          # Set TEST Redis URL (database 1 - MUST be different!)
+          sed -i 's|TEST_REDIS_URL=.*|TEST_REDIS_URL=redis://cache:6379/1|' .env.test
+          
           # Set API key from GitHub secret if available
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
             sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env.test
           fi
+          
           # Disable HAARRRvest push for tests
           sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
+          
           # Also create .env for services
           cp .env.test .env
+          
           # Export POSTGRES_PASSWORD for bouy to use
           echo "POSTGRES_PASSWORD=pirate" >> $GITHUB_ENV
 
