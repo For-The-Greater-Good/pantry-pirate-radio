@@ -413,10 +413,19 @@ case "$1" in
         # Ensure the test image is built
         if ! docker image inspect pantry-pirate-radio-test:latest &> /dev/null; then
             output info "Building test image..."
-            if ! docker build -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .; then
+            
+            # Use buildx with cache if available
+            BUILD_CMD="docker build"
+            if command -v docker buildx &> /dev/null; then
+                BUILD_CMD="docker buildx build --load"
+            fi
+            
+            if ! $BUILD_CMD -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .; then
                 output error "Failed to build test image"
                 exit 1
             fi
+        else
+            output info "Test image already exists, skipping build"
         fi
 
         # Use test environment file
