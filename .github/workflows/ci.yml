@@ -152,6 +152,17 @@ jobs:
           sed -i 's/^\(CLAUDE_QUOTA_RETRY_DELAY=\).*/\13600/' .env.test
           sed -i 's/^\(CLAUDE_QUOTA_MAX_DELAY=\).*/\114400/' .env.test
           sed -i 's/^\(CLAUDE_QUOTA_BACKOFF_MULTIPLIER=\).*/\11.5/' .env.test
+          sed -i 's/^\(SQL_DUMP_RECORD_COUNT_ALLOW_PERCENTAGE=\).*/\10.9/' .env.test
+          sed -i 's/^\(WORKER_COUNT=\).*/\11/' .env.test
+          sed -i 's/^\(PUBLISHER_CHECK_INTERVAL=\).*/\1300/' .env.test
+          sed -i 's/^\(ERROR_RETRY_DELAY=\).*/\160/' .env.test
+          sed -i 's/^\(GIT_USER_EMAIL=\).*/\1pantry-pirate-radio@example.com/' .env.test
+          sed -i 's/^\(GIT_USER_NAME=\).*/\1Pantry Pirate Radio Publisher/' .env.test
+          sed -i 's/^\(SQL_DUMP_MIN_RECORDS=\).*/\1100/' .env.test
+          sed -i 's/^\(SQL_DUMP_RATCHET_PERCENTAGE=\).*/\10.9/' .env.test
+          sed -i 's/^\(ALLOW_EMPTY_SQL_DUMP=\).*/\1false/' .env.test
+          sed -i 's/^\(OUTPUT_DIR=\).*/\1\/app\/outputs/' .env.test
+          sed -i 's/^\(CONTENT_STORE_ENABLED=\).*/\1true/' .env.test
           
           # Update database password for CI
           sed -i 's/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=pirate/' .env.test
