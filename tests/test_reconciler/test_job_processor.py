@@ -189,9 +189,11 @@ class TestJobProcessor:
 
         # Assert
         assert result["status"] == "success"
-        # Verify demjson3 was used (logger was called)
-        mock_logger.info.assert_any_call(
-            "Standard JSON parsing failed, trying demjson3"
+        # Verify demjson3 was used (logger was called with the error)
+        # The actual log message includes the error details now
+        assert any(
+            "Standard JSON parsing failed:" in str(call)
+            for call in mock_logger.info.call_args_list
         )
 
     def test_should_raise_error_when_json_completely_invalid(self):

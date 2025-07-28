@@ -1,0 +1,62 @@
+# Docker Compose override file for running with database initialization
+# This runs the replay utility to populate the database from HAARRRvest data
+#
+# Usage:
+#   docker-compose --profile with-init up -d
+#   OR
+#   docker-compose -f docker-compose.yml -f docker-compose.with-init.yml up -d
+#
+# Startup sequence:
+#   1. db (PostgreSQL) starts
+#   2. haarrrvest-publisher starts and clones HAARRRvest repository
+#   3. db-init runs replay to populate database from HAARRRvest data
+#   4. All other services start once db-init is healthy
+
+services:
+  # Update service dependencies to wait for db-init instead of just db
+  app:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  worker:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  recorder:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      cache:
+        condition: service_started
+      haarrrvest-publisher:
+        condition: service_healthy
+
+  scraper:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  reconciler:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  datasette-exporter:
+    depends_on:
+      db-init:
+        condition: service_healthy
+
+  db-backup:
+    depends_on:
+      db-init:
+        condition: service_healthy

@@ -17,6 +17,22 @@
 [![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Features](#core-features)
+- [System Architecture](#system-architecture)
+- [Quick Start](#quick-start)
+- [LLM Provider Configuration](#llm-provider-configuration)
+- [Service URLs](#service-urls-development)
+- [Development](#development)
+- [HSDS Implementation & Database](#hsds-implementation--database)
+- [🔍 Explore the Data](#-explore-the-data)
+- [📚 Documentation](#-documentation)
+- [Environment Configuration](#environment-configuration)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
 Pantry Pirate Radio is a distributed food security data aggregation system implementing the **OpenReferral Human Services Data Specification (HSDS) v3.1.1**. The system unifies scattered food resource data through AI-powered normalization, intelligent deduplication, and geographic optimization to provide comprehensive, HSDS-compliant food security information.
@@ -98,30 +114,49 @@ Pantry Pirate Radio uses a **distributed microservices architecture** built with
 
 ### Core Services
 
-```plaintext
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Scrapers  │───▶│    Redis    │◀───│   Workers   │
-│   [12+]     │    │    Queue    │    │ [Scalable]  │
-└─────────────┘    └──────┬──────┘    └──────┬──────┘
-                          │                  │
-                          ▼                  ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Recorder   │    │ Reconciler  │    │     LLM     │
-│  Service    │    │  Service    │    │ Providers   │
-└──────┬──────┘    └──────┬──────┘    └─────────────┘
-       │                  │
-       ▼                  ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  outputs/   │    │PostgreSQL + │    │   FastAPI   │
-│   Folder    │    │   PostGIS   │◀───│   Server    │
-│ (JSON Files)│    └─────────────┘    └─────────────┘
-└──────┬──────┘
-       │ (reads)
-       ▼
-┌─────────────┐    ┌─────────────┐
-│ HAARRRvest  │───▶│ HAARRRvest  │
-│ Publisher   │    │ Repository  │
-└─────────────┘    └─────────────┘
+```mermaid
+flowchart TB
+    %% Data Collection
+    Scrapers[Scrapers<br/>12+ sources]
+    ContentStore{Content Store<br/>Deduplication}
+
+    Scrapers --> ContentStore
+    ContentStore -->|New content| Queue[Redis Queue]
+    ContentStore -->|Duplicate| Skip[Return existing]
+
+    %% Processing
+    Queue --> Workers[LLM Workers]
+    Workers <--> LLM[LLM Providers]
+
+    %% Job Distribution
+    Workers --> Jobs{Create Jobs}
+    Jobs --> ReconcilerQ[Reconciler Queue]
+    Jobs --> RecorderQ[Recorder Queue]
+
+    %% Services
+    ReconcilerQ --> Reconciler[Reconciler<br/>Location matching]
+    RecorderQ --> Recorder[Recorder<br/>Archive JSON]
+
+    %% Storage
+    Reconciler --> DB[(PostgreSQL<br/>PostGIS)]
+    Recorder --> Files[JSON Files]
+
+    %% Output
+    DB --> API[FastAPI]
+    DB --> Publisher[HAARRRvest<br/>Publisher]
+    Files --> Publisher
+    Publisher --> GitHub[HAARRRvest<br/>Repository]
+
+    %% Style
+    classDef service fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
+    classDef storage fill:#ffe0b2,stroke:#ef6c00,stroke-width:2px,color:#000
+    classDef external fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
+    classDef queue fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
+
+    class Scrapers,Workers,Reconciler,Recorder,API,Publisher service
+    class ContentStore,DB,Files storage
+    class LLM,GitHub external
+    class Queue,ReconcilerQ,RecorderQ,Skip,Jobs queue
 ```
 
 ### Service Components
@@ -198,13 +233,58 @@ code .
 # DevContainer will handle all setup automatically
 ```
 
+#### DevContainer with Database Initialization
+To start the dev environment with pre-populated data from HAARRRvest:
+```bash
+# Start dev environment with initialization
+./docker.sh up --dev --with-init
+
+# Monitor initialization progress
+docker compose logs -f db-init
+
+# This will populate ~90 days of historical data from HAARRRvest
+```
+
+### Using Docker Compose (Fastest)
+```bash
+# 1. Clone repository
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
+
+# 2. Setup environment
+./scripts/setup-secrets.sh  # Interactive setup (recommended)
+# OR manually:
+cp .env.example .env
+# Edit .env with your API keys and settings
+
+# 3. Start all services WITH latest HAARRRvest data (recommended)
+# This will populate the database with ~90 days of food resource data
+./docker.sh up --with-init
+
+# 4. Monitor initialization (takes 5-15 minutes)
+docker compose logs -f db-init
+docker compose logs -f haarrrvest-publisher
+
+# 5. Access the API at http://localhost:8000/docs
+```
+
+**Startup Process**:
+1. PostgreSQL and Redis start first
+2. HAARRRvest publisher shallow clones the data repository (depth=1 for efficiency)
+3. Database initializer populates ~90 days of historical data
+4. All services start once the database is ready
+
+**Note**: The initialization command uses both compose files to ensure proper dependency handling. For subsequent runs, use `docker compose up -d` for faster startup. See [Docker Startup Documentation](docs/docker-startup-sequence.md) for details.
+
 ### Manual Setup
 ```bash
 # 1. Clone repository
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Copy environment variables
+# 2. Setup environment
+./scripts/setup-secrets.sh  # Interactive setup (recommended)
+# OR manually copy and edit:
 cp .env.example .env
 # Edit .env with your configuration (API keys, passwords, etc.)
 
@@ -215,7 +295,7 @@ git config core.hooksPath .githooks
 poetry install
 
 # 5. Start all services
-docker-compose up -d
+docker compose up -d
 
 # FastAPI server will be available at http://localhost:8000
 # Workers will start automatically
@@ -235,10 +315,10 @@ export LLM_PROVIDER=claude
 export ANTHROPIC_API_KEY=your_api_key_here  # Optional
 
 # Start services
-docker-compose up -d
+docker compose up -d
 
 # Setup authentication (interactive)
-docker-compose exec worker python -m app.claude_auth_manager setup
+docker compose exec worker python -m app.claude_auth_manager setup
 
 # Check authentication status
 curl http://localhost:8080/health
@@ -258,7 +338,7 @@ export OPENROUTER_API_KEY=your_api_key_here
 export LLM_MODEL_NAME=gpt-4
 
 # Start services
-docker-compose up -d
+docker compose up -d
 ```
 
 ## Service URLs (Development)
@@ -284,26 +364,26 @@ docker-compose up -d
 ### Service Management
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Start specific service
-docker-compose up -d app                    # FastAPI server
-docker-compose up -d worker                 # LLM workers
-docker-compose up -d recorder               # Recorder service
-docker-compose up -d reconciler             # Reconciler service
-docker-compose up -d haarrrvest-publisher   # HAARRRvest publisher
-docker-compose up -d db-backup              # Database backup service
+docker compose up -d app                    # FastAPI server
+docker compose up -d worker                 # LLM workers
+docker compose up -d recorder               # Recorder service
+docker compose up -d reconciler             # Reconciler service
+docker compose up -d haarrrvest-publisher   # HAARRRvest publisher
+docker compose up -d db-backup              # Database backup service
 
 # View logs
-docker-compose logs -f app                  # FastAPI logs
-docker-compose logs -f worker               # Worker logs
-docker-compose logs -f recorder             # Recorder logs
-docker-compose logs -f reconciler           # Reconciler logs
-docker-compose logs -f haarrrvest-publisher # Publisher logs
-docker-compose logs -f db-backup            # Database backup logs
+docker compose logs -f app                  # FastAPI logs
+docker compose logs -f worker               # Worker logs
+docker compose logs -f recorder             # Recorder logs
+docker compose logs -f reconciler           # Reconciler logs
+docker compose logs -f haarrrvest-publisher # Publisher logs
+docker compose logs -f db-backup            # Database backup logs
 
 # Scale workers
-docker-compose up -d --scale worker=3  # Run 3 worker instances
+docker compose up -d --scale worker=3  # Run 3 worker instances
 ```
 
 ### Development Commands
@@ -363,8 +443,8 @@ docker build --target test -t pantry-pirate-radio:test .
 docker run --rm pantry-pirate-radio:test
 
 # Debug service containers
-docker-compose exec app bash
-docker-compose exec worker bash
+docker compose exec app bash
+docker compose exec worker bash
 ```
 
 ### Quality Standards
@@ -421,19 +501,17 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 - 📁 Organized JSON archives
 - 🏴‍☠️ No installation required
 
-## Documentation
-- [Architecture Details](docs/architecture.md)
-- [API Reference](docs/api.md)
-- [HSDS Implementation](docs/HSDS/)
-- [LLM System](docs/llm.md)
-- [Reconciler Service](docs/reconciler.md)
-- [HAARRRvest Quick Start](docs/haarrvest-quickstart.md)
-- [Recorder Service](docs/recorder.md)
-- [Worker System](docs/worker.md)
-- [Database Backup](docs/database-backup.md)
-- [Deployment Guide](docs/deployment.md)
-- [GitHub Workflows Guide](docs/GITHUB_WORKFLOWS.md)
-- [Troubleshooting](docs/troubleshooting.md)
+## 📚 Documentation
+
+See **[Documentation Index](docs/README.md)** for complete navigation through all available documentation.
+
+### Quick Links
+- **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
+- **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
+- **[API Examples](docs/api-examples.md)** - Practical API usage examples
+- **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[Test Environment Setup](docs/test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
 ## Environment Configuration
 

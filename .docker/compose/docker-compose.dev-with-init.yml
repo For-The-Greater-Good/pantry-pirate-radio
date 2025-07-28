@@ -1,0 +1,19 @@
+# Docker Compose override file for dev environment with database initialization
+# This combines dev environment (from devcontainer) with database initialization
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.dev-with-init.yml --profile with-init up -d
+#
+# This file only contains the service dependency overrides needed for init
+
+services:
+  # Update dev app service to wait for db-init
+  app:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
+  # The db-init service already exists in docker-compose.yml with the "with-init" profile
+  # No need to redefine it here

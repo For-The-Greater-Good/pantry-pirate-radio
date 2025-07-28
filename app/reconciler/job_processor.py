@@ -143,7 +143,12 @@ class JobProcessor:
         # Look for ```json ... ``` blocks
         json_block_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
         if json_block_match:
-            return json_block_match.group(1).strip()
+            extracted = json_block_match.group(1).strip()
+            # Clean up common LLM mistakes
+            # Replace bare identifiers like "I don't know" with quoted strings
+            extracted = re.sub(r":\s*I\s+don\'t\s+know", ': "Unknown"', extracted)
+            extracted = re.sub(r":\s*I\s+am\s+not\s+sure", ': "Unknown"', extracted)
+            return extracted
         return text
 
     def process_job_result(self, job_result: JobResult) -> dict[str, Any]:
@@ -164,13 +169,35 @@ class JobProcessor:
             # Extract JSON from markdown code blocks if present
             json_text = self._extract_json_from_markdown(job_result.result.text)
 
+            # Additional cleanup for known problematic patterns
+            # Fix unquoted values that start with 'I'
+            json_text = re.sub(r':\s*I\s+([^",}\]]+)', r': "I \1"', json_text)
+            # Fix other bare words that might cause issues
+            json_text = re.sub(
+                r":\s*([Nn]one|[Uu]nknown|[Nn]/[Aa])(?=\s*[,}])", r': "\1"', json_text
+            )
+
             # Try standard JSON parsing first
             try:
                 raw_data = json.loads(json_text)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 # If standard parsing fails, use demjson3 which is more tolerant
-                logger.info("Standard JSON parsing failed, trying demjson3")
-                raw_data = demjson3.decode(json_text)
+                logger.info(f"Standard JSON parsing failed: {e}")
+                logger.debug(
+                    f"Attempting to parse with demjson3. First 200 chars: {json_text[:200]}"
+                )
+                try:
+                    raw_data = demjson3.decode(json_text)
+                except Exception as demjson_error:
+                    # Log the problematic JSON for debugging
+                    logger.error(f"demjson3 also failed: {demjson_error}")
+                    logger.error(
+                        f"Problematic JSON (first 500 chars): {json_text[:500]}"
+                    )
+                    # Re-raise with more context
+                    raise ValueError(
+                        f"Failed to parse JSON: {demjson_error}"
+                    ) from demjson_error
 
             # Transform data structure if needed
             # Check if we have a single organization object instead of the expected structure

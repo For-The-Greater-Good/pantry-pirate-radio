@@ -11,19 +11,20 @@ def test_redis_connection_failure():
     if "app.llm.queue.queues" in sys.modules:
         del sys.modules["app.llm.queue.queues"]
 
-    with patch("redis.Redis") as mock_redis_class, patch("os.getenv") as mock_getenv:
+    with patch("redis.ConnectionPool.from_url") as mock_pool_from_url:
+        with patch("redis.Redis") as mock_redis_class:
+            # Mock connection pool
+            mock_pool = MagicMock()
+            mock_pool_from_url.return_value = mock_pool
 
-        # Mock environment
-        mock_getenv.return_value = "redis://cache:6379/0"
+            # Mock Redis client that fails ping
+            mock_client = MagicMock()
+            mock_client.ping.side_effect = ConnectionError("Connection failed")
+            mock_redis_class.return_value = mock_client
 
-        # Mock Redis client that fails ping
-        mock_client = MagicMock()
-        mock_client.ping.side_effect = ConnectionError("Connection failed")
-        mock_redis_class.from_url.return_value = mock_client
-
-        # This should raise the exception from the queues module
-        with pytest.raises(ConnectionError, match="Connection failed"):
-            import app.llm.queue.queues
+            # This should raise the exception from the queues module
+            with pytest.raises(ConnectionError):
+                import app.llm.queue.queues
 
 
 def test_redis_url_configuration():
@@ -32,22 +33,29 @@ def test_redis_url_configuration():
     if "app.llm.queue.queues" in sys.modules:
         del sys.modules["app.llm.queue.queues"]
 
-    with patch("redis.Redis") as mock_redis_class, patch("os.getenv") as mock_getenv:
+    with patch("os.getenv") as mock_getenv:
+        with patch("redis.ConnectionPool.from_url") as mock_pool_from_url:
+            with patch("redis.Redis") as mock_redis_class:
+                # Mock environment variable
+                mock_getenv.return_value = "redis://custom:6379/1"
 
-        # Mock environment variable
-        mock_getenv.return_value = "redis://custom:6379/1"
+                # Mock connection pool
+                mock_pool = MagicMock()
+                mock_pool_from_url.return_value = mock_pool
 
-        # Mock successful Redis client
-        mock_client = MagicMock()
-        mock_redis_class.from_url.return_value = mock_client
+                # Mock successful Redis client
+                mock_client = MagicMock()
+                mock_client.ping.return_value = True
+                mock_redis_class.return_value = mock_client
 
-        # Import the module to trigger the configuration
-        import app.llm.queue.queues
+                # Import the module to trigger the configuration
+                import app.llm.queue.queues
 
-        # Verify Redis was configured with custom URL
-        mock_redis_class.from_url.assert_called_with(
-            "redis://custom:6379/1",
-            decode_responses=False,
-            socket_timeout=5,
-            socket_connect_timeout=5,
-        )
+                # Verify ConnectionPool was configured with custom URL
+                mock_pool_from_url.assert_called_with(
+                    "redis://custom:6379/1",
+                    max_connections=50,
+                    socket_timeout=5,
+                    socket_connect_timeout=5,
+                    socket_keepalive=True,
+                )
