@@ -44,6 +44,7 @@ class TestHAARRRvestPublisher:
     @pytest.fixture
     def publisher(self, mock_env, temp_dirs):
         """Create publisher instance."""
+        _ = mock_env  # Fixture dependency, environment is already set
         publisher = HAARRRvestPublisher(
             output_dir=str(temp_dirs["outputs"]),
             data_repo_path=str(temp_dirs["repo"]),

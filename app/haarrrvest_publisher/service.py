@@ -686,7 +686,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 "-c",
                 "SELECT COUNT(*) FROM organization;",
             ]
-            result = subprocess.run(check_cmd, env=env, capture_output=True, text=True)
+            result = subprocess.run(
+                check_cmd, env=env, capture_output=True, text=True
+            )  # nosec B603 - Safe hardcoded command
 
             if result.returncode != 0:
                 logger.error(f"Failed to check database record count: {result.stderr}")
@@ -788,7 +790,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 "--clean",
             ]
             with open(dump_path, "w") as dump_file:
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603 - Safe hardcoded command
                     dump_cmd,
                     env=env,
                     stdout=dump_file,
@@ -1074,6 +1076,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 
     def _shutdown_handler(self, signum=None, frame=None):
         """Handle shutdown by creating a final SQL dump."""
+        _ = signum, frame  # Signal handler parameters, not used but required
         logger.info("Received shutdown signal, creating final SQL dump...")
         try:
             # Create a final SQL dump before shutdown
