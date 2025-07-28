@@ -428,25 +428,53 @@ case "$1" in
 
         # Start test services if not already running
         output info "Ensuring test services are running..."
-        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up\|Running"; then
-            output info "Starting database service..."
-            $COMPOSE_CMD $COMPOSE_FILES up -d db cache
-            
-            # Wait for services to be ready
-            output info "Waiting for services to be ready..."
-            timeout 60 bash -c "until $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q 'healthy\|running'; do echo 'Waiting for db...'; sleep 2; done" || {
-                output error "Database service failed to start"
+        
+        # Start services
+        output info "Starting database and cache services..."
+        $COMPOSE_CMD $COMPOSE_FILES up -d db cache
+        
+        # Wait for PostgreSQL to be ready
+        output info "Waiting for database to be ready..."
+        max_attempts=30
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+                output info "Database is ready!"
+                break
+            fi
+            attempt=$((attempt + 1))
+            if [ $attempt -eq $max_attempts ]; then
+                output error "Database failed to become ready"
+                $COMPOSE_CMD $COMPOSE_FILES ps
+                $COMPOSE_CMD $COMPOSE_FILES logs db --tail 50
                 exit 1
-            }
-            timeout 60 bash -c "until $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q 'healthy\|running'; do echo 'Waiting for cache...'; sleep 2; done" || {
-                output error "Cache service failed to start"
+            fi
+            echo "Waiting for database... (attempt $attempt/$max_attempts)"
+            sleep 2
+        done
+        
+        # Wait for Redis to be ready
+        output info "Waiting for cache to be ready..."
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
+                output info "Cache is ready!"
+                break
+            fi
+            attempt=$((attempt + 1))
+            if [ $attempt -eq $max_attempts ]; then
+                output error "Cache failed to become ready"
+                $COMPOSE_CMD $COMPOSE_FILES ps
+                $COMPOSE_CMD $COMPOSE_FILES logs cache --tail 50
                 exit 1
-            }
-            
-            # Create test database
-            output info "Creating test database..."
-            $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
-        fi
+            fi
+            echo "Waiting for cache... (attempt $attempt/$max_attempts)"
+            sleep 2
+        done
+        
+        # Create test database
+        output info "Creating test database..."
+        $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
 
         # Check if we're in a TTY (disable TTY in programmatic mode)
         TTY_FLAG=""
