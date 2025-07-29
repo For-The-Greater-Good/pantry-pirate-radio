@@ -85,13 +85,13 @@ The test suite now includes multiple safety checks:
 
 ```bash
 # Run all tests
-poetry run pytest
+./bouy test --pytest
 
 # Run with verbose output to see safety checks
-poetry run pytest -v
+./bouy test --pytest -- -v
 
 # Run a specific test file
-poetry run pytest tests/test_specific.py
+./bouy test --pytest tests/test_specific.py
 ```
 
 ## Troubleshooting
@@ -147,5 +147,7 @@ When using the VS Code dev container:
    ```bash
    export TEST_DATABASE_URL="postgresql+psycopg2://postgres:your_secure_password@db:5432/test_pantry_pirate_radio"
    export TEST_REDIS_URL="redis://cache:6379/1"
-   poetry run pytest
+   ./bouy test --pytest
    ```
+   
+   Note: The test environment is automatically configured when using bouy.

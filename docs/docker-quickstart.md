@@ -28,7 +28,7 @@ cp .env.example .env
 ./bouy up --with-init
 
 # Monitor progress (5-15 minutes with SQL dumps, 30+ minutes without)
-docker compose logs -f db-init
+./bouy logs -f db-init
 
 # Access API
 open http://localhost:8000/docs
@@ -56,7 +56,7 @@ Fastest startup, but no initial data:
 
 ```bash
 # Start core services only
-docker compose up -d
+./bouy up
 
 # Access API (will be empty)
 open http://localhost:8000/docs
@@ -101,38 +101,35 @@ open http://localhost:8000/docs
 ./bouy claude-auth          # Authenticate Claude provider
 ```
 
-### Using Docker Compose Directly
+### Additional Commands
 
 ```bash
-# View all services
-docker compose ps
+# View all services with JSON output
+./bouy --json ps
 
-# View logs
-docker compose logs -f [service-name]
+# Follow logs for multiple services
+./bouy logs -f app worker
 
-# Stop all services
-docker compose down
+# Execute commands in containers
+./bouy exec app python --version
+./bouy exec db pg_isready
 
-# Stop and remove data
-docker compose down -v
-
-# Running scrapers
-docker compose exec scraper python -m app.scraper --list
-docker compose exec scraper python -m app.scraper nyc_efap_programs
-docker compose exec scraper python -m app.scraper --all
+# Programmatic mode for CI/CD
+./bouy --programmatic --quiet test
+./bouy --programmatic scraper --all
 ```
 
 ### Database Access
 
 ```bash
 # Connect to database
-docker compose exec db psql -U postgres -d pantry_pirate_radio
+./bouy exec db psql -U postgres -d pantry_pirate_radio
 
 # Check record count
-docker compose exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
 
 # Create a SQL dump for fast init
-docker compose exec app bash /app/scripts/create-sql-dump.sh
+./bouy exec app bash /app/scripts/create-sql-dump.sh
 ```
 
 ## Environment Variables
@@ -185,7 +182,7 @@ lsof -i :5432  # Database port
 ```bash
 # Increase Docker memory in Docker Desktop settings
 # Or scale down workers
-docker compose up -d --scale worker=1
+./bouy up --scale worker=1
 ```
 
 ## Programmatic Usage
