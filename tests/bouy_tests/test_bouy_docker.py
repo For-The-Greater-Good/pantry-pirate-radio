@@ -96,7 +96,7 @@ case "$*" in"""
         # Set environment variable for the mock script
         os.environ["MOCK_RESPONSES_DIR"] = str(mock_docker_responses)
 
-        wrapper.write_text(
+        wrapper.write_text(  # noqa: S608
             wrapper_content
             + """
     *"ps --format json"*)
