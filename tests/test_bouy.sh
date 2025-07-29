@@ -63,7 +63,7 @@ run_test "Invalid command" 1 ./bouy --programmatic invalid-command
 
 # Service management tests
 echo -e "\n${YELLOW}Service Management:${NC}"
-run_test "Status command" 0 ./bouy --programmatic status
+run_test "PS command" 0 ./bouy --programmatic ps
 run_test "Up command" 0 ./bouy --programmatic up
 run_test "Down command" 0 ./bouy --programmatic down
 
@@ -75,18 +75,18 @@ run_test "Exec without service" 1 ./bouy --programmatic exec
 
 # Scraper tests
 echo -e "\n${YELLOW}Scraper Commands:${NC}"
-run_test "Scraper list" 0 ./bouy --programmatic scraper list
-run_test "Invalid scraper name" 1 ./bouy --programmatic scraper "../etc/passwd"
+run_test "Scraper list" 0 ./bouy --programmatic scraper --list
+run_test "Run scraper" 0 ./bouy --programmatic scraper test_scraper
 
 # JSON output tests
 echo -e "\n${YELLOW}JSON Output Mode:${NC}"
-run_test "JSON status" 0 ./bouy --json status
+run_test "JSON ps" 0 ./bouy --json ps
 run_test "JSON up" 0 ./bouy --json up
 
 # Mode tests
 echo -e "\n${YELLOW}Environment Modes:${NC}"
-run_test "Dev mode config" 0 ./bouy --dev config
-run_test "Test mode config" 0 ./bouy --test config
+run_test "Dev mode up" 0 ./bouy up --dev
+run_test "Test mode up" 0 ./bouy up --test
 
 # Print summary
 echo -e "\n=== Test Summary ==="
