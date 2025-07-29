@@ -143,6 +143,10 @@ case "$*" in
         echo "test"
         exit 0
         ;;
+    *"python -m app.reconciler"*)
+        echo "Running reconciler..."
+        exit 0
+        ;;
     *"exec"*"app"*)
         # Service not running
         echo "service \\"app\\" is not running" >&2
