@@ -86,19 +86,16 @@ class TestBouyInDocker:
         wrapper = tmp_path / "docker-compose-mock"
         # Create the wrapper script content
         # Using environment variable instead of direct string interpolation for safety
-        wrapper_content = """#!/bin/bash
+        # Set environment variable for the mock script
+        os.environ["MOCK_RESPONSES_DIR"] = str(mock_docker_responses)
+
+        # Create full script using a single string literal to avoid concatenation warning
+        wrapper.write_text("""#!/bin/bash
 # Mock docker compose wrapper for testing
 
 RESPONSES_DIR="${MOCK_RESPONSES_DIR}"
 
-case "$*" in"""
-
-        # Set environment variable for the mock script
-        os.environ["MOCK_RESPONSES_DIR"] = str(mock_docker_responses)
-
-        wrapper.write_text(  # noqa: S608
-            wrapper_content
-            + """
+case "$*" in
     *"ps --format json"*)
         if [[ "$*" == *"app"* ]]; then
             cat "$RESPONSES_DIR/ps_json_app.json"
@@ -150,8 +147,7 @@ case "$*" in"""
         exit 1
         ;;
 esac
-"""
-        )
+""")
         wrapper.chmod(0o755)
         return str(wrapper)
 
