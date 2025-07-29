@@ -395,3 +395,70 @@ jobs:
 
       - name: Run Xenon complexity check
         run: poetry run xenon --max-absolute F --max-modules F --max-average E app
+
+  bouy-tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    # Run on native Ubuntu without Docker to test bouy functionality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Install system dependencies
+        run: |
+          # Install Docker Compose v2 plugin
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
+          docker compose version
+
+          # Install bats for shell tests
+          sudo apt-get install -y bats
+
+      - name: Make scripts executable
+        run: |
+          chmod +x ./bouy
+          chmod +x ./bouy-functions.sh
+          chmod +x tests/test_bouy.sh
+          chmod +x tests/shell/fixtures/mock_compose.sh
+
+      - name: Test bouy help and version
+        run: |
+          # Basic functionality tests
+          ./bouy --help
+          ./bouy --version
+          ./bouy --programmatic --help
+
+      - name: Run bouy unit tests
+        run: |
+          # Run Python unit tests for bouy functions
+          poetry run pytest tests/test_bouy_unit.py tests/test_bouy_simplified.py -v
+
+      - name: Run bouy integration tests
+        run: |
+          # Run integration tests with mocked docker compose
+          poetry run pytest tests/test_bouy_integration.py tests/test_bouy_docker.py -v
+
+      - name: Run bouy shell tests
+        run: |
+          # Run bash test suite
+          ./tests/test_bouy.sh

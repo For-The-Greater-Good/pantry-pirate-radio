@@ -292,7 +292,7 @@ cp .env.example .env
 git config core.hooksPath .githooks
 
 # 4. Install dependencies
-poetry install
+# Dependencies are installed automatically in containers via bouy
 
 # 5. Start all services
 docker compose up -d
@@ -315,12 +315,10 @@ export LLM_PROVIDER=claude
 export ANTHROPIC_API_KEY=your_api_key_here  # Optional
 
 # Start services
-docker compose up -d
+./bouy up
 
 # Setup authentication (interactive)
 ./bouy claude-auth                   # Recommended: Interactive Claude CLI auth
-# OR
-docker compose exec worker python -m app.claude_auth_manager setup
 
 # Check authentication status
 curl http://localhost:8080/health
@@ -340,7 +338,7 @@ export OPENROUTER_API_KEY=your_api_key_here
 export LLM_MODEL_NAME=gpt-4
 
 # Start services
-docker compose up -d
+./bouy up
 ```
 
 ## Service URLs (Development)
@@ -407,11 +405,11 @@ docker compose up -d
 ./bouy --no-color logs app    # Disable colored output
 
 # Combine flags for automation
-./bouy --programmatic --quiet exec app python --version
+./bouy --programmatic exec app python --version
 ./bouy --json --verbose ps   # JSON output with debug info
 
 # Non-interactive execution (no TTY)
-./bouy --programmatic exec scraper python -m app.scraper --list
+./bouy --programmatic scraper --list
 ```
 
 #### Using Docker Compose Directly
@@ -472,7 +470,7 @@ poetry run vulture app/                 # Unused code detection
 # Run all CI checks
 ./bouy test                        # Using Docker (recommended)
 ./scripts/run-ci-checks-docker.sh      # Alternative Docker method
-./scripts/run-ci-checks.sh             # Using local poetry installation
+./scripts/run-ci-checks.sh             # Using local # Dependencies are installed automatically in containers via bouyation
 ```
 
 #### **Scraper Management**
@@ -482,35 +480,35 @@ poetry run vulture app/                 # Unused code detection
 ./bouy scraper nyc_efap_programs   # Run specific scraper
 ./bouy scraper --all               # Run all scrapers
 
-# Or run directly in the container
-docker compose exec scraper python -m app.scraper --list
-docker compose exec scraper python -m app.scraper nyc_efap_programs
-docker compose exec scraper python -m app.scraper --all
+# Test scrapers (dry run)
+./bouy scraper-test --all          # Test all scrapers
+./bouy scraper-test nyc_efap_programs  # Test specific scraper
 
-# Or run locally with poetry
-python -m app.scraper --list
-python -m app.scraper nyc_efap_programs
-python -m app.scraper --all
-python -m app.scraper --all --parallel --max-workers 4
+# Monitor scrapers
+./bouy logs scraper                # View scraper logs
+./bouy logs -f scraper             # Follow logs
 
-# Test scrapers without processing
-python -m app.scraper.test_scrapers --all
+# Programmatic mode
+./bouy --programmatic scraper --list
+./bouy --quiet scraper nyc_efap_programs
 ```
 
 #### **Docker Development**
 ```bash
-# Build specific service targets
-docker build --target app -t pantry-pirate-radio:app .
-docker build --target worker -t pantry-pirate-radio:worker .
-docker build --target recorder -t pantry-pirate-radio:recorder .
+# Build services
+./bouy build                       # Build all services
+./bouy build app                   # Build specific service
+./bouy build worker                # Build worker service
+./bouy build --prod app            # Build for production
 
-# Run tests using Docker
-docker build --target test -t pantry-pirate-radio:test .
-docker run --rm pantry-pirate-radio:test
+# Run tests
+./bouy test                        # Run all tests
+./bouy test --pytest               # Run pytest only
 
 # Debug service containers
-docker compose exec app bash
-docker compose exec worker bash
+./bouy shell app                   # Open shell in app container
+./bouy shell worker                # Open shell in worker container
+./bouy exec app bash -c "echo test"  # Execute command
 ```
 
 ### Quality Standards

@@ -2,6 +2,25 @@
 
 This directory contains comprehensive tests for the `bouy` Docker fleet management script.
 
+## CI/CD Integration
+
+The bouy tests run in a dedicated job in the CI pipeline that executes outside of Docker containers. This is necessary because:
+
+1. **Docker-in-Docker limitations**: Testing Docker commands inside Docker containers is complex and unreliable
+2. **Native execution**: Bouy tests need to verify bash script functionality directly
+3. **Mocking strategy**: Tests use mock scripts to simulate Docker Compose behavior
+
+### How CI Works
+
+1. **Main test job** (`pytest`): Runs all tests inside Docker with `RUNNING_IN_DOCKER=1` environment variable set
+   - Bouy tests are automatically skipped via pytest markers
+   - All other tests run normally with full database/Redis setup
+
+2. **Bouy test job** (`bouy-tests`): Runs on native Ubuntu runner
+   - Installs Docker Compose plugin and bats for shell testing
+   - Runs bouy tests directly without containerization
+   - Uses mock scripts to simulate Docker behavior
+
 ## Test Structure
 
 ```
@@ -19,10 +38,11 @@ tests/
 
 ### 1. Run all tests via bouy (recommended)
 ```bash
-./bouy test pytest
+./bouy test
 ```
+**Note**: When running via bouy, the bouy tests themselves will be skipped since they run inside Docker.
 
-### 2. Run bouy-specific tests only
+### 2. Run bouy-specific tests locally (outside Docker)
 ```bash
 # Using pytest directly
 poetry run pytest tests/test_bouy_*.py -v
@@ -32,10 +52,23 @@ poetry run pytest tests/test_bouy_*.py -v
 ```
 
 ### 3. Run tests in CI
-The tests are automatically run as part of the CI checks:
-```bash
-./scripts/run-ci-checks.sh
+The bouy tests run automatically in CI in a dedicated job that doesn't use Docker. This allows testing the actual bouy script functionality.
+
+## Skip Mechanism
+
+All bouy test files include a pytest marker that skips them when running inside Docker:
+
+```python
+pytestmark = pytest.mark.skipif(
+    os.path.exists("/.dockerenv") or os.environ.get("RUNNING_IN_DOCKER"),
+    reason="Bouy tests cannot run inside Docker containers"
+)
 ```
+
+This ensures:
+- Tests are skipped when running `./bouy test` (which runs inside Docker)
+- Tests run normally in the CI `bouy-tests` job (native Ubuntu)
+- Tests can be run locally with `poetry run pytest`
 
 ## Test Categories
 

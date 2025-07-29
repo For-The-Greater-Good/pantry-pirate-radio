@@ -13,6 +13,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy test                  # Run all tests and checks
 ./bouy logs app              # View service logs
 ./bouy shell app             # Open shell in container
+./bouy ps                    # List running services
+./bouy clean                 # Stop and remove volumes
+./bouy version               # Show bouy version
 
 # Testing Commands
 ./bouy test --pytest         # Run tests only
@@ -20,17 +23,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy test --black         # Format checking only
 ./bouy test --ruff          # Linting only
 ./bouy test --bandit        # Security scan only
+./bouy test --coverage       # Tests with coverage check
 
 # Scraper Commands
 ./bouy scraper --list       # List all scrapers
 ./bouy scraper --all        # Run all scrapers
 ./bouy scraper NAME         # Run specific scraper
+./bouy scraper-test NAME    # Test scraper (dry run)
+
+# Service Management
+./bouy build                # Build all services
+./bouy build app            # Build specific service
+./bouy exec app CMD         # Execute command in container
 
 # Programmatic Mode (for CI/automation)
 ./bouy --programmatic test  # Structured output
 ./bouy --json ps            # JSON output
 ./bouy --quiet up           # Minimal output
 ./bouy --no-color logs app  # No color codes
+./bouy --verbose up         # Debug output
 ```
 
 ## Development Commands
@@ -52,7 +63,7 @@ This project follows Test-Driven Development principles. Always write tests befo
 # 1. Create test file first
 touch tests/test_new_feature.py
 
-# 2. Write failing test and run with Docker
+# 2. Write failing test and run with bouy
 ./bouy test --pytest  # Should fail
 
 # 3. Implement minimal code to pass
@@ -68,26 +79,82 @@ touch tests/test_new_feature.py
 ./bouy test  # Runs all CI checks
 ```
 
-### Running Tests with Docker
-```bash
-# Run all tests with coverage (runs all CI checks)
-./bouy test
+## Testing with Bouy
 
-# Run only pytest with coverage
+### Running All Tests
+```bash
+./bouy test                  # Run all CI checks (pytest, mypy, black, ruff, bandit)
+```
+
+### Running Specific Test Types
+```bash
+./bouy test --pytest         # Run pytest with coverage
+./bouy test --mypy           # Type checking only
+./bouy test --black          # Code formatting only
+./bouy test --ruff           # Linting only
+./bouy test --bandit         # Security scan only
+./bouy test --coverage       # Pytest with coverage threshold check
+```
+
+### Running Specific Test Files
+```bash
+# Test a specific file
+./bouy test --pytest tests/test_api.py
+
+# Test a directory
+./bouy test --pytest tests/test_scraper/
+
+# Multiple files
+./bouy test --pytest tests/test_api.py tests/test_reconciler.py
+```
+
+### Passing Additional Arguments to Tests
+
+Use `--` to pass arguments to the underlying test command:
+
+```bash
+# Verbose output
+./bouy test --pytest -- -v
+
+# Run tests matching pattern
+./bouy test --pytest -- -k test_name
+./bouy test --pytest -- -k "test_api or test_reconciler"
+
+# Stop on first failure
+./bouy test --pytest -- -x
+
+# Drop to debugger on failure
+./bouy test --pytest -- --pdb
+
+# Show local variables
+./bouy test --pytest -- -l
+
+# Run specific test function
+./bouy test --pytest -- tests/test_api.py::TestAPI::test_get_organizations
+
+# Combine options
+./bouy test --pytest -- -vsx -k test_name
+```
+
+### Test Output Formats
+```bash
+# Normal output (default)
 ./bouy test --pytest
 
-# Run specific test types
-./bouy test --mypy      # Type checking only
-./bouy test --black     # Code formatting only
-./bouy test --ruff      # Linting only
-./bouy test --bandit    # Security scan only
-./bouy test --coverage  # Pytest with coverage check
+# Programmatic mode (structured output for CI)
+./bouy --programmatic test --pytest
 
-# Programmatic mode for automation
-./bouy --programmatic test --pytest          # Structured output
-./bouy --json ps                             # JSON output
-./bouy --quiet test --mypy                   # Minimal output
-./bouy --programmatic --quiet test --black   # Combined flags
+# JSON output
+./bouy --json test --pytest
+
+# Quiet mode (minimal output)
+./bouy --quiet test --pytest
+
+# No color (for log files)
+./bouy --no-color test --pytest
+
+# Combine modes
+./bouy --programmatic --quiet test
 ```
 
 ### Coverage Analysis
@@ -95,7 +162,7 @@ touch tests/test_new_feature.py
 # Run tests with coverage check
 ./bouy test --coverage
 
-# Coverage reports are generated in the container and available at:
+# Coverage reports are automatically generated:
 # - htmlcov/index.html (HTML report)
 # - coverage.xml (XML report for CI)
 # - coverage.json (JSON report for automation)
@@ -104,22 +171,41 @@ touch tests/test_new_feature.py
 open htmlcov/index.html
 ```
 
-### Code Quality Checks
+### Type Checking Specific Files
 ```bash
-# Run all quality checks
-./bouy test
+# Check specific paths
+./bouy test --mypy app/api/
+./bouy test --mypy app/api/ app/llm/
+```
 
-# Run individual checks
-./bouy test --mypy      # Type checking
-./bouy test --black     # Code formatting
-./bouy test --ruff      # Linting
-./bouy test --bandit    # Security scan
+### Code Formatting
+```bash
+# Check formatting (updates files automatically)
+./bouy test --black
 
-# For programmatic use in CI/CD
-./bouy --programmatic --quiet test --mypy
-./bouy --programmatic --quiet test --black
-./bouy --programmatic --quiet test --ruff
-./bouy --programmatic --quiet test --bandit
+# Check specific paths
+./bouy test --black app/api/
+```
+
+### Security Scanning
+```bash
+# Run security scan
+./bouy test --bandit
+
+# With custom severity
+./bouy test --bandit -- -ll  # Low severity and above
+```
+
+### CI/CD Testing Examples
+```bash
+# GitHub Actions / CI pipelines
+./bouy --programmatic --quiet test              # All checks, minimal output
+./bouy --programmatic --quiet test --pytest     # Just tests
+./bouy --programmatic --quiet test --mypy       # Just type checking
+./bouy --json test --pytest                     # JSON test results
+
+# Combine with error checking
+./bouy --programmatic --quiet test || exit 1
 ```
 
 ### Development Setup
@@ -136,26 +222,38 @@ open htmlcov/index.html
 ./bouy down                 # Stop all services
 ./bouy ps                   # List running services
 ./bouy logs app             # View service logs
+./bouy logs -f worker       # Follow worker logs
 ./bouy shell app            # Open shell in container
 ./bouy exec app python --version  # Execute command
 ./bouy clean                # Stop and remove volumes
 
+# Build services
+./bouy build                # Build all services
+./bouy build app            # Build specific service
+./bouy build --prod worker  # Build for production
+
 # Programmatic mode for automation
 ./bouy --json ps            # Get service status as JSON
 ./bouy --quiet up           # Start with minimal output
+./bouy --programmatic exec app python -c "print('test')"
 ```
 
-### Docker Build Commands
+### Environment Modes
 ```bash
-# Build all services
-./bouy build
+# Development mode (default)
+./bouy up
+./bouy up --dev
 
-# Build specific service
-./bouy build app
-./bouy build worker
+# Production mode
+./bouy up --prod
 
-# The test image is automatically built when running tests
-./bouy test  # Builds test image if needed
+# Test mode
+./bouy up --test
+
+# With database initialization from HAARRRvest
+./bouy up --with-init
+./bouy up --dev --with-init
+./bouy up --prod --with-init
 ```
 
 ### Running Scrapers
@@ -195,6 +293,10 @@ open htmlcov/index.html
 ./bouy replay --directory path/to/dir            # Replay directory
 ./bouy replay --use-default-output-dir           # Use outputs directory
 ./bouy replay --use-default-output-dir --dry-run # Preview without executing
+
+# With programmatic output
+./bouy --programmatic replay --use-default-output-dir
+./bouy --quiet replay --file output.json
 ```
 
 ### Service Management Commands
@@ -227,14 +329,17 @@ open htmlcov/index.html
 
 ### CI Checks
 ```bash
-# Run all CI checks using Docker
+# Run all CI checks
 ./bouy test
-
-# Or use the Docker-based CI script directly
-./scripts/run-ci-checks-bouy
 
 # For GitHub Actions or other CI systems
 ./bouy --programmatic --quiet test
+
+# With specific output formats
+./bouy --json test               # JSON output
+./bouy --programmatic test       # Structured logging
+./bouy --quiet test              # Minimal output
+./bouy --no-color test           # Plain text
 ```
 
 ## Architecture Overview
@@ -368,12 +473,15 @@ Key environment variables (see `.env.example`):
 ./bouy claude-auth
 
 # Check authentication status
-curl http://localhost:8080/health
+./bouy claude-auth status
 
-# Alternative manual commands
-./bouy exec worker python -m app.claude_auth_manager setup
-./bouy exec worker python -m app.claude_auth_manager status
-./bouy exec worker python -m app.claude_auth_manager test
+# Other authentication commands
+./bouy claude-auth setup         # Setup authentication
+./bouy claude-auth test          # Test connection
+./bouy claude-auth config        # Show configuration
+
+# Check health endpoint
+curl http://localhost:8080/health
 ```
 
 ### HSDS Validation Details
@@ -402,11 +510,16 @@ curl http://localhost:8080/health
 # Start the publisher service
 ./bouy up haarrrvest-publisher
 
+# Manually trigger publishing
+./bouy haarrrvest                # Run publisher immediately
+./bouy haarrrvest run           # Same as above
+
+# Monitor publisher
+./bouy haarrrvest logs          # Follow publisher logs
+./bouy haarrrvest status        # Check publisher status
+
 # View logs
 ./bouy logs haarrrvest-publisher
-
-# Restart to trigger immediate processing
-./bouy exec haarrrvest-publisher supervisorctl restart all
 
 # Check service status
 ./bouy ps
@@ -427,7 +540,7 @@ curl http://localhost:8080/health
 
 ## Pre-commit Hooks
 
-All pre-commit hooks run in Docker containers. No local Python installation required!
+All pre-commit hooks run in Docker containers via bouy. No local Python installation required!
 
 ```bash
 # Install pre-commit hooks (one-time setup)
@@ -436,22 +549,18 @@ pre-commit install
 # Run all hooks manually
 pre-commit run --all-files
 
-# Run specific hook
-pre-commit run black-docker --all-files
-pre-commit run mypy-docker --all-files
-
 # Skip hooks for a commit (use sparingly!)
 git commit --no-verify -m "Emergency fix"
 ```
 
 ### Hook Configuration
 The `.pre-commit-config.yaml` is configured to run all Python tools via `bouy`:
-- **black-docker**: Code formatting
-- **ruff-docker**: Linting
-- **mypy-docker**: Type checking
-- **pytest-docker**: Test suite
+- **black-docker**: Code formatting via `./bouy --programmatic --quiet test --black`
+- **ruff-docker**: Linting via `./bouy --programmatic --quiet test --ruff`
+- **mypy-docker**: Type checking via `./bouy --programmatic --quiet test --mypy`
+- **pytest-docker**: Test suite via `./bouy --programmatic --quiet test --pytest`
 
-All hooks use `./bouy --programmatic --quiet test --TOOL` for consistent Docker execution.
+All hooks use bouy's programmatic mode for consistent Docker execution.
 
 ## CLI and Development Tools
 
