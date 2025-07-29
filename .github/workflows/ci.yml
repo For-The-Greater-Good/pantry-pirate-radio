@@ -450,12 +450,14 @@ jobs:
       - name: Run bouy unit tests
         run: |
           # Run Python unit tests for bouy functions
-          poetry run pytest tests/test_bouy_unit.py tests/test_bouy_simplified.py -v
+          # Use custom pytest config to avoid loading Redis-dependent fixtures
+          cd tests && poetry run pytest -c pytest-bouy.ini test_bouy_unit.py test_bouy_simplified.py -v
 
       - name: Run bouy integration tests
         run: |
           # Run integration tests with mocked docker compose
-          poetry run pytest tests/test_bouy_integration.py tests/test_bouy_docker.py -v
+          # Use custom pytest config to avoid loading Redis-dependent fixtures
+          cd tests && poetry run pytest -c pytest-bouy.ini test_bouy_integration.py test_bouy_docker.py -v
 
       - name: Run bouy shell tests
         run: |
