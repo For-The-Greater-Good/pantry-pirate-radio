@@ -190,15 +190,7 @@ class TestBouyFunctions:
     def test_check_service_status_function(self, setup_env, bouy_functions_path):
         """Test check_service_status function."""
         # Create a mock docker compose ps output
-        mock_ps_output = """
-        [
-            {
-                "Name": "app",
-                "State": "running",
-                "Status": "Up 2 hours"
-            }
-        ]
-        """
+        mock_ps_output = '[{"Name":"app","State":"running","Status":"Up 2 hours"}]'
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
             f.write(
