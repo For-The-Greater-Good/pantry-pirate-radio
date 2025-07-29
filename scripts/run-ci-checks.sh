@@ -54,6 +54,19 @@ run_check "Pip Audit" poetry run pip-audit
 # Complexity Check
 run_check "Complexity Check" poetry run xenon --max-absolute F --max-modules F --max-average E app
 
+# Shell Script Quality Checks
+echo -e "\n=== Running Shell Script Checks ==="
+if command -v shellcheck >/dev/null 2>&1; then
+    run_check "Shellcheck - bouy" shellcheck -x bouy
+    run_check "Shellcheck - bouy-api" shellcheck -x bouy-api
+else
+    echo "Shellcheck not installed, skipping shell script linting"
+fi
+
+# Bouy Script Tests
+echo -e "\n=== Running Bouy Script Tests ==="
+run_check "Bouy Tests" poetry run pytest tests/test_bouy_unit.py tests/test_bouy_integration.py tests/test_bouy_docker.py -v
+
 echo -e "\nCI checks completed!"
 
 # Report results

@@ -96,7 +96,14 @@ COMMANDS:
     ps                     List all services
     test [TYPE]           Run tests (all|pytest|mypy|black|ruff|bandit)
     scraper [CMD]         Run scraper (list|all|NAME)
+    scraper-test [CMD]    Test scraper without processing (all|NAME)
     claude-auth           Authenticate Claude
+    reconciler            Run reconciler to process job results
+    recorder              Run recorder to save results to JSON
+    content-store [CMD]   Content store operations (status|report|duplicates|efficiency)
+    haarrrvest [CMD]      HAARRRvest publisher (run|status)
+    datasette [CMD]       Export database to SQLite (export|status)
+    replay [ARGS...]      Replay JSON files (--file|--directory|--dry-run)
 
 EXIT CODES:
     0   Success
@@ -429,6 +436,158 @@ case "$COMMAND" in
 
         # This needs to be interactive
         $COMPOSE_CMD $COMPOSE_FILES exec worker claude
+        ;;
+
+    scraper-test)
+        subcmd="${1:-all}"
+        parse_mode "$@"
+
+        # Ensure scraper service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps scraper | grep -q "Up"; then
+            output "info" "Starting scraper service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d scraper
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            all)
+                output "info" "Testing all scrapers (dry run)"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper.test_scrapers --all
+                ;;
+            *)
+                output "info" "Testing scraper: $subcmd"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper.test_scrapers "$subcmd"
+                ;;
+        esac
+        ;;
+
+    reconciler)
+        parse_mode "$@"
+
+        # Ensure reconciler service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps reconciler | grep -q "Up"; then
+            output "info" "Starting reconciler service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d reconciler db
+            sleep 2
+        fi
+
+        output "info" "Running reconciler"
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T reconciler python -m app.reconciler
+        ;;
+
+    recorder)
+        parse_mode "$@"
+
+        # Ensure recorder service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps recorder | grep -q "Up"; then
+            output "info" "Starting recorder service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d recorder cache
+            sleep 2
+        fi
+
+        output "info" "Running recorder"
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T recorder python -m app.recorder
+        ;;
+
+    content-store)
+        subcmd="${1:-status}"
+        parse_mode "$@"
+
+        # Ensure worker service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker | grep -q "Up"; then
+            output "info" "Starting worker service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d worker
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            status|report|duplicates|efficiency)
+                output "info" "Running content-store $subcmd"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store "$subcmd"
+                ;;
+            *)
+                output "error" "Unknown content-store command: $subcmd"
+                exit 5
+                ;;
+        esac
+        ;;
+
+    haarrrvest)
+        subcmd="${1:-run}"
+        parse_mode "$@"
+
+        # Ensure haarrrvest-publisher service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher | grep -q "Up"; then
+            output "info" "Starting haarrrvest-publisher service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d haarrrvest-publisher db
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            run)
+                output "info" "Running HAARRRvest publisher"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher python -m app.haarrrvest_publisher.service --once
+                ;;
+            status)
+                output "info" "Checking HAARRRvest publisher status"
+                get_service_status haarrrvest-publisher
+                ;;
+            *)
+                output "error" "Unknown haarrrvest command: $subcmd"
+                exit 5
+                ;;
+        esac
+        ;;
+
+    datasette)
+        subcmd="${1:-export}"
+        parse_mode "$@"
+
+        # Ensure datasette-exporter service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter | grep -q "Up"; then
+            output "info" "Starting datasette-exporter service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter db
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            export)
+                output "info" "Exporting database to SQLite"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
+                ;;
+            status)
+                output "info" "Checking datasette export status"
+                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
+                    output "info" "SQLite export exists"
+                    if [ $JSON_OUTPUT -eq 1 ]; then
+                        echo '{"status":"ready","file":"/data/latest.sqlite"}'
+                    fi
+                else
+                    output "warning" "No SQLite export found"
+                    if [ $JSON_OUTPUT -eq 1 ]; then
+                        echo '{"status":"not_found"}'
+                    fi
+                fi
+                ;;
+            *)
+                output "error" "Unknown datasette command: $subcmd"
+                exit 5
+                ;;
+        esac
+        ;;
+
+    replay)
+        parse_mode "$@"
+
+        # Ensure worker service is running (has all dependencies)
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker | grep -q "Up"; then
+            output "info" "Starting worker service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d worker db cache
+            sleep 2
+        fi
+
+        output "info" "Running replay with args: $@"
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.replay "$@"
         ;;
 
     *)

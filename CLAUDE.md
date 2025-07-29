@@ -174,6 +174,57 @@ open htmlcov/index.html
 ./bouy --programmatic --quiet scraper nyc_efap_programs
 ```
 
+### Testing Scrapers
+```bash
+# Test scrapers without processing (dry run)
+./bouy scraper-test --all
+./bouy scraper-test nyc_efap_programs
+```
+
+### Data Export and Management
+```bash
+# Export database to SQLite for Datasette
+./bouy datasette                    # Run immediate export
+./bouy datasette export             # Same as above
+./bouy datasette schedule           # Start periodic export scheduler
+./bouy datasette status             # Check export status
+
+# Replay recorded JSON files to recreate database records
+./bouy replay                       # Show help
+./bouy replay --file path/to/file.json          # Replay single file
+./bouy replay --directory path/to/dir            # Replay directory
+./bouy replay --use-default-output-dir           # Use outputs directory
+./bouy replay --use-default-output-dir --dry-run # Preview without executing
+```
+
+### Service Management Commands
+```bash
+# Reconciler (processes LLM job results)
+./bouy reconciler                   # Process jobs from queue
+
+# Recorder (saves job results to JSON files)
+./bouy recorder                     # Save results to outputs directory
+
+# Content Store (manages deduplication)
+./bouy content-store status         # Check content store status
+./bouy content-store report         # Generate detailed report
+./bouy content-store duplicates     # Find duplicate content
+./bouy content-store efficiency     # Analyze storage efficiency
+
+# HAARRRvest Publisher (pushes data to repository)
+./bouy haarrrvest                   # Manually trigger publish
+./bouy haarrrvest run              # Same as above
+./bouy haarrrvest logs             # Follow publisher logs
+./bouy haarrrvest status           # Check publisher status
+
+# Claude Authentication (for LLM workers)
+./bouy claude-auth                  # Interactive authentication
+./bouy claude-auth setup           # Setup authentication
+./bouy claude-auth status          # Check auth status
+./bouy claude-auth test            # Test connection
+./bouy claude-auth config          # Show configuration
+```
+
 ### CI Checks
 ```bash
 # Run all CI checks using Docker

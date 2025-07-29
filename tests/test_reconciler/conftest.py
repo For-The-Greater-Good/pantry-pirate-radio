@@ -13,14 +13,18 @@ from tests.fixtures.types.config import get_test_settings
 settings = get_test_settings()
 
 
-@pytest.fixture(autouse=True)
-def setup_database(db_session: Session) -> Generator[None, None, None]:
-    """Clean test data between test runs."""
+@pytest.fixture
+def setup_database(db_session_fixture: Session) -> Generator[None, None, None]:
+    """Clean test data between test runs.
+
+    Note: This fixture is not autouse anymore because some tests use mocks
+    instead of real database connections.
+    """
     # Clear test data from tables
-    db_session.execute(text("TRUNCATE TABLE record_version CASCADE"))
-    db_session.execute(text("TRUNCATE TABLE location CASCADE"))
-    db_session.execute(text("TRUNCATE TABLE organization CASCADE"))
-    db_session.commit()
+    db_session_fixture.execute(text("TRUNCATE TABLE record_version CASCADE"))
+    db_session_fixture.execute(text("TRUNCATE TABLE location CASCADE"))
+    db_session_fixture.execute(text("TRUNCATE TABLE organization CASCADE"))
+    db_session_fixture.commit()
 
     yield
 
@@ -49,16 +53,6 @@ def setup_metrics() -> Generator[None, None, None]:
             pass
 
 
-@pytest.fixture
-def db_session() -> Generator[Session, None, None]:
-    """Database session fixture."""
-    # Create engine and session factory
-    engine = create_engine(settings.DATABASE_URL)
-    SessionLocal = sessionmaker(bind=engine)
-
-    # Create session
-    session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
+# Import the sync db_session fixture from the main fixtures
+# This ensures we use the correct test database configuration
+from tests.fixtures.db import db_session_sync as db_session

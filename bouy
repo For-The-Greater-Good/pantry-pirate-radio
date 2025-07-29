@@ -10,6 +10,11 @@ COMPOSE_FILES="-f docker-compose.yml"
 COMPOSE_CMD="docker compose"
 VERSION="1.0.0"
 
+# Test mode support - allows overriding docker compose command for testing
+if [ -n "$BOUY_TEST_MODE" ]; then
+    COMPOSE_CMD="${BOUY_TEST_COMPOSE_CMD:-docker compose}"
+fi
+
 # Default behavior flags
 PROGRAMMATIC_MODE=0
 VERBOSE=0
@@ -107,7 +112,7 @@ output() {
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"
     output info "Checking database schema in $db_name..."
-    
+
     # Check if record_version table exists (indicates schema is initialized)
     if $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -c "SELECT 1 FROM record_version LIMIT 1;" >/dev/null 2>&1; then
         output success "Database schema is initialized"
@@ -122,7 +127,7 @@ check_database_schema() {
 init_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"
     output info "Initializing database schema in $db_name..."
-    
+
     for init_script in ./init-scripts/*.sql; do
         if [ -f "$init_script" ]; then
             script_name=$(basename "$init_script")
@@ -136,7 +141,7 @@ init_database_schema() {
 # Helper function to check Redis connectivity
 check_redis_connectivity() {
     output info "Checking Redis connectivity..."
-    
+
     if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
         output success "Redis is accessible"
         return 0
@@ -150,9 +155,9 @@ check_redis_connectivity() {
 check_directory_writable() {
     local dir_path="$1"
     local service="$2"
-    
+
     output info "Checking directory: $dir_path"
-    
+
     # Check if directory exists in container
     if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -d "$dir_path" 2>/dev/null; then
         # Check if writable
@@ -181,7 +186,7 @@ wait_for_database() {
     output info "Waiting for database to be ready..."
     local max_attempts=30
     local attempt=0
-    
+
     while [ $attempt -lt $max_attempts ]; do
         if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
             output success "Database is ready!"
@@ -201,19 +206,19 @@ wait_for_database() {
 check_git_config() {
     local service="$1"
     output info "Checking git configuration..."
-    
+
     # Check git user.name
     if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name >/dev/null 2>&1; then
         output warning "Git user.name not set, using default"
         $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name "Pantry Pirate Radio" || true
     fi
-    
+
     # Check git user.email
     if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email >/dev/null 2>&1; then
         output warning "Git user.email not set, using default"
         $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email "pantry-pirate-radio@example.com" || true
     fi
-    
+
     output success "Git configuration verified"
 }
 
@@ -258,6 +263,11 @@ usage() {
     echo "  test --ruff         Run only ruff linting"
     echo "  test --bandit       Run only bandit security check"
     echo "  test --coverage     Run pytest with coverage"
+    echo ""
+    echo "  Additional arguments can be passed after -- or directly:"
+    echo "    test --pytest tests/test_bouy_unit.py"
+    echo "    test --pytest -- -v -k test_output_function"
+    echo "    test --pytest -- tests/test_bouy_unit.py::TestBouyFunctions::test_output_function_json_mode"
     echo ""
     echo "Scraper options:"
     echo "  scraper --list      List all available scrapers"
@@ -511,33 +521,79 @@ case "$1" in
     test)
         shift
         test_cmd=""
+        test_type="${1:-all}"
+        shift || true  # Shift past the test type
+
+        # Collect any additional arguments
+        additional_args=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --dev|--prod|--test|--with-init)
+                    # Skip mode flags
+                    shift
+                    ;;
+                --)
+                    # Everything after -- is passed to the test command
+                    shift
+                    additional_args="$@"
+                    break
+                    ;;
+                *)
+                    additional_args="$additional_args $1"
+                    shift
+                    ;;
+            esac
+        done
 
         # Parse test options
-        case "${1:-all}" in
+        case "$test_type" in
             --pytest)
                 test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
+                # Add any additional pytest arguments
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
                 ;;
             --mypy)
                 test_cmd="poetry run mypy app tests"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
                 ;;
             --black)
                 test_cmd="poetry run black app tests"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
                 ;;
             --ruff)
                 test_cmd="poetry run ruff check app tests"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
                 ;;
             --bandit)
                 test_cmd="poetry run bandit -r app"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
                 ;;
             --coverage)
-                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch && bash scripts/coverage-check.sh"
+                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                test_cmd="$test_cmd && bash scripts/coverage-check.sh"
                 ;;
             all|"")
                 test_cmd="bash scripts/run-ci-checks.sh"
+                if [ -n "$additional_args" ]; then
+                    output warning "Additional arguments are not supported with 'all' test option"
+                fi
                 ;;
             *)
-                output error "Unknown test option: $1"
-                output error "Use: test [--pytest|--mypy|--black|--ruff|--bandit|--coverage]"
+                output error "Unknown test option: $test_type"
+                output error "Use: test [--pytest|--mypy|--black|--ruff|--bandit|--coverage] [-- additional arguments]"
                 exit 1
                 ;;
         esac
@@ -615,7 +671,10 @@ case "$1" in
             sleep 2
         done
 
-        # Create test database
+        # Drop and recreate test database to ensure clean state
+        output info "Dropping existing test database if it exists..."
+        $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS test_pantry_pirate_radio;" 2>/dev/null || true
+
         output info "Creating test database..."
         $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
 
@@ -639,12 +698,14 @@ case "$1" in
         NETWORK_NAME="${COMPOSE_PROJECT_NAME:-pantry-pirate-radio}_default"
 
         # Run tests in a temporary container with current code mounted
+        # Use PYTHONUNBUFFERED=1 to ensure output is not buffered
         docker run --rm $TTY_FLAG \
             -v $(pwd):/app:cached \
             -w /app \
             --network "$NETWORK_NAME" \
             --env-file .env.test \
-            -e TEST_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-pirate}@db:5432/test_pantry_pirate_radio \
+            -e PYTHONUNBUFFERED=1 \
+            -e TEST_DATABASE_URL=postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-pirate}@db:5432/test_pantry_pirate_radio \
             -e TEST_REDIS_URL=redis://cache:6379/1 \
             pantry-pirate-radio-test:latest \
             bash -c "$test_cmd"
@@ -926,14 +987,14 @@ case "$1" in
 
         # Check content store directory in data repo
         output info "Checking content store configuration..."
-        
+
         # Check if content store directory exists
         if ! $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -d "/data-repo/content-store" 2>/dev/null; then
             output warning "Content store directory not found in data repo"
             output info "Content store may be disabled or not yet initialized"
         else
             output success "Content store directory found"
-            
+
             # Check for SQLite database
             if $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -f "/data-repo/content-store/index.db" 2>/dev/null; then
                 output success "Content store SQLite database found"
@@ -1152,7 +1213,7 @@ case "$1" in
 
         # Build replay command
         cmd="python -m app.replay"
-        
+
         # Parse replay options
         for arg in "$@"; do
             case $arg in
