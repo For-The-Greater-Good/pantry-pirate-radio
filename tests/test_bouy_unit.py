@@ -14,6 +14,12 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+# Skip all tests in this file when running in Docker
+pytestmark = pytest.mark.skipif(
+    os.path.exists("/.dockerenv") or os.environ.get("RUNNING_IN_DOCKER"),
+    reason="Bouy tests cannot run inside Docker containers",
+)
+
 
 class TestBouyFunctions:
     """Test individual functions from the bouy script."""

@@ -197,6 +197,7 @@ jobs:
         run: |
           chmod +x ./bouy
           # Run with --programmatic for better CI output
+          # The RUNNING_IN_DOCKER=1 env var in bouy will skip bouy tests
           ./bouy --programmatic test --pytest
 
       - name: Extract coverage data

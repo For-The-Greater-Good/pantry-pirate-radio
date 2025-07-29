@@ -89,6 +89,7 @@ markers = [
     "vcr: mark test to use VCR.py for HTTP request recording/playbook",
     "asyncio: mark test as async/await test",
     "integration: mark test as integration test",
+    "bouy: mark test for the bouy script (skipped in Docker)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
