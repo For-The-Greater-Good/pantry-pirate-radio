@@ -134,7 +134,8 @@ esac
     def test_env(self, mock_compose):
         """Set up test environment."""
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = mock_compose
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = mock_compose
         env["PROGRAMMATIC_MODE"] = "1"
         env["JSON_OUTPUT"] = "1"
         return env
@@ -214,7 +215,7 @@ esac
         )
 
         assert result.returncode == 1
-        assert "Please specify a service name" in result.stdout
+        assert "Please specify a service name" in result.stderr
 
     def test_test_command(self, test_env, tmp_path, bouy_path):
         """Test the test command."""
@@ -305,9 +306,9 @@ exit 0
         result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
 
         assert result.returncode == 0
-        assert "Bouy - Docker Compose Fleet Management" in result.stdout
-        assert "COMMANDS:" in result.stdout
-        assert "OPTIONS:" in result.stdout
+        assert "Bouy v1.0.0 - Docker Fleet Management" in result.stdout
+        assert "Commands:" in result.stdout
+        assert "Global Options:" in result.stdout
 
 
 class TestBouyErrorHandling:

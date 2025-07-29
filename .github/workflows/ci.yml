@@ -447,6 +447,15 @@ jobs:
           ./bouy --version
           ./bouy --programmatic --help
 
+      - name: Create test environment file
+        run: |
+          # Create a dummy .env file for bouy tests
+          cp .env.example .env
+          # Set basic test values
+          echo "POSTGRES_PASSWORD=test" >> .env
+          echo "DATABASE_URL=postgresql://postgres:test@localhost:5432/test" >> .env
+          echo "REDIS_URL=redis://localhost:6379/0" >> .env
+
       - name: Run bouy unit tests
         run: |
           # Run Python unit tests for bouy functions using isolated runner

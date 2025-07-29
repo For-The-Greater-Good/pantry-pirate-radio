@@ -161,8 +161,8 @@ esac
         result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
 
         assert result.returncode == 0
-        assert "Bouy - Docker Compose Fleet Management" in result.stdout
-        assert "COMMANDS:" in result.stdout
+        assert "Bouy v1.0.0 - Docker Fleet Management" in result.stdout
+        assert "Commands:" in result.stdout
 
     def test_bouy_version(self, bouy_path):
         """Test bouy version command."""
@@ -245,7 +245,8 @@ esac
         )
 
         assert result.returncode == 1
-        assert "Unknown command" in result.stdout
+        # When given an invalid command, bouy shows the help message
+        assert "Usage: bouy" in result.stdout
 
     @pytest.mark.skipif(
         not Path("/app/bouy").exists(), reason="Bouy script not found in container"
