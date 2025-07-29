@@ -131,6 +131,10 @@ case "$*" in
         echo "  - food_bank_nyc"
         exit 0
         ;;
+    *"exec -T scraper python -m app.scraper"*"test_scraper"*)
+        echo "Running scraper: test_scraper"
+        exit 0
+        ;;
     *"exec -T scraper python -m app.scraper"*)
         echo "Running scraper..."
         exit 0
