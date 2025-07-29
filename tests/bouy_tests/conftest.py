@@ -8,9 +8,6 @@ preventing any app dependencies from being imported.
 import sys
 import os
 
-# Override pytest_plugins to prevent loading parent fixtures
-pytest_plugins = []
-
 def pytest_configure(config):
     """Configure pytest to skip loading parent conftest files."""
     # Prevent pytest from searching parent directories

@@ -229,7 +229,7 @@ exit 1
                     COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                     # Source the functions
-                    source {{bouy_functions_path}}
+                    source {bouy_functions_path}
                     COMPOSE_CMD="{mock_compose}"
                     COMPOSE_FILES=""
                     check_service_status "app"
@@ -249,7 +249,7 @@ exit 1
     def test_validate_scraper_name(self, setup_env, bouy_functions_path):
         """Test scraper name validation."""
         valid_names = ["nyc_efap", "food_bank_2024", "pantry_finder_v3"]
-        invalid_names = ["../etc/passwd", "scraper;rm -rf /", "scraper`echo bad`"]
+        invalid_names = ["../etc/passwd", "scraper;rm -rf /", "scraper$(echo bad)"]
 
         for name in valid_names:
             result = subprocess.run(
@@ -266,8 +266,8 @@ exit 1
                     COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                     # Source the functions
-                    source {{bouy_functions_path}}
-                    validate_scraper_name "{name}"
+                    source {bouy_functions_path}
+                    validate_scraper_name '{name}'
                     echo $?
                 """,
                 ],
@@ -292,8 +292,8 @@ exit 1
                     COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                     # Source the functions
-                    source {{bouy_functions_path}}
-                    validate_scraper_name "{name}"
+                    source {bouy_functions_path}
+                    validate_scraper_name '{name}'
                     echo $?
                 """,
                 ],
@@ -373,7 +373,7 @@ esac
                 COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                 # Source the functions
-                source {{bouy_functions_path}}
+                source {bouy_functions_path}
                 COMPOSE_CMD="{mock_compose_script}"
                 COMPOSE_FILES=""
                 PROGRAMMATIC_MODE=1
@@ -404,7 +404,7 @@ esac
                 COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                 # Source the functions
-                source {{bouy_functions_path}}
+                source {bouy_functions_path}
                 COMPOSE_CMD="{mock_compose_script}"
                 COMPOSE_FILES=""
                 PROGRAMMATIC_MODE=1
@@ -435,7 +435,7 @@ esac
                 COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                 # Source the functions
-                source {{bouy_functions_path}}
+                source {bouy_functions_path}
                 COMPOSE_CMD="{mock_compose_script}"
                 COMPOSE_FILES=""
                 PROGRAMMATIC_MODE=1
@@ -466,7 +466,7 @@ esac
                 COMPOSE_FILES="${{COMPOSE_FILES:-}}"
 
                 # Source the functions
-                source {{bouy_functions_path}}
+                source {bouy_functions_path}
                 COMPOSE_CMD="{mock_compose_script}"
                 COMPOSE_FILES=""
                 PROGRAMMATIC_MODE=1
