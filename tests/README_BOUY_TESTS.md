@@ -25,9 +25,13 @@ The bouy tests run in a dedicated job in the CI pipeline that executes outside o
 
 ```
 tests/
-├── test_bouy_unit.py          # Unit tests for individual bouy functions
-├── test_bouy_integration.py   # Integration tests with mocked docker compose
-├── test_bouy_docker.py        # Tests designed to run inside Docker container
+├── bouy_tests/                # Isolated directory for bouy tests
+│   ├── __init__.py
+│   ├── conftest.py            # Minimal conftest to prevent loading app dependencies
+│   ├── test_bouy_unit.py      # Unit tests for individual bouy functions
+│   ├── test_bouy_integration.py # Integration tests with mocked docker compose
+│   ├── test_bouy_docker.py    # Tests designed to run inside Docker container
+│   └── test_bouy_simplified.py # Simplified bouy function tests
 ├── test_bouy.sh               # Shell script test runner
 └── shell/
     └── fixtures/
@@ -45,7 +49,7 @@ tests/
 ### 2. Run bouy-specific tests locally (outside Docker)
 ```bash
 # Using pytest directly
-poetry run pytest tests/test_bouy_*.py -v
+poetry run pytest tests/bouy_tests/ -v
 
 # Using the shell test runner
 ./tests/test_bouy.sh
