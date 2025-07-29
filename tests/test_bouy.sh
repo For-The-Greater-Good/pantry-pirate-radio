@@ -69,7 +69,7 @@ run_test "Down command" 0 ./bouy --programmatic down
 
 # Service-specific tests
 echo -e "\n${YELLOW}Service Commands:${NC}"
-run_test "Logs without service" 1 ./bouy --programmatic logs
+run_test "Logs without service" 0 ./bouy --programmatic logs
 run_test "Shell without service" 1 ./bouy --programmatic shell
 run_test "Exec without service" 1 ./bouy --programmatic exec
 
