@@ -7,6 +7,7 @@ A comprehensive guide to understanding, using, and contributing to Pantry Pirate
 ### 🚀 Getting Started
 - **[Quick Start Guide](quickstart.md)** - API usage in minutes
 - **[Docker Quick Start](docker-quickstart.md)** - Run with Docker (`./bouy up --with-init`)
+- **[Bouy Command Reference](../BOUY.md)** - Complete Docker fleet management guide
 - **[Local Development Setup](getting-started-locally.md)** - Full development environment
 - **[HAARRRvest Data Access](haarrvest-quickstart.md)** - Access our food resource data
 
@@ -17,6 +18,7 @@ A comprehensive guide to understanding, using, and contributing to Pantry Pirate
 - **[HSDS Implementation](hsds_index.md)** - OpenReferral compliance details
 
 ### 👨‍💻 Development
+- **[Bouy Command Reference](../BOUY.md)** - Docker fleet management with bouy
 - **[Docker Development](docker-development.md)** - Container-based development
 - **[Docker Startup Sequence](docker-startup-sequence.md)** - Service orchestration details
 - **[Test Environment Setup](test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
@@ -87,34 +89,38 @@ A comprehensive guide to understanding, using, and contributing to Pantry Pirate
 ./bouy up --dev
 
 # Run tests
-poetry run pytest
+./bouy test --pytest
 
 # Run scrapers
-python -m app.scraper --list
-python -m app.scraper nyc_efap_programs
+./bouy scraper --list
+./bouy scraper nyc_efap_programs
 
 # Access API docs
 open http://localhost:8000/docs
+
+# For more commands, see the Bouy Command Reference
 ```
 
 ## Documentation Map
 
 ```
 pantry-pirate-radio/
-├── docs/                    # Main documentation
-│   ├── README.md           # This file - documentation index
-│   ├── quickstart.md       # API quick start
-│   ├── docker-*.md         # Docker guides
-│   ├── *.md                # Service and feature docs
-│   ├── queries/            # SQL examples
-│   ├── HSDS/               # HSDS specification
-│   └── GeoJson/            # Geographic data
-├── app/scraper/*.md        # Individual scraper docs
-├── CONTRIBUTING.md         # How to contribute
-├── CHANGELOG.md            # Version history
-├── SECURITY.md             # Security policy
-├── PRIVACY.md              # Privacy policy
-└── README.md               # Project overview
+├── BOUY.md                 # Bouy command reference
+├── CLAUDE.md               # Claude AI assistant guide
+├── docs/                   # Main documentation
+│   ├── README.md          # This file - documentation index
+│   ├── quickstart.md      # API quick start
+│   ├── docker-*.md        # Docker guides
+│   ├── *.md               # Service and feature docs
+│   ├── queries/           # SQL examples
+│   ├── HSDS/              # HSDS specification
+│   └── GeoJson/           # Geographic data
+├── app/scraper/*.md       # Individual scraper docs
+├── CONTRIBUTING.md        # How to contribute
+├── CHANGELOG.md           # Version history
+├── SECURITY.md            # Security policy
+├── PRIVACY.md             # Privacy policy
+└── README.md              # Project overview
 ```
 
 ---

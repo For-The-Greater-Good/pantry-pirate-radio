@@ -11,11 +11,12 @@ from pathlib import Path
 import pytest
 import tempfile
 
+
 def pytest_configure(config):
     """Configure pytest to skip loading parent conftest files."""
     # Prevent pytest from searching parent directories
     config.option.confcutdir = os.path.dirname(__file__)
-    
+
     # Ensure we don't accidentally import app modules
     # by removing the project root from sys.path if it's there
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -149,6 +150,11 @@ case "$*" in
         ;;
     *"python -m app.reconciler"*)
         echo "Running reconciler..."
+        exit 0
+        ;;
+    *"exec"*"scraper"*)
+        # Handle any other scraper exec commands
+        echo "Running scraper command"
         exit 0
         ;;
     *"exec"*"app"*)

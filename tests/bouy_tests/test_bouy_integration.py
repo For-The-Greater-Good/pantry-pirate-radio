@@ -162,7 +162,7 @@ esac
 
         # Check that we got some JSON output
         assert len(outputs) > 0, f"No JSON output found in: {result.stdout}"
-        
+
         # Check for expected messages
         if outputs:
             messages = [o.get("message", "") for o in outputs]
@@ -190,7 +190,7 @@ esac
                     pass
 
         assert len(outputs) > 0, f"No JSON output found in: {result.stdout}"
-        
+
         if outputs:
             messages = [o.get("message", "") for o in outputs]
             assert any("Stopping" in m or "services" in m for m in messages)
