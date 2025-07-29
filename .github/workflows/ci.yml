@@ -426,12 +426,11 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          # Install Docker Compose v2 plugin
-          sudo apt-get update
-          sudo apt-get install -y docker-compose-plugin
+          # Docker Compose v2 is included with Docker by default
           docker compose version
 
           # Install bats for shell tests
+          sudo apt-get update
           sudo apt-get install -y bats
 
       - name: Make scripts executable
