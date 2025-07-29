@@ -566,3 +566,26 @@ All hooks use bouy's programmatic mode for consistent Docker execution.
 
 ### CLI Tools
 - **gh is available. it's much preferable to trying to interact with github.com**
+
+### Advanced Automation: bouy-api
+
+For CI/CD and advanced automation, use `bouy-api` which provides:
+- Enhanced JSON output for all commands
+- Service health checking with `--wait-healthy`
+- Command timeouts with `--timeout`
+- Dry-run mode with `--dry-run`
+- Structured exit codes (0-5) for error handling
+
+```bash
+# Wait for services to be healthy before continuing
+./bouy-api --json --wait-healthy up app worker
+
+# Run tests with timeout and JSON output
+./bouy-api --json --timeout 300 test pytest
+
+# Check service health
+./bouy-api health app
+
+# Dry run to preview commands
+./bouy-api --dry-run up --prod
+```

@@ -693,6 +693,55 @@ Bouy respects these environment variables:
 
 - **v1.0.0** - Initial release with comprehensive Docker fleet management
 
+## Bouy-API: Advanced Programmatic Interface
+
+For advanced automation and CI/CD integration, `bouy-api` provides additional features:
+
+### Features
+- Enhanced JSON output for all commands
+- Service health checking with `--wait-healthy`
+- Command timeouts with `--timeout`
+- Dry-run mode with `--dry-run`
+- Structured exit codes for error handling
+
+### Usage
+```bash
+# Wait for services to be healthy
+./bouy-api --json --wait-healthy up app worker
+
+# Execute with timeout
+./bouy-api --timeout 300 test pytest
+
+# Dry run to see what would execute
+./bouy-api --dry-run up --prod
+
+# Check service health
+./bouy-api health app
+
+# Follow logs after starting
+./bouy-api --follow-logs up
+```
+
+### Exit Codes
+- `0` - Success
+- `1` - General error
+- `2` - Service not running
+- `3` - Service not healthy
+- `4` - Timeout
+- `5` - Command not found
+
+### JSON Output
+```bash
+# Service status
+./bouy-api --json status app
+
+# Test results
+./bouy-api --json test pytest
+
+# All services
+./bouy-api --json ps
+```
+
 ## Contributing
 
 When adding new features to bouy:
@@ -700,6 +749,7 @@ When adding new features to bouy:
 2. Add tests in `tests/test_bouy_*.py`
 3. Update mock_compose.sh for new Docker commands
 4. Ensure programmatic mode support
+5. Consider if the feature should also be in bouy-api
 
 ---
 
