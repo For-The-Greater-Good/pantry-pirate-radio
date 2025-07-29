@@ -90,7 +90,8 @@ class TestBouyInDocker:
         os.environ["MOCK_RESPONSES_DIR"] = str(mock_docker_responses)
 
         # Create full script using a single string literal to avoid concatenation warning
-        wrapper.write_text("""#!/bin/bash
+        wrapper.write_text(
+            """#!/bin/bash
 # Mock docker compose wrapper for testing
 
 RESPONSES_DIR="${MOCK_RESPONSES_DIR}"
@@ -147,7 +148,8 @@ case "$*" in
         exit 1
         ;;
 esac
-""")
+"""
+        )
         wrapper.chmod(0o755)
         return str(wrapper)
 
