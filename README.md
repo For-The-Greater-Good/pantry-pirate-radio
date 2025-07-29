@@ -23,6 +23,7 @@
 - [Core Features](#core-features)
 - [System Architecture](#system-architecture)
 - [Quick Start](#quick-start)
+- [Bouy - Docker Fleet Management](#bouy---docker-fleet-management)
 - [LLM Provider Configuration](#llm-provider-configuration)
 - [Service URLs](#service-urls-development)
 - [Development](#development)
@@ -304,6 +305,35 @@ docker compose up -d
 
 Visit http://localhost:8000/docs for API documentation
 
+## Bouy - Docker Fleet Management
+
+All Docker operations in this project are managed through **bouy**, our comprehensive fleet management tool.
+
+### Essential Commands
+```bash
+# Start services
+./bouy up                    # Development mode
+./bouy up --with-init       # With database initialization
+./bouy up --prod            # Production mode
+
+# Manage services
+./bouy ps                   # List services
+./bouy logs app             # View logs
+./bouy shell app            # Open shell
+./bouy down                 # Stop services
+
+# Run tests
+./bouy test                 # All CI checks
+./bouy test --pytest        # Run tests only
+./bouy test --mypy          # Type checking
+
+# Run scrapers
+./bouy scraper --list       # List scrapers
+./bouy scraper --all        # Run all scrapers
+```
+
+For complete documentation, see **[Bouy Command Reference](BOUY.md)**.
+
 ## LLM Provider Configuration
 
 The system supports two LLM providers for HSDS data alignment:
@@ -570,6 +600,7 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 See **[Documentation Index](docs/README.md)** for complete navigation through all available documentation.
 
 ### Quick Links
+- **[Bouy Command Reference](BOUY.md)** - Complete Docker fleet management guide
 - **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
 - **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
 - **[API Examples](docs/api-examples.md)** - Practical API usage examples
