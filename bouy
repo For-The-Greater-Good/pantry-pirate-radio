@@ -76,6 +76,10 @@ usage() {
     echo "  test --ruff         Run only ruff linting"
     echo "  test --bandit       Run only bandit security check"
     echo "  test --coverage     Run pytest with coverage"
+    echo "  test --vulture      Run only vulture dead code check"
+    echo "  test --safety       Run only safety vulnerability check"
+    echo "  test --pip-audit    Run only pip-audit vulnerability check"
+    echo "  test --xenon        Run only xenon complexity check"
     echo ""
     echo "  Additional arguments can be passed after -- or directly:"
     echo "    test --pytest tests/test_bouy_unit.py"
@@ -463,21 +467,39 @@ case "$1" in
             esac
         done
 
-        output info "Starting services with: $COMPOSE_CMD $COMPOSE_FILES"
+        output info "Starting services..."
         # Check if --with-init was used
         if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
-            if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services; then
-                output success "Services started successfully"
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services >/dev/null 2>&1; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
             else
-                output error "Failed to start services"
-                exit 1
+                if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
             fi
         else
-            if $COMPOSE_CMD $COMPOSE_FILES up -d $services; then
-                output success "Services started successfully"
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d $services >/dev/null 2>&1; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
             else
-                output error "Failed to start services"
-                exit 1
+                if $COMPOSE_CMD $COMPOSE_FILES up -d $services; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
             fi
         fi
 
@@ -501,11 +523,21 @@ case "$1" in
 
     down)
         output info "Stopping all services..."
-        if $COMPOSE_CMD $COMPOSE_FILES down; then
-            output success "All services stopped"
+        if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+            # Suppress docker compose output in JSON or quiet mode
+            if $COMPOSE_CMD $COMPOSE_FILES down >/dev/null 2>&1; then
+                output success "All services stopped"
+            else
+                output error "Failed to stop services"
+                exit 1
+            fi
         else
-            output error "Failed to stop services"
-            exit 1
+            if $COMPOSE_CMD $COMPOSE_FILES down; then
+                output success "All services stopped"
+            else
+                output error "Failed to stop services"
+                exit 1
+            fi
         fi
         ;;
 
@@ -666,6 +698,30 @@ case "$1" in
                 fi
                 test_cmd="$test_cmd && bash scripts/coverage-check.sh"
                 ;;
+            --vulture)
+                test_cmd="poetry run vulture app tests .vulture_whitelist --min-confidence 80"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --safety)
+                test_cmd="poetry run safety check"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --pip-audit)
+                test_cmd="poetry run pip-audit"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --xenon)
+                test_cmd="poetry run xenon --max-absolute F --max-modules F --max-average E app"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
             all|"")
                 test_cmd="bash scripts/run-ci-checks.sh"
                 if [ -n "$additional_args" ]; then
@@ -674,7 +730,7 @@ case "$1" in
                 ;;
             *)
                 output error "Unknown test option: $test_type"
-                output error "Use: test [--pytest|--mypy|--black|--ruff|--bandit|--coverage] [-- additional arguments]"
+                output error "Use: test [--pytest|--mypy|--black|--ruff|--bandit|--coverage|--vulture|--safety|--pip-audit|--xenon] [-- additional arguments]"
                 exit 1
                 ;;
         esac
@@ -799,11 +855,20 @@ case "$1" in
         # Ensure cache is running for job queue
         if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
             output info "Cache service is not running. Starting it..."
-            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
-                sleep 2  # Give it a moment to start
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d cache >/dev/null 2>&1; then
+                    sleep 2  # Give it a moment to start
+                else
+                    output error "Failed to start cache service"
+                    exit 1
+                fi
             else
-                output error "Failed to start cache service"
-                exit 1
+                if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                    sleep 2  # Give it a moment to start
+                else
+                    output error "Failed to start cache service"
+                    exit 1
+                fi
             fi
         fi
 
@@ -816,16 +881,30 @@ case "$1" in
         # Check if scraper service is running
         if ! wait_for_service scraper 1 0; then
             output info "Scraper service is not running. Starting it..."
-            if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
-                if wait_for_service scraper; then
-                    output success "Scraper service started successfully"
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper >/dev/null 2>&1; then
+                    if wait_for_service scraper; then
+                        output success "Scraper service started successfully"
+                    else
+                        output error "Scraper service failed to start properly"
+                        exit 1
+                    fi
                 else
-                    output error "Scraper service failed to start properly"
+                    output error "Failed to start scraper service"
                     exit 1
                 fi
             else
-                output error "Failed to start scraper service"
-                exit 1
+                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
+                    if wait_for_service scraper; then
+                        output success "Scraper service started successfully"
+                    else
+                        output error "Scraper service failed to start properly"
+                        exit 1
+                    fi
+                else
+                    output error "Failed to start scraper service"
+                    exit 1
+                fi
             fi
         fi
 

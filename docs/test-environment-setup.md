@@ -149,5 +149,5 @@ When using the VS Code dev container:
    export TEST_REDIS_URL="redis://cache:6379/1"
    ./bouy test --pytest
    ```
-   
+
    Note: The test environment is automatically configured when using bouy.

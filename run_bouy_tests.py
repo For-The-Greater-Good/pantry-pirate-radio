@@ -16,12 +16,12 @@ def main():
     # Get the project root and test directory
     project_root = Path(__file__).parent
     test_dir = project_root / "tests" / "bouy_tests"
-    
+
     # Set environment variables to prevent loading app code
     env = os.environ.copy()
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     env["PYTEST_CURRENT_TEST_DIR"] = str(test_dir)
-    
+
     # Build pytest command
     cmd = [
         sys.executable,
@@ -35,7 +35,7 @@ def main():
         "--confcutdir", str(test_dir),
         "-c", str(test_dir / "pytest.ini"),  # Explicitly use bouy_tests pytest.ini
     ]
-    
+
     # Add test files or additional arguments
     if len(sys.argv) > 1:
         # Convert relative test names to full paths
@@ -53,10 +53,10 @@ def main():
     else:
         # Run all tests in the directory
         cmd.append(str(test_dir))
-    
+
     # Run pytest from project root to avoid path issues
     result = subprocess.run(cmd, env=env, cwd=str(project_root))
-    
+
     # Exit with the same code as pytest
     sys.exit(result.returncode)
 
