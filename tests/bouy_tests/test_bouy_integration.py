@@ -28,11 +28,11 @@ class TestBouyCommands:
             Path(__file__).parent.parent.parent / "bouy",  # Relative to test file
             Path.cwd() / "bouy",  # Current working directory
         ]
-        
+
         for path in possible_paths:
             if Path(path).exists():
                 return str(path)
-        
+
         # If not found, try to find it relative to the test file
         # This should work in CI where tests run from repo root
         raise FileNotFoundError(f"bouy script not found. Tried: {possible_paths}")
