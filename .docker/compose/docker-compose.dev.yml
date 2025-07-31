@@ -1,11 +1,11 @@
 services:
   app:
     build:
-      context: .
+      context: ../..
       dockerfile: .devcontainer/Dockerfile
       target: app
     volumes:
-      - .:/workspace:cached
+      - ../..:/workspace:cached
       - vscode-server:/home/vscode/.vscode-server
     environment:
       - DEBUG=1
