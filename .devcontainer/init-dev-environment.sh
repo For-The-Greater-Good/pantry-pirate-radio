@@ -79,6 +79,7 @@ if [ -n "$CODESPACES" ]; then
     export DOCKER_BUILDKIT=0
     export COMPOSE_DOCKER_CLI_BUILD=0
     echo "✅ Disabled Docker BuildKit for Codespaces compatibility"
+    
 fi
 
 # Display startup instructions instead of auto-starting
