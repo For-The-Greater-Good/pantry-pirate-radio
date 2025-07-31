@@ -2,12 +2,12 @@
 services:
   app:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: app
     ports:
       - "8000:8000"
-    env_file: ../../.env
+    env_file: .env
     # All environment variables are loaded from .env file
     # Override specific values as needed for your environment
     depends_on:
@@ -18,13 +18,13 @@ services:
 
   worker:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: worker
     command: rq worker llm
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
-    env_file: ../../.env
+    env_file: .env
     environment:
       # Worker-specific overrides
       - CLAUDE_HEALTH_SERVER=true
@@ -41,10 +41,10 @@ services:
 
   recorder:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: recorder
-    env_file: ../../.env
+    env_file: .env
     environment:
       # Recorder-specific paths
       - OUTPUT_DIR=/app/outputs
@@ -56,16 +56,16 @@ services:
       haarrrvest-publisher:
         condition: service_healthy
     volumes:
-      - ../../outputs:/app/outputs
-      - ../../archives:/app/archives
+      - ./outputs:/app/outputs
+      - ./archives:/app/archives
 
   scraper:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: scraper
     command: tail -f /dev/null  # Keep container running
-    env_file: ../../.env
+    env_file: .env
     # All environment variables are loaded from .env file
     depends_on:
       db:
@@ -73,16 +73,16 @@ services:
       cache:
         condition: service_started
     volumes:
-      - ../../docs:/app/docs
+      - ./docs:/app/docs
       - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
 
   reconciler:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: simple-worker
     command: rq worker reconciler
-    env_file: ../../.env
+    env_file: .env
     # All environment variables are loaded from .env file
     depends_on:
       db:
@@ -92,11 +92,11 @@ services:
 
   haarrrvest-publisher:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: production-base
     command: python -m app.haarrrvest_publisher.service
-    env_file: ../../.env
+    env_file: .env
     environment:
       # Publisher-specific paths and defaults
       - OUTPUT_DIR=/app/outputs
@@ -104,9 +104,9 @@ services:
       - DATA_REPO_URL=${DATA_REPO_URL:-https://github.com/For-The-Greater-Good/HAARRRvest.git}
       - PUBLISHER_PUSH_ENABLED=${PUBLISHER_PUSH_ENABLED:-false}
     volumes:
-      - ../../outputs:/app/outputs
+      - ./outputs:/app/outputs
       - haarrrvest_repo:/data-repo
-      - ../../scripts:/app/scripts:ro
+      - ./scripts:/app/scripts:ro
     depends_on:
       db:
         condition: service_healthy
@@ -121,11 +121,11 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-    env_file: ../../.env
+    env_file: .env
     # Database credentials loaded from .env file
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../init-scripts:/docker-entrypoint-initdb.d
+      - ./init-scripts:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     healthcheck:
@@ -136,11 +136,11 @@ services:
 
   db-init:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: production-base
     command: /app/scripts/init-database.sh
-    env_file: ../../.env
+    env_file: .env
     environment:
       # Database connection overrides for init
       - POSTGRES_HOST=db
@@ -153,7 +153,7 @@ services:
       - REPO_STABILITY_THRESHOLD=${REPO_STABILITY_THRESHOLD:-3}
       - REPO_MAX_WAIT_TIME=${REPO_MAX_WAIT_TIME:-1800}
     volumes:
-      - ../../scripts:/app/scripts:ro
+      - ./scripts:/app/scripts:ro
       - haarrrvest_repo:/data-repo:ro
     depends_on:
       db:
@@ -178,23 +178,23 @@ services:
 
   rq-dashboard:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: simple-worker
     command: rq-dashboard -H cache
     ports:
       - "9181:9181"
-    env_file: ../../.env
+    env_file: .env
     # Redis URL loaded from .env file
     depends_on:
       - cache
 
   datasette-exporter:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/app/Dockerfile
       target: datasette-exporter
-    env_file: ../../.env
+    env_file: .env
     environment:
       # Datasette exporter specific settings
       - OUTPUT_DIR=/data
@@ -204,11 +204,11 @@ services:
         condition: service_healthy
     volumes:
       - datasette_data:/data
-      - ../../datasette-metadata.json:/data/metadata.json
+      - ./datasette-metadata.json:/data/metadata.json
 
   datasette:
     build:
-      context: ../..
+      context: .
       dockerfile: .docker/images/datasette/Dockerfile
     ports:
       - "8001:8001"
@@ -223,7 +223,7 @@ services:
 
   db-backup:
     image: prodrigestivill/postgres-backup-local:15
-    env_file: ../../.env
+    env_file: .env
     environment:
       # Backup specific configuration
       - POSTGRES_HOST=db

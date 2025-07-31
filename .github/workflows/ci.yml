@@ -118,121 +118,93 @@ jobs:
         run: poetry run mypy app tests
 
   pytest:
-    needs: setup
     runs-on: ubuntu-latest
     environment: ci
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Initialize and update submodules
-        run: |
-          git submodule update --init --recursive --force
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Build and cache test image
+        uses: docker/build-push-action@v5
         with:
-          python-version: '3.11'
+          context: .
+          file: .docker/images/app/Dockerfile
+          target: test
+          tags: pantry-pirate-radio-test:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
 
-      - name: Install system dependencies
+      - name: Create test environment file
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev postgresql-client gcc python3-dev cmake build-essential redis-tools
-      - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          poetry config virtualenvs.create false
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pypoetry
-          key: ${{ needs.setup.outputs.cache-key }}
+          # Create .env.test file
+          cp .env.example .env.test
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi
+          # Remove inline comments that break Pydantic parsing
+          sed -i 's/^\(CLAUDE_QUOTA_RETRY_DELAY=\).*/\13600/' .env.test
+          sed -i 's/^\(CLAUDE_QUOTA_MAX_DELAY=\).*/\114400/' .env.test
+          sed -i 's/^\(CLAUDE_QUOTA_BACKOFF_MULTIPLIER=\).*/\11.5/' .env.test
+          sed -i 's/^\(SQL_DUMP_RECORD_COUNT_ALLOW_PERCENTAGE=\).*/\10.9/' .env.test
+          sed -i 's/^\(WORKER_COUNT=\).*/\11/' .env.test
+          sed -i 's/^\(PUBLISHER_CHECK_INTERVAL=\).*/\1300/' .env.test
+          sed -i 's/^\(ERROR_RETRY_DELAY=\).*/\160/' .env.test
+          sed -i 's/^\(GIT_USER_EMAIL=\).*/\1pantry-pirate-radio@example.com/' .env.test
+          sed -i 's/^\(GIT_USER_NAME=\).*/\1Pantry Pirate Radio Publisher/' .env.test
+          sed -i 's/^\(SQL_DUMP_MIN_RECORDS=\).*/\1100/' .env.test
+          sed -i 's/^\(SQL_DUMP_RATCHET_PERCENTAGE=\).*/\10.9/' .env.test
+          sed -i 's/^\(ALLOW_EMPTY_SQL_DUMP=\).*/\1false/' .env.test
+          sed -i 's/^\(OUTPUT_DIR=\).*/\1\/app\/outputs/' .env.test
+          sed -i 's/^\(CONTENT_STORE_ENABLED=\).*/\1true/' .env.test
 
-      - name: Create environment file
-        run: |
-          # Create .env file from example
-          cp .env.example .env
-          # Update PostgreSQL password for CI
-          sed -i 's/your_secure_password/pirate/' .env
-          sed -i 's|postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio|postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio|' .env
+          # Update database password for CI
+          sed -i 's/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=pirate/' .env.test
+
+          # Set main database URL
+          sed -i 's|DATABASE_URL=.*|DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/pantry_pirate_radio|' .env.test
+
+          # Set TEST database URL (different database)
+          sed -i 's|TEST_DATABASE_URL=.*|TEST_DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio|' .env.test
+
+          # Set main Redis URL (database 0)
+          sed -i 's|REDIS_URL=.*|REDIS_URL=redis://cache:6379/0|' .env.test
+
+          # Set TEST Redis URL (database 1 - MUST be different!)
+          sed -i 's|TEST_REDIS_URL=.*|TEST_REDIS_URL=redis://cache:6379/1|' .env.test
+
           # Set API key from GitHub secret if available
           if [ -n "${{ secrets.OPENROUTER_API_KEY }}" ]; then
-            sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env
-          fi
-          # Disable HAARRRvest push for CI
-          sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env
-
-          # Add TEST environment variables for CI (use regular service names)
-          echo "" >> .env
-          echo "# Test environment variables for CI" >> .env
-          echo "TEST_DATABASE_URL=postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio" >> .env
-          echo "TEST_REDIS_URL=redis://cache:6379/1" >> .env
-
-      - name: Start services with Docker Compose
-        run: docker compose -f .docker/compose/base.yml up -d db cache app
-
-      - name: Wait for services
-        run: |
-          timeout 60 bash -c 'until docker compose -f .docker/compose/base.yml exec db pg_isready -U postgres; do sleep 2; done'
-          timeout 60 bash -c 'until docker compose -f .docker/compose/base.yml exec cache redis-cli ping; do sleep 2; done'
-
-      - name: Create test database
-        run: |
-          echo "Creating test database..."
-          docker compose -f .docker/compose/base.yml exec db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" || true
-          echo "Test database created or already exists"
-          
-      - name: Initialize test database
-        run: |
-          echo "Initializing test database with HSDS schema..."
-          # Apply init scripts to test database
-          for script in init-scripts/*.sql; do
-            if [ -f "$script" ]; then
-              echo "Applying $script to test database..."
-              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < "$script"
-            fi
-          done
-          # Apply HSDS schema to test database
-          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
-            echo "Applying HSDS schema to test database..."
-            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d test_pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
+            sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env.test
           fi
 
-      - name: Initialize database
+          # Disable HAARRRvest push for tests
+          sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
+
+          # Also create .env for services
+          cp .env.test .env
+
+          # Export POSTGRES_PASSWORD for bouy to use
+          echo "POSTGRES_PASSWORD=pirate" >> $GITHUB_ENV
+
+      - name: Run tests
         run: |
-          # Apply init scripts in order
-          for script in init-scripts/*.sql; do
-            if [ -f "$script" ]; then
-              echo "Applying $script..."
-              docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d pantry_pirate_radio -f - < "$script"
-            fi
-          done
-          # Apply HSDS schema if exists
-          if [ -f docs/HSDS/database/database_postgresql.sql ]; then
-            echo "Applying HSDS schema..."
-            docker compose -f .docker/compose/base.yml exec -T db psql -U postgres -d pantry_pirate_radio -f - < docs/HSDS/database/database_postgresql.sql
-          fi
-      - name: Install test dependencies and run tests
-        run: |
-          # Copy tests directory, docs, scripts, and .env to app container
-          docker compose -f .docker/compose/base.yml cp tests app:/app/tests
-          docker compose -f .docker/compose/base.yml cp docs app:/app/docs
-          docker compose -f .docker/compose/base.yml cp scripts app:/app/scripts
-          docker compose -f .docker/compose/base.yml cp .env app:/app/.env
-          # Install test dependencies and run tests with coverage, excluding integration tests
-          docker compose -f .docker/compose/base.yml exec app sh -c "poetry install && poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=xml --cov-report=json --cov-branch"
+          chmod +x ./bouy
+          # Run with --programmatic for better CI output
+          # The RUNNING_IN_DOCKER=1 env var in bouy will skip bouy tests
+          ./bouy --programmatic test --pytest
 
       - name: Extract coverage data
         run: |
-          # Copy coverage reports from container
-          docker compose -f .docker/compose/base.yml cp app:/app/coverage.xml ./coverage.xml
-          docker compose -f .docker/compose/base.yml cp app:/app/coverage.json ./coverage.json
+          # Coverage reports are already in the local directory from bouy test
+          echo "Coverage reports available:"
+          ls -la coverage.* || echo "No coverage files found"
 
       - name: Display coverage summary
         run: |
@@ -255,16 +227,8 @@ jobs:
 
       - name: Check coverage ratcheting
         run: |
-          # Copy coverage baseline if it exists
-          if [ -f .coverage-baseline ]; then
-            docker compose -f .docker/compose/base.yml cp .coverage-baseline app:/app/.coverage-baseline
-          fi
-          # Copy coverage scripts
-          docker compose -f .docker/compose/base.yml cp scripts app:/app/scripts
-          # Run coverage check with ratcheting
-          docker compose -f .docker/compose/base.yml exec app sh -c "bash scripts/coverage-check.sh"
-          # Copy updated baseline back
-          docker compose -f .docker/compose/base.yml cp app:/app/.coverage-baseline ./.coverage-baseline || true
+          # Run coverage check with ratcheting using bouy
+          ./bouy test --coverage
 
       - name: Save coverage baseline to cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -275,7 +239,7 @@ jobs:
 
       - name: Stop services
         if: always()
-        run: docker compose -f .docker/compose/base.yml down
+        run: ./bouy down
 
   vulture:
     needs: setup
@@ -431,3 +395,78 @@ jobs:
 
       - name: Run Xenon complexity check
         run: poetry run xenon --max-absolute F --max-modules F --max-average E app
+
+  bouy-tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    # Run on native Ubuntu without Docker to test bouy functionality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          poetry config virtualenvs.create false
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Install system dependencies
+        run: |
+          # Docker Compose v2 is included with Docker by default
+          docker compose version
+
+          # Install bats for shell tests
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Make scripts executable
+        run: |
+          chmod +x ./bouy
+          chmod +x ./bouy-functions.sh
+          chmod +x tests/test_bouy.sh
+          chmod +x tests/shell/fixtures/mock_compose.sh
+
+      - name: Test bouy help and version
+        run: |
+          # Basic functionality tests
+          ./bouy --help
+          ./bouy --version
+          ./bouy --programmatic --help
+
+      - name: Create test environment file
+        run: |
+          # Create a dummy .env file for bouy tests
+          cp .env.example .env
+          # Set basic test values
+          echo "POSTGRES_PASSWORD=test" >> .env
+          echo "DATABASE_URL=postgresql://postgres:test@localhost:5432/test" >> .env
+          echo "REDIS_URL=redis://localhost:6379/0" >> .env
+
+      - name: Run bouy unit tests
+        run: |
+          # Run Python unit tests for bouy functions using isolated runner
+          poetry run python run_bouy_tests.py test_bouy_unit.py test_bouy_simplified.py
+
+      - name: Run bouy integration tests
+        run: |
+          # Run integration tests with mocked docker compose using isolated runner
+          poetry run python run_bouy_tests.py test_bouy_integration.py test_bouy_docker.py
+
+      - name: Run bouy shell tests
+        run: |
+          # Run bash test suite
+          ./tests/test_bouy.sh

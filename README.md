@@ -23,6 +23,7 @@
 - [Core Features](#core-features)
 - [System Architecture](#system-architecture)
 - [Quick Start](#quick-start)
+- [Bouy - Docker Fleet Management](#bouy---docker-fleet-management)
 - [LLM Provider Configuration](#llm-provider-configuration)
 - [Service URLs](#service-urls-development)
 - [Development](#development)
@@ -237,7 +238,7 @@ code .
 To start the dev environment with pre-populated data from HAARRRvest:
 ```bash
 # Start dev environment with initialization
-./docker.sh up --dev --with-init
+./bouy up --dev --with-init
 
 # Monitor initialization progress
 docker compose logs -f db-init
@@ -259,7 +260,7 @@ cp .env.example .env
 
 # 3. Start all services WITH latest HAARRRvest data (recommended)
 # This will populate the database with ~90 days of food resource data
-./docker.sh up --with-init
+./bouy up --with-init
 
 # 4. Monitor initialization (takes 5-15 minutes)
 docker compose logs -f db-init
@@ -292,7 +293,7 @@ cp .env.example .env
 git config core.hooksPath .githooks
 
 # 4. Install dependencies
-poetry install
+# Dependencies are installed automatically in containers via bouy
 
 # 5. Start all services
 docker compose up -d
@@ -303,6 +304,35 @@ docker compose up -d
 ```
 
 Visit http://localhost:8000/docs for API documentation
+
+## Bouy - Docker Fleet Management
+
+All Docker operations in this project are managed through **bouy**, our comprehensive fleet management tool.
+
+### Essential Commands
+```bash
+# Start services
+./bouy up                    # Development mode
+./bouy up --with-init       # With database initialization
+./bouy up --prod            # Production mode
+
+# Manage services
+./bouy ps                   # List services
+./bouy logs app             # View logs
+./bouy shell app            # Open shell
+./bouy down                 # Stop services
+
+# Run tests
+./bouy test                 # All CI checks
+./bouy test --pytest        # Run tests only
+./bouy test --mypy          # Type checking
+
+# Run scrapers
+./bouy scraper --list       # List scrapers
+./bouy scraper --all        # Run all scrapers
+```
+
+For complete documentation, see **[Bouy Command Reference](BOUY.md)**.
 
 ## LLM Provider Configuration
 
@@ -315,10 +345,10 @@ export LLM_PROVIDER=claude
 export ANTHROPIC_API_KEY=your_api_key_here  # Optional
 
 # Start services
-docker compose up -d
+./bouy up
 
 # Setup authentication (interactive)
-docker compose exec worker python -m app.claude_auth_manager setup
+./bouy claude-auth                   # Recommended: Interactive Claude CLI auth
 
 # Check authentication status
 curl http://localhost:8080/health
@@ -338,7 +368,7 @@ export OPENROUTER_API_KEY=your_api_key_here
 export LLM_MODEL_NAME=gpt-4
 
 # Start services
-docker compose up -d
+./bouy up
 ```
 
 ## Service URLs (Development)
@@ -362,6 +392,57 @@ docker compose up -d
 - Redis 7.0+
 
 ### Service Management
+
+#### Using bouy (Recommended)
+```bash
+# Start all services
+./bouy up                      # Start in dev mode (default)
+./bouy up --prod              # Start in production mode
+./bouy up --with-init         # Start with database initialization from HAARRRvest
+
+# Service management
+./bouy down                   # Stop all services
+./bouy ps                     # List running services
+./bouy logs app               # View specific service logs
+./bouy shell app              # Open shell in service container
+./bouy exec app python --version  # Execute command in container
+./bouy clean                  # Stop services and remove volumes
+
+# Testing
+./bouy test                   # Run all CI checks
+./bouy test --pytest          # Run only pytest
+./bouy test --mypy            # Run only type checking
+./bouy test --black           # Run only code formatting
+./bouy test --ruff            # Run only linting
+./bouy test --bandit          # Run only security checks
+./bouy test --coverage        # Run tests with coverage
+
+# Scraper management
+./bouy scraper --list         # List available scrapers
+./bouy scraper --all          # Run all scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+
+# Claude authentication
+./bouy claude-auth            # Authenticate Claude in worker container
+```
+
+#### Programmatic Mode (For Automation)
+```bash
+# Enable programmatic mode for structured output
+./bouy --programmatic up      # Structured logging to stderr
+./bouy --json ps              # Get service status as JSON
+./bouy --quiet up             # Suppress non-error output
+./bouy --no-color logs app    # Disable colored output
+
+# Combine flags for automation
+./bouy --programmatic exec app python --version
+./bouy --json --verbose ps   # JSON output with debug info
+
+# Non-interactive execution (no TTY)
+./bouy --programmatic scraper --list
+```
+
+#### Using Docker Compose Directly
 ```bash
 # Start all services
 docker compose up -d
@@ -390,10 +471,17 @@ docker compose up -d --scale worker=3  # Run 3 worker instances
 
 #### **Testing & Quality**
 ```bash
-# Run all tests with coverage
-poetry run pytest
+# Using docker.sh (with bind-mounted code for auto-formatting)
+./bouy test                        # Run all CI checks
+./bouy test --pytest               # Run tests with coverage
+./bouy test --mypy                 # Type checking
+./bouy test --black                # Code formatting (updates local files)
+./bouy test --ruff                 # Linting
+./bouy test --bandit               # Security scan
+./bouy test --coverage             # Tests with coverage check
 
-# Run specific test types
+# Or run locally with poetry
+poetry run pytest                       # Run all tests with coverage
 poetry run pytest -m integration        # Integration tests
 poetry run pytest -m asyncio           # Async tests
 poetry run pytest tests/test_scraper/  # Scraper tests
@@ -402,7 +490,7 @@ poetry run pytest tests/test_scraper/  # Scraper tests
 bash scripts/coverage-report.sh        # Comprehensive coverage
 poetry run coverage report --show-missing --sort=Cover
 
-# Code quality checks
+# Code quality checks (local)
 poetry run mypy .                       # Type checking
 poetry run black .                      # Code formatting
 poetry run ruff .                       # Linting
@@ -410,41 +498,47 @@ poetry run bandit -r app/               # Security scan
 poetry run vulture app/                 # Unused code detection
 
 # Run all CI checks
-./scripts/run-ci-checks.sh
+./bouy test                        # Using Docker (recommended)
+./scripts/run-ci-checks-docker.sh      # Alternative Docker method
+./scripts/run-ci-checks.sh             # Using local # Dependencies are installed automatically in containers via bouyation
 ```
 
 #### **Scraper Management**
 ```bash
-# List available scrapers
-python -m app.scraper --list
+# Using docker.sh (recommended)
+./bouy scraper --list              # List available scrapers
+./bouy scraper nyc_efap_programs   # Run specific scraper
+./bouy scraper --all               # Run all scrapers
 
-# Run specific scraper
-python -m app.scraper nyc_efap_programs
+# Test scrapers (dry run)
+./bouy scraper-test --all          # Test all scrapers
+./bouy scraper-test nyc_efap_programs  # Test specific scraper
 
-# Run all scrapers
-python -m app.scraper --all
+# Monitor scrapers
+./bouy logs scraper                # View scraper logs
+./bouy logs -f scraper             # Follow logs
 
-# Run scrapers in parallel
-python -m app.scraper --all --parallel --max-workers 4
-
-# Test scrapers without processing
-python -m app.scraper.test_scrapers --all
+# Programmatic mode
+./bouy --programmatic scraper --list
+./bouy --quiet scraper nyc_efap_programs
 ```
 
 #### **Docker Development**
 ```bash
-# Build specific service targets
-docker build --target app -t pantry-pirate-radio:app .
-docker build --target worker -t pantry-pirate-radio:worker .
-docker build --target recorder -t pantry-pirate-radio:recorder .
+# Build services
+./bouy build                       # Build all services
+./bouy build app                   # Build specific service
+./bouy build worker                # Build worker service
+./bouy build --prod app            # Build for production
 
-# Run tests using Docker
-docker build --target test -t pantry-pirate-radio:test .
-docker run --rm pantry-pirate-radio:test
+# Run tests
+./bouy test                        # Run all tests
+./bouy test --pytest               # Run pytest only
 
 # Debug service containers
-docker compose exec app bash
-docker compose exec worker bash
+./bouy shell app                   # Open shell in app container
+./bouy shell worker                # Open shell in worker container
+./bouy exec app bash -c "echo test"  # Execute command
 ```
 
 ### Quality Standards
@@ -506,6 +600,7 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 See **[Documentation Index](docs/README.md)** for complete navigation through all available documentation.
 
 ### Quick Links
+- **[Bouy Command Reference](BOUY.md)** - Complete Docker fleet management guide
 - **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
 - **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
 - **[API Examples](docs/api-examples.md)** - Practical API usage examples

@@ -2,7 +2,53 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Quick Command Reference
+
+**IMPORTANT: All commands use bouy - no local dependencies except Docker required!**
+
+```bash
+# Essential Commands
+./bouy up                    # Start all services
+./bouy down                  # Stop all services
+./bouy test                  # Run all tests and checks
+./bouy logs app              # View service logs
+./bouy shell app             # Open shell in container
+./bouy ps                    # List running services
+./bouy clean                 # Stop and remove volumes
+./bouy version               # Show bouy version
+
+# Testing Commands
+./bouy test --pytest         # Run tests only
+./bouy test --mypy          # Type checking only
+./bouy test --black         # Format checking only
+./bouy test --ruff          # Linting only
+./bouy test --bandit        # Security scan only
+./bouy test --coverage       # Tests with coverage check
+
+# Scraper Commands
+./bouy scraper --list       # List all scrapers
+./bouy scraper --all        # Run all scrapers
+./bouy scraper NAME         # Run specific scraper
+./bouy scraper-test NAME    # Test scraper (dry run)
+
+# Service Management
+./bouy build                # Build all services
+./bouy build app            # Build specific service
+./bouy exec app CMD         # Execute command in container
+
+# Programmatic Mode (for CI/automation)
+./bouy --programmatic test  # Structured output
+./bouy --json ps            # JSON output
+./bouy --quiet up           # Minimal output
+./bouy --no-color logs app  # No color codes
+./bouy --verbose up         # Debug output
+```
+
 ## Development Commands
+
+### IMPORTANT: Docker-Only Development
+
+**All development commands must use bouy** - no local Python dependencies are required except Docker.
 
 ### Test-Driven Development (TDD) Workflow
 
@@ -17,153 +63,283 @@ This project follows Test-Driven Development principles. Always write tests befo
 # 1. Create test file first
 touch tests/test_new_feature.py
 
-# 2. Write failing test
-poetry run pytest tests/test_new_feature.py -v  # Should fail
+# 2. Write failing test and run with bouy
+./bouy test --pytest  # Should fail
 
 # 3. Implement minimal code to pass
 # ... write implementation ...
 
 # 4. Run test again
-poetry run pytest tests/test_new_feature.py -v  # Should pass
+./bouy test --pytest  # Should pass
 
 # 5. Refactor and ensure tests still pass
-poetry run pytest tests/test_new_feature.py -v
+./bouy test --pytest
 
 # 6. Run full test suite before committing
-poetry run pytest
+./bouy test  # Runs all CI checks
 ```
 
-### Running Tests
+## Testing with Bouy
+
+### Running All Tests
 ```bash
-# Run all tests (coverage included by default)
-poetry run pytest
+./bouy test                  # Run all CI checks (pytest, mypy, black, ruff, bandit)
+```
 
-# Run tests with specific coverage reports
-poetry run pytest --cov=app --cov-report=html --cov-report=xml --cov-report=json
+### Running Specific Test Types
+```bash
+./bouy test --pytest         # Run pytest with coverage
+./bouy test --mypy           # Type checking only
+./bouy test --black          # Code formatting only
+./bouy test --ruff           # Linting only
+./bouy test --bandit         # Security scan only
+./bouy test --coverage       # Pytest with coverage threshold check
+```
 
-# Run tests without coverage (if needed)
-poetry run pytest --no-cov
+### Running Specific Test Files
+```bash
+# Test a specific file
+./bouy test --pytest tests/test_api.py
 
-# Run specific test file
-poetry run pytest tests/test_filename.py
+# Test a directory
+./bouy test --pytest tests/test_scraper/
 
-# Run integration tests
-poetry run pytest -m integration
+# Multiple files
+./bouy test --pytest tests/test_api.py tests/test_reconciler.py
+```
 
-# Run async tests
-poetry run pytest -m asyncio
+### Passing Additional Arguments to Tests
 
-# Watch mode - rerun tests on file changes (requires pytest-watch)
-poetry run ptw
+Use `--` to pass arguments to the underlying test command:
 
-# Run tests in parallel (requires pytest-xdist)
-poetry run pytest -n auto
+```bash
+# Verbose output
+./bouy test --pytest -- -v
 
-# Run only tests that failed in the last run
-poetry run pytest --lf
+# Run tests matching pattern
+./bouy test --pytest -- -k test_name
+./bouy test --pytest -- -k "test_api or test_reconciler"
 
-# Run tests with verbose output and show local variables on failure
-poetry run pytest -vvl
+# Stop on first failure
+./bouy test --pytest -- -x
+
+# Drop to debugger on failure
+./bouy test --pytest -- --pdb
+
+# Show local variables
+./bouy test --pytest -- -l
+
+# Run specific test function
+./bouy test --pytest -- tests/test_api.py::TestAPI::test_get_organizations
+
+# Combine options
+./bouy test --pytest -- -vsx -k test_name
+```
+
+### Test Output Formats
+```bash
+# Normal output (default)
+./bouy test --pytest
+
+# Programmatic mode (structured output for CI)
+./bouy --programmatic test --pytest
+
+# JSON output
+./bouy --json test --pytest
+
+# Quiet mode (minimal output)
+./bouy --quiet test --pytest
+
+# No color (for log files)
+./bouy --no-color test --pytest
+
+# Combine modes
+./bouy --programmatic --quiet test
 ```
 
 ### Coverage Analysis
 ```bash
-# Generate comprehensive coverage report
-bash scripts/coverage-report.sh
+# Run tests with coverage check
+./bouy test --coverage
 
-# Check coverage with ratcheting mechanism
-bash scripts/coverage-check.sh
+# Coverage reports are automatically generated:
+# - htmlcov/index.html (HTML report)
+# - coverage.xml (XML report for CI)
+# - coverage.json (JSON report for automation)
 
 # View coverage report in browser
 open htmlcov/index.html
-
-# Display coverage summary
-poetry run coverage report --show-missing --sort=Cover
-
-# Generate coverage reports in different formats
-poetry run coverage html    # HTML report
-poetry run coverage xml     # XML report (for CI)
-poetry run coverage json    # JSON report (for automation)
 ```
 
-### Code Quality
+### Type Checking Specific Files
 ```bash
-# Type checking
-poetry run mypy .
+# Check specific paths
+./bouy test --mypy app/api/
+./bouy test --mypy app/api/ app/llm/
+```
 
-# Code formatting
-poetry run black .
+### Code Formatting
+```bash
+# Check formatting (updates files automatically)
+./bouy test --black
 
-# Linting
-poetry run ruff .
+# Check specific paths
+./bouy test --black app/api/
+```
 
-# Security scan
-poetry run bandit -r app/
+### Security Scanning
+```bash
+# Run security scan
+./bouy test --bandit
 
-# Check unused code
-poetry run vulture app/
+# With custom severity
+./bouy test --bandit -- -ll  # Low severity and above
+```
+
+### CI/CD Testing Examples
+```bash
+# GitHub Actions / CI pipelines
+./bouy --programmatic --quiet test              # All checks, minimal output
+./bouy --programmatic --quiet test --pytest     # Just tests
+./bouy --programmatic --quiet test --mypy       # Just type checking
+./bouy --json test --pytest                     # JSON test results
+
+# Combine with error checking
+./bouy --programmatic --quiet test || exit 1
 ```
 
 ### Development Setup
 ```bash
-# Install dependencies
-poetry install
+# Start all services (no local dependencies needed)
+./bouy up                    # Development mode (default)
+./bouy up --prod            # Production mode
+./bouy up --with-init       # With database initialization
 
-# Start all services (uses consolidated Dockerfile with multi-stage builds)
-docker compose up -d
+# Start specific services
+./bouy up app worker        # Start only app and worker
 
-# Start specific service
-docker compose up -d app worker recorder reconciler
+# Service management
+./bouy down                 # Stop all services
+./bouy ps                   # List running services
+./bouy logs app             # View service logs
+./bouy logs -f worker       # Follow worker logs
+./bouy shell app            # Open shell in container
+./bouy exec app python --version  # Execute command
+./bouy clean                # Stop and remove volumes
 
-# View logs
-docker compose logs -f [service_name]
+# Build services
+./bouy build                # Build all services
+./bouy build app            # Build specific service
+./bouy build --prod worker  # Build for production
 
-# Scale workers
-docker compose up -d --scale worker=3
-
-# Run FastAPI server locally
-poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Programmatic mode for automation
+./bouy --json ps            # Get service status as JSON
+./bouy --quiet up           # Start with minimal output
+./bouy --programmatic exec app python -c "print('test')"
 ```
 
-### Docker Build Commands
+### Environment Modes
 ```bash
-# Build all services (uses multi-stage Dockerfile)
-docker compose build
+# Development mode (default)
+./bouy up
+./bouy up --dev
 
-# Build specific service target
-docker build --target app -t pantry-pirate-radio:app .
-docker build --target worker -t pantry-pirate-radio:worker .
-docker build --target recorder -t pantry-pirate-radio:recorder .
-docker build --target scraper -t pantry-pirate-radio:scraper .
-docker build --target test -t pantry-pirate-radio:test .
+# Production mode
+./bouy up --prod
 
-# Run tests using Docker
-docker build --target test -t pantry-pirate-radio:test .
-docker run --rm pantry-pirate-radio:test
+# Test mode
+./bouy up --test
+
+# With database initialization from HAARRRvest
+./bouy up --with-init
+./bouy up --dev --with-init
+./bouy up --prod --with-init
 ```
 
 ### Running Scrapers
 ```bash
 # List available scrapers
-python -m app.scraper --list
+./bouy scraper --list
 
 # Run specific scraper
-python -m app.scraper nyc_efap_programs
+./bouy scraper nyc_efap_programs
 
 # Run all scrapers
-python -m app.scraper --all
+./bouy scraper --all
 
-# Run scrapers in parallel
-python -m app.scraper --all --parallel --max-workers 4
+# Programmatic mode for automation
+./bouy --programmatic scraper --list
+./bouy --programmatic --quiet scraper nyc_efap_programs
+```
 
-# Test scrapers without processing
-python -m app.scraper.test_scrapers --all
+### Testing Scrapers
+```bash
+# Test scrapers without processing (dry run)
+./bouy scraper-test --all
+./bouy scraper-test nyc_efap_programs
+```
+
+### Data Export and Management
+```bash
+# Export database to SQLite for Datasette
+./bouy datasette                    # Run immediate export
+./bouy datasette export             # Same as above
+./bouy datasette schedule           # Start periodic export scheduler
+./bouy datasette status             # Check export status
+
+# Replay recorded JSON files to recreate database records
+./bouy replay                       # Show help
+./bouy replay --file path/to/file.json          # Replay single file
+./bouy replay --directory path/to/dir            # Replay directory
+./bouy replay --use-default-output-dir           # Use outputs directory
+./bouy replay --use-default-output-dir --dry-run # Preview without executing
+
+# With programmatic output
+./bouy --programmatic replay --use-default-output-dir
+./bouy --quiet replay --file output.json
+```
+
+### Service Management Commands
+```bash
+# Reconciler (processes LLM job results)
+./bouy reconciler                   # Process jobs from queue
+
+# Recorder (saves job results to JSON files)
+./bouy recorder                     # Save results to outputs directory
+
+# Content Store (manages deduplication)
+./bouy content-store status         # Check content store status
+./bouy content-store report         # Generate detailed report
+./bouy content-store duplicates     # Find duplicate content
+./bouy content-store efficiency     # Analyze storage efficiency
+
+# HAARRRvest Publisher (pushes data to repository)
+./bouy haarrrvest                   # Manually trigger publish
+./bouy haarrrvest run              # Same as above
+./bouy haarrrvest logs             # Follow publisher logs
+./bouy haarrrvest status           # Check publisher status
+
+# Claude Authentication (for LLM workers)
+./bouy claude-auth                  # Interactive authentication
+./bouy claude-auth setup           # Setup authentication
+./bouy claude-auth status          # Check auth status
+./bouy claude-auth test            # Test connection
+./bouy claude-auth config          # Show configuration
 ```
 
 ### CI Checks
 ```bash
-# Run all expected CI checks
-./scripts/run-ci-checks.sh
+# Run all CI checks
+./bouy test
+
+# For GitHub Actions or other CI systems
+./bouy --programmatic --quiet test
+
+# With specific output formats
+./bouy --json test               # JSON output
+./bouy --programmatic test       # Structured logging
+./bouy --quiet test              # Minimal output
+./bouy --no-color test           # Plain text
 ```
 
 ## Architecture Overview
@@ -293,17 +469,19 @@ Key environment variables (see `.env.example`):
 
 #### Claude Authentication Commands
 ```bash
+# Authenticate Claude (interactive)
+./bouy claude-auth
+
 # Check authentication status
+./bouy claude-auth status
+
+# Other authentication commands
+./bouy claude-auth setup         # Setup authentication
+./bouy claude-auth test          # Test connection
+./bouy claude-auth config        # Show configuration
+
+# Check health endpoint
 curl http://localhost:8080/health
-
-# Interactive setup
-docker-compose exec worker python -m app.claude_auth_manager setup
-
-# Check status
-docker-compose exec worker python -m app.claude_auth_manager status
-
-# Test request
-docker-compose exec worker python -m app.claude_auth_manager test
 ```
 
 ### HSDS Validation Details
@@ -330,17 +508,21 @@ docker-compose exec worker python -m app.claude_auth_manager test
 ### HAARRRvest Publisher Commands
 ```bash
 # Start the publisher service
-docker-compose up -d haarrrvest-publisher
+./bouy up haarrrvest-publisher
+
+# Manually trigger publishing
+./bouy haarrrvest                # Run publisher immediately
+./bouy haarrrvest run           # Same as above
+
+# Monitor publisher
+./bouy haarrrvest logs          # Follow publisher logs
+./bouy haarrrvest status        # Check publisher status
 
 # View logs
-docker-compose logs -f haarrrvest-publisher
+./bouy logs haarrrvest-publisher
 
-# Trigger immediate processing
-docker-compose restart haarrrvest-publisher
-
-# Manual testing without Docker
-export DATABASE_URL=postgresql://user:pass@localhost:5432/pantry_pirate_radio
-python test_haarrrvest_publisher.py
+# Check service status
+./bouy ps
 ```
 
 ## TDD Memories
@@ -355,4 +537,55 @@ python test_haarrrvest_publisher.py
 
 ### Docker Compose Naming
 - It's "docker compose" (space), not "docker-compose" (hyphen)
+
+## Pre-commit Hooks
+
+All pre-commit hooks run in Docker containers via bouy. No local Python installation required!
+
+```bash
+# Install pre-commit hooks (one-time setup)
+pre-commit install
+
+# Run all hooks manually
+pre-commit run --all-files
+
+# Skip hooks for a commit (use sparingly!)
+git commit --no-verify -m "Emergency fix"
+```
+
+### Hook Configuration
+The `.pre-commit-config.yaml` is configured to run all Python tools via `bouy`:
+- **black-docker**: Code formatting via `./bouy --programmatic --quiet test --black`
+- **ruff-docker**: Linting via `./bouy --programmatic --quiet test --ruff`
+- **mypy-docker**: Type checking via `./bouy --programmatic --quiet test --mypy`
+- **pytest-docker**: Test suite via `./bouy --programmatic --quiet test --pytest`
+
+All hooks use bouy's programmatic mode for consistent Docker execution.
+
+## CLI and Development Tools
+
+### CLI Tools
+- **gh is available. it's much preferable to trying to interact with github.com**
+
+### Advanced Automation: bouy-api
+
+For CI/CD and advanced automation, use `bouy-api` which provides:
+- Enhanced JSON output for all commands
+- Service health checking with `--wait-healthy`
+- Command timeouts with `--timeout`
+- Dry-run mode with `--dry-run`
+- Structured exit codes (0-5) for error handling
+
+```bash
+# Wait for services to be healthy before continuing
+./bouy-api --json --wait-healthy up app worker
+
+# Run tests with timeout and JSON output
+./bouy-api --json --timeout 300 test pytest
+
+# Check service health
+./bouy-api health app
+
+# Dry run to preview commands
+./bouy-api --dry-run up --prod
 ```

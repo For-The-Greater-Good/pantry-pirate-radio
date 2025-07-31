@@ -13,6 +13,9 @@
 #   4. All other services start once db-init is healthy
 
 services:
+  # Override db-init to remove the profile restriction when this overlay is used
+  db-init:
+    profiles: []  # Remove profile restriction to always include this service
   # Update service dependencies to wait for db-init instead of just db
   app:
     depends_on:

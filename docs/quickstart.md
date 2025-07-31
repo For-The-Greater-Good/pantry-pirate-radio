@@ -459,12 +459,15 @@ DATA_REPO_TOKEN=your_github_token
 docker-compose up -d
 
 # 4. Run a scraper to generate data
-docker-compose exec scraper python -m app.scraper nyc_efap_programs
+./bouy scraper nyc_efap_programs
 
 # 5. Monitor processing
-docker-compose logs -f worker
-docker-compose logs -f recorder
-docker-compose logs -f haarrrvest-publisher
+./bouy logs worker
+./bouy logs recorder
+./bouy logs haarrrvest-publisher
+
+# Follow logs continuously
+./bouy logs -f worker
 
 # 6. Check published data
 # Visit https://github.com/For-The-Greater-Good/HAARRRvest

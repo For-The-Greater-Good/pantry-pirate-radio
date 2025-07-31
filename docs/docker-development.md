@@ -11,32 +11,51 @@ The development environment uses Docker Compose with multiple configuration file
 
 ## Quick Start
 
-### Basic Development Environment
+### Using bouy Helper (Recommended)
 
 ```bash
 # Start development services (empty database)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+./bouy up --dev
+
+# Start with pre-populated data from HAARRRvest
+./bouy up --dev --with-init
 
 # View logs
-docker compose logs -f
+./bouy logs app
 
 # Stop services
-docker compose down
+./bouy down
 ```
+
+### Alternative: Understanding the Underlying Commands
+
+While bouy is the recommended approach, it's helpful to understand what it does behind the scenes:
+
+- `./bouy up` runs the appropriate docker compose configuration
+- `./bouy logs` follows service logs
+- `./bouy down` stops all services
+
+Always use bouy for consistency and additional safety checks.
 
 ### Development with Pre-populated Data
 
 To start with ~90 days of historical data from HAARRRvest:
 
 ```bash
-# Start dev environment with database initialization
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
+# Using bouy (recommended)
+./bouy up --dev --with-init
+
+# Monitor initialization progress
+./bouy logs db-init
+
+# The bouy command handles all the complexity for you
+# It automatically uses the correct compose files and profiles
 
 # Monitor initialization progress (takes 5-15 minutes)
-docker compose logs -f db-init
+./bouy logs db-init
 
-# Check when initialization is complete
-docker compose ps db-init  # Should show "healthy" when done
+# Check service status
+./bouy ps  # Check all services including db-init
 ```
 
 ## VSCode DevContainer
@@ -75,53 +94,90 @@ The recommended development approach uses VSCode DevContainers:
 
 ```bash
 # Connect to database
-docker compose exec db psql -U postgres -d pantry_pirate_radio
+./bouy exec db psql -U postgres -d pantry_pirate_radio
 
 # Run migrations
-docker compose exec app alembic upgrade head
+./bouy exec app alembic upgrade head
 
 # Create backup
-docker compose exec db-backup /backup.sh
+./bouy exec db-backup /backup.sh
 ```
 
 ### 2. Running Tests
 
 ```bash
-# Run tests in container
-docker compose exec app poetry run pytest
+# Using bouy (recommended)
+./bouy test                   # Run all CI checks
+./bouy test --pytest          # Run tests with coverage
+./bouy test --mypy            # Type checking
+./bouy test --black           # Format code (updates local files)
+./bouy test --ruff            # Run linter
+./bouy test --bandit          # Security scan
 
-# Run specific test file
-docker compose exec app poetry run pytest tests/test_api.py
-
-# Run with coverage
-docker compose exec app poetry run pytest --cov
+# Run specific test files directly
+./bouy test --pytest tests/test_api.py
+./bouy test --pytest tests/test_api.py::TestAPI::test_get_organizations
+./bouy test --pytest -- --cov
 ```
 
 ### 3. Code Quality
 
 ```bash
-# Format code
-docker compose exec app poetry run black .
+# Using bouy (updates local files)
+./bouy test --black           # Format code
+./bouy test --ruff            # Run linter
+./bouy test --mypy            # Type checking
 
-# Run linter
-docker compose exec app poetry run ruff .
-
-# Type checking
-docker compose exec app poetry run mypy .
+# These commands automatically update your local files
+# The test container has your code mounted, so changes are reflected locally
 ```
 
 ### 4. Debugging
 
 ```bash
-# View service logs
-docker compose logs -f app
-docker compose logs -f worker
+# Using bouy
+./bouy logs app               # View service logs
+./bouy logs worker           # View worker logs
+./bouy shell app             # Shell access
+./bouy exec app python       # Python REPL
 
-# Shell access
-docker compose exec app bash
+# Follow logs for multiple services
+./bouy logs app worker
 
-# Python REPL with app context
-docker compose exec app python
+# Get Python REPL in app container
+./bouy exec app python
+```
+
+### 5. Running Scrapers
+
+```bash
+# List and run scrapers
+./bouy scraper --list        # List available scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper --all         # Run all scrapers
+
+# Programmatic mode for automation
+./bouy --programmatic scraper --list
+./bouy --programmatic --quiet scraper nyc_efap_programs
+./bouy --programmatic --quiet scraper --all
+
+# Monitor scraper output
+./bouy logs scraper          # View scraper logs
+```
+
+### 6. Claude Authentication
+
+```bash
+# Authenticate Claude (interactive)
+./bouy claude-auth
+
+# Check status and manage auth
+./bouy exec worker python -m app.claude_auth_manager status
+./bouy exec worker python -m app.claude_auth_manager setup
+./bouy exec worker python -m app.claude_auth_manager test
+
+# Health check endpoint
+curl http://localhost:8080/health
 ```
 
 ## Environment Configuration
@@ -163,31 +219,86 @@ DATA_REPO_TOKEN=your_github_token
 ### Starting Fresh
 
 ```bash
-# Remove all data and start clean
-docker compose down -v
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Clean and restart
+./bouy clean                  # Remove all data and volumes
+./bouy up                     # Start fresh (dev mode by default)
+./bouy up --with-init        # Start with populated database
+
+# Check everything is running
+./bouy ps
+./bouy --json ps             # JSON output for scripts
 ```
 
 ### Switching Between Empty and Populated Database
 
 ```bash
-# From empty to populated
-docker compose down
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.with-init.yml --profile with-init up -d
+# Start with populated database
+./bouy clean                  # Clear existing data
+./bouy up --with-init        # Start with HAARRRvest data
 
-# From populated to empty
-docker compose down -v  # -v removes volumes
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Start with empty database
+./bouy clean                  # Clear existing data
+./bouy up                     # Start fresh
+
+# Monitor initialization
+./bouy logs db-init          # Watch database population
+./bouy logs haarrrvest-publisher  # Watch data sync
 ```
 
 ### Updating Dependencies
 
 ```bash
-# Update Poetry dependencies
-docker compose exec app poetry update
+# Update dependencies in container
+./bouy exec app poetry update
+./bouy exec app poetry lock
 
-# Rebuild containers after Dockerfile changes
-docker compose build --no-cache
+# Rebuild containers after changes
+./bouy build                  # Rebuild all services
+./bouy build app             # Rebuild specific service
+./bouy build --no-cache app  # Force rebuild
+```
+
+## CI/CD Integration
+
+### GitHub Actions Example
+```yaml
+- name: Run Tests
+  run: |
+    ./bouy --programmatic --quiet test
+
+- name: Check Types
+  run: |
+    ./bouy --programmatic --quiet test --mypy
+
+- name: Run Linter
+  run: |
+    ./bouy --programmatic --quiet test --ruff
+```
+
+### Jenkins Pipeline Example
+```groovy
+stage('Test') {
+    steps {
+        sh './bouy --programmatic --quiet test'
+    }
+}
+
+stage('Deploy') {
+    steps {
+        sh './bouy --programmatic up --prod'
+    }
+}
+```
+
+### GitLab CI Example
+```yaml
+test:
+  script:
+    - ./bouy --programmatic --quiet test
+
+deploy:
+  script:
+    - ./bouy --programmatic up --prod
 ```
 
 ## Troubleshooting
@@ -196,26 +307,26 @@ docker compose build --no-cache
 
 ```bash
 # Check logs
-docker compose logs app
+./bouy logs app
 
-# Verify environment
-docker compose config
+# Check all service status
+./bouy ps
 
-# Check file permissions
-ls -la docker-compose*.yml
+# Verbose mode for debugging
+./bouy --verbose up
 ```
 
 ### Database connection issues
 
 ```bash
 # Verify database is running
-docker compose ps db
+./bouy ps | grep db
 
 # Check database logs
-docker compose logs db
+./bouy logs db
 
 # Test connection
-docker compose exec db pg_isready
+./bouy exec db pg_isready
 ```
 
 ### Slow initialization
@@ -228,10 +339,10 @@ The db-init process can take 5-30 minutes depending on:
 Monitor progress:
 ```bash
 # Watch initialization logs
-docker compose logs -f db-init
+./bouy logs -f db-init
 
 # Check database record count
-docker compose exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
 ```
 
 ## Performance Optimization
@@ -275,7 +386,7 @@ The system now supports fast database initialization using SQL dumps:
 
 ```bash
 # Create a SQL dump from current database
-docker compose exec app bash /app/scripts/create-sql-dump.sh
+./bouy exec app bash /app/scripts/create-sql-dump.sh
 
 # Dumps are saved to HAARRRvest/sql_dumps/
 # Latest dump is symlinked as latest.sql.gz

@@ -1,0 +1,47 @@
+# Docker-based pre-commit configuration
+# Use this if you want to run pre-commit hooks inside Docker containers
+#
+# To use this instead of the default config:
+# ln -sf .pre-commit-config.docker.yaml .pre-commit-config.yaml
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: black
+        name: black (docker)
+        entry: bash -c 'docker run --rm -v "$(pwd)":/app -w /app pantry-pirate-radio-test:latest poetry run black'
+        language: system
+        types: [python]
+        exclude: ^docs/
+
+      - id: ruff
+        name: ruff (docker)
+        entry: bash -c 'docker run --rm -v "$(pwd)":/app -w /app pantry-pirate-radio-test:latest poetry run ruff check'
+        language: system
+        types: [python]
+        exclude: ^docs/
+
+      - id: mypy
+        name: mypy (docker)
+        entry: bash -c 'docker run --rm -v "$(pwd)":/app -w /app --env-file .env.test pantry-pirate-radio-test:latest poetry run mypy app tests'
+        pass_filenames: false
+        language: system
+        types: [python]
+        exclude: ^docs/
+
+      - id: pytest
+        name: pytest (docker)
+        entry: bash -c 'docker run --rm -v "$(pwd)":/app -w /app --network pantry-pirate-radio_default --env-file .env.test pantry-pirate-radio-test:latest poetry run pytest --ignore=docs --ignore=tests/test_integration -x -m "not integration"'
+        pass_filenames: false
+        language: system
+        types: [python]
+        stages: [pre-commit]
+        always_run: true

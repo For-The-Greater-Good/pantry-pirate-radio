@@ -1,0 +1,1712 @@
+#!/bin/bash
+set -e
+
+# Bouy - Docker fleet management for Pantry Pirate Radio
+# Navigate the seas of containers with ease!
+#
+# Version: 1.0.0
+#
+
+# Cleanup function for trap handlers
+cleanup() {
+    local exit_code=$?
+    # Clean up any temporary files
+    if [ -n "$CLEANUP_TEMP_FILES" ]; then
+        rm -f $CLEANUP_TEMP_FILES 2>/dev/null || true
+    fi
+    # Note: Docker containers are managed with --rm flag, so no manual cleanup needed
+    exit $exit_code
+}
+
+# Set trap for cleanup on exit, interrupt, or termination
+trap cleanup EXIT INT TERM
+
+COMPOSE_FILES="-f docker-compose.yml"
+COMPOSE_CMD="docker compose"
+VERSION="1.0.0"
+
+# Test mode support - allows overriding docker compose command for testing
+if [ -n "$BOUY_TEST_MODE" ]; then
+    COMPOSE_CMD="${BOUY_TEST_COMPOSE_CMD:-docker compose}"
+fi
+
+# Default behavior flags
+PROGRAMMATIC_MODE=0
+VERBOSE=0
+QUIET=0
+JSON_OUTPUT=0
+NO_COLOR=0
+
+# Function to show usage
+usage() {
+    echo "⚓ Bouy v$VERSION - Docker Fleet Management ⚓"
+    echo "Usage: bouy [GLOBAL_OPTIONS] COMMAND [OPTIONS]"
+    echo ""
+    echo "Global Options:"
+    echo "  --programmatic      Enable programmatic mode (structured output)"
+    echo "  --json              Output in JSON format (implies --programmatic)"
+    echo "  --verbose           Enable verbose output"
+    echo "  --quiet             Suppress non-error output"
+    echo "  --no-color          Disable colored output"
+    echo ""
+    echo "Commands:"
+    echo "  setup               Interactive setup wizard for .env configuration"
+    echo "  up [SERVICE]        Start services (dev mode by default)"
+    echo "  down                Stop all services"
+    echo "  build [SERVICE]     Build services"
+    echo "  logs [SERVICE]      View logs (follows by default)"
+    echo "  shell SERVICE       Open shell in service container"
+    echo "  exec SERVICE CMD    Execute command in service container"
+    echo "  ps                  List running services"
+    echo "  test [OPTIONS]      Run tests with various options"
+    echo "  scraper [NAME|--all] Run specific scraper or all scrapers"
+    echo "  scraper-test [NAME] Test scrapers without processing"
+    echo "  claude-auth [CMD]   Manage Claude authentication"
+    echo "  reconciler [ARGS]   Run the reconciler service"
+    echo "  recorder [ARGS]     Run the recorder service"
+    echo "  content-store [CMD] Manage content store"
+    echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
+    echo "  datasette [CMD]     Export database to SQLite for Datasette"
+    echo "  replay [OPTIONS]    Replay recorded JSON files"
+    echo "  clean               Stop services and remove volumes"
+    echo ""
+    echo "Test options:"
+    echo "  test                Run all CI checks"
+    echo "  test --pytest       Run only pytest"
+    echo "  test --mypy         Run only mypy type checking"
+    echo "  test --black        Run only black formatting"
+    echo "  test --ruff         Run only ruff linting"
+    echo "  test --bandit       Run only bandit security check"
+    echo "  test --coverage     Run pytest with coverage"
+    echo "  test --vulture      Run only vulture dead code check"
+    echo "  test --safety       Run only safety vulnerability check"
+    echo "  test --pip-audit    Run only pip-audit vulnerability check"
+    echo "  test --xenon        Run only xenon complexity check"
+    echo ""
+    echo "  Additional arguments can be passed after -- or directly:"
+    echo "    test --pytest tests/test_bouy_unit.py"
+    echo "    test --pytest -- -v -k test_output_function"
+    echo "    test --pytest -- tests/test_bouy_unit.py::TestBouyFunctions::test_output_function_json_mode"
+    echo ""
+    echo "Scraper options:"
+    echo "  scraper --list      List all available scrapers"
+    echo "  scraper --all       Run all scrapers"
+    echo "  scraper NAME        Run specific scraper by name"
+    echo ""
+    echo "Claude auth options:"
+    echo "  claude-auth         Interactive Claude authentication"
+    echo "  claude-auth setup   Setup Claude authentication"
+    echo "  claude-auth status  Check authentication status"
+    echo "  claude-auth test    Test Claude connection"
+    echo "  claude-auth config  Show Claude configuration"
+    echo ""
+    echo "Content store options:"
+    echo "  content-store status      Show content store status"
+    echo "  content-store report      Generate detailed report"
+    echo "  content-store duplicates  Find duplicate content"
+    echo "  content-store efficiency  Analyze storage efficiency"
+    echo ""
+    echo "HAARRRvest publisher options:"
+    echo "  haarrrvest              Manually trigger publishing run"
+    echo "  haarrrvest run          Manually trigger publishing run"
+    echo "  haarrrvest logs         Follow publisher logs"
+    echo "  haarrrvest status       Check publisher service status"
+    echo ""
+    echo "Datasette options:"
+    echo "  datasette              Export database to SQLite immediately"
+    echo "  datasette export       Export database to SQLite immediately"
+    echo "  datasette schedule     Start periodic export scheduler"
+    echo "  datasette status       Check export status and SQLite file"
+    echo ""
+    echo "Replay options:"
+    echo "  replay                          Show replay help"
+    echo "  replay --file FILE              Replay single JSON file"
+    echo "  replay --directory DIR          Replay all files in directory"
+    echo "  replay --use-default-output-dir Use default outputs directory"
+    echo "  replay --dry-run               Preview without executing"
+    echo ""
+    echo "Scraper test options:"
+    echo "  scraper-test --all     Test all scrapers (dry run)"
+    echo "  scraper-test NAME      Test specific scraper (dry run)"
+    echo ""
+    echo "Environment modes (use with 'up'):"
+    echo "  --dev               Development mode (default)"
+    echo "  --prod              Production mode"
+    echo "  --test              Test mode"
+    echo "  --with-init         Include database initialization"
+    echo ""
+    echo "Examples:"
+    echo "  bouy up                    # Start dev environment"
+    echo "  bouy up --prod             # Start production environment"
+    echo "  bouy up worker --dev       # Start only worker in dev mode"
+    echo "  bouy logs app              # View app logs"
+    echo "  bouy shell app             # Open shell in app container"
+    echo "  bouy test                  # Run tests"
+    echo ""
+    echo "Programmatic Examples:"
+    echo "  bouy --json ps             # Get service status as JSON"
+    echo "  bouy --quiet up            # Start services with minimal output"
+    echo "  bouy --programmatic exec app python --version"
+    echo ""
+    echo "⛵ Smooth sailing with your container fleet!"
+}
+
+# Parse global flags
+while [[ $# -gt 0 ]] && [[ "$1" =~ ^-- ]]; do
+    case $1 in
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --version|-v)
+            echo "⚓ Bouy v$VERSION"
+            echo "Docker fleet management for Pantry Pirate Radio"
+            exit 0
+            ;;
+        --programmatic)
+            PROGRAMMATIC_MODE=1
+            NO_COLOR=1
+            shift
+            ;;
+        --json)
+            JSON_OUTPUT=1
+            PROGRAMMATIC_MODE=1
+            NO_COLOR=1
+            shift
+            ;;
+        --verbose)
+            VERBOSE=1
+            shift
+            ;;
+        --quiet)
+            QUIET=1
+            shift
+            ;;
+        --no-color)
+            NO_COLOR=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Output functions for programmatic mode
+output() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [ $QUIET -eq 1 ] && [ "$level" != "error" ] && [ "$level" != "result" ]; then
+        return
+    fi
+
+    if [ $JSON_OUTPUT -eq 1 ]; then
+        # Check if jq is available
+        if command -v jq >/dev/null 2>&1; then
+            # Use jq for proper JSON escaping
+            echo '{}' | jq -c --arg ts "$timestamp" --arg lv "$level" --arg msg "$message" \
+                '{timestamp: $ts, level: $lv, message: $msg}'
+        else
+            # Fallback to basic escaping with warning
+            if [ "$JQ_WARNING_SHOWN" != "1" ]; then
+                echo "[WARNING] jq is not installed. JSON output may be malformed. Install jq with: apt-get install jq (or brew install jq on macOS)" >&2
+                export JQ_WARNING_SHOWN=1
+            fi
+            # Basic escaping - handle quotes, newlines, tabs, and backslashes
+            message="${message//\\/\\\\}"
+            message="${message//\"/\\\"}"
+            message="${message//$'\n'/\\n}"
+            message="${message//$'\t'/\\t}"
+            echo "{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"$message\"}"
+        fi
+    elif [ $PROGRAMMATIC_MODE -eq 1 ]; then
+        echo "[$timestamp] [$level] $message" >&2
+    elif [ "$level" = "result" ]; then
+        # Results always go to stdout
+        echo "$message"
+    else
+        # Normal mode - colored output to stderr
+        if [ $NO_COLOR -eq 0 ]; then
+            case "$level" in
+                error)
+                    echo -e "\033[31m[ERROR]\033[0m $message" >&2
+                    ;;
+                warning)
+                    echo -e "\033[33m[WARNING]\033[0m $message" >&2
+                    ;;
+                info)
+                    echo -e "\033[34m[INFO]\033[0m $message" >&2
+                    ;;
+                success)
+                    echo -e "\033[32m[SUCCESS]\033[0m $message" >&2
+                    ;;
+                *)
+                    echo "$message" >&2
+                    ;;
+            esac
+        else
+            echo "[$level] $message" >&2
+        fi
+    fi
+}
+
+# Helper function to check database schema
+check_database_schema() {
+    local db_name="${1:-pantry_pirate_radio}"
+    output info "Checking database schema in $db_name..."
+
+    # Check if record_version table exists (indicates schema is initialized)
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -c "SELECT 1 FROM record_version LIMIT 1;" >/dev/null 2>&1; then
+        output success "Database schema is initialized"
+        return 0
+    else
+        output warning "Database schema not initialized"
+        return 1
+    fi
+}
+
+# Helper function to initialize database schema
+init_database_schema() {
+    local db_name="${1:-pantry_pirate_radio}"
+    output info "Initializing database schema in $db_name..."
+
+    for init_script in ./init-scripts/*.sql; do
+        if [ -f "$init_script" ]; then
+            script_name=$(basename "$init_script")
+            output info "Running $script_name..."
+            $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
+        fi
+    done
+    output success "Database schema initialized"
+}
+
+# Helper function to check Redis connectivity
+check_redis_connectivity() {
+    output info "Checking Redis connectivity..."
+
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
+        output success "Redis is accessible"
+        return 0
+    else
+        output error "Redis is not accessible"
+        return 1
+    fi
+}
+
+# Helper function to check if directory exists and is writable
+check_directory_writable() {
+    local dir_path="$1"
+    local service="$2"
+
+    output info "Checking directory: $dir_path"
+
+    # Check if directory exists in container
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -d "$dir_path" 2>/dev/null; then
+        # Check if writable
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -w "$dir_path" 2>/dev/null; then
+            output success "Directory is writable: $dir_path"
+            return 0
+        else
+            output error "Directory is not writable: $dir_path"
+            return 1
+        fi
+    else
+        output warning "Directory does not exist: $dir_path"
+        # Try to create it
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" mkdir -p "$dir_path" 2>/dev/null; then
+            output success "Created directory: $dir_path"
+            return 0
+        else
+            output error "Failed to create directory: $dir_path"
+            return 1
+        fi
+    fi
+}
+
+# Helper function to check Docker daemon availability
+check_docker() {
+    if ! docker info >/dev/null 2>&1; then
+        output error "Docker daemon is not running or not accessible"
+        output error "Please ensure Docker is installed and running"
+        return 1
+    fi
+    return 0
+}
+
+# Helper function to validate command arguments
+validate_test_args() {
+    local args="$1"
+
+    # Check for dangerous characters/patterns
+    if [[ "$args" =~ [\;\|\&\$\`] ]]; then
+        output error "Invalid characters in test arguments. Shell operators are not allowed."
+        return 1
+    fi
+
+    # Check for command substitution attempts
+    if [[ "$args" =~ \$\(.*\) ]] || [[ "$args" =~ \`.*\` ]]; then
+        output error "Command substitution is not allowed in test arguments."
+        return 1
+    fi
+
+    return 0
+}
+
+# Helper function to prompt for input with default value
+prompt_with_default() {
+    local prompt="$1"
+    local default="$2"
+    local var_name="$3"
+    local is_password="${4:-false}"
+
+    if [ "$is_password" = "true" ]; then
+        echo -n "$prompt [$default]: "
+        read -s value
+        echo  # New line after password input
+    else
+        read -p "$prompt [$default]: " value
+    fi
+
+    # Use default if no input provided
+    value="${value:-$default}"
+
+    # Set the variable
+    eval "$var_name='$value'"
+}
+
+# Helper function to check if service is running with retry
+wait_for_service() {
+    local service="$1"
+    local max_attempts="${2:-10}"
+    local wait_seconds="${3:-2}"
+    local attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+        if $COMPOSE_CMD $COMPOSE_FILES ps "$service" 2>/dev/null | grep -q "Up"; then
+            return 0
+        fi
+
+        if [ $attempt -lt $max_attempts ]; then
+            output info "Waiting for $service to be ready... (attempt $attempt/$max_attempts)"
+            sleep $wait_seconds
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+# Helper function to wait for database to be ready
+wait_for_database() {
+    output info "Waiting for database to be ready..."
+    local max_attempts=30
+    local attempt=0
+
+    while [ $attempt -lt $max_attempts ]; do
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+            output success "Database is ready!"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        if [ $attempt -eq $max_attempts ]; then
+            output error "Database failed to become ready"
+            return 1
+        fi
+        echo "Waiting for database... (attempt $attempt/$max_attempts)"
+        sleep 2
+    done
+}
+
+# Helper function to check git configuration
+check_git_config() {
+    local service="$1"
+    output info "Checking git configuration..."
+
+    # Check git user.name
+    if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name >/dev/null 2>&1; then
+        output warning "Git user.name not set, using default"
+        $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name "Pantry Pirate Radio" || true
+    fi
+
+    # Check git user.email
+    if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email >/dev/null 2>&1; then
+        output warning "Git user.email not set, using default"
+        $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email "pantry-pirate-radio@example.com" || true
+    fi
+
+    output success "Git configuration verified"
+}
+
+
+# Parse environment mode
+parse_mode() {
+    local mode="dev"
+    for arg in "$@"; do
+        case $arg in
+            --dev)
+                mode="dev"
+                ;;
+            --prod)
+                mode="prod"
+                ;;
+            --test)
+                mode="test"
+                ;;
+            --with-init)
+                COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.with-init.yml"
+                ;;
+        esac
+    done
+
+    case $mode in
+        dev)
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.dev.yml"
+            ;;
+        prod)
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.prod.yml"
+            ;;
+        test)
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.test.yml"
+            ;;
+    esac
+}
+
+# Check if no command provided
+if [ $# -eq 0 ]; then
+    usage
+    exit 0
+fi
+
+# Check Docker availability for commands that need it
+case "$1" in
+    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|datasette|reconciler|recorder|content-store|haarrrvest|replay)
+        if ! check_docker; then
+            exit 1
+        fi
+        ;;
+    # setup command doesn't need Docker
+esac
+
+# Main command handling
+case "$1" in
+    setup)
+        output info "Welcome to Pantry Pirate Radio setup wizard! ⚓"
+        echo ""
+        echo "This wizard will help you create a .env file with the necessary configuration."
+        echo ""
+
+        # Check if .env already exists
+        if [ -f .env ]; then
+            read -p ".env file already exists. Do you want to overwrite it? (y/N): " overwrite
+            if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
+                output info "Setup cancelled. Existing .env file preserved."
+                exit 0
+            fi
+            # Backup existing .env
+            cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+            output success "Existing .env backed up"
+        fi
+
+        echo ""
+        echo "=== Database Configuration ==="
+        prompt_with_default "PostgreSQL password" "pirate" "POSTGRES_PASSWORD" true
+        POSTGRES_USER="postgres"
+        POSTGRES_DB="pantry_pirate_radio"
+
+        echo ""
+        echo "=== LLM Provider Configuration ==="
+        echo "Choose your LLM provider:"
+        echo "1) OpenAI (via OpenRouter)"
+        echo "2) Claude (Anthropic)"
+        read -p "Select provider (1 or 2) [1]: " provider_choice
+        provider_choice="${provider_choice:-1}"
+
+        if [ "$provider_choice" = "2" ]; then
+            LLM_PROVIDER="claude"
+            echo ""
+            echo "Claude can be authenticated in two ways:"
+            echo "1) API Key (requires Anthropic API access)"
+            echo "2) Claude Code CLI (recommended for Claude Max users)"
+            read -p "Select authentication method (1 or 2) [2]: " claude_auth
+            claude_auth="${claude_auth:-2}"
+
+            if [ "$claude_auth" = "1" ]; then
+                prompt_with_default "Anthropic API key" "your_anthropic_api_key_here" "ANTHROPIC_API_KEY"
+            else
+                ANTHROPIC_API_KEY="use_claude_cli"
+                echo "You'll need to run './bouy claude-auth' after setup to authenticate"
+            fi
+        else
+            LLM_PROVIDER="openai"
+            prompt_with_default "OpenRouter API key" "your_openrouter_api_key_here" "OPENROUTER_API_KEY"
+        fi
+
+        echo ""
+        echo "=== HAARRRvest Repository Configuration ==="
+        echo "HAARRRvest is the data repository where processed data is published."
+        prompt_with_default "GitHub personal access token (or 'skip' for read-only)" "skip" "DATA_REPO_TOKEN"
+
+        if [ "$DATA_REPO_TOKEN" != "skip" ]; then
+            PUBLISHER_PUSH_ENABLED="true"
+            echo "Publisher will be enabled for pushing to HAARRRvest"
+        else
+            PUBLISHER_PUSH_ENABLED="false"
+            DATA_REPO_TOKEN=""
+            echo "Publisher will run in read-only mode"
+        fi
+
+        echo ""
+        echo "=== Creating .env file ==="
+
+        # Create .env file from template
+        cp .env.example .env
+
+        # Update values in .env
+        # Track temp files for cleanup
+        CLEANUP_TEMP_FILES=".env.tmp"
+        sed -i.tmp "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" .env
+        sed -i.tmp "s/DATABASE_URL=.*/DATABASE_URL=postgresql+psycopg2:\/\/postgres:$POSTGRES_PASSWORD@db:5432\/pantry_pirate_radio/" .env
+        sed -i.tmp "s/TEST_DATABASE_URL=.*/TEST_DATABASE_URL=postgresql+psycopg2:\/\/postgres:$POSTGRES_PASSWORD@db:5432\/test_pantry_pirate_radio/" .env
+        sed -i.tmp "s/LLM_PROVIDER=.*/LLM_PROVIDER=$LLM_PROVIDER/" .env
+
+        if [ "$LLM_PROVIDER" = "claude" ] && [ "$claude_auth" = "1" ]; then
+            sed -i.tmp "s/ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY/" .env
+        elif [ "$LLM_PROVIDER" = "openai" ]; then
+            sed -i.tmp "s/OPENROUTER_API_KEY=.*/OPENROUTER_API_KEY=$OPENROUTER_API_KEY/" .env
+        fi
+
+        sed -i.tmp "s/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=$PUBLISHER_PUSH_ENABLED/" .env
+        if [ "$DATA_REPO_TOKEN" != "" ]; then
+            sed -i.tmp "s/DATA_REPO_TOKEN=.*/DATA_REPO_TOKEN=$DATA_REPO_TOKEN/" .env
+        fi
+
+        # Remove temp files
+        rm -f .env.tmp
+        # Clear cleanup list since we handled it
+        CLEANUP_TEMP_FILES=""
+
+        output success ".env file created successfully!"
+        echo ""
+        echo "=== Next Steps ==="
+        echo "1. Review your .env file and adjust any additional settings if needed"
+        echo "2. Run './bouy up' to start the services"
+        if [ "$LLM_PROVIDER" = "claude" ] && [ "$claude_auth" = "2" ]; then
+            echo "3. Run './bouy claude-auth' to authenticate with Claude"
+        fi
+        echo ""
+        echo "⚓ Your Pantry Pirate Radio installation is ready to set sail!"
+        ;;
+    up)
+        shift
+        parse_mode "$@"
+        # Filter out mode flags from service names
+        services=""
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    services="$services $arg"
+                    ;;
+            esac
+        done
+
+        output info "Starting services..."
+        # Check if --with-init was used
+        if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services >/dev/null 2>&1; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
+            else
+                if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
+            fi
+        else
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d $services >/dev/null 2>&1; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
+            else
+                if $COMPOSE_CMD $COMPOSE_FILES up -d $services; then
+                    output success "Services started successfully"
+                else
+                    output error "Failed to start services"
+                    exit 1
+                fi
+            fi
+        fi
+
+        # Show status
+        if [ $PROGRAMMATIC_MODE -eq 0 ]; then
+            echo ""
+            $COMPOSE_CMD $COMPOSE_FILES ps
+            echo ""
+            echo "Services started! Access points:"
+            echo "  - API: http://localhost:8000"
+            echo "  - API Docs: http://localhost:8000/docs"
+            echo "  - Datasette: http://localhost:8001"
+            echo "  - RQ Dashboard: http://localhost:9181"
+        else
+            # In programmatic mode, output JSON with service URLs
+            if [ $JSON_OUTPUT -eq 1 ]; then
+                echo '{"status":"started","endpoints":{"api":"http://localhost:8000","docs":"http://localhost:8000/docs","datasette":"http://localhost:8001","rq_dashboard":"http://localhost:9181"}}'
+            fi
+        fi
+        ;;
+
+    down)
+        output info "Stopping all services..."
+        if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+            # Suppress docker compose output in JSON or quiet mode
+            if $COMPOSE_CMD $COMPOSE_FILES down >/dev/null 2>&1; then
+                output success "All services stopped"
+            else
+                output error "Failed to stop services"
+                exit 1
+            fi
+        else
+            if $COMPOSE_CMD $COMPOSE_FILES down; then
+                output success "All services stopped"
+            else
+                output error "Failed to stop services"
+                exit 1
+            fi
+        fi
+        ;;
+
+    build)
+        shift
+        parse_mode "$@"
+        services=""
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    services="$services $arg"
+                    ;;
+            esac
+        done
+        output info "Building services..."
+        if $COMPOSE_CMD $COMPOSE_FILES build $services; then
+            output success "Build complete"
+        else
+            output error "Build failed"
+            exit 1
+        fi
+        ;;
+
+    logs)
+        shift
+        parse_mode "$@"
+        service="$1"
+
+        # In programmatic mode, don't follow logs by default
+        LOG_FLAGS="-f"
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            LOG_FLAGS="--tail 100"
+        fi
+
+        if [ -z "$service" ]; then
+            $COMPOSE_CMD $COMPOSE_FILES logs $LOG_FLAGS
+        else
+            $COMPOSE_CMD $COMPOSE_FILES logs $LOG_FLAGS "$service"
+        fi
+        ;;
+
+    shell)
+        shift
+        parse_mode "$@"
+        service="$1"
+        if [ -z "$service" ]; then
+            output error "Please specify a service name"
+            output error "Example: ./docker.sh shell app"
+            exit 1
+        fi
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            output error "Shell command requires interactive mode. Run without --programmatic flag."
+            exit 1
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec "$service" bash || \
+        $COMPOSE_CMD $COMPOSE_FILES exec "$service" sh
+        ;;
+
+    exec)
+        shift
+        parse_mode "$@"
+        service="$1"
+        shift
+        if [ -z "$service" ]; then
+            output error "Please specify a service name and command"
+            output error "Example: ./docker.sh exec app python --version"
+            exit 1
+        fi
+        EXEC_FLAGS=""
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            EXEC_FLAGS="-T"
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS "$service" "$@"
+        ;;
+
+    ps)
+        parse_mode "$@"
+        if [ $JSON_OUTPUT -eq 1 ]; then
+            # Try to use docker compose ps --format json if available
+            if $COMPOSE_CMD $COMPOSE_FILES ps --format json 2>/dev/null; then
+                :
+            else
+                # Fallback: Output plain text with warning
+                output warning "JSON format not supported by this docker compose version. Showing plain text output:"
+                $COMPOSE_CMD $COMPOSE_FILES ps
+            fi
+        else
+            $COMPOSE_CMD $COMPOSE_FILES ps
+        fi
+        ;;
+
+    test)
+        shift
+        test_cmd=""
+        test_type="${1:-all}"
+        shift || true  # Shift past the test type
+
+        # Collect any additional arguments
+        additional_args=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --dev|--prod|--test|--with-init)
+                    # Skip mode flags
+                    shift
+                    ;;
+                --)
+                    # Everything after -- is passed to the test command
+                    shift
+                    additional_args="$@"
+                    break
+                    ;;
+                *)
+                    additional_args="$additional_args $1"
+                    shift
+                    ;;
+            esac
+        done
+
+        # Validate additional arguments if provided
+        if [ -n "$additional_args" ]; then
+            if ! validate_test_args "$additional_args"; then
+                exit 1
+            fi
+        fi
+
+        # Parse test options
+        case "$test_type" in
+            --pytest)
+                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
+                # Add any additional pytest arguments
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --mypy)
+                test_cmd="poetry run mypy app tests"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --black)
+                test_cmd="poetry run black app tests"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --ruff)
+                test_cmd="poetry run ruff check app tests"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --bandit)
+                test_cmd="poetry run bandit -r app"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --coverage)
+                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                test_cmd="$test_cmd && bash scripts/coverage-check.sh"
+                ;;
+            --vulture)
+                test_cmd="poetry run vulture app tests .vulture_whitelist --min-confidence 80"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --safety)
+                test_cmd="poetry run safety check"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --pip-audit)
+                test_cmd="poetry run pip-audit"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            --xenon)
+                test_cmd="poetry run xenon --max-absolute F --max-modules F --max-average E app"
+                if [ -n "$additional_args" ]; then
+                    test_cmd="$test_cmd $additional_args"
+                fi
+                ;;
+            all|"")
+                test_cmd="bash scripts/run-ci-checks.sh"
+                if [ -n "$additional_args" ]; then
+                    output warning "Additional arguments are not supported with 'all' test option"
+                fi
+                ;;
+            *)
+                output error "Unknown test option: $test_type"
+                output error "Use: test [--pytest|--mypy|--black|--ruff|--bandit|--coverage|--vulture|--safety|--pip-audit|--xenon] [-- additional arguments]"
+                exit 1
+                ;;
+        esac
+
+        output info "Running tests with bind-mounted code..."
+
+        # Calculate hash of Dockerfile and key dependency files for cache invalidation
+        DOCKERFILE_PATH=".docker/images/app/Dockerfile"
+        POETRY_LOCK_PATH="poetry.lock"
+        PYPROJECT_PATH="pyproject.toml"
+
+        # Create a cache key based on file contents
+        CACHE_KEY=""
+        if command -v sha256sum &> /dev/null; then
+            CACHE_KEY=$(cat "$DOCKERFILE_PATH" "$POETRY_LOCK_PATH" "$PYPROJECT_PATH" 2>/dev/null | sha256sum | cut -c1-12)
+        elif command -v shasum &> /dev/null; then
+            CACHE_KEY=$(cat "$DOCKERFILE_PATH" "$POETRY_LOCK_PATH" "$PYPROJECT_PATH" 2>/dev/null | shasum -a 256 | cut -c1-12)
+        else
+            # Fallback to modification time if no hash command available
+            CACHE_KEY=$(stat -c %Y "$DOCKERFILE_PATH" "$POETRY_LOCK_PATH" "$PYPROJECT_PATH" 2>/dev/null | tr '\n' '-' | cut -c1-12)
+        fi
+
+        # Use cache key in image tag if available
+        TEST_IMAGE_TAG="pantry-pirate-radio-test:latest"
+        if [ -n "$CACHE_KEY" ]; then
+            TEST_IMAGE_TAG="pantry-pirate-radio-test:${CACHE_KEY}"
+        fi
+
+        # Check if the cached image exists
+        NEED_BUILD=0
+        if ! check_docker; then
+            NEED_BUILD=1
+        elif [ -n "$CACHE_KEY" ] && ! docker image inspect "$TEST_IMAGE_TAG" &> /dev/null; then
+            # Cached image doesn't exist
+            NEED_BUILD=1
+        elif [ -z "$CACHE_KEY" ] && ! docker image inspect "pantry-pirate-radio-test:latest" &> /dev/null; then
+            # No cache key and no latest image
+            NEED_BUILD=1
+        fi
+
+        if [ $NEED_BUILD -eq 1 ]; then
+            output info "Building test image (tag: $TEST_IMAGE_TAG)..."
+
+            # Use buildx with cache if available
+            BUILD_CMD="docker build"
+            BUILD_ARGS=""
+            if command -v docker buildx &> /dev/null; then
+                BUILD_CMD="docker buildx build --load"
+                # Enable inline cache for better caching
+                BUILD_ARGS="--cache-from type=registry,ref=pantry-pirate-radio-test:buildcache --cache-to type=inline"
+            fi
+
+            # Build with both the cache tag and latest tag
+            if ! $BUILD_CMD $BUILD_ARGS -f "$DOCKERFILE_PATH" --target test -t "$TEST_IMAGE_TAG" -t "pantry-pirate-radio-test:latest" .; then
+                output error "Failed to build test image"
+                exit 1
+            fi
+
+            # Clean up old cached images (keep last 3)
+            if [ -n "$CACHE_KEY" ]; then
+                output info "Cleaning up old test images..."
+                docker images --format "{{.Repository}}:{{.Tag}}" | grep "^pantry-pirate-radio-test:" | grep -v ":latest" | grep -v ":${CACHE_KEY}" | sort -r | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
+            fi
+        else
+            output info "Using cached test image: $TEST_IMAGE_TAG"
+        fi
+
+        # Use test environment file
+        if [ ! -f .env.test ]; then
+            output error ".env.test file not found!"
+            output error "Please ensure .env.test exists with proper test database configuration."
+            exit 1
+        fi
+
+        # Start test services if not already running
+        output info "Ensuring test services are running..."
+
+        # Start services
+        output info "Starting database and cache services..."
+        $COMPOSE_CMD $COMPOSE_FILES up -d db cache
+
+        # Wait for PostgreSQL to be ready
+        output info "Waiting for database to be ready..."
+        max_attempts=30
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+                output info "Database is ready!"
+                break
+            fi
+            attempt=$((attempt + 1))
+            if [ $attempt -eq $max_attempts ]; then
+                output error "Database failed to become ready"
+                $COMPOSE_CMD $COMPOSE_FILES ps
+                $COMPOSE_CMD $COMPOSE_FILES logs db --tail 50
+                exit 1
+            fi
+            echo "Waiting for database... (attempt $attempt/$max_attempts)"
+            sleep 2
+        done
+
+        # Wait for Redis to be ready
+        output info "Waiting for cache to be ready..."
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
+                output info "Cache is ready!"
+                break
+            fi
+            attempt=$((attempt + 1))
+            if [ $attempt -eq $max_attempts ]; then
+                output error "Cache failed to become ready"
+                $COMPOSE_CMD $COMPOSE_FILES ps
+                $COMPOSE_CMD $COMPOSE_FILES logs cache --tail 50
+                exit 1
+            fi
+            echo "Waiting for cache... (attempt $attempt/$max_attempts)"
+            sleep 2
+        done
+
+        # Drop and recreate test database to ensure clean state
+        output info "Dropping existing test database if it exists..."
+        $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS test_pantry_pirate_radio;" 2>/dev/null || true
+
+        output info "Creating test database..."
+        $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
+
+        # Initialize test database schema
+        output info "Initializing test database schema..."
+        for init_script in ./init-scripts/*.sql; do
+            if [ -f "$init_script" ]; then
+                script_name=$(basename "$init_script")
+                output info "Running $script_name on test database..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d test_pantry_pirate_radio -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
+            fi
+        done
+
+        # Check if we're in a TTY (disable TTY in programmatic mode)
+        TTY_FLAG=""
+        if [ -t 0 ] && [ $PROGRAMMATIC_MODE -eq 0 ]; then
+            TTY_FLAG="-it"
+        fi
+
+        # Get the network name
+        NETWORK_NAME="${COMPOSE_PROJECT_NAME:-pantry-pirate-radio}_default"
+
+        # Run tests in a temporary container with current code mounted
+        # Use PYTHONUNBUFFERED=1 to ensure output is not buffered
+        # Set RUNNING_IN_DOCKER=1 to skip bouy tests that can't run inside Docker
+        docker run --rm $TTY_FLAG \
+            -v "$(pwd)":/app:cached \
+            -w /app \
+            --network "$NETWORK_NAME" \
+            --env-file .env.test \
+            -e PYTHONUNBUFFERED=1 \
+            -e RUNNING_IN_DOCKER=1 \
+            "$TEST_IMAGE_TAG" \
+            bash -c "$test_cmd"
+        ;;
+
+    scraper)
+        shift
+        parse_mode "$@"
+
+        # Ensure cache is running for job queue
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+            output info "Cache service is not running. Starting it..."
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d cache >/dev/null 2>&1; then
+                    sleep 2  # Give it a moment to start
+                else
+                    output error "Failed to start cache service"
+                    exit 1
+                fi
+            else
+                if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                    sleep 2  # Give it a moment to start
+                else
+                    output error "Failed to start cache service"
+                    exit 1
+                fi
+            fi
+        fi
+
+        # Check Redis connectivity
+        if ! check_redis_connectivity; then
+            output error "Redis is required for scraper job queue"
+            exit 1
+        fi
+
+        # Check if scraper service is running
+        if ! wait_for_service scraper 1 0; then
+            output info "Scraper service is not running. Starting it..."
+            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper >/dev/null 2>&1; then
+                    if wait_for_service scraper; then
+                        output success "Scraper service started successfully"
+                    else
+                        output error "Scraper service failed to start properly"
+                        exit 1
+                    fi
+                else
+                    output error "Failed to start scraper service"
+                    exit 1
+                fi
+            else
+                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
+                    if wait_for_service scraper; then
+                        output success "Scraper service started successfully"
+                    else
+                        output error "Scraper service failed to start properly"
+                        exit 1
+                    fi
+                else
+                    output error "Failed to start scraper service"
+                    exit 1
+                fi
+            fi
+        fi
+
+        # Check content store if enabled
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
+            output info "Content store is enabled, checking configuration..."
+            if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content-store" 2>/dev/null; then
+                output warning "Content store directory not found - deduplication may not work"
+            else
+                output success "Content store directory found"
+            fi
+        fi
+
+        # Parse scraper options
+        case "${1:-help}" in
+            --list)
+                output info "Listing available scrapers..."
+                # Use -T flag to disable TTY in programmatic mode
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --list
+                ;;
+            --all)
+                output info "Running all scrapers..."
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --all
+                ;;
+            help|"")
+                if [ $PROGRAMMATIC_MODE -eq 0 ]; then
+                    echo "Usage: ./docker.sh scraper [--list|--all|SCRAPER_NAME]"
+                    echo ""
+                    echo "Available scrapers:"
+                    $COMPOSE_CMD $COMPOSE_FILES exec scraper python -m app.scraper --list
+                else
+                    output error "No scraper command specified. Use --list, --all, or provide a scraper name."
+                    exit 1
+                fi
+                ;;
+            *)
+                # Filter out mode flags
+                scraper_name=""
+                for arg in "$@"; do
+                    case $arg in
+                        --dev|--prod|--test|--with-init)
+                            ;;
+                        *)
+                            scraper_name="$arg"
+                            break
+                            ;;
+                    esac
+                done
+
+                if [ -n "$scraper_name" ]; then
+                    output info "Running scraper: $scraper_name"
+                    EXEC_FLAGS=""
+                    if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                        EXEC_FLAGS="-T"
+                    fi
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper "$scraper_name"
+                else
+                    output error "No scraper name provided"
+                    exit 1
+                fi
+                ;;
+        esac
+        ;;
+
+    claude-auth)
+        shift
+        parse_mode "$@"
+
+        # Check if worker service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
+            output info "Worker service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start worker service"
+                exit 1
+            fi
+        fi
+
+        # Parse subcommand
+        case "${1:-interactive}" in
+            interactive|"")
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    output error "Claude authentication requires interactive mode. Run without --programmatic flag."
+                    exit 1
+                fi
+                output info "Authenticating Claude in worker container..."
+                output info "This will open an interactive Claude authentication session."
+                echo ""
+                $COMPOSE_CMD $COMPOSE_FILES exec worker claude
+                ;;
+            setup)
+                output info "Setting up Claude authentication..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager setup
+                ;;
+            status)
+                output info "Checking Claude authentication status..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager status
+                ;;
+            test)
+                output info "Testing Claude authentication..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager test
+                ;;
+            config)
+                output info "Showing Claude configuration..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager config
+                ;;
+            *)
+                output error "Unknown claude-auth subcommand: $1"
+                output error "Use: claude-auth [interactive|setup|status|test|config]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    reconciler)
+        shift
+        parse_mode "$@"
+
+        # Ensure database is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output info "Database schema needs initialization"
+            init_database_schema || exit 1
+        fi
+
+        # Check if reconciler service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps reconciler 2>/dev/null | grep -q "Up"; then
+            output info "Reconciler service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d reconciler; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start reconciler service"
+                exit 1
+            fi
+        fi
+
+        # Build command
+        cmd="python -m app.reconciler"
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    cmd="$cmd $arg"
+                    ;;
+            esac
+        done
+
+        output info "Running reconciler..."
+        EXEC_FLAGS=""
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            EXEC_FLAGS="-T"
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS reconciler bash -c "$cmd"
+        ;;
+
+    recorder)
+        shift
+        parse_mode "$@"
+
+        # Ensure cache is running for job queue
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+            output info "Cache service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start cache service"
+                exit 1
+            fi
+        fi
+
+        # Check Redis connectivity
+        if ! check_redis_connectivity; then
+            output error "Redis is required for recorder job queue"
+            exit 1
+        fi
+
+        # Check if recorder service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps recorder 2>/dev/null | grep -q "Up"; then
+            output info "Recorder service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d recorder; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start recorder service"
+                exit 1
+            fi
+        fi
+
+        # Check output directory
+        check_directory_writable "/app/outputs" "recorder" || output warning "Output directory may not be writable"
+
+        # Build command
+        cmd="python -m app.recorder"
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    cmd="$cmd $arg"
+                    ;;
+            esac
+        done
+
+        output info "Running recorder..."
+        EXEC_FLAGS=""
+        if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+            EXEC_FLAGS="-T"
+        fi
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS recorder bash -c "$cmd"
+        ;;
+
+    content-store)
+        shift
+        parse_mode "$@"
+
+        # Content store commands run in worker container
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
+            output info "Worker service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start worker service"
+                exit 1
+            fi
+        fi
+
+        # Check content store directory in data repo
+        output info "Checking content store configuration..."
+
+        # Check if content store directory exists
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -d "/data-repo/content-store" 2>/dev/null; then
+            output warning "Content store directory not found in data repo"
+            output info "Content store may be disabled or not yet initialized"
+        else
+            output success "Content store directory found"
+
+            # Check for SQLite database
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -f "/data-repo/content-store/index.db" 2>/dev/null; then
+                output success "Content store SQLite database found"
+            else
+                output warning "Content store SQLite database not found - will be created on first use"
+            fi
+        fi
+
+        # Parse subcommand
+        subcmd="${1:-status}"
+        shift || true
+
+        case "$subcmd" in
+            status)
+                output info "Checking content store status..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store status
+                ;;
+            report)
+                output info "Generating content store report..."
+                # Pass through any additional arguments
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store report "$@"
+                ;;
+            duplicates)
+                output info "Finding content store duplicates..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store duplicates
+                ;;
+            efficiency)
+                output info "Analyzing content store efficiency..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store efficiency
+                ;;
+            *)
+                output error "Unknown content-store subcommand: $subcmd"
+                output error "Use: content-store [status|report|duplicates|efficiency]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    haarrrvest|publisher)
+        shift
+        parse_mode "$@"
+
+        # Ensure database is running for data export
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output info "Database schema needs initialization"
+            init_database_schema || exit 1
+        fi
+
+        # Check if haarrrvest-publisher service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher 2>/dev/null | grep -q "Up"; then
+            output info "HAARRRvest publisher service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d haarrrvest-publisher; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start HAARRRvest publisher service"
+                exit 1
+            fi
+        fi
+
+        # Check git configuration
+        check_git_config "haarrrvest-publisher"
+
+        # Check if HAARRRvest repository is initialized
+        output info "Checking HAARRRvest repository..."
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher test -d "/data-repo/.git" 2>/dev/null; then
+            output warning "HAARRRvest repository not initialized"
+            output info "The publisher service will clone the repository on first run"
+        else
+            output success "HAARRRvest repository found"
+        fi
+
+        # Check output directory
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher test -d "/app/outputs" 2>/dev/null; then
+            output warning "Output directory not found - no files to publish"
+        fi
+
+        # Parse subcommand
+        case "${1:-run}" in
+            run|"")
+                output info "Manually triggering HAARRRvest publisher..."
+                output info "This will process all pending recorder outputs and push to HAARRRvest repository."
+                # Run the publisher module directly to trigger immediate processing
+                $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher python -m app.haarrrvest_publisher.service --once
+                ;;
+            logs)
+                output info "Showing HAARRRvest publisher logs..."
+                $COMPOSE_CMD $COMPOSE_FILES logs -f haarrrvest-publisher
+                ;;
+            status)
+                output info "Checking HAARRRvest publisher status..."
+                $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher
+                ;;
+            *)
+                output error "Unknown haarrrvest subcommand: $1"
+                output error "Use: haarrrvest [run|logs|status]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    datasette)
+        shift
+        parse_mode "$@"
+
+        # Ensure database is running for export
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output error "Database schema must be initialized before export"
+            exit 1
+        fi
+
+        # Check if datasette-exporter service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter 2>/dev/null | grep -q "Up"; then
+            output info "Datasette exporter service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start datasette exporter service"
+                exit 1
+            fi
+        fi
+
+        # Parse subcommand
+        case "${1:-export}" in
+            export|"")
+                output info "Exporting database to SQLite for Datasette..."
+                # Run the export directly
+                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
+                ;;
+            schedule)
+                output info "Starting Datasette export scheduler..."
+                output info "Exports will run periodically based on EXPORT_INTERVAL setting"
+                $COMPOSE_CMD $COMPOSE_FILES exec datasette-exporter python -m app.datasette schedule
+                ;;
+            status)
+                output info "Checking Datasette exporter status..."
+                $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter
+                # Check if SQLite file exists
+                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
+                    output success "Latest SQLite export found"
+                else
+                    output warning "No SQLite export found yet"
+                fi
+                ;;
+            *)
+                output error "Unknown datasette subcommand: $1"
+                output error "Use: datasette [export|schedule|status]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    replay)
+        shift
+        parse_mode "$@"
+
+        # Ensure database is running for replay
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+            output info "Database service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                wait_for_database || exit 1
+            else
+                output error "Failed to start database service"
+                exit 1
+            fi
+        fi
+
+        # Check database schema
+        if ! check_database_schema; then
+            output error "Database schema must be initialized before replay"
+            exit 1
+        fi
+
+        # Ensure cache is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+            output info "Cache service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start cache service"
+                exit 1
+            fi
+        fi
+
+        # Use worker container for replay since it has all dependencies
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
+            output info "Worker service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
+                sleep 2  # Give it a moment to start
+            else
+                output error "Failed to start worker service"
+                exit 1
+            fi
+        fi
+
+        # Build replay command
+        cmd="python -m app.replay"
+
+        # Parse replay options
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    cmd="$cmd $arg"
+                    ;;
+            esac
+        done
+
+        # If no args provided, show help
+        if [ "$#" -eq 0 ]; then
+            output info "Replay recorded JSON files to recreate database records"
+            output info ""
+            output info "Usage: bouy replay [OPTIONS]"
+            output info "  --file FILE         Replay a single JSON file"
+            output info "  --directory DIR     Replay all JSON files in directory"
+            output info "  --use-default-output-dir  Use default outputs directory"
+            output info "  --pattern PATTERN   File pattern (default: *.json)"
+            output info "  --dry-run          Show what would be done without executing"
+            output info ""
+            output info "Example: bouy replay --use-default-output-dir --dry-run"
+        else
+            output info "Running replay..."
+            EXEC_FLAGS=""
+            if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                EXEC_FLAGS="-T"
+            fi
+            $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS worker bash -c "$cmd"
+        fi
+        ;;
+
+    scraper-test)
+        shift
+        parse_mode "$@"
+
+        # Check if scraper service is running
+        if ! wait_for_service scraper 1 0; then
+            output info "Scraper service is not running. Starting it..."
+            if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
+                if wait_for_service scraper; then
+                    output success "Scraper service started successfully"
+                else
+                    output error "Scraper service failed to start properly"
+                    exit 1
+                fi
+            else
+                output error "Failed to start scraper service"
+                exit 1
+            fi
+        fi
+
+        # Parse test options
+        case "${1:-help}" in
+            --all)
+                output info "Testing all scrapers (dry run)..."
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers --all
+                ;;
+            help|"")
+                if [ $PROGRAMMATIC_MODE -eq 0 ]; then
+                    echo "Usage: bouy scraper-test [--all|SCRAPER_NAME]"
+                    echo ""
+                    echo "Test scrapers without processing results"
+                    echo "This runs scrapers in dry-run mode to verify they work"
+                else
+                    output error "No scraper test command specified. Use --all or provide a scraper name."
+                    exit 1
+                fi
+                ;;
+            *)
+                # Test specific scraper
+                scraper_name=""
+                for arg in "$@"; do
+                    case $arg in
+                        --dev|--prod|--test|--with-init)
+                            ;;
+                        *)
+                            scraper_name="$arg"
+                            break
+                            ;;
+                    esac
+                done
+
+                if [ -n "$scraper_name" ]; then
+                    output info "Testing scraper: $scraper_name"
+                    EXEC_FLAGS=""
+                    if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                        EXEC_FLAGS="-T"
+                    fi
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers "$scraper_name"
+                else
+                    output error "No scraper name provided"
+                    exit 1
+                fi
+                ;;
+        esac
+        ;;
+
+    clean)
+        output info "Stopping services and removing volumes..."
+        if $COMPOSE_CMD $COMPOSE_FILES down -v; then
+            output success "Clean complete!"
+        else
+            output error "Clean failed"
+            exit 1
+        fi
+        ;;
+
+    version)
+        echo "⚓ Bouy v$VERSION"
+        echo "Docker fleet management for Pantry Pirate Radio"
+        echo ""
+        echo "Navigate the seas of containers with ease!"
+        ;;
+
+    help)
+        usage
+        exit 0
+        ;;
+
+    *)
+        usage
+        exit 1
+        ;;
+esac
