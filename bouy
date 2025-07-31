@@ -208,7 +208,7 @@ output() {
         # Check if jq is available
         if command -v jq >/dev/null 2>&1; then
             # Use jq for proper JSON escaping
-            echo '{}' | jq --arg ts "$timestamp" --arg lv "$level" --arg msg "$message" \
+            echo '{}' | jq -c --arg ts "$timestamp" --arg lv "$level" --arg msg "$message" \
                 '{timestamp: $ts, level: $lv, message: $msg}'
         else
             # Fallback to basic escaping with warning
