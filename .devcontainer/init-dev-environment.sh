@@ -63,6 +63,24 @@ EOF
     echo "✅ Created default .env file for dev container"
 fi
 
+# Copy .env to compose directory (compose files expect it there)
+if [ -f .env ] && [ ! -f .docker/compose/.env ]; then
+    echo "📋 Copying .env to .docker/compose/ directory..."
+    cp .env .docker/compose/.env
+    echo "✅ Copied .env to compose directory"
+fi
+
+# Codespaces-specific workarounds
+if [ -n "$CODESPACES" ]; then
+    echo "🔧 Detected Codespaces environment - applying workarounds..."
+    # Disable BuildKit to avoid multi-stage build issues in Codespaces
+    echo "export DOCKER_BUILDKIT=0" >> ~/.bashrc
+    echo "export COMPOSE_DOCKER_CLI_BUILD=0" >> ~/.bashrc
+    export DOCKER_BUILDKIT=0
+    export COMPOSE_DOCKER_CLI_BUILD=0
+    echo "✅ Disabled Docker BuildKit for Codespaces compatibility"
+fi
+
 # Display startup instructions instead of auto-starting
 echo ""
 echo "🚢 Services are ready to launch!"
