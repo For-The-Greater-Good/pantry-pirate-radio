@@ -7,6 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **IMPORTANT: All commands use bouy - no local dependencies except Docker required!**
 
 ```bash
+# Initial Setup Commands
+./bouy setup                 # Interactive setup wizard (creates .env file)
+./bouy --help                # Show help with all commands
+./bouy --version             # Show bouy version
+
 # Essential Commands
 ./bouy up                    # Start all services
 ./bouy down                  # Stop all services
@@ -15,7 +20,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy shell app             # Open shell in container
 ./bouy ps                    # List running services
 ./bouy clean                 # Stop and remove volumes
-./bouy version               # Show bouy version
 
 # Testing Commands
 ./bouy test --pytest         # Run tests only
@@ -24,6 +28,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy test --ruff          # Linting only
 ./bouy test --bandit        # Security scan only
 ./bouy test --coverage       # Tests with coverage check
+./bouy test --vulture        # Dead code detection
+./bouy test --safety         # Dependency vulnerability scan
+./bouy test --pip-audit      # Pip audit for vulnerabilities
+./bouy test --xenon          # Code complexity analysis
 
 # Scraper Commands
 ./bouy scraper --list       # List all scrapers
@@ -36,13 +44,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy build app            # Build specific service
 ./bouy exec app CMD         # Execute command in container
 
-# Programmatic Mode (for CI/automation)
-./bouy --programmatic test  # Structured output
-./bouy --json ps            # JSON output
-./bouy --quiet up           # Minimal output
-./bouy --no-color logs app  # No color codes
-./bouy --verbose up         # Debug output
+# Global Flags (work with all commands)
+./bouy --help               # Show help
+./bouy --version            # Show version
+./bouy --programmatic CMD   # Structured output
+./bouy --json CMD           # JSON output (implies --programmatic)
+./bouy --quiet CMD          # Minimal output
+./bouy --verbose CMD        # Debug output
+./bouy --no-color CMD       # No color codes
 ```
+
+## Initial Setup
+
+### NEW USERS: Interactive Setup Wizard
+
+**For new installations, always start with the setup wizard:**
+
+```bash
+./bouy setup                # Interactive setup wizard - creates .env configuration
+./bouy up                   # Start services
+./bouy test                 # Verify everything works
+```
+
+The setup wizard will:
+- Create `.env` file from template with interactive prompts
+- Configure database passwords
+- Set up LLM provider selection (OpenAI vs Claude)
+- Handle Claude authentication options (API key vs CLI)
+- Configure HAARRRvest repository tokens
+- Create backups of existing `.env` files
 
 ## Development Commands
 
