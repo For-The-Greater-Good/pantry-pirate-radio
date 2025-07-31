@@ -9,6 +9,7 @@
 	],
 	"service": "app",
 	"workspaceFolder": "/workspace",
+	"initializeCommand": "bash -c 'if [ ! -f .docker/compose/.env ]; then echo \"Creating .env file from .env.example...\"; cp .env.example .docker/compose/.env && sed -i \"s/your_secure_password/devcontainer/g\" .docker/compose/.env && sed -i \"s/your_api_key_here/placeholder_key/g\" .docker/compose/.env && sed -i \"s/your_anthropic_api_key_here/placeholder_key/g\" .docker/compose/.env && sed -i \"s/your_github_personal_access_token_here/placeholder_token/g\" .docker/compose/.env && sed -i \"s/PUBLISHER_PUSH_ENABLED=false/PUBLISHER_PUSH_ENABLED=false/g\" .docker/compose/.env && echo \"✅ .env file created for dev container\"; else echo \"✅ .env file already exists\"; fi'",
 	"features": {
 		"ghcr.io/devcontainers/features/docker-in-docker:2": {
 			"version": "latest",
