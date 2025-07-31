@@ -271,3 +271,28 @@ check_git_config() {
 
     output success "Git configuration verified"
 }
+
+# Helper function to prompt for input with default value
+prompt_with_default() {
+    local prompt="$1"
+    local default="$2"
+    local var_name="$3"
+    local is_password="${4:-false}"
+
+    if [ "$is_password" = "true" ]; then
+        echo -n "$prompt [$default]: "
+        read -s value
+        echo  # New line after password input
+    else
+        echo -n "$prompt [$default]: "
+        read value
+    fi
+
+    # Use default if empty
+    if [ -z "$value" ]; then
+        value="$default"
+    fi
+
+    # Export the variable
+    export "$var_name=$value"
+}
