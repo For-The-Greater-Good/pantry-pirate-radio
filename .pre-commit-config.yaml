@@ -32,7 +32,7 @@ repos:
 
       - id: mypy-docker
         name: mypy (docker)
-        entry: bash -c './bouy --programmatic --quiet test --mypy || true'
+        entry: bash -c './bouy --programmatic --quiet test --mypy'
         pass_filenames: false
         language: system
         types: [python]
@@ -40,7 +40,7 @@ repos:
 
       - id: pytest-docker
         name: pytest (docker)
-        entry: bash -c './bouy --programmatic --quiet test --pytest || true'
+        entry: bash -c './bouy --programmatic --quiet test --pytest'
         pass_filenames: false
         language: system
         types: [python]
