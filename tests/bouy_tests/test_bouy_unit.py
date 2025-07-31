@@ -295,6 +295,42 @@ exit 1
             )
             assert "1" in result.stdout.strip()
 
+    def test_prompt_with_default_function(self, setup_env, bouy_functions_path):
+        """Test prompt_with_default function."""
+        # Test with user input
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"""
+                # Set up environment
+                set -e
+                export PROGRAMMATIC_MODE=0
+                export VERBOSE=${{VERBOSE:-0}}
+                export QUIET=${{QUIET:-0}}
+                export JSON_OUTPUT=${{JSON_OUTPUT:-0}}
+                export NO_COLOR=${{NO_COLOR:-1}}
+
+                # Source the functions
+                source {bouy_functions_path}
+
+                # Test with user input
+                echo "test_value" | prompt_with_default "Enter value" "default" "TEST_VAR"
+                echo "RESULT1=$TEST_VAR"
+
+                # Test with empty input (should use default)
+                echo "" | prompt_with_default "Enter value" "default_value" "TEST_VAR2"
+                echo "RESULT2=$TEST_VAR2"
+                """,
+            ],
+            capture_output=True,
+            text=True,
+            env=setup_env,
+        )
+        assert result.returncode == 0
+        assert "RESULT1=test_value" in result.stdout
+        assert "RESULT2=default_value" in result.stdout
+
 
 class TestBouyDependencyChecks:
     """Test dependency checking functions."""

@@ -49,6 +49,7 @@ usage() {
     echo "  --no-color          Disable colored output"
     echo ""
     echo "Commands:"
+    echo "  setup               Interactive setup wizard for .env configuration"
     echo "  up [SERVICE]        Start services (dev mode by default)"
     echo "  down                Stop all services"
     echo "  build [SERVICE]     Build services"
@@ -337,6 +338,28 @@ check_docker() {
     return 0
 }
 
+# Helper function to prompt for input with default value
+prompt_with_default() {
+    local prompt="$1"
+    local default="$2"
+    local var_name="$3"
+    local is_password="${4:-false}"
+
+    if [ "$is_password" = "true" ]; then
+        echo -n "$prompt [$default]: "
+        read -s value
+        echo  # New line after password input
+    else
+        read -p "$prompt [$default]: " value
+    fi
+
+    # Use default if no input provided
+    value="${value:-$default}"
+
+    # Set the variable
+    eval "$var_name='$value'"
+}
+
 # Helper function to check if service is running with retry
 wait_for_service() {
     local service="$1"
@@ -448,10 +471,114 @@ case "$1" in
             exit 1
         fi
         ;;
+    # setup command doesn't need Docker
 esac
 
 # Main command handling
 case "$1" in
+    setup)
+        output info "Welcome to Pantry Pirate Radio setup wizard! ⚓"
+        echo ""
+        echo "This wizard will help you create a .env file with the necessary configuration."
+        echo ""
+
+        # Check if .env already exists
+        if [ -f .env ]; then
+            read -p ".env file already exists. Do you want to overwrite it? (y/N): " overwrite
+            if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
+                output info "Setup cancelled. Existing .env file preserved."
+                exit 0
+            fi
+            # Backup existing .env
+            cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+            output success "Existing .env backed up"
+        fi
+
+        echo ""
+        echo "=== Database Configuration ==="
+        prompt_with_default "PostgreSQL password" "pirate" "POSTGRES_PASSWORD" true
+        POSTGRES_USER="postgres"
+        POSTGRES_DB="pantry_pirate_radio"
+
+        echo ""
+        echo "=== LLM Provider Configuration ==="
+        echo "Choose your LLM provider:"
+        echo "1) OpenAI (via OpenRouter)"
+        echo "2) Claude (Anthropic)"
+        read -p "Select provider (1 or 2) [1]: " provider_choice
+        provider_choice="${provider_choice:-1}"
+
+        if [ "$provider_choice" = "2" ]; then
+            LLM_PROVIDER="claude"
+            echo ""
+            echo "Claude can be authenticated in two ways:"
+            echo "1) API Key (requires Anthropic API access)"
+            echo "2) Claude Code CLI (recommended for Claude Max users)"
+            read -p "Select authentication method (1 or 2) [2]: " claude_auth
+            claude_auth="${claude_auth:-2}"
+
+            if [ "$claude_auth" = "1" ]; then
+                prompt_with_default "Anthropic API key" "your_anthropic_api_key_here" "ANTHROPIC_API_KEY"
+            else
+                ANTHROPIC_API_KEY="use_claude_cli"
+                echo "You'll need to run './bouy claude-auth' after setup to authenticate"
+            fi
+        else
+            LLM_PROVIDER="openai"
+            prompt_with_default "OpenRouter API key" "your_openrouter_api_key_here" "OPENROUTER_API_KEY"
+        fi
+
+        echo ""
+        echo "=== HAARRRvest Repository Configuration ==="
+        echo "HAARRRvest is the data repository where processed data is published."
+        prompt_with_default "GitHub personal access token (or 'skip' for read-only)" "skip" "DATA_REPO_TOKEN"
+
+        if [ "$DATA_REPO_TOKEN" != "skip" ]; then
+            PUBLISHER_PUSH_ENABLED="true"
+            echo "Publisher will be enabled for pushing to HAARRRvest"
+        else
+            PUBLISHER_PUSH_ENABLED="false"
+            DATA_REPO_TOKEN=""
+            echo "Publisher will run in read-only mode"
+        fi
+
+        echo ""
+        echo "=== Creating .env file ==="
+
+        # Create .env file from template
+        cp .env.example .env
+
+        # Update values in .env
+        sed -i.tmp "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" .env
+        sed -i.tmp "s/DATABASE_URL=.*/DATABASE_URL=postgresql+psycopg2:\/\/postgres:$POSTGRES_PASSWORD@db:5432\/pantry_pirate_radio/" .env
+        sed -i.tmp "s/TEST_DATABASE_URL=.*/TEST_DATABASE_URL=postgresql+psycopg2:\/\/postgres:$POSTGRES_PASSWORD@db:5432\/test_pantry_pirate_radio/" .env
+        sed -i.tmp "s/LLM_PROVIDER=.*/LLM_PROVIDER=$LLM_PROVIDER/" .env
+
+        if [ "$LLM_PROVIDER" = "claude" ] && [ "$claude_auth" = "1" ]; then
+            sed -i.tmp "s/ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY/" .env
+        elif [ "$LLM_PROVIDER" = "openai" ]; then
+            sed -i.tmp "s/OPENROUTER_API_KEY=.*/OPENROUTER_API_KEY=$OPENROUTER_API_KEY/" .env
+        fi
+
+        sed -i.tmp "s/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=$PUBLISHER_PUSH_ENABLED/" .env
+        if [ "$DATA_REPO_TOKEN" != "" ]; then
+            sed -i.tmp "s/DATA_REPO_TOKEN=.*/DATA_REPO_TOKEN=$DATA_REPO_TOKEN/" .env
+        fi
+
+        # Remove temp files
+        rm -f .env.tmp
+
+        output success ".env file created successfully!"
+        echo ""
+        echo "=== Next Steps ==="
+        echo "1. Review your .env file and adjust any additional settings if needed"
+        echo "2. Run './bouy up' to start the services"
+        if [ "$LLM_PROVIDER" = "claude" ] && [ "$claude_auth" = "2" ]; then
+            echo "3. Run './bouy claude-auth' to authenticate with Claude"
+        fi
+        echo ""
+        echo "⚓ Your Pantry Pirate Radio installation is ready to set sail!"
+        ;;
     up)
         shift
         parse_mode "$@"

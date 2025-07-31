@@ -317,6 +317,46 @@ exit 0
         messages = [o["message"] for o in outputs]
         assert any("database" in m.lower() for m in messages)
 
+    def test_setup_command(self, test_env, bouy_path):
+        """Test the setup command."""
+        import tempfile
+        from pathlib import Path
+
+        # Create a temporary directory for the test
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Copy .env.example to temp directory
+            import shutil
+
+            env_example = Path(__file__).parent.parent.parent / ".env.example"
+            if env_example.exists():
+                shutil.copy(env_example, Path(temp_dir) / ".env.example")
+
+                # Test setup with basic inputs
+                inputs = "\n".join(
+                    [
+                        "test_password",  # PostgreSQL password
+                        "1",  # OpenAI provider
+                        "test_api_key",  # API key
+                        "skip",  # GitHub token
+                    ]
+                )
+
+                result = subprocess.run(
+                    [bouy_path, "setup"],
+                    input=inputs,
+                    capture_output=True,
+                    text=True,
+                    cwd=temp_dir,
+                    env=test_env,
+                )
+
+                assert result.returncode == 0
+                assert ".env file created successfully!" in result.stdout
+
+                # Verify .env was created
+                env_file = Path(temp_dir) / ".env"
+                assert env_file.exists()
+
     def test_help_command(self, bouy_path):
         """Test help output."""
         result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
