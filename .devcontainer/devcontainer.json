@@ -55,7 +55,7 @@
 		"DOCKER_BUILDKIT": "1",
 		"COMPOSE_DOCKER_CLI_BUILD": "1"
 	},
-	"onCreateCommand": "/workspace/.devcontainer/prebuild.sh",
+	"onCreateCommand": "bash /workspace/.devcontainer/prebuild.sh",
 	"postCreateCommand": "/usr/local/bin/init-dev-environment.sh",
 	"remoteUser": "vscode",
 	"runArgs": [
