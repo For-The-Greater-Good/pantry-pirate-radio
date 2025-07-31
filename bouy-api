@@ -1,0 +1,598 @@
+#!/bin/bash
+# Bouy API - Advanced programmatic interface for fleet management
+# Navigate container seas with precise control
+# Version: 1.0.0
+
+set -e
+
+# Default values
+VERBOSE=0
+QUIET=0
+JSON_OUTPUT=0
+DRY_RUN=0
+TIMEOUT=""
+WAIT_FOR_HEALTHY=0
+FOLLOW_LOGS=0
+OUTPUT_FORMAT="text"
+
+# Use the symlinked docker-compose.yml as the base
+COMPOSE_FILES="-f docker-compose.yml"
+COMPOSE_CMD="docker compose"
+
+# Function to output in different formats
+output() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [ $QUIET -eq 1 ] && [ "$level" != "error" ]; then
+        return
+    fi
+
+    if [ $JSON_OUTPUT -eq 1 ]; then
+        echo "{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"$message\"}"
+    elif [ $VERBOSE -eq 1 ] || [ "$level" = "error" ]; then
+        echo "[$timestamp] [$level] $message" >&2
+    fi
+}
+
+# Function to check service health
+check_service_health() {
+    local service="$1"
+    local max_wait="${2:-300}"  # Default 5 minutes
+    local elapsed=0
+
+    output "info" "Checking health of service: $service"
+
+    while [ $elapsed -lt $max_wait ]; do
+        if $COMPOSE_CMD $COMPOSE_FILES ps --format json "$service" 2>/dev/null | jq -e '.[0].Health == "healthy"' >/dev/null 2>&1; then
+            output "info" "Service $service is healthy"
+            return 0
+        fi
+
+        sleep 5
+        elapsed=$((elapsed + 5))
+        output "debug" "Waiting for $service to be healthy... ($elapsed/$max_wait seconds)"
+    done
+
+    output "error" "Service $service did not become healthy within $max_wait seconds"
+    return 1
+}
+
+# Function to get service status
+get_service_status() {
+    local service="$1"
+
+    if [ $JSON_OUTPUT -eq 1 ]; then
+        $COMPOSE_CMD $COMPOSE_FILES ps --format json "$service" 2>/dev/null || echo "[]"
+    else
+        $COMPOSE_CMD $COMPOSE_FILES ps "$service"
+    fi
+}
+
+# Function to show usage
+usage() {
+    cat << EOF
+Usage: $0 [OPTIONS] COMMAND [ARGS]
+
+Programmatic interface to Docker Compose operations
+
+OPTIONS:
+    --verbose, -v          Enable verbose output
+    --quiet, -q            Suppress non-error output
+    --json                 Output in JSON format
+    --dry-run             Show what would be executed without doing it
+    --timeout SECONDS     Set command timeout
+    --wait-healthy        Wait for services to be healthy after starting
+    --follow-logs         Follow logs after starting services
+
+COMMANDS:
+    up [SERVICE...]        Start services
+    down                   Stop all services
+    status [SERVICE]       Get service status (JSON with --json)
+    logs SERVICE           Get service logs
+    exec SERVICE CMD       Execute command in service
+    health SERVICE         Check if service is healthy
+    ps                     List all services
+    test [TYPE]           Run tests (all|pytest|mypy|black|ruff|bandit)
+    scraper [CMD]         Run scraper (list|all|NAME)
+    scraper-test [CMD]    Test scraper without processing (all|NAME)
+    claude-auth           Authenticate Claude
+    reconciler            Run reconciler to process job results
+    recorder              Run recorder to save results to JSON
+    content-store [CMD]   Content store operations (status|report|duplicates|efficiency)
+    haarrrvest [CMD]      HAARRRvest publisher (run|status)
+    datasette [CMD]       Export database to SQLite (export|status)
+    replay [ARGS...]      Replay JSON files (--file|--directory|--dry-run)
+
+EXIT CODES:
+    0   Success
+    1   General error
+    2   Service not running
+    3   Service not healthy
+    4   Timeout
+    5   Command not found
+
+EXAMPLES:
+    # Start services and wait for healthy state
+    $0 --json --wait-healthy up app worker
+
+    # Check service status
+    $0 --json status app
+
+    # Run tests with timeout
+    $0 --timeout 300 test pytest
+
+    # Execute command and capture output
+    $0 --quiet exec app python --version
+EOF
+}
+
+# Parse global options
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --verbose|-v)
+            VERBOSE=1
+            shift
+            ;;
+        --quiet|-q)
+            QUIET=1
+            shift
+            ;;
+        --json)
+            JSON_OUTPUT=1
+            OUTPUT_FORMAT="json"
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --timeout)
+            TIMEOUT="timeout $2"
+            shift 2
+            ;;
+        --wait-healthy)
+            WAIT_FOR_HEALTHY=1
+            shift
+            ;;
+        --follow-logs)
+            FOLLOW_LOGS=1
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Parse environment mode
+parse_mode() {
+    local mode="dev"
+    for arg in "$@"; do
+        case $arg in
+            --dev)
+                mode="dev"
+                ;;
+            --prod)
+                mode="prod"
+                ;;
+            --test)
+                mode="test"
+                ;;
+            --with-init)
+                COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.with-init.yml"
+                ;;
+        esac
+    done
+
+    case $mode in
+        dev)
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.dev.yml"
+            ;;
+        prod)
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.prod.yml"
+            ;;
+        test)
+            COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.test.yml"
+            ;;
+    esac
+}
+
+# Main command handling
+COMMAND="${1:-}"
+shift || true
+
+case "$COMMAND" in
+    up)
+        parse_mode "$@"
+
+        # Filter out mode flags from service names
+        services=""
+        for arg in "$@"; do
+            case $arg in
+                --dev|--prod|--test|--with-init)
+                    ;;
+                *)
+                    services="$services $arg"
+                    ;;
+            esac
+        done
+
+        output "info" "Starting services with: $COMPOSE_CMD $COMPOSE_FILES"
+
+        if [ $DRY_RUN -eq 1 ]; then
+            echo "$COMPOSE_CMD $COMPOSE_FILES up -d $services"
+            exit 0
+        fi
+
+        # Start services
+        if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
+            $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services
+        else
+            $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES up -d $services
+        fi
+
+        # Wait for healthy state if requested
+        if [ $WAIT_FOR_HEALTHY -eq 1 ]; then
+            if [ -z "$services" ]; then
+                # Get all service names
+                services=$($COMPOSE_CMD $COMPOSE_FILES config --services)
+            fi
+
+            for service in $services; do
+                check_service_health "$service" || exit 3
+            done
+        fi
+
+        # Follow logs if requested
+        if [ $FOLLOW_LOGS -eq 1 ]; then
+            $COMPOSE_CMD $COMPOSE_FILES logs -f $services
+        fi
+        ;;
+
+    down)
+        output "info" "Stopping services"
+        if [ $DRY_RUN -eq 1 ]; then
+            echo "$COMPOSE_CMD $COMPOSE_FILES down"
+            exit 0
+        fi
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES down
+        ;;
+
+    status)
+        service="$1"
+        if [ -z "$service" ]; then
+            get_service_status
+        else
+            get_service_status "$service"
+        fi
+        ;;
+
+    logs)
+        service="$1"
+        if [ -z "$service" ]; then
+            output "error" "Service name required for logs"
+            exit 1
+        fi
+
+        parse_mode "$@"
+
+        if [ $FOLLOW_LOGS -eq 1 ]; then
+            $COMPOSE_CMD $COMPOSE_FILES logs -f "$service"
+        else
+            $COMPOSE_CMD $COMPOSE_FILES logs --tail 100 "$service"
+        fi
+        ;;
+
+    exec)
+        service="$1"
+        shift || true
+
+        if [ -z "$service" ] || [ $# -eq 0 ]; then
+            output "error" "Usage: exec SERVICE COMMAND [ARGS...]"
+            exit 1
+        fi
+
+        parse_mode "$@"
+
+        # Check if service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps "$service" | grep -q "Up"; then
+            output "error" "Service $service is not running"
+            exit 2
+        fi
+
+        if [ $DRY_RUN -eq 1 ]; then
+            echo "$COMPOSE_CMD $COMPOSE_FILES exec -T $service $@"
+            exit 0
+        fi
+
+        # Always use -T for non-interactive execution
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" "$@"
+        ;;
+
+    health)
+        service="$1"
+        if [ -z "$service" ]; then
+            output "error" "Service name required for health check"
+            exit 1
+        fi
+
+        check_service_health "$service" 60 || exit 3
+        ;;
+
+    ps)
+        parse_mode "$@"
+        if [ $JSON_OUTPUT -eq 1 ]; then
+            $COMPOSE_CMD $COMPOSE_FILES ps --format json
+        else
+            $COMPOSE_CMD $COMPOSE_FILES ps
+        fi
+        ;;
+
+    test)
+        test_type="${1:-all}"
+
+        # Ensure test environment file exists
+        if [ ! -f .env.test ]; then
+            output "error" ".env.test file not found"
+            exit 1
+        fi
+
+        # Map test types to commands
+        case "$test_type" in
+            all)
+                test_cmd="bash scripts/run-ci-checks.sh"
+                ;;
+            pytest)
+                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
+                ;;
+            mypy)
+                test_cmd="poetry run mypy app tests"
+                ;;
+            black)
+                test_cmd="poetry run black app tests"
+                ;;
+            ruff)
+                test_cmd="poetry run ruff check app tests"
+                ;;
+            bandit)
+                test_cmd="poetry run bandit -r app"
+                ;;
+            *)
+                output "error" "Unknown test type: $test_type"
+                exit 5
+                ;;
+        esac
+
+        output "info" "Running test: $test_type"
+
+        if [ $DRY_RUN -eq 1 ]; then
+            echo "docker run --rm -v $(pwd):/app:cached -w /app --network pantry-pirate-radio_default --env-file .env.test pantry-pirate-radio-test:latest bash -c \"$test_cmd\""
+            exit 0
+        fi
+
+        # Build test image if needed
+        if ! docker image inspect pantry-pirate-radio-test:latest &> /dev/null; then
+            output "info" "Building test image..."
+            docker build -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .
+        fi
+
+        # Run tests
+        $TIMEOUT docker run --rm \
+            -v "$(pwd)":/app:cached \
+            -w /app \
+            --network pantry-pirate-radio_default \
+            --env-file .env.test \
+            -e TEST_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-your_secure_password}@db:5432/test_pantry_pirate_radio \
+            -e TEST_REDIS_URL=redis://cache:6379/1 \
+            pantry-pirate-radio-test:latest \
+            bash -c "$test_cmd"
+        ;;
+
+    scraper)
+        subcmd="${1:-list}"
+        parse_mode "$@"
+
+        # Ensure scraper service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps scraper | grep -q "Up"; then
+            output "info" "Starting scraper service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d scraper
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            list)
+                output "info" "Listing scrapers"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper --list
+                ;;
+            all)
+                output "info" "Running all scrapers"
+                $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper --all
+                ;;
+            *)
+                output "info" "Running scraper: $subcmd"
+                $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper "$subcmd"
+                ;;
+        esac
+        ;;
+
+    claude-auth)
+        parse_mode "$@"
+
+        # Check if worker is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker | grep -q "Up"; then
+            output "info" "Starting worker service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d worker
+            sleep 2
+        fi
+
+        output "info" "Starting Claude authentication"
+        output "warning" "This requires interactive input"
+
+        # This needs to be interactive
+        $COMPOSE_CMD $COMPOSE_FILES exec worker claude
+        ;;
+
+    scraper-test)
+        subcmd="${1:-all}"
+        parse_mode "$@"
+
+        # Ensure scraper service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps scraper | grep -q "Up"; then
+            output "info" "Starting scraper service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d scraper
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            all)
+                output "info" "Testing all scrapers (dry run)"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper.test_scrapers --all
+                ;;
+            *)
+                output "info" "Testing scraper: $subcmd"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T scraper python -m app.scraper.test_scrapers "$subcmd"
+                ;;
+        esac
+        ;;
+
+    reconciler)
+        parse_mode "$@"
+
+        # Ensure reconciler service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps reconciler | grep -q "Up"; then
+            output "info" "Starting reconciler service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d reconciler db
+            sleep 2
+        fi
+
+        output "info" "Running reconciler"
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T reconciler python -m app.reconciler
+        ;;
+
+    recorder)
+        parse_mode "$@"
+
+        # Ensure recorder service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps recorder | grep -q "Up"; then
+            output "info" "Starting recorder service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d recorder cache
+            sleep 2
+        fi
+
+        output "info" "Running recorder"
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T recorder python -m app.recorder
+        ;;
+
+    content-store)
+        subcmd="${1:-status}"
+        parse_mode "$@"
+
+        # Ensure worker service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker | grep -q "Up"; then
+            output "info" "Starting worker service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d worker
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            status|report|duplicates|efficiency)
+                output "info" "Running content-store $subcmd"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store "$subcmd"
+                ;;
+            *)
+                output "error" "Unknown content-store command: $subcmd"
+                exit 5
+                ;;
+        esac
+        ;;
+
+    haarrrvest)
+        subcmd="${1:-run}"
+        parse_mode "$@"
+
+        # Ensure haarrrvest-publisher service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher | grep -q "Up"; then
+            output "info" "Starting haarrrvest-publisher service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d haarrrvest-publisher db
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            run)
+                output "info" "Running HAARRRvest publisher"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher python -m app.haarrrvest_publisher.service --once
+                ;;
+            status)
+                output "info" "Checking HAARRRvest publisher status"
+                get_service_status haarrrvest-publisher
+                ;;
+            *)
+                output "error" "Unknown haarrrvest command: $subcmd"
+                exit 5
+                ;;
+        esac
+        ;;
+
+    datasette)
+        subcmd="${1:-export}"
+        parse_mode "$@"
+
+        # Ensure datasette-exporter service is running
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter | grep -q "Up"; then
+            output "info" "Starting datasette-exporter service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter db
+            sleep 2
+        fi
+
+        case "$subcmd" in
+            export)
+                output "info" "Exporting database to SQLite"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
+                ;;
+            status)
+                output "info" "Checking datasette export status"
+                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
+                    output "info" "SQLite export exists"
+                    if [ $JSON_OUTPUT -eq 1 ]; then
+                        echo '{"status":"ready","file":"/data/latest.sqlite"}'
+                    fi
+                else
+                    output "warning" "No SQLite export found"
+                    if [ $JSON_OUTPUT -eq 1 ]; then
+                        echo '{"status":"not_found"}'
+                    fi
+                fi
+                ;;
+            *)
+                output "error" "Unknown datasette command: $subcmd"
+                exit 5
+                ;;
+        esac
+        ;;
+
+    replay)
+        parse_mode "$@"
+
+        # Ensure worker service is running (has all dependencies)
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker | grep -q "Up"; then
+            output "info" "Starting worker service..."
+            $COMPOSE_CMD $COMPOSE_FILES up -d worker db cache
+            sleep 2
+        fi
+
+        output "info" "Running replay with args: $@"
+        $TIMEOUT $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.replay "$@"
+        ;;
+
+    *)
+        output "error" "Unknown command: $COMMAND"
+        usage
+        exit 5
+        ;;
+esac

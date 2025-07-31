@@ -25,10 +25,10 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # Start with database initialization
-./docker.sh up --with-init
+./bouy up --with-init
 
 # Monitor progress (5-15 minutes with SQL dumps, 30+ minutes without)
-docker compose logs -f db-init
+./bouy logs -f db-init
 
 # Access API
 open http://localhost:8000/docs
@@ -42,10 +42,10 @@ For active development with hot reload and debugging:
 
 ```bash
 # Start development environment
-./docker.sh up --dev
+./bouy up --dev
 
 # Or with pre-populated data
-./docker.sh up --dev --with-init
+./bouy up --dev --with-init
 ```
 
 See [Docker Development Guide](docker-development.md) for detailed dev setup.
@@ -56,7 +56,7 @@ Fastest startup, but no initial data:
 
 ```bash
 # Start core services only
-docker compose up -d
+./bouy up
 
 # Access API (will be empty)
 open http://localhost:8000/docs
@@ -73,46 +73,63 @@ open http://localhost:8000/docs
 
 ## Essential Commands
 
-### Service Management
+### Using bouy Helper (Recommended)
 
 ```bash
-# View all services
-docker compose ps
+# Service management
+./bouy up                    # Start in dev mode
+./bouy up --prod            # Start in production mode
+./bouy up --with-init       # Start with data initialization
+./bouy down                 # Stop all services
+./bouy ps                   # View service status
+./bouy logs app             # View service logs
+./bouy shell app            # Open shell in container
+./bouy clean                # Stop and remove volumes
 
-# View logs
-docker compose logs -f [service-name]
+# Running scrapers
+./bouy scraper --list       # List available scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper --all        # Run all scrapers
 
-# Stop all services
-docker compose down
+# Testing
+./bouy test                 # Run all CI checks
+./bouy test --pytest        # Run tests only
+./bouy test --black         # Format code
+./bouy test --mypy          # Type checking
 
-# Stop and remove data
-docker compose down -v
+# Claude authentication
+./bouy claude-auth          # Authenticate Claude provider
 ```
 
-### Running Scrapers
+### Additional Commands
 
 ```bash
-# List available scrapers
-docker compose exec scraper python -m app.scraper --list
+# View all services with JSON output
+./bouy --json ps
 
-# Run a specific scraper
-docker compose exec scraper python -m app.scraper nyc_efap_programs
+# Follow logs for multiple services
+./bouy logs -f app worker
 
-# Run all scrapers
-docker compose exec scraper python -m app.scraper --all
+# Execute commands in containers
+./bouy exec app python --version
+./bouy exec db pg_isready
+
+# Programmatic mode for CI/CD
+./bouy --programmatic --quiet test
+./bouy --programmatic scraper --all
 ```
 
 ### Database Access
 
 ```bash
 # Connect to database
-docker compose exec db psql -U postgres -d pantry_pirate_radio
+./bouy exec db psql -U postgres -d pantry_pirate_radio
 
 # Check record count
-docker compose exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
 
 # Create a SQL dump for fast init
-docker compose exec app bash /app/scripts/create-sql-dump.sh
+./bouy exec app bash /app/scripts/create-sql-dump.sh
 ```
 
 ## Environment Variables
@@ -165,8 +182,60 @@ lsof -i :5432  # Database port
 ```bash
 # Increase Docker memory in Docker Desktop settings
 # Or scale down workers
-docker compose up -d --scale worker=1
+./bouy up --scale worker=1
 ```
+
+## Programmatic Usage
+
+The bouy script supports programmatic mode for automation:
+
+### Flags for Automation
+```bash
+# Structured output mode
+./bouy --programmatic COMMAND    # Timestamped logs to stderr
+./bouy --json COMMAND           # JSON output where supported
+./bouy --quiet COMMAND          # Suppress non-error output
+./bouy --no-color COMMAND       # Disable colored output
+
+# Combine flags
+./bouy --programmatic --quiet up
+./bouy --json --verbose ps
+```
+
+### Non-Interactive Execution
+```bash
+# Commands run without TTY allocation in programmatic mode
+./bouy --programmatic exec app python --version
+./bouy --programmatic scraper --list
+
+# Logs are limited to last 100 lines (no follow)
+./bouy --programmatic logs app
+```
+
+### Exit Codes
+- `0` - Success
+- `1` - General error or command failure
+- Non-zero - Command-specific errors
+
+### Example: Python Automation
+```python
+import subprocess
+import json
+
+# Get service status as JSON
+result = subprocess.run(
+    ["./bouy", "--json", "ps"],
+    capture_output=True,
+    text=True
+)
+
+# Parse each line as JSON (one service per line)
+for line in result.stdout.strip().split('\n'):
+    service = json.loads(line)
+    print(f"{service['Service']}: {service['Status']}")
+```
+
+See `examples/docker-automation.py` for a complete automation example.
 
 ## Next Steps
 

@@ -13,6 +13,7 @@ FROM python:3.11-slim-bullseye AS base
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    jq \
     lsb-release \
     gnupg \
     && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
@@ -63,11 +64,15 @@ FROM base AS development-base
 # Install all dependencies including dev dependencies
 RUN poetry install --no-interaction --no-ansi
 
-# Copy all application code and config files
-COPY . .
-
 # Set Python path
 ENV PYTHONPATH=/app
+
+# Copy only necessary files for tests (not everything)
+COPY app app/
+COPY tests tests/
+COPY scripts scripts/
+COPY .env.example .
+COPY pytest.ini .
 
 # =============================================================================
 # FASTAPI APPLICATION SERVICE
