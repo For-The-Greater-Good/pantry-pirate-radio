@@ -319,7 +319,6 @@ exit 0
 
     def test_setup_command(self, test_env, bouy_path):
         """Test the setup command."""
-        import tempfile
         from pathlib import Path
 
         # Create a temporary directory for the test

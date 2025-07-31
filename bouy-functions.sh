@@ -278,14 +278,25 @@ prompt_with_default() {
     local default="$2"
     local var_name="$3"
     local is_password="${4:-false}"
+    local value=""
 
-    if [ "$is_password" = "true" ]; then
-        echo -n "$prompt [$default]: "
-        read -s value
-        echo  # New line after password input
+    # Check if we're in a non-interactive environment (like a test)
+    if [ ! -t 0 ]; then
+        # Read from stdin without prompting
+        if IFS= read -r value; then
+            :  # Successfully read value
+        else
+            value=""  # Nothing to read, use default
+        fi
     else
-        echo -n "$prompt [$default]: "
-        read value
+        if [ "$is_password" = "true" ]; then
+            echo -n "$prompt [$default]: "
+            read -s value
+            echo  # New line after password input
+        else
+            echo -n "$prompt [$default]: "
+            read value
+        fi
     fi
 
     # Use default if empty
@@ -294,5 +305,5 @@ prompt_with_default() {
     fi
 
     # Export the variable
-    export "$var_name=$value"
+    eval "export $var_name=\"\$value\""
 }

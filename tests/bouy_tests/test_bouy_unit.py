@@ -314,13 +314,19 @@ exit 1
                 # Source the functions
                 source {bouy_functions_path}
 
+                # Create a wrapper function that returns the value
+                test_prompt() {{
+                    prompt_with_default "$1" "$2" "$3"
+                    eval "echo \\$$3"
+                }}
+
                 # Test with user input
-                echo "test_value" | prompt_with_default "Enter value" "default" "TEST_VAR"
-                echo "RESULT1=$TEST_VAR"
+                result1=$(echo "test_value" | test_prompt "Enter value" "default" "TEST_VAR")
+                echo "RESULT1=$result1"
 
                 # Test with empty input (should use default)
-                echo "" | prompt_with_default "Enter value" "default_value" "TEST_VAR2"
-                echo "RESULT2=$TEST_VAR2"
+                result2=$(echo "" | test_prompt "Enter value" "default_value" "TEST_VAR2")
+                echo "RESULT2=$result2"
                 """,
             ],
             capture_output=True,
