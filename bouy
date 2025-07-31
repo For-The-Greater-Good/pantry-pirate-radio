@@ -23,22 +23,13 @@ trap cleanup EXIT INT TERM
 
 # Detect if we should use base.yml instead of docker-compose.yml
 # This is needed when running inside containers where relative paths differ
-ENV_FILE_FLAGS=""
 if [ -f ".docker/compose/base.yml" ] && [ ! -f "docker-compose.yml" ]; then
     COMPOSE_FILES="-f .docker/compose/base.yml"
-    # When using base.yml from root, specify env file location
-    if [ -f ".env" ]; then
-        ENV_FILE_FLAGS="--env-file .env"
-    fi
 elif [ -f "docker-compose.yml" ]; then
     COMPOSE_FILES="-f docker-compose.yml"
 elif [ -f ".docker/compose/base.yml" ]; then
     # Fallback to base.yml if docker-compose.yml doesn't exist
     COMPOSE_FILES="-f .docker/compose/base.yml"
-    # When using base.yml from root, specify env file location
-    if [ -f ".env" ]; then
-        ENV_FILE_FLAGS="--env-file .env"
-    fi
 else
     echo "ERROR: No docker-compose.yml or .docker/compose/base.yml found!"
     exit 1
@@ -52,10 +43,6 @@ if [ -n "$BOUY_TEST_MODE" ]; then
     COMPOSE_CMD="${BOUY_TEST_COMPOSE_CMD:-docker compose}"
 fi
 
-# Helper function to run docker compose with proper files and env
-run_compose() {
-    $COMPOSE_CMD $ENV_FILE_FLAGS $COMPOSE_FILES "$@"
-}
 
 # Default behavior flags
 PROGRAMMATIC_MODE=0
@@ -289,7 +276,7 @@ check_database_schema() {
     output info "Checking database schema in $db_name..."
 
     # Check if record_version table exists (indicates schema is initialized)
-    if run_compose exec -T db psql -U postgres -d "$db_name" -c "SELECT 1 FROM record_version LIMIT 1;" >/dev/null 2>&1; then
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -c "SELECT 1 FROM record_version LIMIT 1;" >/dev/null 2>&1; then
         output success "Database schema is initialized"
         return 0
     else
@@ -307,7 +294,7 @@ init_database_schema() {
         if [ -f "$init_script" ]; then
             script_name=$(basename "$init_script")
             output info "Running $script_name..."
-            run_compose exec -T db psql -U postgres -d "$db_name" -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
+            $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d "$db_name" -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
         fi
     done
     output success "Database schema initialized"
@@ -317,7 +304,7 @@ init_database_schema() {
 check_redis_connectivity() {
     output info "Checking Redis connectivity..."
 
-    if run_compose exec -T cache redis-cli ping >/dev/null 2>&1; then
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
         output success "Redis is accessible"
         return 0
     else
@@ -334,9 +321,9 @@ check_directory_writable() {
     output info "Checking directory: $dir_path"
 
     # Check if directory exists in container
-    if run_compose exec -T "$service" test -d "$dir_path" 2>/dev/null; then
+    if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -d "$dir_path" 2>/dev/null; then
         # Check if writable
-        if run_compose exec -T "$service" test -w "$dir_path" 2>/dev/null; then
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" test -w "$dir_path" 2>/dev/null; then
             output success "Directory is writable: $dir_path"
             return 0
         else
@@ -346,7 +333,7 @@ check_directory_writable() {
     else
         output warning "Directory does not exist: $dir_path"
         # Try to create it
-        if run_compose exec -T "$service" mkdir -p "$dir_path" 2>/dev/null; then
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" mkdir -p "$dir_path" 2>/dev/null; then
             output success "Created directory: $dir_path"
             return 0
         else
@@ -415,7 +402,7 @@ wait_for_service() {
     local attempt=1
 
     while [ $attempt -le $max_attempts ]; do
-        if run_compose ps "$service" 2>/dev/null | grep -q "Up"; then
+        if $COMPOSE_CMD $COMPOSE_FILES ps "$service" 2>/dev/null | grep -q "Up"; then
             return 0
         fi
 
@@ -437,7 +424,7 @@ wait_for_database() {
     local attempt=0
 
     while [ $attempt -lt $max_attempts ]; do
-        if run_compose exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
             output success "Database is ready!"
             return 0
         fi
@@ -457,15 +444,15 @@ check_git_config() {
     output info "Checking git configuration..."
 
     # Check git user.name
-    if ! run_compose exec -T "$service" git config --global user.name >/dev/null 2>&1; then
+    if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name >/dev/null 2>&1; then
         output warning "Git user.name not set, using default"
-        run_compose exec -T "$service" git config --global user.name "Pantry Pirate Radio" || true
+        $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.name "Pantry Pirate Radio" || true
     fi
 
     # Check git user.email
-    if ! run_compose exec -T "$service" git config --global user.email >/dev/null 2>&1; then
+    if ! $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email >/dev/null 2>&1; then
         output warning "Git user.email not set, using default"
-        run_compose exec -T "$service" git config --global user.email "pantry-pirate-radio@example.com" || true
+        $COMPOSE_CMD $COMPOSE_FILES exec -T "$service" git config --global user.email "pantry-pirate-radio@example.com" || true
     fi
 
     output success "Git configuration verified"
@@ -649,14 +636,14 @@ case "$1" in
         # Check if --with-init was used
         if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
             if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
-                if run_compose --profile with-init up -d $services >/dev/null 2>&1; then
+                if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services >/dev/null 2>&1; then
                     output success "Services started successfully"
                 else
                     output error "Failed to start services"
                     exit 1
                 fi
             else
-                if run_compose --profile with-init up -d $services; then
+                if $COMPOSE_CMD $COMPOSE_FILES --profile with-init up -d $services; then
                     output success "Services started successfully"
                 else
                     output error "Failed to start services"
@@ -665,14 +652,14 @@ case "$1" in
             fi
         else
             if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
-                if run_compose up -d $services >/dev/null 2>&1; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d $services >/dev/null 2>&1; then
                     output success "Services started successfully"
                 else
                     output error "Failed to start services"
                     exit 1
                 fi
             else
-                if run_compose up -d $services; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d $services; then
                     output success "Services started successfully"
                 else
                     output error "Failed to start services"
@@ -684,7 +671,7 @@ case "$1" in
         # Show status
         if [ $PROGRAMMATIC_MODE -eq 0 ]; then
             echo ""
-            run_compose ps
+            $COMPOSE_CMD $COMPOSE_FILES ps
             echo ""
             echo "Services started! Access points:"
             echo "  - API: http://localhost:8000"
@@ -703,14 +690,14 @@ case "$1" in
         output info "Stopping all services..."
         if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
             # Suppress docker compose output in JSON or quiet mode
-            if run_compose down >/dev/null 2>&1; then
+            if $COMPOSE_CMD $COMPOSE_FILES down >/dev/null 2>&1; then
                 output success "All services stopped"
             else
                 output error "Failed to stop services"
                 exit 1
             fi
         else
-            if run_compose down; then
+            if $COMPOSE_CMD $COMPOSE_FILES down; then
                 output success "All services stopped"
             else
                 output error "Failed to stop services"
@@ -733,7 +720,7 @@ case "$1" in
             esac
         done
         output info "Building services..."
-        if run_compose build $services; then
+        if $COMPOSE_CMD $COMPOSE_FILES build $services; then
             output success "Build complete"
         else
             output error "Build failed"
@@ -753,9 +740,9 @@ case "$1" in
         fi
 
         if [ -z "$service" ]; then
-            run_compose logs $LOG_FLAGS
+            $COMPOSE_CMD $COMPOSE_FILES logs $LOG_FLAGS
         else
-            run_compose logs $LOG_FLAGS "$service"
+            $COMPOSE_CMD $COMPOSE_FILES logs $LOG_FLAGS "$service"
         fi
         ;;
 
@@ -772,8 +759,8 @@ case "$1" in
             output error "Shell command requires interactive mode. Run without --programmatic flag."
             exit 1
         fi
-        run_compose exec "$service" bash || \
-        run_compose exec "$service" sh
+        $COMPOSE_CMD $COMPOSE_FILES exec "$service" bash || \
+        $COMPOSE_CMD $COMPOSE_FILES exec "$service" sh
         ;;
 
     exec)
@@ -790,22 +777,22 @@ case "$1" in
         if [ $PROGRAMMATIC_MODE -eq 1 ]; then
             EXEC_FLAGS="-T"
         fi
-        run_compose exec $EXEC_FLAGS "$service" "$@"
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS "$service" "$@"
         ;;
 
     ps)
         parse_mode "$@"
         if [ $JSON_OUTPUT -eq 1 ]; then
             # Try to use docker compose ps --format json if available
-            if run_compose ps --format json 2>/dev/null; then
+            if $COMPOSE_CMD $COMPOSE_FILES ps --format json 2>/dev/null; then
                 :
             else
                 # Fallback: Output plain text with warning
                 output warning "JSON format not supported by this docker compose version. Showing plain text output:"
-                run_compose ps
+                $COMPOSE_CMD $COMPOSE_FILES ps
             fi
         else
-            run_compose ps
+            $COMPOSE_CMD $COMPOSE_FILES ps
         fi
         ;;
 
@@ -995,22 +982,22 @@ case "$1" in
 
         # Start services
         output info "Starting database and cache services..."
-        run_compose up -d db cache
+        $COMPOSE_CMD $COMPOSE_FILES up -d db cache
 
         # Wait for PostgreSQL to be ready
         output info "Waiting for database to be ready..."
         max_attempts=30
         attempt=0
         while [ $attempt -lt $max_attempts ]; do
-            if run_compose exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U postgres >/dev/null 2>&1; then
                 output info "Database is ready!"
                 break
             fi
             attempt=$((attempt + 1))
             if [ $attempt -eq $max_attempts ]; then
                 output error "Database failed to become ready"
-                run_compose ps
-                run_compose logs db --tail 50
+                $COMPOSE_CMD $COMPOSE_FILES ps
+                $COMPOSE_CMD $COMPOSE_FILES logs db --tail 50
                 exit 1
             fi
             echo "Waiting for database... (attempt $attempt/$max_attempts)"
@@ -1021,15 +1008,15 @@ case "$1" in
         output info "Waiting for cache to be ready..."
         attempt=0
         while [ $attempt -lt $max_attempts ]; do
-            if run_compose exec -T cache redis-cli ping >/dev/null 2>&1; then
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T cache redis-cli ping >/dev/null 2>&1; then
                 output info "Cache is ready!"
                 break
             fi
             attempt=$((attempt + 1))
             if [ $attempt -eq $max_attempts ]; then
                 output error "Cache failed to become ready"
-                run_compose ps
-                run_compose logs cache --tail 50
+                $COMPOSE_CMD $COMPOSE_FILES ps
+                $COMPOSE_CMD $COMPOSE_FILES logs cache --tail 50
                 exit 1
             fi
             echo "Waiting for cache... (attempt $attempt/$max_attempts)"
@@ -1038,10 +1025,10 @@ case "$1" in
 
         # Drop and recreate test database to ensure clean state
         output info "Dropping existing test database if it exists..."
-        run_compose exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS test_pantry_pirate_radio;" 2>/dev/null || true
+        $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS test_pantry_pirate_radio;" 2>/dev/null || true
 
         output info "Creating test database..."
-        run_compose exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
+        $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -c "CREATE DATABASE test_pantry_pirate_radio;" 2>/dev/null || true
 
         # Initialize test database schema
         output info "Initializing test database schema..."
@@ -1049,7 +1036,7 @@ case "$1" in
             if [ -f "$init_script" ]; then
                 script_name=$(basename "$init_script")
                 output info "Running $script_name on test database..."
-                run_compose exec -T db psql -U postgres -d test_pantry_pirate_radio -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
+                $COMPOSE_CMD $COMPOSE_FILES exec -T db psql -U postgres -d test_pantry_pirate_radio -f "/docker-entrypoint-initdb.d/$script_name" 2>&1 | grep -v "NOTICE:" || true
             fi
         done
 
@@ -1081,17 +1068,17 @@ case "$1" in
         parse_mode "$@"
 
         # Ensure cache is running for job queue
-        if ! run_compose ps cache 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
             output info "Cache service is not running. Starting it..."
             if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
-                if run_compose up -d cache >/dev/null 2>&1; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d cache >/dev/null 2>&1; then
                     sleep 2  # Give it a moment to start
                 else
                     output error "Failed to start cache service"
                     exit 1
                 fi
             else
-                if run_compose up -d cache; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
                     sleep 2  # Give it a moment to start
                 else
                     output error "Failed to start cache service"
@@ -1110,7 +1097,7 @@ case "$1" in
         if ! wait_for_service scraper 1 0; then
             output info "Scraper service is not running. Starting it..."
             if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
-                if run_compose up -d scraper >/dev/null 2>&1; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper >/dev/null 2>&1; then
                     if wait_for_service scraper; then
                         output success "Scraper service started successfully"
                     else
@@ -1122,7 +1109,7 @@ case "$1" in
                     exit 1
                 fi
             else
-                if run_compose up -d scraper; then
+                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
                     if wait_for_service scraper; then
                         output success "Scraper service started successfully"
                     else
@@ -1137,9 +1124,9 @@ case "$1" in
         fi
 
         # Check content store if enabled
-        if run_compose exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
             output info "Content store is enabled, checking configuration..."
-            if ! run_compose exec -T scraper test -d "/data-repo/content-store" 2>/dev/null; then
+            if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content-store" 2>/dev/null; then
                 output warning "Content store directory not found - deduplication may not work"
             else
                 output success "Content store directory found"
@@ -1155,7 +1142,7 @@ case "$1" in
                 if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                     EXEC_FLAGS="-T"
                 fi
-                run_compose exec $EXEC_FLAGS scraper python -m app.scraper --list
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --list
                 ;;
             --all)
                 output info "Running all scrapers..."
@@ -1163,14 +1150,14 @@ case "$1" in
                 if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                     EXEC_FLAGS="-T"
                 fi
-                run_compose exec $EXEC_FLAGS scraper python -m app.scraper --all
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --all
                 ;;
             help|"")
                 if [ $PROGRAMMATIC_MODE -eq 0 ]; then
                     echo "Usage: ./docker.sh scraper [--list|--all|SCRAPER_NAME]"
                     echo ""
                     echo "Available scrapers:"
-                    run_compose exec scraper python -m app.scraper --list
+                    $COMPOSE_CMD $COMPOSE_FILES exec scraper python -m app.scraper --list
                 else
                     output error "No scraper command specified. Use --list, --all, or provide a scraper name."
                     exit 1
@@ -1196,7 +1183,7 @@ case "$1" in
                     if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                         EXEC_FLAGS="-T"
                     fi
-                    run_compose exec $EXEC_FLAGS scraper python -m app.scraper "$scraper_name"
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper "$scraper_name"
                 else
                     output error "No scraper name provided"
                     exit 1
@@ -1210,9 +1197,9 @@ case "$1" in
         parse_mode "$@"
 
         # Check if worker service is running
-        if ! run_compose ps worker 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
             output info "Worker service is not running. Starting it..."
-            if run_compose up -d worker; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start worker service"
@@ -1230,23 +1217,23 @@ case "$1" in
                 output info "Authenticating Claude in worker container..."
                 output info "This will open an interactive Claude authentication session."
                 echo ""
-                run_compose exec worker claude
+                $COMPOSE_CMD $COMPOSE_FILES exec worker claude
                 ;;
             setup)
                 output info "Setting up Claude authentication..."
-                run_compose exec -T worker python -m app.claude_auth_manager setup
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager setup
                 ;;
             status)
                 output info "Checking Claude authentication status..."
-                run_compose exec -T worker python -m app.claude_auth_manager status
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager status
                 ;;
             test)
                 output info "Testing Claude authentication..."
-                run_compose exec -T worker python -m app.claude_auth_manager test
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager test
                 ;;
             config)
                 output info "Showing Claude configuration..."
-                run_compose exec -T worker python -m app.claude_auth_manager config
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.claude_auth_manager config
                 ;;
             *)
                 output error "Unknown claude-auth subcommand: $1"
@@ -1261,9 +1248,9 @@ case "$1" in
         parse_mode "$@"
 
         # Ensure database is running
-        if ! run_compose ps db 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
             output info "Database service is not running. Starting it..."
-            if run_compose up -d db; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
                 wait_for_database || exit 1
             else
                 output error "Failed to start database service"
@@ -1278,9 +1265,9 @@ case "$1" in
         fi
 
         # Check if reconciler service is running
-        if ! run_compose ps reconciler 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps reconciler 2>/dev/null | grep -q "Up"; then
             output info "Reconciler service is not running. Starting it..."
-            if run_compose up -d reconciler; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d reconciler; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start reconciler service"
@@ -1305,7 +1292,7 @@ case "$1" in
         if [ $PROGRAMMATIC_MODE -eq 1 ]; then
             EXEC_FLAGS="-T"
         fi
-        run_compose exec $EXEC_FLAGS reconciler bash -c "$cmd"
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS reconciler bash -c "$cmd"
         ;;
 
     recorder)
@@ -1313,9 +1300,9 @@ case "$1" in
         parse_mode "$@"
 
         # Ensure cache is running for job queue
-        if ! run_compose ps cache 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
             output info "Cache service is not running. Starting it..."
-            if run_compose up -d cache; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start cache service"
@@ -1330,9 +1317,9 @@ case "$1" in
         fi
 
         # Check if recorder service is running
-        if ! run_compose ps recorder 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps recorder 2>/dev/null | grep -q "Up"; then
             output info "Recorder service is not running. Starting it..."
-            if run_compose up -d recorder; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d recorder; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start recorder service"
@@ -1360,7 +1347,7 @@ case "$1" in
         if [ $PROGRAMMATIC_MODE -eq 1 ]; then
             EXEC_FLAGS="-T"
         fi
-        run_compose exec $EXEC_FLAGS recorder bash -c "$cmd"
+        $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS recorder bash -c "$cmd"
         ;;
 
     content-store)
@@ -1368,9 +1355,9 @@ case "$1" in
         parse_mode "$@"
 
         # Content store commands run in worker container
-        if ! run_compose ps worker 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
             output info "Worker service is not running. Starting it..."
-            if run_compose up -d worker; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start worker service"
@@ -1382,14 +1369,14 @@ case "$1" in
         output info "Checking content store configuration..."
 
         # Check if content store directory exists
-        if ! run_compose exec -T worker test -d "/data-repo/content-store" 2>/dev/null; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -d "/data-repo/content-store" 2>/dev/null; then
             output warning "Content store directory not found in data repo"
             output info "Content store may be disabled or not yet initialized"
         else
             output success "Content store directory found"
 
             # Check for SQLite database
-            if run_compose exec -T worker test -f "/data-repo/content-store/index.db" 2>/dev/null; then
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -f "/data-repo/content-store/index.db" 2>/dev/null; then
                 output success "Content store SQLite database found"
             else
                 output warning "Content store SQLite database not found - will be created on first use"
@@ -1403,20 +1390,20 @@ case "$1" in
         case "$subcmd" in
             status)
                 output info "Checking content store status..."
-                run_compose exec -T worker python -m app.content_store status
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store status
                 ;;
             report)
                 output info "Generating content store report..."
                 # Pass through any additional arguments
-                run_compose exec -T worker python -m app.content_store report "$@"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store report "$@"
                 ;;
             duplicates)
                 output info "Finding content store duplicates..."
-                run_compose exec -T worker python -m app.content_store duplicates
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store duplicates
                 ;;
             efficiency)
                 output info "Analyzing content store efficiency..."
-                run_compose exec -T worker python -m app.content_store efficiency
+                $COMPOSE_CMD $COMPOSE_FILES exec -T worker python -m app.content_store efficiency
                 ;;
             *)
                 output error "Unknown content-store subcommand: $subcmd"
@@ -1431,9 +1418,9 @@ case "$1" in
         parse_mode "$@"
 
         # Ensure database is running for data export
-        if ! run_compose ps db 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
             output info "Database service is not running. Starting it..."
-            if run_compose up -d db; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
                 wait_for_database || exit 1
             else
                 output error "Failed to start database service"
@@ -1448,9 +1435,9 @@ case "$1" in
         fi
 
         # Check if haarrrvest-publisher service is running
-        if ! run_compose ps haarrrvest-publisher 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher 2>/dev/null | grep -q "Up"; then
             output info "HAARRRvest publisher service is not running. Starting it..."
-            if run_compose up -d haarrrvest-publisher; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d haarrrvest-publisher; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start HAARRRvest publisher service"
@@ -1463,7 +1450,7 @@ case "$1" in
 
         # Check if HAARRRvest repository is initialized
         output info "Checking HAARRRvest repository..."
-        if ! run_compose exec -T haarrrvest-publisher test -d "/data-repo/.git" 2>/dev/null; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher test -d "/data-repo/.git" 2>/dev/null; then
             output warning "HAARRRvest repository not initialized"
             output info "The publisher service will clone the repository on first run"
         else
@@ -1471,7 +1458,7 @@ case "$1" in
         fi
 
         # Check output directory
-        if ! run_compose exec -T haarrrvest-publisher test -d "/app/outputs" 2>/dev/null; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher test -d "/app/outputs" 2>/dev/null; then
             output warning "Output directory not found - no files to publish"
         fi
 
@@ -1481,15 +1468,15 @@ case "$1" in
                 output info "Manually triggering HAARRRvest publisher..."
                 output info "This will process all pending recorder outputs and push to HAARRRvest repository."
                 # Run the publisher module directly to trigger immediate processing
-                run_compose exec -T haarrrvest-publisher python -m app.haarrrvest_publisher.service --once
+                $COMPOSE_CMD $COMPOSE_FILES exec -T haarrrvest-publisher python -m app.haarrrvest_publisher.service --once
                 ;;
             logs)
                 output info "Showing HAARRRvest publisher logs..."
-                run_compose logs -f haarrrvest-publisher
+                $COMPOSE_CMD $COMPOSE_FILES logs -f haarrrvest-publisher
                 ;;
             status)
                 output info "Checking HAARRRvest publisher status..."
-                run_compose ps haarrrvest-publisher
+                $COMPOSE_CMD $COMPOSE_FILES ps haarrrvest-publisher
                 ;;
             *)
                 output error "Unknown haarrrvest subcommand: $1"
@@ -1504,9 +1491,9 @@ case "$1" in
         parse_mode "$@"
 
         # Ensure database is running for export
-        if ! run_compose ps db 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
             output info "Database service is not running. Starting it..."
-            if run_compose up -d db; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
                 wait_for_database || exit 1
             else
                 output error "Failed to start database service"
@@ -1521,9 +1508,9 @@ case "$1" in
         fi
 
         # Check if datasette-exporter service is running
-        if ! run_compose ps datasette-exporter 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter 2>/dev/null | grep -q "Up"; then
             output info "Datasette exporter service is not running. Starting it..."
-            if run_compose up -d datasette-exporter; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start datasette exporter service"
@@ -1536,18 +1523,18 @@ case "$1" in
             export|"")
                 output info "Exporting database to SQLite for Datasette..."
                 # Run the export directly
-                run_compose exec -T datasette-exporter python -m app.datasette export
+                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
                 ;;
             schedule)
                 output info "Starting Datasette export scheduler..."
                 output info "Exports will run periodically based on EXPORT_INTERVAL setting"
-                run_compose exec datasette-exporter python -m app.datasette schedule
+                $COMPOSE_CMD $COMPOSE_FILES exec datasette-exporter python -m app.datasette schedule
                 ;;
             status)
                 output info "Checking Datasette exporter status..."
-                run_compose ps datasette-exporter
+                $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter
                 # Check if SQLite file exists
-                if run_compose exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
+                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
                     output success "Latest SQLite export found"
                 else
                     output warning "No SQLite export found yet"
@@ -1566,9 +1553,9 @@ case "$1" in
         parse_mode "$@"
 
         # Ensure database is running for replay
-        if ! run_compose ps db 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
             output info "Database service is not running. Starting it..."
-            if run_compose up -d db; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
                 wait_for_database || exit 1
             else
                 output error "Failed to start database service"
@@ -1583,9 +1570,9 @@ case "$1" in
         fi
 
         # Ensure cache is running
-        if ! run_compose ps cache 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
             output info "Cache service is not running. Starting it..."
-            if run_compose up -d cache; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start cache service"
@@ -1594,9 +1581,9 @@ case "$1" in
         fi
 
         # Use worker container for replay since it has all dependencies
-        if ! run_compose ps worker 2>/dev/null | grep -q "Up"; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES ps worker 2>/dev/null | grep -q "Up"; then
             output info "Worker service is not running. Starting it..."
-            if run_compose up -d worker; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d worker; then
                 sleep 2  # Give it a moment to start
             else
                 output error "Failed to start worker service"
@@ -1636,7 +1623,7 @@ case "$1" in
             if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                 EXEC_FLAGS="-T"
             fi
-            run_compose exec $EXEC_FLAGS worker bash -c "$cmd"
+            $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS worker bash -c "$cmd"
         fi
         ;;
 
@@ -1647,7 +1634,7 @@ case "$1" in
         # Check if scraper service is running
         if ! wait_for_service scraper 1 0; then
             output info "Scraper service is not running. Starting it..."
-            if run_compose up -d scraper; then
+            if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
                 if wait_for_service scraper; then
                     output success "Scraper service started successfully"
                 else
@@ -1668,7 +1655,7 @@ case "$1" in
                 if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                     EXEC_FLAGS="-T"
                 fi
-                run_compose exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers --all
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers --all
                 ;;
             help|"")
                 if [ $PROGRAMMATIC_MODE -eq 0 ]; then
@@ -1701,7 +1688,7 @@ case "$1" in
                     if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                         EXEC_FLAGS="-T"
                     fi
-                    run_compose exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers "$scraper_name"
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper.test_scrapers "$scraper_name"
                 else
                     output error "No scraper name provided"
                     exit 1
@@ -1712,7 +1699,7 @@ case "$1" in
 
     clean)
         output info "Stopping services and removing volumes..."
-        if run_compose down -v; then
+        if $COMPOSE_CMD $COMPOSE_FILES down -v; then
             output success "Clean complete!"
         else
             output error "Clean failed"
