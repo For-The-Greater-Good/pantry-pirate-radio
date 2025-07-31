@@ -36,6 +36,7 @@ ENV/
 .env.local
 .env.*.local
 you
+.docker/compose/.env
 # Security - Never commit these
 *.pem
 *.key

@@ -25,11 +25,19 @@ trap cleanup EXIT INT TERM
 # This is needed when running inside containers where relative paths differ
 if [ -f ".docker/compose/base.yml" ] && [ ! -f "docker-compose.yml" ]; then
     COMPOSE_FILES="-f .docker/compose/base.yml"
+    # When using base.yml, ensure .env symlink exists in compose directory
+    if [ -f ".env" ] && [ ! -e ".docker/compose/.env" ]; then
+        ln -sf "../../.env" ".docker/compose/.env"
+    fi
 elif [ -f "docker-compose.yml" ]; then
     COMPOSE_FILES="-f docker-compose.yml"
 elif [ -f ".docker/compose/base.yml" ]; then
     # Fallback to base.yml if docker-compose.yml doesn't exist
     COMPOSE_FILES="-f .docker/compose/base.yml"
+    # When using base.yml, ensure .env symlink exists in compose directory
+    if [ -f ".env" ] && [ ! -e ".docker/compose/.env" ]; then
+        ln -sf "../../.env" ".docker/compose/.env"
+    fi
 else
     echo "ERROR: No docker-compose.yml or .docker/compose/base.yml found!"
     exit 1
