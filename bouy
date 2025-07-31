@@ -38,6 +38,9 @@ fi
 COMPOSE_CMD="docker compose"
 VERSION="1.0.0"
 
+# Set consistent project name to avoid network naming issues
+export COMPOSE_PROJECT_NAME="pantry-pirate-radio"
+
 # Test mode support - allows overriding docker compose command for testing
 if [ -n "$BOUY_TEST_MODE" ]; then
     COMPOSE_CMD="${BOUY_TEST_COMPOSE_CMD:-docker compose}"
