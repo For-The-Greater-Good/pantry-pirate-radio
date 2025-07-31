@@ -13,9 +13,24 @@ output() {
     fi
 
     if [ $JSON_OUTPUT -eq 1 ]; then
-        # Escape quotes in message for JSON
-        message="${message//\"/\\\"}"
-        echo "{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"$message\"}"
+        # Check if jq is available
+        if command -v jq >/dev/null 2>&1; then
+            # Use jq for proper JSON escaping
+            echo '{}' | jq -c --arg ts "$timestamp" --arg lv "$level" --arg msg "$message" \
+                '{timestamp: $ts, level: $lv, message: $msg}'
+        else
+            # Fallback to basic escaping with warning
+            if [ "$JQ_WARNING_SHOWN" != "1" ]; then
+                echo "[WARNING] jq is not installed. JSON output may be malformed. Install jq with: apt-get install jq (or brew install jq on macOS)" >&2
+                export JQ_WARNING_SHOWN=1
+            fi
+            # Basic escaping - handle quotes, newlines, tabs, and backslashes
+            message="${message//\\/\\\\}"
+            message="${message//\"/\\\"}"
+            message="${message//$'\n'/\\n}"
+            message="${message//$'\t'/\\t}"
+            echo "{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"$message\"}"
+        fi
     elif [ $PROGRAMMATIC_MODE -eq 1 ]; then
         echo "[$timestamp] [$level] $message" >&2
     elif [ "$level" = "result" ]; then

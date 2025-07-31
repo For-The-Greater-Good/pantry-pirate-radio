@@ -10,10 +10,11 @@ set -e
 # Cleanup function for trap handlers
 cleanup() {
     local exit_code=$?
-    if [ -n "$CLEANUP_CONTAINER_ID" ]; then
-        docker kill "$CLEANUP_CONTAINER_ID" 2>/dev/null || true
-        docker rm "$CLEANUP_CONTAINER_ID" 2>/dev/null || true
+    # Clean up any temporary files
+    if [ -n "$CLEANUP_TEMP_FILES" ]; then
+        rm -f $CLEANUP_TEMP_FILES 2>/dev/null || true
     fi
+    # Note: Docker containers are managed with --rm flag, so no manual cleanup needed
     exit $exit_code
 }
 
@@ -338,6 +339,25 @@ check_docker() {
     return 0
 }
 
+# Helper function to validate command arguments
+validate_test_args() {
+    local args="$1"
+
+    # Check for dangerous characters/patterns
+    if [[ "$args" =~ [;\|&\$\`] ]]; then
+        output error "Invalid characters in test arguments. Shell operators are not allowed."
+        return 1
+    fi
+
+    # Check for command substitution attempts
+    if [[ "$args" =~ \$\(.*\) ]] || [[ "$args" =~ \`.*\` ]]; then
+        output error "Command substitution is not allowed in test arguments."
+        return 1
+    fi
+
+    return 0
+}
+
 # Helper function to prompt for input with default value
 prompt_with_default() {
     local prompt="$1"
@@ -549,6 +569,8 @@ case "$1" in
         cp .env.example .env
 
         # Update values in .env
+        # Track temp files for cleanup
+        CLEANUP_TEMP_FILES=".env.tmp"
         sed -i.tmp "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" .env
         sed -i.tmp "s/DATABASE_URL=.*/DATABASE_URL=postgresql+psycopg2:\/\/postgres:$POSTGRES_PASSWORD@db:5432\/pantry_pirate_radio/" .env
         sed -i.tmp "s/TEST_DATABASE_URL=.*/TEST_DATABASE_URL=postgresql+psycopg2:\/\/postgres:$POSTGRES_PASSWORD@db:5432\/test_pantry_pirate_radio/" .env
@@ -567,6 +589,8 @@ case "$1" in
 
         # Remove temp files
         rm -f .env.tmp
+        # Clear cleanup list since we handled it
+        CLEANUP_TEMP_FILES=""
 
         output success ".env file created successfully!"
         echo ""
@@ -784,6 +808,13 @@ case "$1" in
                     ;;
             esac
         done
+
+        # Validate additional arguments if provided
+        if [ -n "$additional_args" ]; then
+            if ! validate_test_args "$additional_args"; then
+                exit 1
+            fi
+        fi
 
         # Parse test options
         case "$test_type" in
