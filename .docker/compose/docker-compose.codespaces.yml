@@ -2,12 +2,16 @@
 services:
   db:
     environment:
-      # Additional PostgreSQL environment variables for Codespaces
+      # PostgreSQL environment variables for Codespaces
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=devcontainer
+      - POSTGRES_DB=pantry_pirate_radio
+      # Use trust authentication for Codespaces compatibility
       - POSTGRES_INITDB_ARGS=--auth-host=trust
       - POSTGRES_HOST_AUTH_METHOD=trust
     # Use a simpler healthcheck that doesn't rely on specific user credentials
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pantry_pirate_radio"]
       interval: 10s
       timeout: 5s
       retries: 10
