@@ -307,30 +307,101 @@ Visit http://localhost:8000/docs for API documentation
 
 ## Bouy - Docker Fleet Management
 
-All Docker operations in this project are managed through **bouy**, our comprehensive fleet management tool.
+**Bouy is the primary way to control all Docker stacks and run tests in this project.** All development operations use bouy for consistent, reliable container management.
+
+> **Note**: VSCode DevContainer environments are also available for integrated development workflows. See [DevContainer Setup](#using-devcontainer-recommended) for details.
+
+### Why Bouy?
+- **Single command interface** for all Docker operations
+- **Automatic health checks** and dependency verification
+- **Integrated testing** with coverage reporting
+- **Built-in authentication management** for LLM providers  
+- **Programmatic mode** with JSON output for automation
+- **No local dependencies** required except Docker
 
 ### Essential Commands
 ```bash
-# Start services
-./bouy up                    # Development mode
-./bouy up --with-init       # With database initialization
-./bouy up --prod            # Production mode
+# Service Management
+./bouy up                    # Start all services (development mode)
+./bouy up --with-init       # Start with database initialization from HAARRRvest
+./bouy up --prod            # Start in production mode
+./bouy down                 # Stop all services
+./bouy ps                   # List running services
+./bouy clean                # Stop services and remove volumes
 
-# Manage services
-./bouy ps                   # List services
-./bouy logs app             # View logs
-./bouy shell app            # Open shell
-./bouy down                 # Stop services
+# Logs and Debugging
+./bouy logs app             # View service logs
+./bouy shell app            # Open shell in container
+./bouy exec app python --version  # Execute command in container
 
-# Run tests
-./bouy test                 # All CI checks
-./bouy test --pytest        # Run tests only
-./bouy test --mypy          # Type checking
+# Testing (Primary Development Workflow)
+./bouy test                 # Run ALL CI checks (pytest, mypy, black, ruff, bandit)
+./bouy test --pytest        # Run tests with coverage
+./bouy test --mypy          # Type checking only
+./bouy test --black         # Code formatting check
+./bouy test --ruff          # Linting only
+./bouy test --bandit        # Security scan only
 
-# Run scrapers
-./bouy scraper --list       # List scrapers
+# Scraper Operations  
+./bouy scraper --list       # List available scrapers
 ./bouy scraper --all        # Run all scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper-test --all   # Test scrapers (dry run)
+
+# Data Management
+./bouy reconciler           # Process LLM job results
+./bouy recorder            # Save job results to JSON files
+./bouy content-store status # Check deduplication system
+./bouy haarrrvest          # Publish to HAARRRvest repository
+
+# Authentication (Claude Provider)
+./bouy claude-auth         # Interactive Claude authentication
+./bouy claude-auth status  # Check authentication status
 ```
+
+### Advanced Usage
+
+#### Programmatic Mode (for CI/CD)
+```bash
+./bouy --programmatic test     # Structured output for automation
+./bouy --json ps              # JSON output for scripts
+./bouy --quiet up             # Minimal output
+./bouy --no-color logs app    # Plain text logs
+```
+
+#### Running Specific Tests
+```bash
+# Test specific files or patterns
+./bouy test --pytest tests/test_api.py
+./bouy test --pytest -- -k "test_organization"
+./bouy test --pytest -- -v    # Verbose output
+
+# Type check specific paths
+./bouy test --mypy app/api/
+```
+
+#### Service-Specific Operations
+```bash
+# Start only specific services
+./bouy up app worker
+./bouy build app            # Build specific service
+./bouy logs -f worker       # Follow worker logs
+```
+
+### Development Environments
+
+#### Primary: Bouy + Docker
+**Recommended for most development tasks**
+- No local Python dependencies required
+- Consistent environment across all developers
+- All commands use bouy for Docker fleet management
+
+#### Alternative: VSCode DevContainer
+**Great for integrated IDE experience**
+- Full VSCode integration with extensions
+- Automatic setup and configuration
+- Still uses bouy for all Docker operations
+- See [DevContainer Setup](#using-devcontainer-recommended) section
 
 For complete documentation, see **[Bouy Command Reference](BOUY.md)**.
 
