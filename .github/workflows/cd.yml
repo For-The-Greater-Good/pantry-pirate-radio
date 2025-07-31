@@ -71,6 +71,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./.docker/images/app/Dockerfile
           target: ${{ matrix.target }}
           platforms: linux/amd64
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
@@ -124,7 +125,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.datasette
+          file: ./.docker/images/datasette/Dockerfile
           platforms: linux/amd64
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
