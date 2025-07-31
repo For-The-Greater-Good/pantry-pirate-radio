@@ -252,8 +252,10 @@ docker compose logs -f db-init
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Setup environment
-./scripts/setup-secrets.sh  # Interactive setup (recommended)
+# 2. Quick setup with interactive wizard (NEW USERS START HERE!)
+./bouy setup                 # Interactive setup wizard - creates .env file
+# OR use legacy script:
+./scripts/setup-secrets.sh   # Alternative interactive setup
 # OR manually:
 cp .env.example .env
 # Edit .env with your API keys and settings
@@ -283,8 +285,9 @@ docker compose logs -f haarrrvest-publisher
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Setup environment
-./scripts/setup-secrets.sh  # Interactive setup (recommended)
+# 2. Setup environment (choose one):
+./bouy setup                 # Interactive setup wizard (recommended)
+./scripts/setup-secrets.sh   # Alternative interactive setup
 # OR manually copy and edit:
 cp .env.example .env
 # Edit .env with your configuration (API keys, passwords, etc.)
@@ -307,30 +310,133 @@ Visit http://localhost:8000/docs for API documentation
 
 ## Bouy - Docker Fleet Management
 
-All Docker operations in this project are managed through **bouy**, our comprehensive fleet management tool.
+**Bouy is the primary way to control all Docker stacks and run tests in this project.** All development operations use bouy for consistent, reliable container management.
+
+> **Note**: VSCode DevContainer environments are also available for integrated development workflows. See [DevContainer Setup](#using-devcontainer-recommended) for details.
+
+### Why Bouy?
+- **Single command interface** for all Docker operations
+- **Interactive setup wizard** with guided configuration
+- **Automatic health checks** and dependency verification
+- **Integrated testing** with coverage reporting
+- **Built-in authentication management** for LLM providers  
+- **Programmatic mode** with JSON output for automation
+- **No local dependencies** required except Docker
+
+### Quick Start for New Users
+```bash
+# NEW USERS: Complete setup in 3 commands
+./bouy setup                # Interactive setup wizard (creates .env)
+./bouy up                   # Start all services
+./bouy test                 # Verify everything works
+```
 
 ### Essential Commands
 ```bash
-# Start services
-./bouy up                    # Development mode
-./bouy up --with-init       # With database initialization
-./bouy up --prod            # Production mode
+# Initial Setup
+./bouy setup                # Interactive setup wizard for .env configuration
+./bouy --help               # Show help with all commands
+./bouy --version            # Show bouy version
 
-# Manage services
-./bouy ps                   # List services
-./bouy logs app             # View logs
-./bouy shell app            # Open shell
-./bouy down                 # Stop services
+# Service Management
+./bouy up                    # Start all services (development mode)
+./bouy up --with-init       # Start with database initialization from HAARRRvest
+./bouy up --prod            # Start in production mode
+./bouy down                 # Stop all services
+./bouy ps                   # List running services
+./bouy clean                # Stop services and remove volumes
 
-# Run tests
-./bouy test                 # All CI checks
-./bouy test --pytest        # Run tests only
-./bouy test --mypy          # Type checking
+# Logs and Debugging
+./bouy logs app             # View service logs
+./bouy shell app            # Open shell in container
+./bouy exec app python --version  # Execute command in container
 
-# Run scrapers
-./bouy scraper --list       # List scrapers
+# Testing (Primary Development Workflow)
+./bouy test                 # Run ALL CI checks (pytest, mypy, black, ruff, bandit)
+./bouy test --pytest        # Run tests with coverage
+./bouy test --mypy          # Type checking only
+./bouy test --black         # Code formatting check
+./bouy test --ruff          # Linting only
+./bouy test --bandit        # Security scan only
+./bouy test --coverage      # Tests with coverage threshold check
+./bouy test --vulture       # Dead code detection
+./bouy test --safety        # Dependency vulnerability scan
+./bouy test --pip-audit     # Pip audit for vulnerabilities
+./bouy test --xenon         # Code complexity analysis
+
+# Scraper Operations  
+./bouy scraper --list       # List available scrapers
 ./bouy scraper --all        # Run all scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper-test --all   # Test scrapers (dry run)
+
+# Data Management
+./bouy reconciler           # Process LLM job results
+./bouy recorder            # Save job results to JSON files
+./bouy content-store status # Check deduplication system
+./bouy content-store report # Generate detailed deduplication report
+./bouy datasette            # Export database to SQLite for Datasette
+./bouy datasette schedule   # Start periodic SQLite export scheduler
+./bouy replay --use-default-output-dir  # Replay recorded JSON files
+./bouy haarrrvest          # Publish to HAARRRvest repository
+
+# Authentication (Claude Provider)
+./bouy claude-auth         # Interactive Claude authentication
+./bouy claude-auth status  # Check authentication status
 ```
+
+### Advanced Usage
+
+#### Global Flags (All Commands)
+```bash
+# Output Control
+./bouy --help               # Show help
+./bouy --version            # Show version
+./bouy --programmatic CMD   # Structured output for automation
+./bouy --json CMD           # JSON output (implies --programmatic)
+./bouy --quiet CMD          # Suppress non-error output
+./bouy --verbose CMD        # Enable debug output
+./bouy --no-color CMD       # Disable colored output
+
+# Examples
+./bouy --json ps            # Get service status as JSON
+./bouy --quiet up           # Start services with minimal output
+./bouy --no-color logs app  # Plain text logs for files
+```
+
+#### Running Specific Tests
+```bash
+# Test specific files or patterns
+./bouy test --pytest tests/test_api.py
+./bouy test --pytest -- -k "test_organization"
+./bouy test --pytest -- -v    # Verbose output
+
+# Type check specific paths
+./bouy test --mypy app/api/
+```
+
+#### Service-Specific Operations
+```bash
+# Start only specific services
+./bouy up app worker
+./bouy build app            # Build specific service
+./bouy logs -f worker       # Follow worker logs
+```
+
+### Development Environments
+
+#### Primary: Bouy + Docker
+**Recommended for most development tasks**
+- No local Python dependencies required
+- Consistent environment across all developers
+- All commands use bouy for Docker fleet management
+
+#### Alternative: VSCode DevContainer
+**Great for integrated IDE experience**
+- Full VSCode integration with extensions
+- Automatic setup and configuration
+- Still uses bouy for all Docker operations
+- See [DevContainer Setup](#using-devcontainer-recommended) section
 
 For complete documentation, see **[Bouy Command Reference](BOUY.md)**.
 
@@ -393,54 +499,7 @@ export LLM_MODEL_NAME=gpt-4
 
 ### Service Management
 
-#### Using bouy (Recommended)
-```bash
-# Start all services
-./bouy up                      # Start in dev mode (default)
-./bouy up --prod              # Start in production mode
-./bouy up --with-init         # Start with database initialization from HAARRRvest
-
-# Service management
-./bouy down                   # Stop all services
-./bouy ps                     # List running services
-./bouy logs app               # View specific service logs
-./bouy shell app              # Open shell in service container
-./bouy exec app python --version  # Execute command in container
-./bouy clean                  # Stop services and remove volumes
-
-# Testing
-./bouy test                   # Run all CI checks
-./bouy test --pytest          # Run only pytest
-./bouy test --mypy            # Run only type checking
-./bouy test --black           # Run only code formatting
-./bouy test --ruff            # Run only linting
-./bouy test --bandit          # Run only security checks
-./bouy test --coverage        # Run tests with coverage
-
-# Scraper management
-./bouy scraper --list         # List available scrapers
-./bouy scraper --all          # Run all scrapers
-./bouy scraper nyc_efap_programs  # Run specific scraper
-
-# Claude authentication
-./bouy claude-auth            # Authenticate Claude in worker container
-```
-
-#### Programmatic Mode (For Automation)
-```bash
-# Enable programmatic mode for structured output
-./bouy --programmatic up      # Structured logging to stderr
-./bouy --json ps              # Get service status as JSON
-./bouy --quiet up             # Suppress non-error output
-./bouy --no-color logs app    # Disable colored output
-
-# Combine flags for automation
-./bouy --programmatic exec app python --version
-./bouy --json --verbose ps   # JSON output with debug info
-
-# Non-interactive execution (no TTY)
-./bouy --programmatic scraper --list
-```
+All service management uses bouy commands as documented in the [Bouy section](#bouy---docker-fleet-management) above.
 
 #### Using Docker Compose Directly
 ```bash
@@ -469,18 +528,11 @@ docker compose up -d --scale worker=3  # Run 3 worker instances
 
 ### Development Commands
 
-#### **Testing & Quality**
-```bash
-# Using docker.sh (with bind-mounted code for auto-formatting)
-./bouy test                        # Run all CI checks
-./bouy test --pytest               # Run tests with coverage
-./bouy test --mypy                 # Type checking
-./bouy test --black                # Code formatting (updates local files)
-./bouy test --ruff                 # Linting
-./bouy test --bandit               # Security scan
-./bouy test --coverage             # Tests with coverage check
+All development commands use bouy as documented in the [Bouy section](#bouy---docker-fleet-management) above.
 
-# Or run locally with poetry
+#### **Legacy Poetry Commands** (if running locally without Docker)
+```bash
+# Local testing with poetry (not recommended - use './bouy test' instead)
 poetry run pytest                       # Run all tests with coverage
 poetry run pytest -m integration        # Integration tests
 poetry run pytest -m asyncio           # Async tests
@@ -496,49 +548,6 @@ poetry run black .                      # Code formatting
 poetry run ruff .                       # Linting
 poetry run bandit -r app/               # Security scan
 poetry run vulture app/                 # Unused code detection
-
-# Run all CI checks
-./bouy test                        # Using Docker (recommended)
-./scripts/run-ci-checks-docker.sh      # Alternative Docker method
-./scripts/run-ci-checks.sh             # Using local # Dependencies are installed automatically in containers via bouyation
-```
-
-#### **Scraper Management**
-```bash
-# Using docker.sh (recommended)
-./bouy scraper --list              # List available scrapers
-./bouy scraper nyc_efap_programs   # Run specific scraper
-./bouy scraper --all               # Run all scrapers
-
-# Test scrapers (dry run)
-./bouy scraper-test --all          # Test all scrapers
-./bouy scraper-test nyc_efap_programs  # Test specific scraper
-
-# Monitor scrapers
-./bouy logs scraper                # View scraper logs
-./bouy logs -f scraper             # Follow logs
-
-# Programmatic mode
-./bouy --programmatic scraper --list
-./bouy --quiet scraper nyc_efap_programs
-```
-
-#### **Docker Development**
-```bash
-# Build services
-./bouy build                       # Build all services
-./bouy build app                   # Build specific service
-./bouy build worker                # Build worker service
-./bouy build --prod app            # Build for production
-
-# Run tests
-./bouy test                        # Run all tests
-./bouy test --pytest               # Run pytest only
-
-# Debug service containers
-./bouy shell app                   # Open shell in app container
-./bouy shell worker                # Open shell in worker container
-./bouy exec app bash -c "echo test"  # Execute command
 ```
 
 ### Quality Standards
