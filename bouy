@@ -344,7 +344,7 @@ validate_test_args() {
     local args="$1"
 
     # Check for dangerous characters/patterns
-    if [[ "$args" =~ [;\|&\$\`] ]]; then
+    if [[ "$args" =~ [\;\|\&\$\`] ]]; then
         output error "Invalid characters in test arguments. Shell operators are not allowed."
         return 1
     fi
@@ -895,22 +895,65 @@ case "$1" in
 
         output info "Running tests with bind-mounted code..."
 
-        # Ensure the test image is built
-        if ! check_docker || ! docker image inspect pantry-pirate-radio-test:latest &> /dev/null; then
-            output info "Building test image..."
+        # Calculate hash of Dockerfile and key dependency files for cache invalidation
+        DOCKERFILE_PATH=".docker/images/app/Dockerfile"
+        POETRY_LOCK_PATH="poetry.lock"
+        PYPROJECT_PATH="pyproject.toml"
+
+        # Create a cache key based on file contents
+        CACHE_KEY=""
+        if command -v sha256sum &> /dev/null; then
+            CACHE_KEY=$(cat "$DOCKERFILE_PATH" "$POETRY_LOCK_PATH" "$PYPROJECT_PATH" 2>/dev/null | sha256sum | cut -c1-12)
+        elif command -v shasum &> /dev/null; then
+            CACHE_KEY=$(cat "$DOCKERFILE_PATH" "$POETRY_LOCK_PATH" "$PYPROJECT_PATH" 2>/dev/null | shasum -a 256 | cut -c1-12)
+        else
+            # Fallback to modification time if no hash command available
+            CACHE_KEY=$(stat -c %Y "$DOCKERFILE_PATH" "$POETRY_LOCK_PATH" "$PYPROJECT_PATH" 2>/dev/null | tr '\n' '-' | cut -c1-12)
+        fi
+
+        # Use cache key in image tag if available
+        TEST_IMAGE_TAG="pantry-pirate-radio-test:latest"
+        if [ -n "$CACHE_KEY" ]; then
+            TEST_IMAGE_TAG="pantry-pirate-radio-test:${CACHE_KEY}"
+        fi
+
+        # Check if the cached image exists
+        NEED_BUILD=0
+        if ! check_docker; then
+            NEED_BUILD=1
+        elif [ -n "$CACHE_KEY" ] && ! docker image inspect "$TEST_IMAGE_TAG" &> /dev/null; then
+            # Cached image doesn't exist
+            NEED_BUILD=1
+        elif [ -z "$CACHE_KEY" ] && ! docker image inspect "pantry-pirate-radio-test:latest" &> /dev/null; then
+            # No cache key and no latest image
+            NEED_BUILD=1
+        fi
+
+        if [ $NEED_BUILD -eq 1 ]; then
+            output info "Building test image (tag: $TEST_IMAGE_TAG)..."
 
             # Use buildx with cache if available
             BUILD_CMD="docker build"
+            BUILD_ARGS=""
             if command -v docker buildx &> /dev/null; then
                 BUILD_CMD="docker buildx build --load"
+                # Enable inline cache for better caching
+                BUILD_ARGS="--cache-from type=registry,ref=pantry-pirate-radio-test:buildcache --cache-to type=inline"
             fi
 
-            if ! $BUILD_CMD -f .docker/images/app/Dockerfile --target test -t pantry-pirate-radio-test:latest .; then
+            # Build with both the cache tag and latest tag
+            if ! $BUILD_CMD $BUILD_ARGS -f "$DOCKERFILE_PATH" --target test -t "$TEST_IMAGE_TAG" -t "pantry-pirate-radio-test:latest" .; then
                 output error "Failed to build test image"
                 exit 1
             fi
+
+            # Clean up old cached images (keep last 3)
+            if [ -n "$CACHE_KEY" ]; then
+                output info "Cleaning up old test images..."
+                docker images --format "{{.Repository}}:{{.Tag}}" | grep "^pantry-pirate-radio-test:" | grep -v ":latest" | grep -v ":${CACHE_KEY}" | sort -r | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
+            fi
         else
-            output info "Test image already exists, skipping build"
+            output info "Using cached test image: $TEST_IMAGE_TAG"
         fi
 
         # Use test environment file
@@ -1002,7 +1045,7 @@ case "$1" in
             --env-file .env.test \
             -e PYTHONUNBUFFERED=1 \
             -e RUNNING_IN_DOCKER=1 \
-            pantry-pirate-radio-test:latest \
+            "$TEST_IMAGE_TAG" \
             bash -c "$test_cmd"
         ;;
 
