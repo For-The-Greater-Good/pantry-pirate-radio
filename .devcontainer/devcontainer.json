@@ -1,29 +1,25 @@
 {
 	"name": "Pantry Pirate Radio",
-	"dockerComposeFile": [
-		"../.docker/compose/base.yml",
-		"../.docker/compose/docker-compose.dev.yml",
-		"../.docker/compose/docker-compose.codespaces.yml"
-	],
-	"mounts": [
-		"source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly"
-	],
-	"service": "app",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"mounts": [],
 	"workspaceFolder": "/workspace",
-	"initializeCommand": "bash -c 'ENV_PATH=\".docker/compose/.env\"; mkdir -p \"$(dirname \"$ENV_PATH\")\"; if [ ! -f \"$ENV_PATH\" ]; then echo \"Creating .env file from .env.example...\"; cp .env.example \"$ENV_PATH\" && sed -i \"s/your_secure_password/devcontainer/g\" \"$ENV_PATH\" && sed -i \"s/your_api_key_here/placeholder_key/g\" \"$ENV_PATH\" && sed -i \"s/your_anthropic_api_key_here/placeholder_key/g\" \"$ENV_PATH\" && sed -i \"s/your_github_personal_access_token_here/placeholder_token/g\" \"$ENV_PATH\" && sed -i \"s/PUBLISHER_PUSH_ENABLED=false/PUBLISHER_PUSH_ENABLED=false/g\" \"$ENV_PATH\" && echo \"# Codespaces PostgreSQL compatibility\" >> \"$ENV_PATH\" && echo \"PGUSER=postgres\" >> \"$ENV_PATH\" && echo \"PGPASSWORD=devcontainer\" >> \"$ENV_PATH\" && echo \"✅ .env file created at $ENV_PATH for dev container with Codespaces compatibility\"; else echo \"✅ .env file already exists at $ENV_PATH\"; fi'",
+	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
 	"features": {
 		"ghcr.io/devcontainers/features/docker-in-docker:2": {
 			"version": "latest",
 			"dockerDashComposeVersion": "v2",
 			"installDockerBuildx": "true",
-			"moby": "false"
+			"moby": "true"
 		}
 	},
 	"customizations": {
 		"vscode": {
 			"extensions": [
 				"ms-python.python",
-				"ms-pythonwhj.vscode-pylance",
+				"ms-python.vscode-pylance",
 				"ms-python.black-formatter",
 				"charliermarsh.ruff",
 				"ms-python.mypy-type-checker",
@@ -40,23 +36,29 @@
 				"python.linting.mypyEnabled": true,
 				"editor.formatOnSave": true,
 				"editor.codeActionsOnSave": {
-					"source.organizeImports": true
-				}
+					"source.organizeImports": "explicit"
+				},
+				"terminal.integrated.defaultProfile.linux": "bash"
 			}
 		}
 	},
 	"forwardPorts": [
 		8000,
 		5432,
-		6379
+		6379,
+		8080
 	],
 	"containerEnv": {
-		"POETRY_VIRTUALENVS_PATH": "/workspace/.virtualenvs",
-		"POETRY_CACHE_DIR": "/workspace/.cache/poetry",
-		"CODESPACES": "true",
-		"DOCKER_BUILDKIT": "1"
+		"POETRY_VIRTUALENVS_PATH": "/home/vscode/.virtualenvs",
+		"POETRY_CACHE_DIR": "/home/vscode/.cache/poetry",
+		"CODESPACES": "${localEnv:CODESPACES}",
+		"DOCKER_BUILDKIT": "1",
+		"COMPOSE_DOCKER_CLI_BUILD": "1"
 	},
-	"postCreateCommand": "set -e && echo 'Configuring poetry...' && poetry config virtualenvs.create true && poetry config virtualenvs.in-project false && poetry config virtualenvs.path /workspace/.virtualenvs && echo 'Running git config...' && git config --unset-all core.hooksPath || true && echo 'Running poetry install...' && poetry install --no-interaction && echo 'Installing pre-commit hooks...' && sh configure-poetry.sh && pre-commit install",
+	"postCreateCommand": "/usr/local/bin/init-dev-environment.sh",
 	"remoteUser": "vscode",
-	"shutdownAction": "stopCompose"
+	"runArgs": [
+		"--init",
+		"--privileged"
+	]
 }

@@ -21,7 +21,20 @@ cleanup() {
 # Set trap for cleanup on exit, interrupt, or termination
 trap cleanup EXIT INT TERM
 
-COMPOSE_FILES="-f docker-compose.yml"
+# Detect if we should use base.yml instead of docker-compose.yml
+# This is needed when running inside containers where relative paths differ
+if [ -f ".docker/compose/base.yml" ] && [ ! -f "docker-compose.yml" ]; then
+    COMPOSE_FILES="-f .docker/compose/base.yml"
+elif [ -f "docker-compose.yml" ]; then
+    COMPOSE_FILES="-f docker-compose.yml"
+elif [ -f ".docker/compose/base.yml" ]; then
+    # Fallback to base.yml if docker-compose.yml doesn't exist
+    COMPOSE_FILES="-f .docker/compose/base.yml"
+else
+    echo "ERROR: No docker-compose.yml or .docker/compose/base.yml found!"
+    exit 1
+fi
+
 COMPOSE_CMD="docker compose"
 VERSION="1.0.0"
 

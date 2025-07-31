@@ -132,7 +132,10 @@ class TestBouyFunctions:
 
                     # Source the functions
                     source {bouy_functions_path}
-                    COMPOSE_FILES="-f docker-compose.yml"
+                    # Set a default COMPOSE_FILES if not already set
+                    if [ -z "$COMPOSE_FILES" ]; then
+                        COMPOSE_FILES="-f docker-compose.yml"
+                    fi
                     parse_mode {mode}
                     echo "$COMPOSE_FILES"
                 """,
