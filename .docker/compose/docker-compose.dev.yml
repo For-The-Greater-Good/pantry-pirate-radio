@@ -1,11 +1,11 @@
 services:
   app:
     build:
-      context: .
+      context: ../..
       dockerfile: .devcontainer/Dockerfile
       target: app
     volumes:
-      - .:/workspace:cached
+      - ../..:/workspace:cached
       - vscode-server:/home/vscode/.vscode-server
     environment:
       - DEBUG=1
@@ -26,8 +26,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-pantry_pirate_radio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docs/HSDS/database/database_postgresql.sql:/docker-entrypoint-initdb.d/01-hsds-schema.sql:ro
-      - ./init-scripts/01-init-db.sql:/docker-entrypoint-initdb.d/02-init-db.sql:ro
+      - ../../docs/HSDS/database/database_postgresql.sql:/docker-entrypoint-initdb.d/01-hsds-schema.sql:ro
+      - ../init-scripts/01-init-db.sql:/docker-entrypoint-initdb.d/02-init-db.sql:ro
     ports:
       - "5432:5432"
     healthcheck:

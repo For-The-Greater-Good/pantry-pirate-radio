@@ -2,7 +2,7 @@
 services:
   app:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: app
     ports:
@@ -18,7 +18,7 @@ services:
 
   worker:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: worker
     command: rq worker llm
@@ -41,7 +41,7 @@ services:
 
   recorder:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: recorder
     env_file: .env
@@ -56,12 +56,12 @@ services:
       haarrrvest-publisher:
         condition: service_healthy
     volumes:
-      - ./outputs:/app/outputs
-      - ./archives:/app/archives
+      - ./.docker/compose/outputs:/app/outputs
+      - ./.docker/compose/archives:/app/archives
 
   scraper:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: scraper
     command: tail -f /dev/null  # Keep container running
@@ -73,12 +73,12 @@ services:
       cache:
         condition: service_started
     volumes:
-      - ./docs:/app/docs
+      - ./.docker/compose/docs:/app/docs
       - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
 
   reconciler:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: simple-worker
     command: rq worker reconciler
@@ -92,7 +92,7 @@ services:
 
   haarrrvest-publisher:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: production-base
     command: python -m app.haarrrvest_publisher.service
@@ -104,9 +104,9 @@ services:
       - DATA_REPO_URL=${DATA_REPO_URL:-https://github.com/For-The-Greater-Good/HAARRRvest.git}
       - PUBLISHER_PUSH_ENABLED=${PUBLISHER_PUSH_ENABLED:-false}
     volumes:
-      - ./outputs:/app/outputs
+      - ./.docker/compose/outputs:/app/outputs
       - haarrrvest_repo:/data-repo
-      - ./scripts:/app/scripts:ro
+      - ./.docker/compose/scripts:/app/scripts:ro
     depends_on:
       db:
         condition: service_healthy
@@ -125,7 +125,7 @@ services:
     # Database credentials loaded from .env file
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
+      - ./.docker/compose/init-scripts:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     healthcheck:
@@ -136,7 +136,7 @@ services:
 
   db-init:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: production-base
     command: /app/scripts/init-database.sh
@@ -153,7 +153,7 @@ services:
       - REPO_STABILITY_THRESHOLD=${REPO_STABILITY_THRESHOLD:-3}
       - REPO_MAX_WAIT_TIME=${REPO_MAX_WAIT_TIME:-1800}
     volumes:
-      - ./scripts:/app/scripts:ro
+      - ./.docker/compose/scripts:/app/scripts:ro
       - haarrrvest_repo:/data-repo:ro
     depends_on:
       db:
@@ -178,7 +178,7 @@ services:
 
   rq-dashboard:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: simple-worker
     command: rq-dashboard -H cache
@@ -191,7 +191,7 @@ services:
 
   datasette-exporter:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: datasette-exporter
     env_file: .env
@@ -204,11 +204,11 @@ services:
         condition: service_healthy
     volumes:
       - datasette_data:/data
-      - ./datasette-metadata.json:/data/metadata.json
+      - ./.docker/compose/datasette-metadata.json:/data/metadata.json
 
   datasette:
     build:
-      context: .
+      context: ../..
       dockerfile: .docker/images/datasette/Dockerfile
     ports:
       - "8001:8001"
