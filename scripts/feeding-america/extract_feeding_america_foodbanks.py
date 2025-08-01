@@ -1,113 +1,202 @@
 #!/usr/bin/env python3
-"""Extract Feeding America food bank information from HTML file."""
+"""Extract Feeding America food bank information from API."""
 
 import json
 import re
+import sys
+import urllib.request
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional
-from bs4 import BeautifulSoup
-import urllib.parse
 
 
-def extract_food_banks(html_file: Path) -> List[Dict[str, any]]:
-    """Extract food bank information from the HTML file."""
-    with open(html_file, encoding="utf-8") as f:
-        content = f.read()
+def fetch_food_banks_from_api() -> List[Dict[str, any]]:
+    """Fetch food bank information from Feeding America API."""
+    api_url = "https://www.feedingamerica.org/ws-api/GetAllOrganizations"
+    api_params = {
+        "orgFields": "OrganizationID,FullName,MailAddress,ListPDOs,Drupal,URL,Phone,AgencyURL,VolunteerURL,SocialUrls,ListFipsCounty,LogoUrls,ListPDOs,list_PDO,list_LocalFindings,CountyName"
+    }
+    
+    # Build URL with parameters
+    url = api_url + "?" + urllib.parse.urlencode(api_params)
+    
+    print(f"Fetching data from API: {url}")
+    
+    try:
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read().decode())
+            return data.get("Organization", [])
+    except Exception as e:
+        print(f"Error fetching from API: {e}")
+        sys.exit(1)
 
-    soup = BeautifulSoup(content, "html.parser")
 
-    # Find all food bank entries
-    food_banks = []
-    results_boxes = soup.find_all("div", class_="results-box")
-
-    for box in results_boxes:
-        if box.get("data-orgid"):
-            food_bank = extract_food_bank_info(box)
-            if food_bank:
-                food_banks.append(food_bank)
-
-    return food_banks
-
-
-def extract_food_bank_info(box) -> Optional[Dict[str, any]]:
-    """Extract information from a single food bank box."""
+def extract_food_bank_info(org_data: Dict[str, any]) -> Dict[str, any]:
+    """Extract information from a single food bank organization."""
     try:
         info = {}
-
-        # Organization ID
-        info["org_id"] = box.get("data-orgid")
-
-        # Name
-        name_elem = box.find("h3", class_="name")
-        if name_elem:
-            info["name"] = name_elem.text.strip()
-
-        # URL slug from the link
-        link_elem = box.find("a", href=re.compile(r"/find-your-local-foodbank/"))
-        if link_elem:
-            info["url_slug"] = link_elem["href"].split("/")[-1]
-
-        # Address and phone
-        p_tags = box.find_all("p")
-        for p in p_tags:
-            text = p.text.strip()
-            if p.find("a", class_="mobile-link"):
-                phone_link = p.find("a", class_="mobile-link")
-                info["phone"] = phone_link.text.strip()
-                # Extract address from the same paragraph
-                address_text = p.get_text(separator="\n").strip()
-                address_lines = [
-                    line.strip()
-                    for line in address_text.split("\n")
-                    if line.strip() and not line.strip().startswith(info["phone"])
-                ]
-                if address_lines:
-                    info["address"] = ", ".join(address_lines)
-
-        # Website URL
-        url_p = box.find("p", class_="url")
-        if url_p:
-            url_link = url_p.find("a")
-            if url_link:
-                href = url_link["href"]
-                # Normalize the URL
-                if href.startswith("//"):
-                    href = "https:" + href
-                elif not href.startswith("http"):
-                    href = "https://" + href
-                info["website"] = href.rstrip("/")
-
-        # Extract button links
-        buttons = box.find_all("a", class_="button")
-        for button in buttons:
-            button_text = button.text.strip().lower()
-            if "find food" in button_text:
-                info["find_food_url"] = button["href"]
-            elif "volunteer" in button_text:
-                info["volunteer_url"] = button["href"]
-            elif "give locally" in button_text:
-                info["donate_url"] = button["href"]
-
-        # Counties served
-        counties_p = box.find("p", class_="counties")
-        if counties_p:
-            counties_text = counties_p.text
-            if "Counties Served:" in counties_text:
-                counties = counties_text.split("Counties Served:")[1].strip()
-                info["counties"] = [c.strip() for c in counties.split(",")]
-
-        # State (inferred from address)
-        if "address" in info:
-            # Extract state code from address
-            state_match = re.search(r",\s*([A-Z]{2})\s+\d{5}", info["address"])
-            if state_match:
-                info["state"] = state_match.group(1)
-
+        
+        # Basic information
+        info["org_id"] = str(org_data.get("OrganizationID", ""))
+        info["name"] = org_data.get("FullName", "")
+        
+        # Extract address information
+        mail_address = org_data.get("MailAddress", {})
+        if mail_address:
+            address_parts = []
+            if mail_address.get("Address1"):
+                address_parts.append(mail_address["Address1"])
+            if mail_address.get("Address2"):
+                address_parts.append(mail_address["Address2"])
+            if mail_address.get("City") and mail_address.get("State") and mail_address.get("Zip"):
+                address_parts.append(f"{mail_address['City']}, {mail_address['State']} {mail_address['Zip']}")
+            
+            info["address"] = ", ".join(address_parts)
+            info["state"] = mail_address.get("State", "")
+            info["latitude"] = mail_address.get("Latitude")
+            info["longitude"] = mail_address.get("Longitude")
+        
+        # URLs and contact
+        info["phone"] = org_data.get("Phone", "")
+        info["website"] = normalize_url(org_data.get("URL", ""))
+        info["find_food_url"] = normalize_url(org_data.get("AgencyURL", ""))
+        info["volunteer_url"] = normalize_url(org_data.get("VolunteerURL", ""))
+        
+        # Extract URL slug from Drupal path if available
+        drupal_info = org_data.get("Drupal", {})
+        if drupal_info and drupal_info.get("Path"):
+            info["feeding_america_path"] = drupal_info.get("Path", "")
+            info["url_slug"] = extract_url_slug(drupal_info.get("Path", ""))
+        else:
+            info["url_slug"] = extract_url_slug(org_data.get("URL", ""))
+        
+        # Social URLs
+        social_urls = org_data.get("SocialUrls", {})
+        if social_urls:
+            info["social_facebook"] = social_urls.get("Facebook", "")
+            info["social_twitter"] = social_urls.get("Twitter", "")
+            info["social_donateurl"] = social_urls.get("DonateUrl", "")
+            info["social_weburl"] = social_urls.get("WebUrl", "")
+        
+        # Logo URLs
+        logo_urls = org_data.get("LogoUrls", {})
+        if logo_urls:
+            info["logo_url"] = logo_urls.get("LogoUrl", "")
+            info["logo_url_alt"] = logo_urls.get("LogoUrlAlt", "")
+        
+        # Extract counties from ListFipsCounty
+        counties = []
+        fips_list = org_data.get("ListFipsCounty", {}).get("LocalFindings", [])
+        for fips in fips_list:
+            county_name = fips.get("CountyName", "")
+            state = fips.get("State", "")
+            if county_name and state:
+                counties.append(f"{county_name.upper()}, {state}")
+        info["counties"] = counties
+        
+        # Additional Drupal fields
+        if drupal_info:
+            info["food_donation_link"] = normalize_url(drupal_info.get("FoodDonationLink", ""))
+            info["food_drive_link"] = normalize_url(drupal_info.get("FoodDriveLink", ""))
+            info["snap_link"] = normalize_url(drupal_info.get("SnapLink", ""))
+        
+        # Mark as main organization (not affiliate)
+        info["is_affiliate"] = False
+        info["parent_org_id"] = None
+        
         return info
-
+        
     except Exception as e:
         print(f"Error extracting food bank info: {e}")
         return None
+
+
+def extract_affiliate_info(pdo_data: Dict[str, any], parent_org_id: str, parent_org_name: str) -> Dict[str, any]:
+    """Extract information from an affiliate (PDO) food bank."""
+    try:
+        info = {}
+        
+        # Basic information
+        info["org_id"] = f"{parent_org_id}-{pdo_data.get('Distorgid', '')}"
+        info["name"] = pdo_data.get("Title", "")
+        info["is_affiliate"] = True
+        info["parent_org_id"] = parent_org_id
+        info["parent_org_name"] = parent_org_name
+        
+        # Address
+        address_parts = []
+        if pdo_data.get("Address"):
+            address_parts.append(pdo_data["Address"])
+        if pdo_data.get("City") and pdo_data.get("State") and pdo_data.get("ZipCode"):
+            address_parts.append(f"{pdo_data['City']}, {pdo_data['State']} {pdo_data['ZipCode']}")
+        
+        info["address"] = ", ".join(address_parts)
+        info["state"] = pdo_data.get("State", "")
+        
+        # Contact
+        info["website"] = normalize_url(pdo_data.get("Website", ""))
+        
+        # Director info
+        director_name_parts = []
+        if pdo_data.get("DirectorFirstName"):
+            director_name_parts.append(pdo_data["DirectorFirstName"].strip())
+        if pdo_data.get("DirectorMiddleName") and pdo_data["DirectorMiddleName"].strip():
+            director_name_parts.append(pdo_data["DirectorMiddleName"].strip())
+        if pdo_data.get("DirectorLastName"):
+            director_name_parts.append(pdo_data["DirectorLastName"].strip())
+        
+        if director_name_parts:
+            info["director_name"] = " ".join(director_name_parts)
+        info["director_email"] = pdo_data.get("DirectorEmail", "")
+        
+        # Extract counties specific to this affiliate
+        counties = []
+        if "counties" in pdo_data and "LocalFindings" in pdo_data["counties"]:
+            fips_list = pdo_data["counties"]["LocalFindings"]
+            for fips in fips_list:
+                county_name = fips.get("CountyName", "")
+                state = fips.get("State", "")
+                if county_name and state:
+                    counties.append(f"{county_name.title()}, {state}")
+        info["counties"] = counties
+        
+        return info
+        
+    except Exception as e:
+        print(f"Error extracting affiliate info: {e}")
+        return None
+
+
+def normalize_url(url: str) -> str:
+    """Normalize a URL to ensure it has proper protocol."""
+    if not url:
+        return ""
+    
+    url = url.strip()
+    if url.startswith("//"):
+        return "https:" + url
+    elif not url.startswith("http"):
+        return "https://" + url
+    return url
+
+
+def extract_url_slug(url: str) -> str:
+    """Extract the URL slug from a Feeding America URL."""
+    if not url:
+        return ""
+    
+    # Look for pattern like /find-your-local-foodbank/food-bank-name
+    match = re.search(r'/find-your-local-foodbank/([^/]+)', url)
+    if match:
+        return match.group(1)
+    
+    # Otherwise try to get the last part of the path
+    parsed = urllib.parse.urlparse(url)
+    path_parts = parsed.path.strip('/').split('/')
+    if path_parts:
+        return path_parts[-1]
+    
+    return ""
 
 
 def check_for_vivery(food_bank: Dict[str, any]) -> bool:
@@ -289,36 +378,38 @@ Scraped data should be formatted as JSON with these fields (when available):
 
 def main():
     """Main function to extract food banks and prepare issues."""
-    # Get the HTML file from command line argument or default location
-    import sys
-
-    if len(sys.argv) > 1:
-        html_file = Path(sys.argv[1])
-    else:
-        # Default to current directory
-        html_file = Path("feeding-america-foodbanks.html")
-
-    if not html_file.exists():
-        print(f"Error: HTML file not found at {html_file}")
-        print(
-            "Please download the HTML from: https://www.feedingamerica.org/find-your-local-foodbank/all-food-banks"
-        )
-        print("Usage: python extract_feeding_america_foodbanks.py <path-to-html-file>")
-        sys.exit(1)
-
-    print("Extracting food banks from HTML...")
-    all_food_banks = extract_food_banks(html_file)
-    print(f"Found {len(all_food_banks)} total entries")
-
-    # Deduplicate by org_id
-    unique_food_banks = {}
-    for fb in all_food_banks:
-        org_id = fb.get("org_id")
-        if org_id and org_id not in unique_food_banks:
-            unique_food_banks[org_id] = fb
-
-    food_banks = list(unique_food_banks.values())
-    print(f"Found {len(food_banks)} unique food banks")
+    print("Fetching food banks from Feeding America API...")
+    organizations = fetch_food_banks_from_api()
+    print(f"Found {len(organizations)} organizations from API")
+    
+    # Process all food banks (main and affiliates)
+    all_food_banks = []
+    
+    for org in organizations:
+        # Extract main food bank
+        main_fb = extract_food_bank_info(org)
+        if main_fb:
+            all_food_banks.append(main_fb)
+            
+            # Extract affiliate food banks (PDOs)
+            pdos = org.get("ListPDOs", {}).get("PDO", [])
+            if isinstance(pdos, dict):
+                pdos = [pdos]  # Convert single PDO to list
+            
+            for pdo in pdos:
+                affiliate = extract_affiliate_info(
+                    pdo, 
+                    main_fb["org_id"], 
+                    main_fb["name"]
+                )
+                if affiliate:
+                    all_food_banks.append(affiliate)
+    
+    print(f"Total food banks extracted: {len(all_food_banks)}")
+    print(f"  - Main food banks: {len([fb for fb in all_food_banks if not fb.get('is_affiliate', False)])}")
+    print(f"  - Affiliate food banks: {len([fb for fb in all_food_banks if fb.get('is_affiliate', False)])}")
+    
+    food_banks = all_food_banks
 
     # Categorize food banks
     vivery_food_banks = []
@@ -356,10 +447,15 @@ def main():
         json.dump(vivery_food_banks, f, indent=2)
 
     # Create summary report
+    main_food_banks = [fb for fb in food_banks if not fb.get('is_affiliate', False)]
+    affiliate_food_banks = [fb for fb in food_banks if fb.get('is_affiliate', False)]
+    
     summary = f"""# Feeding America Food Banks Analysis
 
 ## Summary
 - Total food banks: {len(food_banks)}
+  - Main food banks: {len(main_food_banks)}
+  - Affiliate food banks: {len(affiliate_food_banks)}
 - Potential Vivery integrations: {len(vivery_food_banks)}
 - Need individual scrapers: {len(non_vivery_food_banks)}
 
