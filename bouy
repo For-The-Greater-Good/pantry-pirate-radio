@@ -99,7 +99,7 @@ usage() {
     echo "  test --black        Run only black formatting"
     echo "  test --ruff         Run only ruff linting"
     echo "  test --bandit       Run only bandit security check"
-    echo "  test --coverage     Run pytest with coverage"
+    echo "  test --coverage     Analyze existing coverage reports (run after --pytest)"
     echo "  test --vulture      Run only vulture dead code check"
     echo "  test --safety       Run only safety vulnerability check"
     echo "  test --pip-audit    Run only pip-audit vulnerability check"
@@ -872,11 +872,8 @@ case "$1" in
                 fi
                 ;;
             --coverage)
-                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
-                if [ -n "$additional_args" ]; then
-                    test_cmd="$test_cmd $additional_args"
-                fi
-                test_cmd="$test_cmd && bash scripts/coverage-check.sh"
+                # Just analyze existing coverage reports
+                test_cmd="bash scripts/coverage-analyze.sh"
                 ;;
             --vulture)
                 test_cmd="poetry run vulture app tests .vulture_whitelist --min-confidence 80"
