@@ -370,9 +370,9 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
         }
 
         # Print summary to CLI
-        print(f"\n{'='*60}")
+        print("\n" + "=" * 60)
         print("SCRAPER SUMMARY: The Food Basket, Inc.")
-        print(f"{'='*60}")
+        print("=" * 60)
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
@@ -383,7 +383,11 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")
-        print(f"{'='*60}\n")
+        print("=" * 60 + "\n")
 
         # Return summary for archiving
         return json.dumps(summary)
+
+
+# Alias for compatibility with test imports
+TheFoodBasketIncHiScraper = The_Food_Basket_Inc_HiScraper

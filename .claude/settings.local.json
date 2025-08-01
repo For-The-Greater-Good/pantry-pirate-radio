@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(./bouy exec app sh:*)",
       "Bash(poetry run pytest:*)",
       "Bash(export REDIS_URL=redis://localhost:6379/0)",
       "Bash(export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/pantry_pirate_radio)",
