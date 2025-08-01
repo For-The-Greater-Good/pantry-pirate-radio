@@ -31,8 +31,20 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
         ImportError: If scraper module/class cannot be imported
         ValueError: If loaded class is not a ScraperJob
     """
-    # Convert name to proper class name (e.g. 'sample' -> 'SampleScraper')
-    class_name = f"{scraper_name.title()}Scraper"
+    # Special handling for scrapers with state abbreviations
+    if scraper_name.endswith("_oh") or scraper_name.endswith("_hi"):
+        # For scrapers like toledo_northwestern_ohio_food_bank_oh
+        parts = scraper_name.split("_")
+        state_abbr = parts[-1].upper()
+        base_name = "_".join(parts[:-1])
+        # Convert to CamelCase
+        camel_parts = []
+        for part in base_name.split("_"):
+            camel_parts.append(part.capitalize())
+        class_name = f"{''.join(camel_parts)}{state_abbr}Scraper"
+    else:
+        # Convert name to proper class name (e.g. 'sample' -> 'SampleScraper')
+        class_name = f"{scraper_name.title()}Scraper"
 
     try:
         module = importlib.import_module(f"app.scraper.{scraper_name}_scraper")
