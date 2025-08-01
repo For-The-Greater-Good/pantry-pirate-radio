@@ -37,7 +37,7 @@ redis_data/
 !.env.example
 
 # Documentation
-docs/
+# docs/ - Need docs for HSDS schema files
 *.md
 !README.md
 LICENSE
