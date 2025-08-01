@@ -77,6 +77,9 @@ jobs:
           DATE=$(date +%Y%m%d)
           SHA="${{ github.sha }}"
           
+          # Convert image name to lowercase (Docker requirement)
+          IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          
           # Validate services input
           if [[ -z "$SERVICES" ]]; then
             echo "Error: No services defined for target ${{ matrix.target }}"
@@ -100,22 +103,22 @@ jobs:
             
             # Add tags based on branch/event type
             if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-              TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${service}-latest"
+              TAGS="${TAGS},${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:${service}-latest"
             fi
             
             # Always add SHA tag for traceability
-            TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${service}-${SHA:0:7}"
+            TAGS="${TAGS},${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:${service}-${SHA:0:7}"
             
             # Version tags for releases and tags
             if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
               VERSION="${{ github.ref_name }}"
-              TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${service}-${VERSION}"
+              TAGS="${TAGS},${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:${service}-${VERSION}"
             fi
           done
           
           # Add the main :latest tag for app service on main branch
           if [[ "${{ matrix.target }}" == "app" ]] && [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            TAGS="${TAGS},${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:latest"
           fi
           
           # Remove leading comma if present and validate result
