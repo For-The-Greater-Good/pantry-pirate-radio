@@ -32,7 +32,7 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
         ValueError: If loaded class is not a ScraperJob
     """
     # Special handling for scrapers with state abbreviations
-    if scraper_name.endswith("_oh") or scraper_name.endswith("_hi"):
+    if scraper_name.endswith("_oh") or scraper_name.endswith("_hi") or scraper_name.endswith("_nc"):
         # For scrapers like toledo_northwestern_ohio_food_bank_oh
         parts = scraper_name.split("_")
         state_abbr = parts[-1].upper()

@@ -7,6 +7,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 import httpx
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
@@ -109,19 +110,32 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
         locations: List[Dict[str, Any]] = []
         
         # Second Harvest uses an iframe with location data
-        # First check if we have the main page or the iframe content
-        iframe = soup.find('iframe', class_='wuksD5')
-        if iframe and iframe.get('src'):
-            # This is the main page, we need to fetch the iframe content
-            iframe_url = iframe['src']
-            logger.info(f"Found iframe URL: {iframe_url}")
-            try:
-                response = requests.get(iframe_url, headers=get_scraper_headers(), timeout=self.timeout)
-                response.raise_for_status()
-                iframe_html = response.text
-                soup = BeautifulSoup(iframe_html, "html.parser")
-            except Exception as e:
-                logger.error(f"Failed to fetch iframe content: {e}")
+        # The iframe is loaded dynamically, so we'll use the known URL
+        # This URL was discovered by examining the page with Playwright
+        iframe_url = "https://www-secondharvestnwnc-org.filesusr.com/html/d9c29a_c4945f05f2116066190568ecd65d99b4.html"
+        
+        logger.info(f"Fetching iframe content from: {iframe_url}")
+        try:
+            response = requests.get(iframe_url, headers=get_scraper_headers(), timeout=self.timeout)
+            response.raise_for_status()
+            iframe_html = response.text
+            soup = BeautifulSoup(iframe_html, "html.parser")
+        except Exception as e:
+            logger.error(f"Failed to fetch iframe content: {e}")
+            # Try to find iframe in the page as fallback
+            iframe = soup.find('iframe', class_='wuksD5')
+            if iframe and iframe.get('src'):
+                iframe_url = iframe['src']
+                logger.info(f"Found iframe URL in page: {iframe_url}")
+                try:
+                    response = requests.get(iframe_url, headers=get_scraper_headers(), timeout=self.timeout)
+                    response.raise_for_status()
+                    iframe_html = response.text
+                    soup = BeautifulSoup(iframe_html, "html.parser")
+                except Exception as e2:
+                    logger.error(f"Failed to fetch iframe content from page: {e2}")
+                    return locations
+            else:
                 return locations
         
         # Parse location data from the iframe content
@@ -243,7 +257,7 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
         return locations
 
     def download_excel_file(self, url: str) -> List[Dict[str, Any]]:
-        """Download and parse Excel file as fallback option.
+        """Download and parse Excel file.
 
         Args:
             url: URL of the Excel file
@@ -254,10 +268,76 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
         locations: List[Dict[str, Any]] = []
         
         try:
-            # Note: In production, we might want to use pandas or openpyxl
-            # For now, we'll log this as a fallback option
-            logger.warning(f"Excel download not implemented. Would download from: {url}")
-            logger.warning("Using HTML parsing approach instead")
+            logger.info(f"Downloading Excel file from: {url}")
+            response = requests.get(url, headers=get_scraper_headers(), timeout=self.timeout)
+            response.raise_for_status()
+            
+            # Save to temporary file
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.xls', delete=False) as tmp_file:
+                tmp_file.write(response.content)
+                tmp_file_path = tmp_file.name
+            
+            # Read Excel file
+            df = pd.read_excel(tmp_file_path)
+            logger.info(f"Read {len(df)} rows from Excel file")
+            
+            # Clean up temp file
+            import os
+            os.unlink(tmp_file_path)
+            
+            # Parse locations from dataframe
+            for _, row in df.iterrows():
+                # Extract data from columns (adjust based on actual column names)
+                name = str(row.get('Name', '') or row.get('Agency Name', '') or row.get('Organization', '')).strip()
+                if not name or name == 'nan':
+                    continue
+                
+                # Address components
+                address = str(row.get('Address', '') or row.get('Street Address', '') or '').strip()
+                city = str(row.get('City', '') or '').strip()
+                state = str(row.get('State', '') or 'NC').strip()
+                zip_code = str(row.get('Zip', '') or row.get('Zip Code', '') or '').strip()
+                
+                # Contact info
+                phone = str(row.get('Phone', '') or row.get('Phone Number', '') or '').strip()
+                
+                # Hours and services
+                hours = str(row.get('Hours', '') or row.get('Distribution Hours', '') or '').strip()
+                service_type = str(row.get('Type', '') or row.get('Service Type', '') or '').strip()
+                
+                # Determine services
+                services = []
+                if service_type:
+                    services.append(service_type)
+                elif 'pantry' in name.lower() or 'pantry' in hours.lower():
+                    services.append("Food Pantry")
+                elif 'soup' in name.lower() or 'kitchen' in name.lower():
+                    services.append("Soup Kitchen")
+                elif 'shelter' in name.lower():
+                    services.append("Shelter")
+                else:
+                    services.append("Food Assistance")
+                
+                location = {
+                    "name": name,
+                    "address": address,
+                    "city": city,
+                    "state": state,
+                    "zip": zip_code.split('-')[0] if zip_code else '',  # Remove +4 from zip
+                    "phone": phone if phone != 'nan' else '',
+                    "hours": hours if hours != 'nan' else '',
+                    "services": services,
+                    "website": "",
+                    "notes": "",
+                }
+                
+                # Skip if no name or address
+                if location["name"] and (location["address"] or location["city"]):
+                    locations.append(location)
+            
+            logger.info(f"Parsed {len(locations)} locations from Excel file")
+            
         except Exception as e:
             logger.error(f"Failed to process Excel file: {e}")
         
@@ -269,14 +349,15 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
         Returns:
             Raw scraped content as JSON string
         """
-        # Download and parse HTML (which will also fetch iframe content)
-        html = await self.download_html()
-        locations = self.parse_html(html)
+        # Try to download from Excel file first (more reliable)
+        excel_url = "https://www.secondharvestnwnc.org/_files/ugd/d9c29a_d1d5fb74fb13469998d2135b0531fa85.xls"
+        locations = self.download_excel_file(excel_url)
         
-        # If no locations found, log a warning about the Excel file option
+        # If Excel fails, try HTML/iframe approach
         if not locations:
-            logger.warning("No locations found in HTML. Excel file available at:")
-            logger.warning("https://www.secondharvestnwnc.org/_files/ugd/d9c29a_d1d5fb74fb13469998d2135b0531fa85.xls")
+            logger.info("Excel file parsing failed or returned no data, trying HTML approach")
+            html = await self.download_html()
+            locations = self.parse_html(html)
         
         # Deduplicate locations if needed
         unique_locations = []
