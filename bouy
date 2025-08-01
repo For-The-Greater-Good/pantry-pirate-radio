@@ -89,6 +89,7 @@ usage() {
     echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
     echo "  datasette [CMD]     Export database to SQLite for Datasette"
     echo "  replay [OPTIONS]    Replay recorded JSON files"
+    echo "  pull [TAG]          Pull all container images (default: latest)"
     echo "  clean               Stop services and remove volumes"
     echo ""
     echo "Test options:"
@@ -507,7 +508,7 @@ fi
 
 # Check Docker availability for commands that need it
 case "$1" in
-    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|datasette|reconciler|recorder|content-store|haarrrvest|replay)
+    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|datasette|reconciler|recorder|content-store|haarrrvest|replay|pull)
         if ! check_docker; then
             exit 1
         fi
@@ -1711,6 +1712,83 @@ case "$1" in
         else
             output error "Clean failed"
             exit 1
+        fi
+        ;;
+
+    pull)
+        shift
+        tag="${1:-latest}"
+        
+        output info "Pulling images with tag: $tag"
+        
+        # Define the registry and base image name
+        REGISTRY="ghcr.io"
+        IMAGE_BASE="for-the-greater-good/pantry-pirate-radio"
+        
+        # Define all services and their corresponding images
+        declare -A service_images=(
+            ["app"]="app"
+            ["worker"]="worker"
+            ["recorder"]="recorder"
+            ["scraper"]="scraper"
+            ["reconciler"]="reconciler"
+            ["haarrrvest-publisher"]="haarrrvest-publisher"
+            ["rq-dashboard"]="rq-dashboard"
+            ["db-init"]="db-init"
+            ["datasette-exporter"]="datasette-exporter"
+            ["datasette"]="datasette"
+        )
+        
+        # Track success/failure
+        failed_pulls=""
+        
+        # Pull each service image
+        for service in "${!service_images[@]}"; do
+            image_name="${service_images[$service]}"
+            
+            # Construct the full image URL
+            if [ "$tag" = "latest" ]; then
+                full_image="${REGISTRY}/${IMAGE_BASE}:${image_name}-latest"
+            else
+                full_image="${REGISTRY}/${IMAGE_BASE}:${image_name}-${tag}"
+            fi
+            
+            output info "Pulling $service: $full_image"
+            
+            if docker pull "$full_image" >/dev/null 2>&1; then
+                output success "Pulled $service"
+                
+                # Tag the image for local use
+                local_tag="pantry-pirate-radio-${service}:latest"
+                docker tag "$full_image" "$local_tag" >/dev/null 2>&1
+            else
+                output warning "Failed to pull $service"
+                failed_pulls="$failed_pulls $service"
+            fi
+        done
+        
+        # Pull external images
+        output info "Pulling external service images..."
+        external_images=(
+            "postgis/postgis:15-3.3"
+            "redis:7-alpine"
+            "prodrigestivill/postgres-backup-local:15"
+        )
+        
+        for image in "${external_images[@]}"; do
+            output info "Pulling $image"
+            if docker pull "$image" >/dev/null 2>&1; then
+                output success "Pulled $image"
+            else
+                output warning "Failed to pull $image"
+            fi
+        done
+        
+        if [ -z "$failed_pulls" ]; then
+            output success "All images pulled successfully!"
+        else
+            output warning "Some images failed to pull:$failed_pulls"
+            output info "You may need to authenticate with: docker login ghcr.io"
         fi
         ;;
 
