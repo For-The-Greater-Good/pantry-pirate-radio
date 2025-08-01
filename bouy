@@ -1719,6 +1719,13 @@ case "$1" in
         shift
         tag="${1:-latest}"
         
+        # Validate tag format to prevent shell injection
+        if [[ ! "$tag" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            output error "Invalid tag format: $tag"
+            output error "Tag must contain only letters, numbers, dots, underscores, and hyphens"
+            exit 1
+        fi
+        
         output info "Pulling images with tag: $tag"
         
         # Define the registry and base image name
@@ -1726,41 +1733,42 @@ case "$1" in
         IMAGE_BASE="for-the-greater-good/pantry-pirate-radio"
         
         # Define all services and their corresponding images
-        declare -A service_images=(
-            ["app"]="app"
-            ["worker"]="worker"
-            ["recorder"]="recorder"
-            ["scraper"]="scraper"
-            ["reconciler"]="reconciler"
-            ["haarrrvest-publisher"]="haarrrvest-publisher"
-            ["rq-dashboard"]="rq-dashboard"
-            ["db-init"]="db-init"
-            ["datasette-exporter"]="datasette-exporter"
-            ["datasette"]="datasette"
-        )
+        # Using parallel arrays for bash 3.x compatibility
+        services=("app" "worker" "recorder" "scraper" "reconciler" "haarrrvest-publisher" "rq-dashboard" "db-init" "datasette-exporter" "datasette")
+        
+        # For docker-compose compatibility, use the same image names
+        # This matches what docker-compose expects from the build context
         
         # Track success/failure
         failed_pulls=""
+        total=${#services[@]}
+        current=0
         
         # Pull each service image
-        for service in "${!service_images[@]}"; do
-            image_name="${service_images[$service]}"
+        for service in "${services[@]}"; do
+            ((current++))
             
             # Construct the full image URL
             if [ "$tag" = "latest" ]; then
-                full_image="${REGISTRY}/${IMAGE_BASE}:${image_name}-latest"
+                full_image="${REGISTRY}/${IMAGE_BASE}:${service}-latest"
             else
-                full_image="${REGISTRY}/${IMAGE_BASE}:${image_name}-${tag}"
+                full_image="${REGISTRY}/${IMAGE_BASE}:${service}-${tag}"
             fi
             
-            output info "Pulling $service: $full_image"
+            output info "Pulling $service ($current/$total): $full_image"
             
             if docker pull "$full_image" >/dev/null 2>&1; then
                 output success "Pulled $service"
                 
-                # Tag the image for local use
-                local_tag="pantry-pirate-radio-${service}:latest"
-                docker tag "$full_image" "$local_tag" >/dev/null 2>&1
+                # Tag the image for local docker-compose use
+                # Match the expected format from docker-compose.yml build context
+                local_tag="${IMAGE_BASE//\//-}-${service}:latest"
+                
+                if docker tag "$full_image" "$local_tag" 2>/dev/null; then
+                    output info "Tagged as $local_tag for local use"
+                else
+                    output warning "Failed to create local tag for $service"
+                fi
             else
                 output warning "Failed to pull $service"
                 failed_pulls="$failed_pulls $service"

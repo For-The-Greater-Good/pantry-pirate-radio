@@ -70,33 +70,62 @@ jobs:
       - name: Generate tags for all services
         id: tags
         run: |
+          set -euo pipefail  # Exit on error, undefined variables, pipe failures
+          
           SERVICES="${{ matrix.services }}"
           TAGS=""
           DATE=$(date +%Y%m%d)
           SHA="${{ github.sha }}"
           
-          # Add service-specific tags
-          IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES"
+          # Validate services input
+          if [[ -z "$SERVICES" ]]; then
+            echo "Error: No services defined for target ${{ matrix.target }}"
+            exit 1
+          fi
+          
+          # Split services by comma and process each one
+          # Using IFS split with proper error handling
+          IFS=',' read -ra SERVICE_ARRAY <<< "$SERVICES" || {
+            echo "Error: Failed to parse services: $SERVICES"
+            exit 1
+          }
+          
+          # Process each service
           for service in "${SERVICE_ARRAY[@]}"; do
+            # Validate service name is not empty
+            if [[ -z "$service" ]]; then
+              echo "Warning: Empty service name found, skipping"
+              continue
+            fi
+            
+            # Add tags based on branch/event type
             if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
               TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${service}-latest"
             fi
+            
+            # Always add SHA tag for traceability
             TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${service}-${SHA:0:7}"
             
-            # Version tags for releases
+            # Version tags for releases and tags
             if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
               VERSION="${{ github.ref_name }}"
               TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${service}-${VERSION}"
             fi
           done
           
-          # Add the main :latest tag for app service
+          # Add the main :latest tag for app service on main branch
           if [[ "${{ matrix.target }}" == "app" ]] && [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             TAGS="${TAGS},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
           fi
           
-          # Remove leading comma if present
+          # Remove leading comma if present and validate result
           TAGS="${TAGS#,}"
+          if [[ -z "$TAGS" ]]; then
+            echo "Error: No tags were generated"
+            exit 1
+          fi
+          
+          # Output results
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
           echo "Generated tags: ${TAGS}"
 
