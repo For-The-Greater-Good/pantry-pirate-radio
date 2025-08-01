@@ -89,6 +89,7 @@ usage() {
     echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
     echo "  datasette [CMD]     Export database to SQLite for Datasette"
     echo "  replay [OPTIONS]    Replay recorded JSON files"
+    echo "  pull [TAG]          Pull all container images (default: latest)"
     echo "  clean               Stop services and remove volumes"
     echo ""
     echo "Test options:"
@@ -98,7 +99,7 @@ usage() {
     echo "  test --black        Run only black formatting"
     echo "  test --ruff         Run only ruff linting"
     echo "  test --bandit       Run only bandit security check"
-    echo "  test --coverage     Run pytest with coverage"
+    echo "  test --coverage     Analyze existing coverage reports (run after --pytest)"
     echo "  test --vulture      Run only vulture dead code check"
     echo "  test --safety       Run only safety vulnerability check"
     echo "  test --pip-audit    Run only pip-audit vulnerability check"
@@ -507,7 +508,7 @@ fi
 
 # Check Docker availability for commands that need it
 case "$1" in
-    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|datasette|reconciler|recorder|content-store|haarrrvest|replay)
+    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|datasette|reconciler|recorder|content-store|haarrrvest|replay|pull)
         if ! check_docker; then
             exit 1
         fi
@@ -871,11 +872,8 @@ case "$1" in
                 fi
                 ;;
             --coverage)
-                test_cmd="poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch"
-                if [ -n "$additional_args" ]; then
-                    test_cmd="$test_cmd $additional_args"
-                fi
-                test_cmd="$test_cmd && bash scripts/coverage-check.sh"
+                # Just analyze existing coverage reports
+                test_cmd="bash scripts/coverage-analyze.sh"
                 ;;
             --vulture)
                 test_cmd="poetry run vulture app tests .vulture_whitelist --min-confidence 80"
@@ -1711,6 +1709,91 @@ case "$1" in
         else
             output error "Clean failed"
             exit 1
+        fi
+        ;;
+
+    pull)
+        shift
+        tag="${1:-latest}"
+        
+        # Validate tag format to prevent shell injection
+        if [[ ! "$tag" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            output error "Invalid tag format: $tag"
+            output error "Tag must contain only letters, numbers, dots, underscores, and hyphens"
+            exit 1
+        fi
+        
+        output info "Pulling images with tag: $tag"
+        
+        # Define the registry and base image name
+        REGISTRY="ghcr.io"
+        IMAGE_BASE="for-the-greater-good/pantry-pirate-radio"
+        
+        # Define all services and their corresponding images
+        # Using parallel arrays for bash 3.x compatibility
+        services=("app" "worker" "recorder" "scraper" "reconciler" "haarrrvest-publisher" "rq-dashboard" "db-init" "datasette-exporter" "datasette")
+        
+        # For docker-compose compatibility, use the same image names
+        # This matches what docker-compose expects from the build context
+        
+        # Track success/failure
+        failed_pulls=""
+        total=${#services[@]}
+        current=0
+        
+        # Pull each service image
+        for service in "${services[@]}"; do
+            ((current++))
+            
+            # Construct the full image URL
+            if [ "$tag" = "latest" ]; then
+                full_image="${REGISTRY}/${IMAGE_BASE}:${service}-latest"
+            else
+                full_image="${REGISTRY}/${IMAGE_BASE}:${service}-${tag}"
+            fi
+            
+            output info "Pulling $service ($current/$total): $full_image"
+            
+            if docker pull "$full_image" >/dev/null 2>&1; then
+                output success "Pulled $service"
+                
+                # Tag the image for local docker-compose use
+                # Match the expected format from docker-compose.yml build context
+                local_tag="${IMAGE_BASE//\//-}-${service}:latest"
+                
+                if docker tag "$full_image" "$local_tag" 2>/dev/null; then
+                    output info "Tagged as $local_tag for local use"
+                else
+                    output warning "Failed to create local tag for $service"
+                fi
+            else
+                output warning "Failed to pull $service"
+                failed_pulls="$failed_pulls $service"
+            fi
+        done
+        
+        # Pull external images
+        output info "Pulling external service images..."
+        external_images=(
+            "postgis/postgis:15-3.3"
+            "redis:7-alpine"
+            "prodrigestivill/postgres-backup-local:15"
+        )
+        
+        for image in "${external_images[@]}"; do
+            output info "Pulling $image"
+            if docker pull "$image" >/dev/null 2>&1; then
+                output success "Pulled $image"
+            else
+                output warning "Failed to pull $image"
+            fi
+        done
+        
+        if [ -z "$failed_pulls" ]; then
+            output success "All images pulled successfully!"
+        else
+            output warning "Some images failed to pull:$failed_pulls"
+            output info "You may need to authenticate with: docker login ghcr.io"
         fi
         ;;
 
