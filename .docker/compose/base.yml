@@ -7,7 +7,7 @@ services:
       target: app
     ports:
       - "8000:8000"
-    env_file: .env
+    env_file: ../../.env
     # All environment variables are loaded from .env file
     # Override specific values as needed for your environment
     depends_on:
@@ -24,7 +24,7 @@ services:
     command: rq worker llm
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
-    env_file: .env
+    env_file: ../../.env
     environment:
       # Worker-specific overrides
       - CLAUDE_HEALTH_SERVER=true
@@ -44,7 +44,7 @@ services:
       context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: recorder
-    env_file: .env
+    env_file: ../../.env
     environment:
       # Recorder-specific paths
       - OUTPUT_DIR=/app/outputs
@@ -65,7 +65,7 @@ services:
       dockerfile: .docker/images/app/Dockerfile
       target: scraper
     command: tail -f /dev/null  # Keep container running
-    env_file: .env
+    env_file: ../../.env
     # All environment variables are loaded from .env file
     depends_on:
       db:
@@ -82,7 +82,7 @@ services:
       dockerfile: .docker/images/app/Dockerfile
       target: simple-worker
     command: rq worker reconciler
-    env_file: .env
+    env_file: ../../.env
     # All environment variables are loaded from .env file
     depends_on:
       db:
@@ -96,7 +96,7 @@ services:
       dockerfile: .docker/images/app/Dockerfile
       target: production-base
     command: python -m app.haarrrvest_publisher.service
-    env_file: .env
+    env_file: ../../.env
     environment:
       # Publisher-specific paths and defaults
       - OUTPUT_DIR=/app/outputs
@@ -121,7 +121,7 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-    env_file: .env
+    env_file: ../../.env
     # Database credentials loaded from .env file
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -140,7 +140,7 @@ services:
       dockerfile: .docker/images/app/Dockerfile
       target: production-base
     command: /app/scripts/init-database.sh
-    env_file: .env
+    env_file: ../../.env
     environment:
       # Database connection overrides for init
       - POSTGRES_HOST=db
@@ -184,7 +184,7 @@ services:
     command: rq-dashboard -H cache
     ports:
       - "9181:9181"
-    env_file: .env
+    env_file: ../../.env
     # Redis URL loaded from .env file
     depends_on:
       - cache
@@ -194,7 +194,7 @@ services:
       context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: datasette-exporter
-    env_file: .env
+    env_file: ../../.env
     environment:
       # Datasette exporter specific settings
       - OUTPUT_DIR=/data
@@ -223,7 +223,7 @@ services:
 
   db-backup:
     image: prodrigestivill/postgres-backup-local:15
-    env_file: .env
+    env_file: ../../.env
     environment:
       # Backup specific configuration
       - POSTGRES_HOST=db
