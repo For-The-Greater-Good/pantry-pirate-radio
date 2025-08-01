@@ -221,7 +221,27 @@ flowchart TB
 
 ## Quick Start
 
-### Using DevContainer (Recommended)
+### Platform Considerations
+
+#### macOS Users (Apple Silicon/ARM)
+⚠️ **Important**: The PostGIS database image is AMD64-only and requires emulation on Apple Silicon Macs.
+
+**Recommended approach for Mac users:**
+- Use `bouy` tool directly for local development (Docker handles PostGIS emulation automatically)
+- Use GitHub Codespaces for the full DevContainer experience (with prebuild support for instant startup)
+- VSCode DevContainers on Mac may experience slower performance due to emulation
+
+#### Linux/Windows/Intel Mac Users
+- Full DevContainer support available
+- No platform limitations
+
+#### GitHub Codespaces
+- **Recommended for all users** - provides consistent environment with prebuilt images
+- Automatic port forwarding for web services
+- Use Codespaces Secrets for API keys: Settings → Codespaces → Secrets
+- Set secrets: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `DATA_REPO_TOKEN`
+
+### Using DevContainer (Recommended for Linux/Windows/Codespaces)
 ```bash
 # 1. Clone repository
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
@@ -312,7 +332,7 @@ Visit http://localhost:8000/docs for API documentation
 
 **Bouy is the primary way to control all Docker stacks and run tests in this project.** All development operations use bouy for consistent, reliable container management.
 
-> **Note**: VSCode DevContainer environments are also available for integrated development workflows. See [DevContainer Setup](#using-devcontainer-recommended) for details.
+> **Note**: VSCode DevContainer environments are available for Linux/Windows users and GitHub Codespaces. Mac users should use bouy directly due to PostGIS platform limitations. See [Platform Considerations](#platform-considerations) for details.
 
 ### Why Bouy?
 - **Single command interface** for all Docker operations
@@ -490,12 +510,36 @@ export LLM_MODEL_NAME=gpt-4
 
 ## Development
 
+### Security Configuration
+
+#### API Keys and Secrets
+- **Never commit real API keys** to the repository
+- Use placeholders in `.env.example`
+- For **GitHub Codespaces**: Configure secrets in Settings → Codespaces → Secrets
+- For **local development**: Store keys in `.env` file (gitignored)
+
+#### Database Security
+- PostgreSQL uses password authentication (not trust mode)
+- Default dev password: `devcontainer` (change for production)
+- Healthchecks include proper authentication
+
+#### Recommended Secrets Setup
+```bash
+# For Codespaces, set these as repository secrets:
+ANTHROPIC_API_KEY       # For Claude LLM provider
+OPENROUTER_API_KEY      # For OpenAI provider
+DATA_REPO_TOKEN        # GitHub PAT with repo scope
+```
+
 ### Prerequisites
-- Python 3.11+
-- Poetry
-- Docker and Docker Compose
-- PostgreSQL with PostGIS
-- Redis 7.0+
+- Docker and Docker Compose (v2.0+)
+- For local development without Docker:
+  - Python 3.11+
+  - Poetry
+  - PostgreSQL 15+ with PostGIS extension
+  - Redis 7.0+
+
+**Note**: All dependencies are containerized. Local installations are only needed if running without Docker.
 
 ### Service Management
 

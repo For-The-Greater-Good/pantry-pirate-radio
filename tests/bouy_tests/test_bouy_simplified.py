@@ -98,7 +98,10 @@ class TestBouyFunctions:
     def test_parse_mode_dev(self, bouy_functions_path):
         """Test parse_mode function for dev mode."""
         test_code = """
-COMPOSE_FILES="-f docker-compose.yml"
+# Set a default COMPOSE_FILES if not already set
+if [ -z "$COMPOSE_FILES" ]; then
+    COMPOSE_FILES="-f docker-compose.yml"
+fi
 parse_mode --dev
 echo "$COMPOSE_FILES"
 """
@@ -110,7 +113,10 @@ echo "$COMPOSE_FILES"
     def test_parse_mode_prod(self, bouy_functions_path):
         """Test parse_mode function for prod mode."""
         test_code = """
-COMPOSE_FILES="-f docker-compose.yml"
+# Set a default COMPOSE_FILES if not already set
+if [ -z "$COMPOSE_FILES" ]; then
+    COMPOSE_FILES="-f docker-compose.yml"
+fi
 parse_mode --prod
 echo "$COMPOSE_FILES"
 """

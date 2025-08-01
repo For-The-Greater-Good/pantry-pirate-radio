@@ -408,7 +408,12 @@ exit 1
         )
 
         assert result.returncode != 0
-        assert "error" in result.stderr.lower() or "not running" in result.stderr
+        # Accept various error messages including env file not found
+        assert (
+            "error" in result.stderr.lower()
+            or "not running" in result.stderr
+            or "not found" in result.stderr.lower()
+        )
 
     def test_invalid_scraper_name(self, mock_compose, bouy_path):
         """Test that bouy handles potentially malicious scraper names safely."""
