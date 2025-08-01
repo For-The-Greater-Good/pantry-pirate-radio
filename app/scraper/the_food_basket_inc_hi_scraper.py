@@ -371,7 +371,7 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: The Food Basket, Inc.")
+        print("SCRAPER SUMMARY: The Food Basket, Inc.")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
@@ -381,8 +381,8 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
             f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
         )
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
 
         # Return summary for archiving
