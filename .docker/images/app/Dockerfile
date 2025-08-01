@@ -52,6 +52,7 @@ RUN poetry install --without dev --no-interaction --no-ansi
 
 # Copy application code
 COPY app app/
+COPY docs docs/
 
 # Set Python path
 ENV PYTHONPATH=/app
@@ -69,6 +70,7 @@ ENV PYTHONPATH=/app
 
 # Copy only necessary files for tests (not everything)
 COPY app app/
+COPY docs docs/
 COPY tests tests/
 COPY scripts scripts/
 COPY .env.example .

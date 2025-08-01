@@ -14,7 +14,7 @@ from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
 logger = logging.getLogger(__name__)
 
 
-class TheFoodBasketIncHIScraper(ScraperJob):
+class The_Food_Basket_Inc_HiScraper(ScraperJob):
     """Scraper for The Food Basket, Inc. in Hawaii."""
 
     def __init__(self, scraper_id: str = "the_food_basket_inc_hi", test_mode: bool = False) -> None:
