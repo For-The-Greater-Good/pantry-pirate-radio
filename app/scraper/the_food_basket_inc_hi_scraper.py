@@ -388,5 +388,6 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
         # Return summary for archiving
         return json.dumps(summary)
 
+
 # Alias for compatibility with test imports
 TheFoodBasketIncHiScraper = The_Food_Basket_Inc_HiScraper
