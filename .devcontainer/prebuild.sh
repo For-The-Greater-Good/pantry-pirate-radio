@@ -30,7 +30,13 @@ fi
 
 # Build Docker images
 echo "🐳 Building Docker images for prebuild..."
-if ./bouy build; then
+
+# Explicitly disable BuildKit for Codespaces compatibility
+export DOCKER_BUILDKIT=0
+export COMPOSE_DOCKER_CLI_BUILD=0
+
+# Use compose directly to avoid potential path issues
+if docker compose -f .docker/compose/base.yml build; then
     echo "✅ Docker images prebuilt successfully!"
     
     # Pull base images to cache them
@@ -42,4 +48,5 @@ if ./bouy build; then
     echo "✅ Prebuild completed successfully!"
 else
     echo "⚠️ Docker image prebuild failed - images will be built on first use"
+    echo "This is expected in some Codespaces environments and won't affect functionality."
 fi

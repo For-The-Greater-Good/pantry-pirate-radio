@@ -7,6 +7,10 @@ set -e
 # Version: 1.0.0
 #
 
+# Ensure we're running from the repository root
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
 # Cleanup function for trap handlers
 cleanup() {
     local exit_code=$?
