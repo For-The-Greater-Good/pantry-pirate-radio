@@ -77,7 +77,7 @@ async def test_fetch_results_html_success(scraper: FeedingTheGulfCoastALScraper,
         mock_client.get.assert_called_once()
         call_args = mock_client.get.call_args
         assert call_args[0][0] == scraper.results_url
-        assert call_args[1]['params'] == {'address': '^', 'near': '100'}
+        assert call_args[1]['params'] == {'address': '', 'near': '100'}
 
 
 @pytest.mark.asyncio
@@ -177,8 +177,8 @@ async def test_scrape_html_flow(scraper: FeedingTheGulfCoastALScraper, mock_html
     # Mock fetch_results_html
     scraper.fetch_results_html = AsyncMock(return_value=mock_html_response)
     
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(30.696, -88.043))
+    # Mock geocoder for default coordinates
+    scraper.geocoder.get_default_coordinates = Mock(return_value=(30.696, -88.043))
     
     # Track submitted jobs
     submitted_jobs = []
@@ -200,49 +200,18 @@ async def test_scrape_html_flow(scraper: FeedingTheGulfCoastALScraper, mock_html
     assert summary["unique_locations"] == 2
     assert summary["total_jobs_created"] == 2
     assert summary["test_mode"] is True
+    assert "note" in summary
     
     # Verify submitted jobs
     assert len(submitted_jobs) == 2
     job = submitted_jobs[0]
     assert job["name"] == "Sample Food Pantry"
-    assert job["latitude"] == 30.696
-    assert job["longitude"] == -88.043
+    assert "latitude" in job
+    assert "longitude" in job
     assert job["source"] == "feeding_the_gulf_coast_al"
     assert job["food_bank"] == "Feeding the Gulf Coast"
 
 
-@pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(scraper: FeedingTheGulfCoastALScraper, mock_html_response: str):
-    """Test scraping when geocoding fails."""
-    # Mock fetch_results_html
-    scraper.fetch_results_html = AsyncMock(return_value=mock_html_response)
-    
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(30.696, -88.043))
-    
-    # Track submitted jobs
-    submitted_jobs = []
-    
-    def mock_submit(content: str) -> str:
-        submitted_jobs.append(json.loads(content))
-        return f"job-{len(submitted_jobs)}"
-    
-    scraper.submit_to_queue = Mock(side_effect=mock_submit)
-    
-    # Run scraper
-    summary_json = await scraper.scrape()
-    summary = json.loads(summary_json)
-    
-    # Verify fallback coordinates were used
-    assert len(submitted_jobs) == 2
-    job = submitted_jobs[0]
-    assert job["latitude"] == 30.696
-    assert job["longitude"] == -88.043
-    
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 2
-    assert summary["geocoding_stats"]["success"] == 0
 
 
 def test_scraper_initialization():

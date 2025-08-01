@@ -397,39 +397,20 @@ class FeedingTheGulfCoastALScraper(ScraperJob):
         
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
         
-        for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("address"):
-                    try:
-                        lat, lon = self.geocoder.geocode_address(
-                            address=location["address"],
-                            state=location.get("state", "AL")
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(f"Geocoding failed for {location['address']}: {e}")
-                        # Use default coordinates
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location="AL",
-                            with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="AL",
-                        with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
+        for idx, location in enumerate(unique_locations):
+            # Log progress every 50 locations
+            if idx % 50 == 0:
+                logger.info(f"Processing location {idx + 1}/{len(unique_locations)}")
+            
+            # Use default coordinates based on state
+            # The LLM pipeline will handle precise geocoding
+            state = location.get("state", "AL")
+            latitude, longitude = self.geocoder.get_default_coordinates(
+                location=state, with_offset=True
+            )
+            location["latitude"] = latitude
+            location["longitude"] = longitude
             
             # Add metadata
             location["source"] = "feeding_the_gulf_coast_al"
@@ -447,9 +428,9 @@ class FeedingTheGulfCoastALScraper(ScraperJob):
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
             "source": self.results_url,
-            "test_mode": self.test_mode
+            "test_mode": self.test_mode,
+            "note": "Using default coordinates; LLM pipeline will geocode addresses"
         }
         
         # Print summary to CLI
@@ -460,7 +441,8 @@ class FeedingTheGulfCoastALScraper(ScraperJob):
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}")
+        print(f"Note: Using default coordinates by state")
+        print(f"      LLM pipeline will geocode actual addresses")
         if self.test_mode:
             print(f"TEST MODE: Limited processing")
         print(f"Status: Complete")
