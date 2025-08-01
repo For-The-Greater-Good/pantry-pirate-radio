@@ -1,3 +1,8 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
 # Python
 __pycache__/
 *.py[cod]
@@ -37,7 +42,7 @@ redis_data/
 !.env.example
 
 # Documentation
-docs/
+# docs/ - Need docs for HSDS schema files
 *.md
 !README.md
 LICENSE

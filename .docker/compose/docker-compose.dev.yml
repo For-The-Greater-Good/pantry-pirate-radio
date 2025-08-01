@@ -1,11 +1,11 @@
 services:
   app:
     volumes:
-      - ../..:/workspace:cached
+      - ../..:/app:cached
       - vscode-server:/home/vscode/.vscode-server
     environment:
       - DEBUG=1
-      - PYTHONPATH=/workspace
+      - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-defaultpassword}@db:5432/pantry_pirate_radio}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379/0}
     command: sleep infinity
