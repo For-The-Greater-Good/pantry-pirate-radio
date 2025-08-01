@@ -193,27 +193,28 @@ jobs:
           # Export POSTGRES_PASSWORD for bouy to use
           echo "POSTGRES_PASSWORD=pirate" >> $GITHUB_ENV
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
           chmod +x ./bouy
-          # Run with --programmatic for better CI output
+          # Run pytest with coverage reports
           # The RUNNING_IN_DOCKER=1 env var in bouy will skip bouy tests
           ./bouy --programmatic test --pytest
 
-      - name: Extract coverage data
+      - name: Verify coverage reports
         run: |
-          # Coverage reports are already in the local directory from bouy test
-          echo "Coverage reports available:"
-          ls -la coverage.* || echo "No coverage files found"
-
-      - name: Display coverage summary
-        run: |
-          echo "Coverage report generated:"
+          # Ensure coverage reports were generated
+          echo "Checking for coverage reports:"
           if [ -f coverage.xml ]; then
             echo "✅ XML coverage report: coverage.xml"
+          else
+            echo "❌ Missing coverage.xml"
+            exit 1
           fi
           if [ -f coverage.json ]; then
             echo "✅ JSON coverage report: coverage.json"
+          else
+            echo "❌ Missing coverage.json"
+            exit 1
           fi
 
       - name: Restore coverage baseline from cache
@@ -225,9 +226,9 @@ jobs:
             coverage-baseline-main
             coverage-baseline-
 
-      - name: Check coverage ratcheting
+      - name: Analyze coverage ratcheting
         run: |
-          # Run coverage check with ratcheting using bouy
+          # Analyze existing coverage reports (does NOT re-run pytest)
           ./bouy test --coverage
 
       - name: Save coverage baseline to cache

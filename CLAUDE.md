@@ -43,6 +43,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy build                # Build all services
 ./bouy build app            # Build specific service
 ./bouy exec app CMD         # Execute command in container
+./bouy pull                 # Pull all latest container images
+./bouy pull v1.2.3          # Pull specific version tags
 
 # Global Flags (work with all commands)
 ./bouy --help               # Show help
@@ -284,6 +286,25 @@ open htmlcov/index.html
 ./bouy up --with-init
 ./bouy up --dev --with-init
 ./bouy up --prod --with-init
+```
+
+### Managing Container Images
+```bash
+# Pull all latest container images from GitHub Container Registry
+./bouy pull
+
+# Pull specific version tags (e.g., from a release)
+./bouy pull v1.2.3
+
+# Pull images with a specific git SHA
+./bouy pull abc1234
+
+# Troubleshooting authentication issues
+docker login ghcr.io  # Login to GitHub Container Registry first
+./bouy pull          # Then retry pulling
+
+# Note: Images are automatically tagged for local docker-compose use
+# Example: ghcr.io/.../app-latest → for-the-greater-good-pantry-pirate-radio-app:latest
 ```
 
 ### Running Scrapers
