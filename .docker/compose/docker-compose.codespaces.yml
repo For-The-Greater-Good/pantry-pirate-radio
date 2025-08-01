@@ -6,12 +6,13 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=devcontainer
       - POSTGRES_DB=pantry_pirate_radio
-      # Use trust authentication for Codespaces compatibility
-      - POSTGRES_INITDB_ARGS=--auth-host=trust
-      - POSTGRES_HOST_AUTH_METHOD=trust
-    # Use a simpler healthcheck that doesn't rely on specific user credentials
+      # Use md5 authentication instead of trust for better security
+      # The password is already set to 'devcontainer' which is acceptable for dev environments
+      - POSTGRES_INITDB_ARGS=--auth-host=md5
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    # Healthcheck with proper authentication
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pantry_pirate_radio"]
+      test: ["CMD-SHELL", "PGPASSWORD=devcontainer pg_isready -U postgres -d pantry_pirate_radio"]
       interval: 10s
       timeout: 5s
       retries: 10

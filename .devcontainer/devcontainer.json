@@ -55,6 +55,7 @@
 		"DOCKER_BUILDKIT": "1",
 		"COMPOSE_DOCKER_CLI_BUILD": "1"
 	},
+	"initializeCommand": "if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env && echo '✅ Created .env from template'; fi",
 	"onCreateCommand": "bash /workspace/.devcontainer/prebuild.sh",
 	"postCreateCommand": "/usr/local/bin/init-dev-environment.sh",
 	"remoteUser": "vscode",
