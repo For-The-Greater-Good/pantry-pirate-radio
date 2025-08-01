@@ -468,3 +468,7 @@ class FeedingTheGulfCoastALScraper(ScraperJob):
         
         # Return summary for archiving
         return json.dumps(summary)
+
+
+# Alias for the scraper loader which expects title case
+Feeding_The_Gulf_Coast_AlScraper = FeedingTheGulfCoastALScraper
