@@ -9,7 +9,7 @@ import httpx
 import pytest
 import requests
 
-from app.scraper.the_food_basket_inc_hi_scraper import TheFoodBasketIncHiScraper
+from app.scraper.the_food_basket_inc_hi_scraper import The_Food_Basket_Inc_HiScraper
 
 
 @pytest.fixture
@@ -59,14 +59,14 @@ def mock_json_response() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def scraper() -> TheFoodBasketIncHiScraper:
+def scraper() -> The_Food_Basket_Inc_HiScraper:
     """Create scraper instance for testing."""
-    return TheFoodBasketIncHiScraper(test_mode=True)
+    return The_Food_Basket_Inc_HiScraper(test_mode=True)
 
 
 @pytest.mark.asyncio
 async def test_download_html_success(
-    scraper: TheFoodBasketIncHiScraper, mock_html_response: str
+    scraper: The_Food_Basket_Inc_HiScraper, mock_html_response: str
 ):
     """Test successful HTML download."""
     with patch("requests.get") as mock_get:
@@ -88,7 +88,7 @@ async def test_download_html_success(
 
 
 @pytest.mark.asyncio
-async def test_download_html_failure(scraper: TheFoodBasketIncHiScraper):
+async def test_download_html_failure(scraper: The_Food_Basket_Inc_HiScraper):
     """Test handling of download failures."""
     with patch("requests.get") as mock_get:
         mock_get.side_effect = requests.RequestException("Connection error")
@@ -99,7 +99,7 @@ async def test_download_html_failure(scraper: TheFoodBasketIncHiScraper):
 
 @pytest.mark.asyncio
 async def test_fetch_api_data_success(
-    scraper: TheFoodBasketIncHiScraper, mock_json_response: Dict[str, Any]
+    scraper: The_Food_Basket_Inc_HiScraper, mock_json_response: Dict[str, Any]
 ):
     """Test successful API data fetch."""
     with patch("httpx.AsyncClient") as mock_client_class:
@@ -117,7 +117,7 @@ async def test_fetch_api_data_success(
 
 
 @pytest.mark.asyncio
-async def test_fetch_api_data_failure(scraper: TheFoodBasketIncHiScraper):
+async def test_fetch_api_data_failure(scraper: The_Food_Basket_Inc_HiScraper):
     """Test handling of API fetch failures."""
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
@@ -128,7 +128,7 @@ async def test_fetch_api_data_failure(scraper: TheFoodBasketIncHiScraper):
             await scraper.fetch_api_data("test/endpoint")
 
 
-def test_parse_html(scraper: TheFoodBasketIncHiScraper, mock_html_response: str):
+def test_parse_html(scraper: The_Food_Basket_Inc_HiScraper, mock_html_response: str):
     """Test HTML parsing."""
     locations = scraper.parse_html(mock_html_response)
 
@@ -152,14 +152,14 @@ def test_parse_html(scraper: TheFoodBasketIncHiScraper, mock_html_response: str)
     assert "Tuesday Lunch" in locations[1]["hours"]
 
 
-def test_parse_html_empty(scraper: TheFoodBasketIncHiScraper):
+def test_parse_html_empty(scraper: The_Food_Basket_Inc_HiScraper):
     """Test parsing empty HTML."""
     locations = scraper.parse_html("<html><body></body></html>")
     assert locations == []
 
 
 def test_process_api_response(
-    scraper: TheFoodBasketIncHiScraper, mock_json_response: Dict[str, Any]
+    scraper: The_Food_Basket_Inc_HiScraper, mock_json_response: Dict[str, Any]
 ):
     """Test API response processing."""
     # This scraper uses HTML parsing, not API processing
@@ -168,7 +168,7 @@ def test_process_api_response(
     assert locations == []
 
 
-def test_process_api_response_empty(scraper: TheFoodBasketIncHiScraper):
+def test_process_api_response_empty(scraper: The_Food_Basket_Inc_HiScraper):
     """Test processing empty API response."""
     locations = scraper.process_api_response({})
     assert locations == []
@@ -176,7 +176,7 @@ def test_process_api_response_empty(scraper: TheFoodBasketIncHiScraper):
 
 @pytest.mark.asyncio
 async def test_scrape_html_flow(
-    scraper: TheFoodBasketIncHiScraper, mock_html_response: str
+    scraper: The_Food_Basket_Inc_HiScraper, mock_html_response: str
 ):
     """Test complete HTML scraping flow."""
     # Mock download_html
@@ -218,7 +218,7 @@ async def test_scrape_html_flow(
 
 @pytest.mark.asyncio
 async def test_scrape_with_geocoding_failure(
-    scraper: TheFoodBasketIncHiScraper, mock_html_response: str
+    scraper: The_Food_Basket_Inc_HiScraper, mock_html_response: str
 ):
     """Test scraping when geocoding fails."""
     # Mock download_html
@@ -255,16 +255,16 @@ async def test_scrape_with_geocoding_failure(
 def test_scraper_initialization():
     """Test scraper initialization."""
     # Test with default ID
-    scraper1 = TheFoodBasketIncHiScraper()
+    scraper1 = The_Food_Basket_Inc_HiScraper()
     assert scraper1.scraper_id == "the_food_basket_inc_hi"
     assert scraper1.test_mode is False
 
     # Test with custom ID
-    scraper2 = TheFoodBasketIncHiScraper(scraper_id="custom_id")
+    scraper2 = The_Food_Basket_Inc_HiScraper(scraper_id="custom_id")
     assert scraper2.scraper_id == "custom_id"
 
     # Test with test mode
-    scraper3 = TheFoodBasketIncHiScraper(test_mode=True)
+    scraper3 = The_Food_Basket_Inc_HiScraper(test_mode=True)
     assert scraper3.test_mode is True
     assert scraper3.batch_size == 3  # Reduced in test mode
     assert scraper3.request_delay == 0.05  # Reduced in test mode
@@ -272,7 +272,7 @@ def test_scraper_initialization():
 
 @pytest.mark.asyncio
 async def test_scrape_api_flow(
-    scraper: TheFoodBasketIncHiScraper, mock_html_response: str
+    scraper: The_Food_Basket_Inc_HiScraper, mock_html_response: str
 ):
     """Test scraping with empty results."""
     # Mock download_html to return empty page
