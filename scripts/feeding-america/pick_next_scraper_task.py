@@ -54,6 +54,36 @@ def get_pending_tasks(data: Dict[str, Any], priority: Optional[str] = None) -> L
     return pending
 
 
+def get_issue_priority(issue_number: int) -> str:
+    """Get the priority of an issue from its title.
+    
+    Args:
+        issue_number: GitHub issue number
+        
+    Returns:
+        Priority level (CRITICAL, HIGH, MEDIUM, LOW, or empty string)
+    """
+    cmd = [
+        "gh", "issue", "view", str(issue_number),
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio",
+        "--json", "title",
+        "--jq", ".title"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        title = result.stdout.strip()
+        
+        # Extract priority from title
+        for priority in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+            if title.startswith(f"[{priority}]"):
+                return priority
+        
+        return ""
+    except subprocess.CalledProcessError:
+        return ""
+
+
 def sanitize_name(name: str) -> str:
     """Sanitize name for use in Python identifiers."""
     import re
@@ -128,13 +158,22 @@ def generate_task_instructions(task: Dict[str, Any]) -> str:
         if url_match:
             url = url_match.group(0)
     
+    # Get issue priority
+    issue_priority = task.get("issue_priority", "")
+    priority_badge = {
+        "CRITICAL": "🔴 CRITICAL",
+        "HIGH": "🟠 HIGH", 
+        "MEDIUM": "🟡 MEDIUM",
+        "LOW": "🟢 LOW"
+    }.get(issue_priority, "⚪ UNRANKED")
+    
     instructions = f"""
 # 🎯 SCRAPER IMPLEMENTATION TASK
 
 ## Food Bank: {name}
 - **GitHub Issue**: #{issue_num} - https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues/{issue_num}
 - **State**: {fb.get('state', 'Unknown')}
-- **Priority**: {task['priority']}
+- **Issue Priority**: {priority_badge}
 - **URL**: {url or 'No URL available - check issue'}
 
 ## 📁 Generated Files:
@@ -233,8 +272,12 @@ curl -s "{url}" | grep -E "(store-locator|api|vivery|pantrynet|accessfood)"
 {'-' * 60}
 
 ## 🎲 Why this task?
-This food bank was randomly selected from {len(get_pending_tasks(load_tracking_data()))} pending tasks.
-Selection criteria: {task['priority']} priority, has URL: {'Yes' if url else 'No'}
+This food bank was selected from {len(get_pending_tasks(load_tracking_data()))} pending tasks.
+Selection criteria: {priority_badge} issue priority, has URL: {'Yes' if url else 'No'}
+{f"Population served: Major metropolitan area (5M+ people)" if issue_priority == "CRITICAL" else ""}
+{f"Population served: Large city area (1-5M people)" if issue_priority == "HIGH" else ""}
+{f"Population served: Mid-size area (500K-1M people)" if issue_priority == "MEDIUM" else ""}
+{f"Population served: Rural/small area (<500K people)" if issue_priority == "LOW" else ""}
 """
     
     return instructions
@@ -246,7 +289,9 @@ def main():
         description="Pick a random food bank scraper task and generate instructions"
     )
     parser.add_argument("--priority", choices=["high", "medium", "low"],
-                       help="Filter by priority level")
+                       help="Filter by priority level (legacy - use issue priorities)")
+    parser.add_argument("--top-priority", action="store_true",
+                       help="Only select from CRITICAL priority issues")
     parser.add_argument("--state", help="Filter by state code (e.g., CA)")
     parser.add_argument("--issue", type=int, help="Pick specific issue number")
     parser.add_argument("--list", action="store_true", 
@@ -264,6 +309,21 @@ def main():
     if args.state:
         pending = [t for t in pending if t["food_bank"].get("state") == args.state.upper()]
     
+    # Get issue priorities and enrich tasks
+    for task in pending:
+        task["issue_priority"] = get_issue_priority(task["issue_number"])
+    
+    # Apply top-priority filter if specified
+    if args.top_priority:
+        pending = [t for t in pending if t["issue_priority"] == "CRITICAL"]
+        if not pending:
+            print("No CRITICAL priority tasks found. Try without --top-priority flag.")
+            return
+    
+    # Sort by priority (CRITICAL > HIGH > MEDIUM > LOW > empty)
+    priority_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "": 4}
+    pending.sort(key=lambda t: priority_order.get(t["issue_priority"], 4))
+    
     if not pending:
         print("No pending tasks found with the specified criteria.")
         return
@@ -271,15 +331,42 @@ def main():
     # List mode
     if args.list:
         print(f"\nFound {len(pending)} pending tasks:")
-        print("=" * 60)
-        for i, task in enumerate(pending[:20]):  # Show first 20
-            fb = task["food_bank"]
-            url = fb.get("find_food_url") or fb.get("url", "No URL")
-            print(f"{i+1}. Issue #{task['issue_number']}: {fb['name']}")
-            print(f"   State: {fb.get('state', 'Unknown')}, Priority: {task['priority']}")
-            print(f"   URL: {url}")
-        if len(pending) > 20:
-            print(f"\n... and {len(pending) - 20} more")
+        print("=" * 80)
+        
+        # Group by priority
+        by_priority = {}
+        for task in pending:
+            p = task["issue_priority"] or "UNRANKED"
+            if p not in by_priority:
+                by_priority[p] = []
+            by_priority[p].append(task)
+        
+        # Show priority distribution
+        print("\n📊 Priority Distribution:")
+        for priority in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNRANKED"]:
+            if priority in by_priority:
+                count = len(by_priority[priority])
+                print(f"  {priority}: {count} tasks")
+        
+        # Show tasks by priority
+        print("\n📋 Tasks by Priority:")
+        shown = 0
+        for priority in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNRANKED"]:
+            if priority not in by_priority:
+                continue
+            
+            print(f"\n{priority}:")
+            for task in by_priority[priority][:5]:  # Show first 5 of each
+                fb = task["food_bank"]
+                url = fb.get("find_food_url") or fb.get("url", "No URL")
+                print(f"  #{task['issue_number']}: {fb['name']} ({fb.get('state', 'Unknown')})")
+                if url != "No URL":
+                    print(f"       URL: {url[:60]}{'...' if len(url) > 60 else ''}")
+                shown += 1
+                
+            if len(by_priority[priority]) > 5:
+                print(f"  ... and {len(by_priority[priority]) - 5} more {priority} tasks")
+        
         return
     
     # Pick specific issue if requested
@@ -293,8 +380,24 @@ def main():
             print(f"Issue #{args.issue} not found in pending tasks.")
             return
     else:
-        # Pick random task
-        selected = random.choice(pending)
+        # Pick task with preference for higher priorities
+        # Since pending is sorted by priority, we can use weighted selection
+        # Give more weight to tasks at the beginning of the list
+        
+        # If we have any CRITICAL tasks, always pick from those
+        critical_tasks = [t for t in pending if t["issue_priority"] == "CRITICAL"]
+        if critical_tasks:
+            selected = random.choice(critical_tasks)
+            print(f"\n🎯 Selected a CRITICAL priority task from {len(critical_tasks)} available")
+        else:
+            # Otherwise use weighted selection favoring higher priorities
+            # Weight formula: position 0 gets weight n, position 1 gets n-1, etc.
+            weights = [len(pending) - i for i in range(len(pending))]
+            selected = random.choices(pending, weights=weights, k=1)[0]
+            
+            # Show what priority was selected
+            priority = selected["issue_priority"] or "UNRANKED"
+            print(f"\n🎯 Selected a {priority} priority task")
     
     # Generate and print instructions
     instructions = generate_task_instructions(selected)
