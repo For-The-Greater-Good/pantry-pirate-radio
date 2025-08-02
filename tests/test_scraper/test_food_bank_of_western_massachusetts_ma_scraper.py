@@ -227,7 +227,7 @@ async def test_scrape_complete_flow(
 
     # Verify submitted jobs
     assert len(submitted_jobs) == 2
-    
+
     job1 = submitted_jobs[0]
     assert job1["name"] == "Sample Food Pantry"
     assert job1["latitude"] == 42.1015
@@ -235,7 +235,7 @@ async def test_scrape_complete_flow(
     assert job1["source"] == "food_bank_of_western_massachusetts_ma"
     assert job1["food_bank"] == "Food Bank of Western Massachusetts"
     assert job1["services"] == ["Food Pantry"]
-    
+
     job2 = submitted_jobs[1]
     assert job2["name"] == "Community Meal Site"
     assert job2["latitude"] == 42.2042
