@@ -326,7 +326,7 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
                     # Convert to string and remove decimal if it's a float
                     zip_code = (
                         str(int(zip_val))
-                        if isinstance(zip_val, (int, float))
+                        if isinstance(zip_val, int | float)
                         else str(zip_val).strip()
                     )
                 else:
@@ -488,7 +488,7 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: Second Harvest Food Bank of Northwest North Carolina")
+        print("SCRAPER SUMMARY: Second Harvest Food Bank of Northwest North Carolina")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
@@ -498,8 +498,8 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
             f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
         )
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
 
         # Return summary for archiving
