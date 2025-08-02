@@ -332,7 +332,7 @@ class FoodBankOfWesternMassachusettsMaScraper(ScraperJob):
         # Print summary to CLI
         print(f"\n{'='*60}")
         print("SCRAPER SUMMARY: Food Bank of Western Massachusetts")
-        print("="*60)
+        print("=" * 60)
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
@@ -343,7 +343,7 @@ class FoodBankOfWesternMassachusettsMaScraper(ScraperJob):
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")
-        print("="*60 + "\n")
+        print("=" * 60 + "\n")
 
         # Return summary for archiving
         return json.dumps(summary)
