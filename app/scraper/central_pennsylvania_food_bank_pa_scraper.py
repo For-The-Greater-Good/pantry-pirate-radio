@@ -126,7 +126,7 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
         # Example: Find location containers
         location_elements = soup.find_all("div", class_="location")  # Update selector
 
-        for element in location_elements:
+        for _ in location_elements:
             # Extract information from each location
             location = {
                 "name": "",  # TODO: Extract name
@@ -196,12 +196,12 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
             categories = item.get("categories", "").lower()
             if "fresh express" in categories:
                 service_type = "Fresh Express"
+            elif "pantry/soup kitchen" in categories:
+                service_type = "Pantry/Soup Kitchen"
             elif "soup kitchen" in categories:
                 service_type = "Soup Kitchen"
             elif "multi-service" in categories:
                 service_type = "Multi-Service Program"
-            elif "pantry" in categories and "soup" in categories:
-                service_type = "Pantry/Soup Kitchen"
 
             location = {
                 "id": item.get("id", ""),
@@ -246,7 +246,7 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
                 await asyncio.sleep(self.request_delay)
 
             logger.info(
-                f"Searching grid point {i+1}/{len(grid_points)}: ({point.lat}, {point.lng})"
+                f"Searching grid point {i+1}/{len(grid_points)}: ({point.latitude}, {point.longitude})"
             )
 
             try:
@@ -256,8 +256,8 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
                     params={
                         "callback": "initMySLP",
                         "action": "csl_ajax_onload",
-                        "lat": point.lat,
-                        "lng": point.lng,
+                        "lat": point.latitude,
+                        "lng": point.longitude,
                         "radius": 50,  # 50 mile radius
                         "options[distance_unit]": "miles",
                         "options[initial_radius]": "50",
@@ -268,7 +268,7 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
                 locations.extend(self.process_api_response(response))
             except Exception as e:
                 logger.error(
-                    f"Error searching grid point ({point.lat}, {point.lng}): {e}"
+                    f"Error searching grid point ({point.latitude}, {point.longitude}): {e}"
                 )
                 continue
 
@@ -354,7 +354,7 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: Central Pennsylvania Food Bank")
+        print("SCRAPER SUMMARY: Central Pennsylvania Food Bank")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
@@ -364,8 +364,8 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
             f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
         )
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
 
         # Return summary for archiving

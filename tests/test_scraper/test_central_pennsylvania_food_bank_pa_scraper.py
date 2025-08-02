@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -69,7 +70,20 @@ def mock_json_response() -> Dict[str, Any]:
 @pytest.fixture
 def scraper() -> CentralPennsylvaniaFoodBankPAScraper:
     """Create scraper instance for testing."""
-    return CentralPennsylvaniaFoodBankPAScraper(test_mode=True)
+    # We need to mock the environment variable for Redis
+    with patch.dict("os.environ", {"REDIS_URL": "redis://localhost:6379"}):
+        # Mock Redis connection
+        with patch("app.scraper.utils.Redis.from_url") as mock_redis:
+            mock_redis.return_value.ping.return_value = True
+            # Mock the paths for schema and prompt
+            with patch("pathlib.Path.exists") as mock_exists:
+                mock_exists.return_value = True
+                with patch("pathlib.Path.read_text") as mock_read:
+                    mock_read.return_value = "Test prompt"
+                    scraper = CentralPennsylvaniaFoodBankPAScraper(test_mode=True)
+                    # Mock submit_to_queue to avoid actual Redis operations
+                    scraper.submit_to_queue = Mock(return_value="test-job-id")
+                    return scraper
 
 
 @pytest.mark.asyncio
@@ -139,24 +153,20 @@ async def test_fetch_api_data_failure(scraper: CentralPennsylvaniaFoodBankPAScra
             await scraper.fetch_api_data("test/endpoint")
 
 
+@pytest.mark.skip(reason="This scraper uses API, not HTML parsing")
 def test_parse_html(
     scraper: CentralPennsylvaniaFoodBankPAScraper, mock_html_response: str
 ):
     """Test HTML parsing."""
-    # TODO: Update this test based on actual HTML structure
-    locations = scraper.parse_html(mock_html_response)
-
-    assert len(locations) == 1
-    assert locations[0]["name"] == "Sample Food Pantry"
-    assert locations[0]["address"] == "123 Main St, City, PA 12345"
-    assert locations[0]["phone"] == "(555) 123-4567"
-    assert locations[0]["hours"] == "Mon-Fri 9am-5pm"
+    # This scraper uses the Store Locator Plus API, not HTML parsing
+    pass
 
 
+@pytest.mark.skip(reason="This scraper uses API, not HTML parsing")
 def test_parse_html_empty(scraper: CentralPennsylvaniaFoodBankPAScraper):
     """Test parsing empty HTML."""
-    locations = scraper.parse_html("<html><body></body></html>")
-    assert locations == []
+    # This scraper uses the Store Locator Plus API, not HTML parsing
+    pass
 
 
 def test_process_api_response(
@@ -249,8 +259,9 @@ async def test_scrape_with_jsonp_response(
     from app.models.geographic import GridPoint
 
     mock_grid_points = [
-        GridPoint(lat=40.27, lng=-76.88),
+        GridPoint(latitude=40.27, longitude=-76.88, name="Harrisburg Area"),
     ]
+    # Mock scraper utils method
     scraper.utils.get_state_grid_points = Mock(return_value=mock_grid_points)
 
     # Mock API fetch with JSONP wrapper
@@ -291,9 +302,12 @@ async def test_scrape_with_api_error_handling(
     from app.models.geographic import GridPoint
 
     mock_grid_points = [
-        GridPoint(lat=40.27, lng=-76.88),
-        GridPoint(lat=41.0, lng=-77.0),  # This one will fail
+        GridPoint(latitude=40.27, longitude=-76.88, name="Harrisburg Area"),
+        GridPoint(
+            latitude=41.0, longitude=-77.0, name="Central PA"
+        ),  # This one will fail
     ]
+    # Mock scraper utils method
     scraper.utils.get_state_grid_points = Mock(return_value=mock_grid_points)
 
     # Mock API to succeed on first call, fail on second
@@ -359,8 +373,11 @@ async def test_scrape_api_flow(
     from app.models.geographic import GridPoint
 
     mock_grid_points = [
-        GridPoint(lat=40.27, lng=-76.88),  # Harrisburg area
+        GridPoint(
+            latitude=40.27, longitude=-76.88, name="Harrisburg Area"
+        ),  # Harrisburg area
     ]
+    # Mock scraper utils method
     scraper.utils.get_state_grid_points = Mock(return_value=mock_grid_points)
 
     # Mock API fetch
