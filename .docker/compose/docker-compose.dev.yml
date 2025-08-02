@@ -6,7 +6,7 @@ services:
     environment:
       - DEBUG=1
       - PYTHONPATH=/app
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-defaultpassword}@db:5432/pantry_pirate_radio}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-pirate}@db:5432/pantry_pirate_radio}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379/0}
     command: sleep infinity
 
