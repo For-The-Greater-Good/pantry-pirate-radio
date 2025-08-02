@@ -278,46 +278,68 @@ class SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper(ScraperJob):
                 tmp_file.write(response.content)
                 tmp_file_path = tmp_file.name
             
-            # Read Excel file
-            df = pd.read_excel(tmp_file_path)
+            # Read Excel file with xlrd engine, header is at row 2
+            df = pd.read_excel(tmp_file_path, engine='xlrd', header=2)
             logger.info(f"Read {len(df)} rows from Excel file")
             
             # Clean up temp file
             import os
             os.unlink(tmp_file_path)
             
+            # The columns are: Name, Address, City, ZIP, Phone Number, Program Type, Hours of Operation
             # Parse locations from dataframe
             for _, row in df.iterrows():
-                # Extract data from columns (adjust based on actual column names)
-                name = str(row.get('Name', '') or row.get('Agency Name', '') or row.get('Organization', '')).strip()
-                if not name or name == 'nan':
+                # Skip rows that might be county headers (they have empty address fields)
+                if pd.isna(row.iloc[1]) or str(row.iloc[1]).strip() == '':
+                    continue
+                    
+                # Extract data from columns by position
+                name = str(row.iloc[0] if pd.notna(row.iloc[0]) else '').strip()
+                if not name or name in ['Name', 'nan', '']:
                     continue
                 
                 # Address components
-                address = str(row.get('Address', '') or row.get('Street Address', '') or '').strip()
-                city = str(row.get('City', '') or '').strip()
-                state = str(row.get('State', '') or 'NC').strip()
-                zip_code = str(row.get('Zip', '') or row.get('Zip Code', '') or '').strip()
+                address = str(row.iloc[1] if pd.notna(row.iloc[1]) else '').strip()
+                city = str(row.iloc[2] if pd.notna(row.iloc[2]) else '').strip()
+                state = 'NC'  # All locations are in NC
+                # Handle zip code - might be int or float in Excel
+                zip_val = row.iloc[3]
+                if pd.notna(zip_val):
+                    # Convert to string and remove decimal if it's a float
+                    zip_code = str(int(zip_val)) if isinstance(zip_val, (int, float)) else str(zip_val).strip()
+                else:
+                    zip_code = ''
                 
                 # Contact info
-                phone = str(row.get('Phone', '') or row.get('Phone Number', '') or '').strip()
+                phone = str(row.iloc[4] if pd.notna(row.iloc[4]) else '').strip()
                 
-                # Hours and services
-                hours = str(row.get('Hours', '') or row.get('Distribution Hours', '') or '').strip()
-                service_type = str(row.get('Type', '') or row.get('Service Type', '') or '').strip()
+                # Program type and hours
+                service_type = str(row.iloc[5] if pd.notna(row.iloc[5]) else '').strip()
+                hours = str(row.iloc[6] if pd.notna(row.iloc[6]) else '').strip()
                 
-                # Determine services
+                # Determine services based on program type
                 services = []
-                if service_type:
-                    services.append(service_type)
-                elif 'pantry' in name.lower() or 'pantry' in hours.lower():
+                if service_type.upper() == 'PANTRY':
                     services.append("Food Pantry")
-                elif 'soup' in name.lower() or 'kitchen' in name.lower():
+                elif service_type.upper() == 'SOUP KITCHEN':
                     services.append("Soup Kitchen")
-                elif 'shelter' in name.lower():
+                elif service_type.upper() == 'SHELTER':
                     services.append("Shelter")
+                elif service_type.upper() == 'PANTRY/ SOUP KITCHEN':
+                    services.append("Food Pantry")
+                    services.append("Soup Kitchen")
+                elif service_type:
+                    services.append(service_type)
                 else:
-                    services.append("Food Assistance")
+                    # Fallback to name/description analysis
+                    if 'pantry' in name.lower():
+                        services.append("Food Pantry")
+                    elif 'soup' in name.lower() or 'kitchen' in name.lower():
+                        services.append("Soup Kitchen")
+                    elif 'shelter' in name.lower():
+                        services.append("Shelter")
+                    else:
+                        services.append("Food Assistance")
                 
                 location = {
                     "name": name,

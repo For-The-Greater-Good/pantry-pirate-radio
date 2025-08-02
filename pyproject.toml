@@ -57,6 +57,7 @@ bs4 = "^0.0.2"
 playwright = "^1.51.0"
 marshmallow = "^3.26.0"
 pyjwt = "^2.10.1"
+xlrd = "^2.0.1"
 starlette = ">=0.47.2"
 db-to-sqlite = "^1.5"
 

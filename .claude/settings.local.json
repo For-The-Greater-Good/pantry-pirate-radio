@@ -59,7 +59,8 @@
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_network_requests",
       "mcp__playwright__browser_close",
-      "Bash(./bouy test:*)"
+      "Bash(./bouy test:*)",
+      "Bash(./bouy exec app python:*)"
     ],
     "deny": []
   }
