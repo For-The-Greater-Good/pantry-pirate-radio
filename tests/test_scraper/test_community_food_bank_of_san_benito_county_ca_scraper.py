@@ -9,7 +9,9 @@ import httpx
 import pytest
 import requests
 
-from app.scraper.community_food_bank_of_san_benito_county_ca_scraper import CommunityFoodBankOfSanBenitoCountyCaScraper
+from app.scraper.community_food_bank_of_san_benito_county_ca_scraper import (
+    CommunityFoodBankOfSanBenitoCountyCaScraper,
+)
 
 
 @pytest.fixture
@@ -53,7 +55,7 @@ def mock_json_response() -> Dict[str, Any]:
                 "name": "Sample Food Pantry",
                 "address": "123 Main St, City, CA 12345",
                 "phone": "(555) 123-4567",
-                "hours": "Mon-Fri 9am-5pm"
+                "hours": "Mon-Fri 9am-5pm",
             }
         ]
     }
@@ -66,70 +68,83 @@ def scraper() -> CommunityFoodBankOfSanBenitoCountyCaScraper:
 
 
 @pytest.mark.asyncio
-async def test_download_html_success(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str):
+async def test_download_html_success(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str
+):
     """Test successful HTML download."""
-    with patch('requests.get') as mock_get:
+    with patch("requests.get") as mock_get:
         mock_response = Mock()
         mock_response.text = mock_html_response
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
-        
+
         result = await scraper.download_html()
-        
+
         assert result == mock_html_response
         mock_get.assert_called_once_with(
             scraper.url,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
-            timeout=scraper.timeout
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            timeout=scraper.timeout,
         )
 
 
 @pytest.mark.asyncio
-async def test_download_html_failure(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper):
+async def test_download_html_failure(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper,
+):
     """Test handling of download failures."""
-    with patch('requests.get') as mock_get:
+    with patch("requests.get") as mock_get:
         mock_get.side_effect = requests.RequestException("Connection error")
-        
+
         with pytest.raises(requests.RequestException):
             await scraper.download_html()
 
 
 @pytest.mark.asyncio
-async def test_fetch_api_data_success(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_json_response: Dict[str, Any]):
+async def test_fetch_api_data_success(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper,
+    mock_json_response: Dict[str, Any],
+):
     """Test successful API data fetch."""
-    with patch('httpx.AsyncClient') as mock_client_class:
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_response = Mock()
         mock_response.json.return_value = mock_json_response
         mock_response.raise_for_status = Mock()
         mock_client.get.return_value = mock_response
         mock_client_class.return_value.__aenter__.return_value = mock_client
-        
+
         result = await scraper.fetch_api_data("test/endpoint", params={"key": "value"})
-        
+
         assert result == mock_json_response
         mock_client.get.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_fetch_api_data_failure(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper):
+async def test_fetch_api_data_failure(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper,
+):
     """Test handling of API fetch failures."""
-    with patch('httpx.AsyncClient') as mock_client_class:
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.get.side_effect = httpx.HTTPError("API error")
         mock_client_class.return_value.__aenter__.return_value = mock_client
-        
+
         with pytest.raises(httpx.HTTPError):
             await scraper.fetch_api_data("test/endpoint")
 
 
-def test_parse_html(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str):
+def test_parse_html(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str
+):
     """Test HTML parsing."""
     locations = scraper.parse_html(mock_html_response)
-    
+
     # Should find locations based on mock HTML
     assert len(locations) >= 2  # At least mobile pantry and static location
-    
+
     # Check first mobile pantry location if present
     mobile_pantries = [loc for loc in locations if "Mobile Pantry" in loc["name"]]
     if mobile_pantries:
@@ -138,7 +153,7 @@ def test_parse_html(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_h
         assert mobile_pantry["state"] == "CA"
         assert mobile_pantry["phone"] == "(831) 637-0340"
         assert "mobile pantry" in mobile_pantry["services"]
-    
+
     # Check static location if present
     static_locations = [loc for loc in locations if "Aromas" in loc["name"]]
     if static_locations:
@@ -153,41 +168,48 @@ def test_parse_html_empty(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper):
     assert locations == []
 
 
-def test_process_api_response(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_json_response: Dict[str, Any]):
+def test_process_api_response(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper,
+    mock_json_response: Dict[str, Any],
+):
     """Test API response processing."""
     # This scraper uses HTML parsing, not API, so this should return empty
     locations = scraper.process_api_response(mock_json_response)
     assert len(locations) == 0
 
 
-def test_process_api_response_empty(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper):
+def test_process_api_response_empty(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper,
+):
     """Test processing empty API response."""
     locations = scraper.process_api_response({})
     assert locations == []
 
 
 @pytest.mark.asyncio
-async def test_scrape_html_flow(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str):
+async def test_scrape_html_flow(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str
+):
     """Test complete HTML scraping flow."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-    
+
     # Mock geocoder
     scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-    
+
     # Track submitted jobs
     submitted_jobs = []
-    
+
     def mock_submit(content: str) -> str:
         submitted_jobs.append(json.loads(content))
         return f"job-{len(submitted_jobs)}"
-    
+
     scraper.submit_to_queue = Mock(side_effect=mock_submit)
-    
+
     # Run scraper
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
-    
+
     # Verify summary
     assert summary["scraper_id"] == "community_food_bank_of_san_benito_county_ca"
     assert summary["food_bank"] == "Community Food Bank of San Benito County"
@@ -195,10 +217,10 @@ async def test_scrape_html_flow(scraper: CommunityFoodBankOfSanBenitoCountyCaScr
     assert summary["unique_locations"] >= 2
     assert summary["total_jobs_created"] >= 2
     assert summary["test_mode"] is True
-    
+
     # Verify submitted jobs
     assert len(submitted_jobs) >= 2
-    
+
     # Check first job has required fields
     job = submitted_jobs[0]
     assert "name" in job
@@ -209,35 +231,39 @@ async def test_scrape_html_flow(scraper: CommunityFoodBankOfSanBenitoCountyCaScr
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str):
+async def test_scrape_with_geocoding_failure(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str
+):
     """Test scraping when geocoding fails."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-    
+
     # Mock geocoder to fail
     scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
     scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
-    
+
     # Track submitted jobs
     submitted_jobs = []
-    
+
     def mock_submit(content: str) -> str:
         submitted_jobs.append(json.loads(content))
         return f"job-{len(submitted_jobs)}"
-    
+
     scraper.submit_to_queue = Mock(side_effect=mock_submit)
-    
+
     # Run scraper
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
-    
+
     # Verify fallback coordinates were used
     assert len(submitted_jobs) >= 2
-    
+
     # At least one job should have used fallback coordinates
-    fallback_used = any(job["latitude"] == 39.0 and job["longitude"] == -76.0 for job in submitted_jobs)
+    fallback_used = any(
+        job["latitude"] == 39.0 and job["longitude"] == -76.0 for job in submitted_jobs
+    )
     assert fallback_used
-    
+
     # Verify geocoding stats
     assert summary["geocoding_stats"]["failed"] >= 1
 
@@ -248,11 +274,11 @@ def test_scraper_initialization():
     scraper1 = CommunityFoodBankOfSanBenitoCountyCaScraper()
     assert scraper1.scraper_id == "community_food_bank_of_san_benito_county_ca"
     assert scraper1.test_mode is False
-    
+
     # Test with custom ID
     scraper2 = CommunityFoodBankOfSanBenitoCountyCaScraper(scraper_id="custom_id")
     assert scraper2.scraper_id == "custom_id"
-    
+
     # Test with test mode
     scraper3 = CommunityFoodBankOfSanBenitoCountyCaScraper(test_mode=True)
     assert scraper3.test_mode is True
@@ -261,29 +287,31 @@ def test_scraper_initialization():
 
 
 @pytest.mark.asyncio
-async def test_scrape_api_flow(scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str):
+async def test_scrape_api_flow(
+    scraper: CommunityFoodBankOfSanBenitoCountyCaScraper, mock_html_response: str
+):
     """Test API flow (though this scraper uses HTML)."""
     # This scraper uses HTML parsing, not API
     # Mock download_html instead
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-    
+
     # Mock geocoder
     scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
     scraper.geocoder.get_default_coordinates = Mock(return_value=(40.0, -75.0))
-    
+
     # Track submitted jobs
     submitted_jobs = []
-    
+
     def mock_submit(content: str) -> str:
         submitted_jobs.append(json.loads(content))
         return f"job-{len(submitted_jobs)}"
-    
+
     scraper.submit_to_queue = Mock(side_effect=mock_submit)
-    
+
     # Run scraper
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
-    
+
     # Verify summary
     assert summary["total_jobs_created"] >= 2
     assert len(submitted_jobs) >= 2
