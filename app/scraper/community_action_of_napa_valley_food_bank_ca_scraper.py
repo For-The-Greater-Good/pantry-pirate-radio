@@ -334,7 +334,7 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: Community Action of Napa Valley Food Bank")
+        print("SCRAPER SUMMARY: Community Action of Napa Valley Food Bank")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
@@ -344,8 +344,8 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
             f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
         )
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
 
         # Return summary for archiving
