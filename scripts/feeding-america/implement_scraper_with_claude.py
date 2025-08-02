@@ -39,6 +39,42 @@ def get_pending_tasks(data: Dict[str, Any], priority: Optional[str] = None) -> L
     return pending
 
 
+def get_all_issue_priorities() -> Dict[int, str]:
+    """Get priorities for all scraper issues in one batch.
+    
+    Returns:
+        Dictionary mapping issue number to priority
+    """
+    cmd = [
+        "gh", "issue", "list",
+        "--label", "scraper",
+        "--limit", "300",
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio",
+        "--json", "number,title"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        issues = json.loads(result.stdout)
+        
+        priorities = {}
+        for issue in issues:
+            title = issue["title"]
+            issue_num = issue["number"]
+            
+            # Extract priority from title
+            for priority in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                if title.startswith(f"[{priority}]"):
+                    priorities[issue_num] = priority
+                    break
+            else:
+                priorities[issue_num] = ""
+        
+        return priorities
+    except subprocess.CalledProcessError:
+        return {}
+
+
 def fetch_issue_body(issue_number: int) -> str:
     """Fetch the body content of a GitHub issue."""
     cmd = [
@@ -257,7 +293,9 @@ def main():
         description="Generate Claude prompt to implement a food bank scraper"
     )
     parser.add_argument("--priority", choices=["high", "medium", "low"],
-                       help="Filter by priority level")
+                       help="Filter by priority level (legacy - use issue priorities)")
+    parser.add_argument("--top-priority", action="store_true",
+                       help="Only select from CRITICAL priority issues")
     parser.add_argument("--state", help="Filter by state code")
     parser.add_argument("--issue", type=int, help="Use specific issue number")
     parser.add_argument("--execute", action="store_true",
@@ -277,6 +315,24 @@ def main():
     if args.state:
         pending = [t for t in pending if t["food_bank"].get("state") == args.state.upper()]
     
+    # Get all issue priorities in one batch (much faster!)
+    all_priorities = get_all_issue_priorities()
+    
+    # Enrich tasks with priorities
+    for task in pending:
+        task["issue_priority"] = all_priorities.get(task["issue_number"], "")
+    
+    # Apply top-priority filter if specified
+    if args.top_priority:
+        pending = [t for t in pending if t["issue_priority"] == "CRITICAL"]
+        if not pending:
+            print("No CRITICAL priority tasks found. Try without --top-priority flag.")
+            return
+    
+    # Sort by priority (CRITICAL > HIGH > MEDIUM > LOW > empty)
+    priority_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "": 4}
+    pending.sort(key=lambda t: priority_order.get(t["issue_priority"], 4))
+    
     if not pending:
         print("No pending tasks found with the specified criteria.")
         return
@@ -292,8 +348,19 @@ def main():
             print(f"Issue #{args.issue} not found in pending tasks.")
             return
     else:
-        # Pick random task
-        selected = random.choice(pending)
+        # Pick task with preference for higher priorities
+        # If we have any CRITICAL tasks, always pick from those
+        critical_tasks = [t for t in pending if t["issue_priority"] == "CRITICAL"]
+        if critical_tasks:
+            selected = random.choice(critical_tasks)
+            priority = selected["issue_priority"]
+            print(f"\n🎯 Selected a {priority} priority task from {len(critical_tasks)} available")
+        else:
+            # Otherwise use weighted selection favoring higher priorities
+            weights = [len(pending) - i for i in range(len(pending))]
+            selected = random.choices(pending, weights=weights, k=1)[0]
+            priority = selected["issue_priority"] or "UNRANKED"
+            print(f"\n🎯 Selected a {priority} priority task")
     
     # Generate prompt
     prompt = generate_claude_prompt(selected)
@@ -303,11 +370,26 @@ def main():
         output_file = Path("outputs/claude_scraper_prompt.txt")
         output_file.write_text(prompt)
         print(f"Prompt saved to: {output_file}")
+        priority_badge = {
+            "CRITICAL": "🔴 CRITICAL",
+            "HIGH": "🟠 HIGH", 
+            "MEDIUM": "🟡 MEDIUM",
+            "LOW": "🟢 LOW"
+        }.get(selected.get("issue_priority", ""), "⚪ UNRANKED")
         print(f"\nSelected: {selected['food_bank']['name']} (Issue #{selected['issue_number']})")
+        print(f"Priority: {priority_badge}")
     elif args.execute:
         # Execute Claude with the prompt
         fb = selected['food_bank']
+        priority_badge = {
+            "CRITICAL": "🔴 CRITICAL",
+            "HIGH": "🟠 HIGH", 
+            "MEDIUM": "🟡 MEDIUM",
+            "LOW": "🟢 LOW"
+        }.get(selected.get("issue_priority", ""), "⚪ UNRANKED")
+        
         print(f"Implementing scraper for: {fb['name']} (Issue #{selected['issue_number']})")
+        print(f"Priority: {priority_badge}")
         print("Launching Claude...\n")
         
         # Create a more focused prompt with permission mode
@@ -350,7 +432,14 @@ After implementation:
         # Print prompt
         print(prompt)
         print(f"\n{'='*60}")
+        priority_badge = {
+            "CRITICAL": "🔴 CRITICAL",
+            "HIGH": "🟠 HIGH", 
+            "MEDIUM": "🟡 MEDIUM",
+            "LOW": "🟢 LOW"
+        }.get(selected.get("issue_priority", ""), "⚪ UNRANKED")
         print(f"Selected: {selected['food_bank']['name']} (Issue #{selected['issue_number']})")
+        print(f"Priority: {priority_badge}")
         print(f"To execute with Claude, run with --execute flag")
 
 
