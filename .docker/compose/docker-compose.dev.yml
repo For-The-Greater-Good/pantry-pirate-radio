@@ -1,7 +1,7 @@
 services:
   app:
     volumes:
-      - ../..:/app:cached
+      - ../..:/app
       - vscode-server:/home/vscode/.vscode-server
     environment:
       - DEBUG=1
