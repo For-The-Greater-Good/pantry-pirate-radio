@@ -196,11 +196,11 @@ class SfmarinFoodBankCAScraper(ScraperJob):
 
     def _format_hours(self, start_time: Optional[str], end_time: Optional[str]) -> str:
         """Format distribution hours from start and end times.
-        
+
         Args:
             start_time: Start time string
             end_time: End time string
-            
+
         Returns:
             Formatted hours string
         """
