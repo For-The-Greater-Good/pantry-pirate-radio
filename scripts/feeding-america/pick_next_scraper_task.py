@@ -54,34 +54,40 @@ def get_pending_tasks(data: Dict[str, Any], priority: Optional[str] = None) -> L
     return pending
 
 
-def get_issue_priority(issue_number: int) -> str:
-    """Get the priority of an issue from its title.
+def get_all_issue_priorities() -> Dict[int, str]:
+    """Get priorities for all scraper issues in one batch.
     
-    Args:
-        issue_number: GitHub issue number
-        
     Returns:
-        Priority level (CRITICAL, HIGH, MEDIUM, LOW, or empty string)
+        Dictionary mapping issue number to priority
     """
     cmd = [
-        "gh", "issue", "view", str(issue_number),
+        "gh", "issue", "list",
+        "--label", "scraper",
+        "--limit", "300",
         "--repo", "For-The-Greater-Good/pantry-pirate-radio",
-        "--json", "title",
-        "--jq", ".title"
+        "--json", "number,title"
     ]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        title = result.stdout.strip()
+        issues = json.loads(result.stdout)
         
-        # Extract priority from title
-        for priority in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
-            if title.startswith(f"[{priority}]"):
-                return priority
+        priorities = {}
+        for issue in issues:
+            title = issue["title"]
+            issue_num = issue["number"]
+            
+            # Extract priority from title
+            for priority in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                if title.startswith(f"[{priority}]"):
+                    priorities[issue_num] = priority
+                    break
+            else:
+                priorities[issue_num] = ""
         
-        return ""
+        return priorities
     except subprocess.CalledProcessError:
-        return ""
+        return {}
 
 
 def sanitize_name(name: str) -> str:
@@ -309,9 +315,12 @@ def main():
     if args.state:
         pending = [t for t in pending if t["food_bank"].get("state") == args.state.upper()]
     
-    # Get issue priorities and enrich tasks
+    # Get all issue priorities in one batch (much faster!)
+    all_priorities = get_all_issue_priorities()
+    
+    # Enrich tasks with priorities
     for task in pending:
-        task["issue_priority"] = get_issue_priority(task["issue_number"])
+        task["issue_priority"] = all_priorities.get(task["issue_number"], "")
     
     # Apply top-priority filter if specified
     if args.top_priority:
