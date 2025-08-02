@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./bouy exec app sh:*)",
       "Bash(poetry run pytest:*)",
       "Bash(export REDIS_URL=redis://localhost:6379/0)",
       "Bash(export DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/pantry_pirate_radio)",
@@ -20,7 +19,7 @@
       "Bash(ls:*)",
       "Bash(awk:*)",
       "Bash(bash scripts/run-ci-checks.sh:*)",
-      "Bash(/dev/null)",
+      "Bash(cat > /dev/null)",
       "Bash(git commit:*)",
       "Bash(cat:*)",
       "Bash(gh issue create:*)",
@@ -58,10 +57,7 @@
       "mcp__playwright__browser_click",
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_network_requests",
-      "mcp__playwright__browser_close",
-      "Bash(./bouy test:*)",
-      "mcp__playwright__browser_evaluate"
-      "Bash(./bouy exec app python:*)"
+      "mcp__playwright__browser_close"
     ],
     "deny": []
   }
