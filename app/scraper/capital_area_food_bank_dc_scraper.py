@@ -323,7 +323,7 @@ class CapitalAreaFoodBankDcScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: Capital Area Food Bank")
+        print("SCRAPER SUMMARY: Capital Area Food Bank")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"ArcGIS Feature Service: {self.feature_service_url}")
@@ -334,8 +334,8 @@ class CapitalAreaFoodBankDcScraper(ScraperJob):
             f"Geocoding - ArcGIS coords: {geocoding_stats['arcgis']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
         )
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
 
         # Return summary for archiving
