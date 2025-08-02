@@ -188,12 +188,12 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
             categories = item.get("categories", "").lower()
             if "fresh express" in categories:
                 service_type = "Fresh Express"
+            elif "pantry/soup kitchen" in categories:
+                service_type = "Pantry/Soup Kitchen"
             elif "soup kitchen" in categories:
                 service_type = "Soup Kitchen"
             elif "multi-service" in categories:
                 service_type = "Multi-Service Program"
-            elif "pantry" in categories and "soup" in categories:
-                service_type = "Pantry/Soup Kitchen"
             
             location = {
                 "id": item.get("id", ""),
@@ -237,7 +237,7 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
             if i > 0:
                 await asyncio.sleep(self.request_delay)
             
-            logger.info(f"Searching grid point {i+1}/{len(grid_points)}: ({point.lat}, {point.lng})")
+            logger.info(f"Searching grid point {i+1}/{len(grid_points)}: ({point.latitude}, {point.longitude})")
             
             try:
                 # Search around this grid point using Store Locator Plus API
@@ -246,8 +246,8 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
                     params={
                         "callback": "initMySLP",
                         "action": "csl_ajax_onload",
-                        "lat": point.lat,
-                        "lng": point.lng,
+                        "lat": point.latitude,
+                        "lng": point.longitude,
                         "radius": 50,  # 50 mile radius
                         "options[distance_unit]": "miles",
                         "options[initial_radius]": "50",
@@ -257,7 +257,7 @@ class CentralPennsylvaniaFoodBankPAScraper(ScraperJob):
                 )
                 locations.extend(self.process_api_response(response))
             except Exception as e:
-                logger.error(f"Error searching grid point ({point.lat}, {point.lng}): {e}")
+                logger.error(f"Error searching grid point ({point.latitude}, {point.longitude}): {e}")
                 continue
         
         # Deduplicate locations by ID
