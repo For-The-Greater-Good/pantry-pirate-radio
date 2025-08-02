@@ -32,19 +32,11 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
         ValueError: If loaded class is not a ScraperJob
     """
     # Special handling for scrapers with state abbreviations
-    if scraper_name.endswith("_oh") or scraper_name.endswith("_hi"):
-        # For scrapers like toledo_northwestern_ohio_food_bank_oh
-        parts = scraper_name.split("_")
-        state_abbr = parts[-1].upper()
-        base_name = "_".join(parts[:-1])
-        # Convert to CamelCase
-        camel_parts = []
-        for part in base_name.split("_"):
-            camel_parts.append(part.capitalize())
-        class_name = f"{''.join(camel_parts)}{state_abbr}Scraper"
-    else:
-        # Convert name to proper class name (e.g. 'sample' -> 'SampleScraper')
-        class_name = f"{scraper_name.title()}Scraper"
+    # Convert snake_case to CamelCase for all scrapers
+    # Split by underscore and capitalize each part
+    parts = scraper_name.split("_")
+    camel_parts = [part.capitalize() for part in parts]
+    class_name = f"{''.join(camel_parts)}Scraper"
 
     try:
         module = importlib.import_module(f"app.scraper.{scraper_name}_scraper")
