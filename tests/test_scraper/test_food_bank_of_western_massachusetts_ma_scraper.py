@@ -15,37 +15,42 @@ from app.scraper.food_bank_of_western_massachusetts_ma_scraper import (
 
 
 @pytest.fixture
-def mock_html_response() -> str:
-    """Sample HTML response for testing."""
-    # TODO: Add actual HTML sample from the food bank website
-    return """
-    <html>
-    <body>
-        <div class="location">
-            <h3>Sample Food Pantry</h3>
-            <p class="address">123 Main St, City, MA 12345</p>
-            <p class="phone">(555) 123-4567</p>
-            <p class="hours">Mon-Fri 9am-5pm</p>
-        </div>
-    </body>
-    </html>
-    """
-
-
-@pytest.fixture
-def mock_json_response() -> Dict[str, Any]:
-    """Sample JSON response for testing."""
-    # TODO: Add actual JSON sample if the food bank uses an API
-    return {
-        "locations": [
-            {
-                "name": "Sample Food Pantry",
-                "address": "123 Main St, City, MA 12345",
-                "phone": "(555) 123-4567",
-                "hours": "Mon-Fri 9am-5pm",
-            }
-        ]
-    }
+def mock_wp_store_locator_response() -> List[Dict[str, Any]]:
+    """Sample WP Store Locator API response for testing."""
+    return [
+        {
+            "id": "1",
+            "store": "Sample Food Pantry",
+            "address": "123 Main St",
+            "address2": "",
+            "city": "Springfield",
+            "state": "MA",
+            "zip": "01101",
+            "phone": "(555) 123-4567",
+            "lat": "42.1015",
+            "lng": "-72.5898",
+            "hours": "Mon-Fri 9am-5pm",
+            "url": "https://example.com",
+            "description": "<p>A community food pantry serving families in need.</p>",
+            "category": "food pantry",
+        },
+        {
+            "id": "2",
+            "store": "Community Meal Site",
+            "address": "456 Oak Ave",
+            "address2": "Suite 100",
+            "city": "Holyoke",
+            "state": "MA",
+            "zip": "01040",
+            "phone": "(555) 987-6543",
+            "lat": "",
+            "lng": "",
+            "hours": "Tue-Thu 11:30am-1pm",
+            "url": "",
+            "description": "<p>Hot meals served daily.</p>",
+            "category": "meal site",
+        },
+    ]
 
 
 @pytest.fixture
@@ -55,116 +60,146 @@ def scraper() -> FoodBankOfWesternMassachusettsMaScraper:
 
 
 @pytest.mark.asyncio
-async def test_download_html_success(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_html_response: str
+async def test_fetch_wp_store_locator_data_success(
+    scraper: FoodBankOfWesternMassachusettsMaScraper,
+    mock_wp_store_locator_response: List[Dict[str, Any]],
 ):
-    """Test successful HTML download."""
-    with patch("requests.get") as mock_get:
-        mock_response = Mock()
-        mock_response.text = mock_html_response
-        mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
-
-        result = await scraper.download_html()
-
-        assert result == mock_html_response
-        mock_get.assert_called_once_with(
-            scraper.url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            timeout=scraper.timeout,
-        )
-
-
-@pytest.mark.asyncio
-async def test_download_html_failure(scraper: FoodBankOfWesternMassachusettsMaScraper):
-    """Test handling of download failures."""
-    with patch("requests.get") as mock_get:
-        mock_get.side_effect = requests.RequestException("Connection error")
-
-        with pytest.raises(requests.RequestException):
-            await scraper.download_html()
-
-
-@pytest.mark.asyncio
-async def test_fetch_api_data_success(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_json_response: Dict[str, Any]
-):
-    """Test successful API data fetch."""
+    """Test successful WP Store Locator API data fetch."""
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_response = Mock()
-        mock_response.json.return_value = mock_json_response
+        mock_response.json.return_value = mock_wp_store_locator_response
         mock_response.raise_for_status = Mock()
         mock_client.get.return_value = mock_response
         mock_client_class.return_value.__aenter__.return_value = mock_client
 
-        result = await scraper.fetch_api_data("test/endpoint", params={"key": "value"})
+        result = await scraper.fetch_wp_store_locator_data()
 
-        assert result == mock_json_response
-        mock_client.get.assert_called_once()
+        assert len(result) == 2
+        assert result[0]["name"] == "Sample Food Pantry"
+        assert result[0]["full_address"] == "123 Main St"
+        assert result[0]["city"] == "Springfield"
+        assert result[0]["latitude"] == 42.1015
+        assert result[0]["longitude"] == -72.5898
+        assert result[0]["services"] == ["Food Pantry"]
+
+        assert result[1]["name"] == "Community Meal Site"
+        assert result[1]["full_address"] == "456 Oak Ave Suite 100"
+        assert result[1]["services"] == ["Meal Site"]
+        assert result[1]["latitude"] is None
+        assert result[1]["longitude"] is None
+
+        mock_client.get.assert_called_once_with(
+            scraper.ajax_url,
+            params={
+                "action": "store_search",
+                "lat": "42.17537",
+                "lng": "-72.57372",
+                "max_results": "500",
+                "search_radius": "100",
+                "autoload": "1",
+            },
+        )
 
 
 @pytest.mark.asyncio
-async def test_fetch_api_data_failure(scraper: FoodBankOfWesternMassachusettsMaScraper):
-    """Test handling of API fetch failures."""
+async def test_fetch_wp_store_locator_data_failure(
+    scraper: FoodBankOfWesternMassachusettsMaScraper,
+):
+    """Test handling of WP Store Locator API fetch failures."""
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.get.side_effect = httpx.HTTPError("API error")
         mock_client_class.return_value.__aenter__.return_value = mock_client
 
         with pytest.raises(httpx.HTTPError):
-            await scraper.fetch_api_data("test/endpoint")
+            await scraper.fetch_wp_store_locator_data()
 
 
-def test_parse_html(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_html_response: str
-):
-    """Test HTML parsing."""
-    # TODO: Update this test based on actual HTML structure
-    locations = scraper.parse_html(mock_html_response)
+def test_extract_services(scraper: FoodBankOfWesternMassachusettsMaScraper):
+    """Test service extraction from location data."""
+    # Test with category
+    item1 = {"category": "food pantry"}
+    assert scraper._extract_services(item1, "") == ["Food Pantry"]
 
-    assert len(locations) == 1
-    assert locations[0]["name"] == "Sample Food Pantry"
-    assert locations[0]["address"] == "123 Main St, City, MA 12345"
-    assert locations[0]["phone"] == "(555) 123-4567"
-    assert locations[0]["hours"] == "Mon-Fri 9am-5pm"
+    # Test with meal site category
+    item2 = {"category": "meal kitchen"}
+    assert scraper._extract_services(item2, "") == ["Meal Site"]
 
+    # Test with description
+    item3 = {"category": ""}
+    assert scraper._extract_services(item3, "We serve hot meals daily") == ["Meal Site"]
 
-def test_parse_html_empty(scraper: FoodBankOfWesternMassachusettsMaScraper):
-    """Test parsing empty HTML."""
-    locations = scraper.parse_html("<html><body></body></html>")
-    assert locations == []
+    # Test with mobile food bank
+    item4 = {"category": "mobile"}
+    assert scraper._extract_services(item4, "") == ["Mobile Food Bank"]
 
+    # Test with brown bag
+    item5 = {"category": "brown bag"}
+    assert scraper._extract_services(item5, "") == ["Brown Bag: Food for Elders"]
 
-def test_process_api_response(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_json_response: Dict[str, Any]
-):
-    """Test API response processing."""
-    locations = scraper.process_api_response(mock_json_response)
-
-    assert len(locations) == 1
-    assert locations[0]["name"] == "Sample Food Pantry"
-    assert locations[0]["address"] == "123 Main St, City, MA 12345"
+    # Test default
+    item6 = {"category": ""}
+    assert scraper._extract_services(item6, "") == ["Food Pantry"]
 
 
-def test_process_api_response_empty(scraper: FoodBankOfWesternMassachusettsMaScraper):
-    """Test processing empty API response."""
-    locations = scraper.process_api_response({})
-    assert locations == []
+def test_determine_county(scraper: FoodBankOfWesternMassachusettsMaScraper):
+    """Test county determination from city names."""
+    assert scraper._determine_county({"city": "Springfield"}) == "Hampden"
+    assert scraper._determine_county({"city": "Northampton"}) == "Hampshire"
+    assert scraper._determine_county({"city": "Greenfield"}) == "Franklin"
+    assert scraper._determine_county({"city": "Pittsfield"}) == "Berkshire"
+    assert scraper._determine_county({"city": "Unknown City"}) is None
 
 
 @pytest.mark.asyncio
-async def test_scrape_html_flow(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_html_response: str
+async def test_scrape_complete_flow(
+    scraper: FoodBankOfWesternMassachusettsMaScraper,
+    mock_wp_store_locator_response: List[Dict[str, Any]],
 ):
-    """Test complete HTML scraping flow."""
-    # Mock download_html
-    scraper.download_html = AsyncMock(return_value=mock_html_response)
+    """Test complete scraping flow."""
+    # Mock fetch_wp_store_locator_data
+    scraper.fetch_wp_store_locator_data = AsyncMock(
+        return_value=[
+            {
+                "id": "1",
+                "name": "Sample Food Pantry",
+                "address": "123 Main St",
+                "address2": "",
+                "city": "Springfield",
+                "state": "MA",
+                "zip": "01101",
+                "phone": "(555) 123-4567",
+                "latitude": 42.1015,
+                "longitude": -72.5898,
+                "hours": "Mon-Fri 9am-5pm",
+                "url": "https://example.com",
+                "description": "A community food pantry serving families in need.",
+                "services": ["Food Pantry"],
+                "full_address": "123 Main St",
+            },
+            {
+                "id": "2",
+                "name": "Community Meal Site",
+                "address": "456 Oak Ave",
+                "address2": "Suite 100",
+                "city": "Holyoke",
+                "state": "MA",
+                "zip": "01040",
+                "phone": "(555) 987-6543",
+                "latitude": None,
+                "longitude": None,
+                "hours": "Tue-Thu 11:30am-1pm",
+                "url": "",
+                "description": "Hot meals served daily.",
+                "services": ["Meal Site"],
+                "full_address": "456 Oak Ave Suite 100",
+            },
+        ]
+    )
 
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
+    # Mock geocoder for second location without coordinates
+    scraper.geocoder.geocode_address = Mock(return_value=(42.2042, -72.6162))
 
     # Track submitted jobs
     submitted_jobs = []
@@ -182,32 +217,66 @@ async def test_scrape_html_flow(
     # Verify summary
     assert summary["scraper_id"] == "food_bank_of_western_massachusetts_ma"
     assert summary["food_bank"] == "Food Bank of Western Massachusetts"
-    assert summary["total_locations_found"] == 1
-    assert summary["unique_locations"] == 1
-    assert summary["total_jobs_created"] == 1
+    assert summary["total_locations_found"] == 2
+    assert summary["unique_locations"] == 2
+    assert summary["total_jobs_created"] == 2
     assert summary["test_mode"] is True
+    assert summary["geocoding_stats"]["success"] == 2
+    assert summary["geocoding_stats"]["failed"] == 0
+    assert summary["geocoding_stats"]["default"] == 0
 
     # Verify submitted jobs
-    assert len(submitted_jobs) == 1
-    job = submitted_jobs[0]
-    assert job["name"] == "Sample Food Pantry"
-    assert job["latitude"] == 40.0
-    assert job["longitude"] == -75.0
-    assert job["source"] == "food_bank_of_western_massachusetts_ma"
-    assert job["food_bank"] == "Food Bank of Western Massachusetts"
+    assert len(submitted_jobs) == 2
+
+    job1 = submitted_jobs[0]
+    assert job1["name"] == "Sample Food Pantry"
+    assert job1["latitude"] == 42.1015
+    assert job1["longitude"] == -72.5898
+    assert job1["source"] == "food_bank_of_western_massachusetts_ma"
+    assert job1["food_bank"] == "Food Bank of Western Massachusetts"
+    assert job1["services"] == ["Food Pantry"]
+
+    job2 = submitted_jobs[1]
+    assert job2["name"] == "Community Meal Site"
+    assert job2["latitude"] == 42.2042
+    assert job2["longitude"] == -72.6162
+    assert job2["source"] == "food_bank_of_western_massachusetts_ma"
+    assert job2["food_bank"] == "Food Bank of Western Massachusetts"
+    assert job2["services"] == ["Meal Site"]
 
 
 @pytest.mark.asyncio
 async def test_scrape_with_geocoding_failure(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_html_response: str
+    scraper: FoodBankOfWesternMassachusettsMaScraper,
 ):
     """Test scraping when geocoding fails."""
-    # Mock download_html
-    scraper.download_html = AsyncMock(return_value=mock_html_response)
+    # Mock fetch_wp_store_locator_data with location missing coordinates
+    scraper.fetch_wp_store_locator_data = AsyncMock(
+        return_value=[
+            {
+                "id": "1",
+                "name": "Sample Food Pantry",
+                "address": "123 Main St",
+                "address2": "",
+                "city": "Springfield",
+                "state": "MA",
+                "zip": "01101",
+                "phone": "(555) 123-4567",
+                "latitude": None,
+                "longitude": None,
+                "hours": "Mon-Fri 9am-5pm",
+                "url": "https://example.com",
+                "description": "A community food pantry serving families in need.",
+                "services": ["Food Pantry"],
+                "full_address": "123 Main St",
+            }
+        ]
+    )
 
     # Mock geocoder to fail
     scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
+    # Springfield is in Hampden County
+    scraper.geocoder.get_default_coordinates = Mock(return_value=(42.1387, -72.6324))
 
     # Track submitted jobs
     submitted_jobs = []
@@ -225,12 +294,18 @@ async def test_scrape_with_geocoding_failure(
     # Verify fallback coordinates were used
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
-    assert job["latitude"] == 39.0
-    assert job["longitude"] == -76.0
+    assert job["latitude"] == 42.1387
+    assert job["longitude"] == -72.6324
 
     # Verify geocoding stats
     assert summary["geocoding_stats"]["failed"] == 1
     assert summary["geocoding_stats"]["success"] == 0
+    assert summary["geocoding_stats"]["default"] == 0
+
+    # Verify get_default_coordinates was called with county
+    scraper.geocoder.get_default_coordinates.assert_called_once_with(
+        location="Hampden", with_offset=True
+    )
 
 
 def test_scraper_initialization():
@@ -252,20 +327,12 @@ def test_scraper_initialization():
 
 
 @pytest.mark.asyncio
-async def test_scrape_api_flow(
-    scraper: FoodBankOfWesternMassachusettsMaScraper, mock_json_response: Dict[str, Any]
+async def test_scrape_with_empty_response(
+    scraper: FoodBankOfWesternMassachusettsMaScraper,
 ):
-    """Test complete API scraping flow."""
-    # Mock API fetch
-    scraper.fetch_api_data = AsyncMock(return_value=mock_json_response)
-
-    # Override parse_html to use process_api_response instead
-    scraper.parse_html = Mock(
-        side_effect=lambda x: scraper.process_api_response(mock_json_response)
-    )
-
-    # Mock geocoder (locations in API response don't have addresses)
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(40.0, -75.0))
+    """Test scraping with empty API response."""
+    # Mock fetch_wp_store_locator_data to return empty list
+    scraper.fetch_wp_store_locator_data = AsyncMock(return_value=[])
 
     # Track submitted jobs
     submitted_jobs = []
@@ -281,5 +348,68 @@ async def test_scrape_api_flow(
     summary = json.loads(summary_json)
 
     # Verify summary
-    assert summary["total_jobs_created"] == 1
+    assert summary["total_locations_found"] == 0
+    assert summary["unique_locations"] == 0
+    assert summary["total_jobs_created"] == 0
+    assert len(submitted_jobs) == 0
+
+
+@pytest.mark.asyncio
+async def test_scrape_with_no_address_default_coordinates(
+    scraper: FoodBankOfWesternMassachusettsMaScraper,
+):
+    """Test scraping when location has no address and uses default coordinates."""
+    # Mock fetch_wp_store_locator_data with location having no address
+    scraper.fetch_wp_store_locator_data = AsyncMock(
+        return_value=[
+            {
+                "id": "1",
+                "name": "No Address Food Pantry",
+                "address": "",
+                "address2": "",
+                "city": "Northampton",
+                "state": "MA",
+                "zip": "",
+                "phone": "(555) 123-4567",
+                "latitude": None,
+                "longitude": None,
+                "hours": "Mon-Fri 9am-5pm",
+                "url": "",
+                "description": "Food pantry without address.",
+                "services": ["Food Pantry"],
+                "full_address": "",
+            }
+        ]
+    )
+
+    # Mock geocoder to return Hampshire County defaults
+    scraper.geocoder.get_default_coordinates = Mock(return_value=(42.3410, -72.6420))
+
+    # Track submitted jobs
+    submitted_jobs = []
+
+    def mock_submit(content: str) -> str:
+        submitted_jobs.append(json.loads(content))
+        return f"job-{len(submitted_jobs)}"
+
+    scraper.submit_to_queue = Mock(side_effect=mock_submit)
+
+    # Run scraper
+    summary_json = await scraper.scrape()
+    summary = json.loads(summary_json)
+
+    # Verify default coordinates were used
     assert len(submitted_jobs) == 1
+    job = submitted_jobs[0]
+    assert job["latitude"] == 42.3410
+    assert job["longitude"] == -72.6420
+
+    # Verify geocoding stats
+    assert summary["geocoding_stats"]["default"] == 1
+    assert summary["geocoding_stats"]["success"] == 0
+    assert summary["geocoding_stats"]["failed"] == 0
+
+    # Verify get_default_coordinates was called with Hampshire county
+    scraper.geocoder.get_default_coordinates.assert_called_once_with(
+        location="Hampshire", with_offset=True
+    )
