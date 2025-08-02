@@ -155,14 +155,14 @@ class CommunityFoodBankOfSanBenitoCountyCaScraper(ScraperJob):
                     i += 1
                     continue
 
-                # Parse mobile pantry locations (format: "Location – Time")
+                # Parse mobile pantry locations (format: "Location - Time")
                 if (
                     current_day
-                    and "–" in line
+                    and "-" in line
                     and ("a.m." in line or "p.m." in line)
                     and not line.startswith("Time:")
                 ):
-                    parts = line.split("–", 1)
+                    parts = line.split("-", 1)
                     if len(parts) == 2:
                         location_name = parts[0].strip()
                         hours = parts[1].strip()
@@ -186,7 +186,7 @@ class CommunityFoodBankOfSanBenitoCountyCaScraper(ScraperJob):
                 # Parse static locations
                 if line in [
                     "Aromas",
-                    "Hollister – Marketplace at Community Food Bank (Drive-Thru available)",
+                    "Hollister - Marketplace at Community Food Bank (Drive-Thru available)",
                     "San Juan Bautista",
                     "Tres Pinos",
                 ]:
@@ -410,7 +410,7 @@ class CommunityFoodBankOfSanBenitoCountyCaScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: Community Food Bank of San Benito County")
+        print("SCRAPER SUMMARY: Community Food Bank of San Benito County")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
@@ -420,8 +420,8 @@ class CommunityFoodBankOfSanBenitoCountyCaScraper(ScraperJob):
             f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
         )
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
 
         # Return summary for archiving
