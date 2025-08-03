@@ -3,11 +3,14 @@
 import json
 import logging
 import re
-import xml.etree.ElementTree as ElementTree
+import warnings
 from typing import Any, Dict, List, Optional
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+# Suppress warning about parsing XML with HTML parser (needed to avoid xml.etree security issues)
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
 
@@ -86,33 +89,29 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         locations: List[Dict[str, Any]] = []
 
         try:
-            # Parse KML/XML
-            root = ElementTree.fromstring(kml_content)  # noqa: S314
+            # Use BeautifulSoup with html.parser to parse KML/XML (avoiding xml.etree security issues)
+            # Note: Using html.parser instead of xml parser since lxml is not available
+            soup = BeautifulSoup(kml_content, "html.parser")
 
-            # Define namespace
-            ns = {"kml": "http://www.opengis.net/kml/2.2"}
-
-            # Find all Placemarks (locations)
-            placemarks = root.findall(".//kml:Placemark", ns)
+            # Find all Placemarks (locations) - case-insensitive search
+            placemarks = soup.find_all("placemark")
 
             for placemark in placemarks:
                 location = {}
 
                 # Extract name
-                name_elem = placemark.find("kml:name", ns)
-                location["name"] = (
-                    name_elem.text.strip() if name_elem is not None else ""
-                )
+                name_elem = placemark.find("name")
+                location["name"] = name_elem.get_text(strip=True) if name_elem else ""
 
                 # Extract description (contains additional info)
-                desc_elem = placemark.find("kml:description", ns)
-                description = desc_elem.text if desc_elem is not None else ""
+                desc_elem = placemark.find("description")
+                description = desc_elem.get_text() if desc_elem else ""
 
                 # Parse description HTML content
                 if description:
-                    soup = BeautifulSoup(description, "html.parser")
+                    desc_soup = BeautifulSoup(description, "html.parser")
                     # Get text and handle line breaks properly
-                    desc_text = soup.get_text(separator="\n", strip=True)
+                    desc_text = desc_soup.get_text(separator="\n", strip=True)
 
                     # Try to extract structured data from description
                     # Common patterns in Google My Maps descriptions
@@ -196,9 +195,9 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
                         location["notes"] = desc_text[:500]  # Limit notes length
 
                 # Extract coordinates
-                coordinates_elem = placemark.find(".//kml:coordinates", ns)
-                if coordinates_elem is not None and coordinates_elem.text:
-                    coords = coordinates_elem.text.strip().split(",")
+                coordinates_elem = placemark.find("coordinates")
+                if coordinates_elem and coordinates_elem.get_text():
+                    coords = coordinates_elem.get_text(strip=True).split(",")
                     if len(coords) >= 2:
                         location["longitude"] = float(coords[0])
                         location["latitude"] = float(coords[1])
@@ -207,7 +206,7 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
                 if location.get("name"):
                     locations.append(location)
 
-        except (ElementTree.ParseError, Exception) as e:
+        except Exception as e:
             logger.error(f"Failed to parse KML: {e}")
             raise
 
