@@ -1,13 +1,11 @@
 """Scraper for Food Bank For New York City."""
 
-import asyncio
 import json
 import logging
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ElementTree
 from typing import Any, Dict, List, Optional
 
-import httpx
 import requests
 from bs4 import BeautifulSoup
 
@@ -70,36 +68,6 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         response.raise_for_status()
         return response.text
 
-    async def fetch_api_data(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Fetch data from API endpoint (for API-based scrapers).
-
-        Args:
-            endpoint: API endpoint path
-            params: Optional query parameters
-
-        Returns:
-            API response as dictionary
-
-        Raises:
-            httpx.HTTPError: If API request fails
-        """
-        url = f"{self.url}/{endpoint}" if endpoint else self.url
-        
-        try:
-            async with httpx.AsyncClient(
-                headers=get_scraper_headers(), 
-                timeout=httpx.Timeout(self.timeout, connect=self.timeout/3)
-            ) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                return response.json()
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error fetching data from {url}: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error fetching data from {url}: {e}")
-            raise
-
     def parse_kml(self, kml_content: str) -> List[Dict[str, Any]]:
         """Parse KML/XML to extract food pantry information.
 
@@ -113,7 +81,7 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         
         try:
             # Parse KML/XML
-            root = ET.fromstring(kml_content)
+            root = ElementTree.fromstring(kml_content)  # noqa: S314
             
             # Define namespace
             ns = {'kml': 'http://www.opengis.net/kml/2.2'}
@@ -208,47 +176,11 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
                 if location.get('name'):
                     locations.append(location)
         
-        except ET.ParseError as e:
+        except (ElementTree.ParseError, Exception) as e:
             logger.error(f"Failed to parse KML: {e}")
             raise
         
         logger.info(f"Parsed {len(locations)} locations from KML")
-        return locations
-
-    def process_api_response(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Process API response data.
-
-        Args:
-            data: API response data
-
-        Returns:
-            List of dictionaries containing location information
-        """
-        locations: List[Dict[str, Any]] = []
-        
-        # TODO: Extract locations from API response
-        # Common patterns:
-        # - data['results'] or data['locations'] or data['items']
-        # - May need to handle pagination
-        
-        # Example:
-        # for item in data.get('locations', []):
-        #     location = {
-        #         "id": item.get("id"),
-        #         "name": item.get("name", "").strip(),
-        #         "address": item.get("address", "").strip(),
-        #         "city": item.get("city", "").strip(),
-        #         "state": item.get("state", "NY").strip(),
-        #         "zip": item.get("zip", "").strip(),
-        #         "phone": item.get("phone", "").strip(),
-        #         "latitude": item.get("latitude"),
-        #         "longitude": item.get("longitude"),
-        #         "hours": item.get("hours", ""),
-        #         "services": item.get("services", []),
-        #     }
-        #     locations.append(location)
-        
-        logger.info(f"Processed {len(locations)} locations from API")
         return locations
 
     async def scrape(self) -> str:
@@ -334,7 +266,7 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         
         # Print summary to CLI
         print(f"\n{'='*60}")
-        print(f"SCRAPER SUMMARY: Food Bank For New York City")
+        print("SCRAPER SUMMARY: Food Bank For New York City")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
@@ -342,8 +274,8 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         print(f"Jobs created: {job_count}")
         print(f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}")
         if self.test_mode:
-            print(f"TEST MODE: Limited processing")
-        print(f"Status: Complete")
+            print("TEST MODE: Limited processing")
+        print("Status: Complete")
         print(f"{'='*60}\n")
         
         # Return summary for archiving
