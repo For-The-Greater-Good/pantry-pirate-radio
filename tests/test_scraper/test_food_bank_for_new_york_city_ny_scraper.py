@@ -9,7 +9,9 @@ import httpx
 import pytest
 import requests
 
-from app.scraper.food_bank_for_new_york_city_ny_scraper import FoodBankForNewYorkCityNyScraper
+from app.scraper.food_bank_for_new_york_city_ny_scraper import (
+    FoodBankForNewYorkCityNyScraper,
+)
 
 
 @pytest.fixture
@@ -52,42 +54,44 @@ def scraper() -> FoodBankForNewYorkCityNyScraper:
 
 
 @pytest.mark.asyncio
-async def test_download_kml_success(scraper: FoodBankForNewYorkCityNyScraper, mock_kml_response: str):
+async def test_download_kml_success(
+    scraper: FoodBankForNewYorkCityNyScraper, mock_kml_response: str
+):
     """Test successful KML download."""
-    with patch('requests.get') as mock_get:
+    with patch("requests.get") as mock_get:
         mock_response = Mock()
         mock_response.text = mock_kml_response
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
-        
+
         result = await scraper.download_kml()
-        
+
         assert result == mock_kml_response
         mock_get.assert_called_once_with(
             scraper.kml_url,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
-            timeout=scraper.timeout
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            timeout=scraper.timeout,
         )
 
 
 @pytest.mark.asyncio
 async def test_download_kml_failure(scraper: FoodBankForNewYorkCityNyScraper):
     """Test handling of download failures."""
-    with patch('requests.get') as mock_get:
+    with patch("requests.get") as mock_get:
         mock_get.side_effect = requests.RequestException("Connection error")
-        
+
         with pytest.raises(requests.RequestException):
             await scraper.download_kml()
-
-
 
 
 def test_parse_kml(scraper: FoodBankForNewYorkCityNyScraper, mock_kml_response: str):
     """Test KML parsing."""
     locations = scraper.parse_kml(mock_kml_response)
-    
+
     assert len(locations) == 2
-    
+
     # Check first location
     assert locations[0]["name"] == "Sample Food Pantry"
     assert locations[0]["address"] == "123 Main St"
@@ -97,7 +101,7 @@ def test_parse_kml(scraper: FoodBankForNewYorkCityNyScraper, mock_kml_response: 
     assert "Monday-Friday 9am-5pm" in locations[0]["hours"]
     assert locations[0]["latitude"] == 40.6782
     assert locations[0]["longitude"] == -73.9442
-    
+
     # Check second location
     assert locations[1]["name"] == "Another Food Bank"
     assert locations[1]["address"] == "456 Second Ave"
@@ -120,30 +124,30 @@ def test_parse_kml_empty(scraper: FoodBankForNewYorkCityNyScraper):
     assert locations == []
 
 
-
-
 @pytest.mark.asyncio
-async def test_scrape_kml_flow(scraper: FoodBankForNewYorkCityNyScraper, mock_kml_response: str):
+async def test_scrape_kml_flow(
+    scraper: FoodBankForNewYorkCityNyScraper, mock_kml_response: str
+):
     """Test complete KML scraping flow."""
     # Mock download_kml
     scraper.download_kml = AsyncMock(return_value=mock_kml_response)
-    
+
     # Mock geocoder
     scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-    
+
     # Track submitted jobs
     submitted_jobs = []
-    
+
     def mock_submit(content: str) -> str:
         submitted_jobs.append(json.loads(content))
         return f"job-{len(submitted_jobs)}"
-    
+
     scraper.submit_to_queue = Mock(side_effect=mock_submit)
-    
+
     # Run scraper
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
-    
+
     # Verify summary
     assert summary["scraper_id"] == "food_bank_for_new_york_city_ny"
     assert summary["food_bank"] == "Food Bank For New York City"
@@ -151,10 +155,10 @@ async def test_scrape_kml_flow(scraper: FoodBankForNewYorkCityNyScraper, mock_km
     assert summary["unique_locations"] == 2
     assert summary["total_jobs_created"] == 2
     assert summary["test_mode"] is True
-    
+
     # Verify submitted jobs
     assert len(submitted_jobs) == 2
-    
+
     # Check first job
     job1 = submitted_jobs[0]
     assert job1["name"] == "Sample Food Pantry"
@@ -162,7 +166,7 @@ async def test_scrape_kml_flow(scraper: FoodBankForNewYorkCityNyScraper, mock_km
     assert job1["longitude"] == -73.9442
     assert job1["source"] == "food_bank_for_new_york_city_ny"
     assert job1["food_bank"] == "Food Bank For New York City"
-    
+
     # Check second job
     job2 = submitted_jobs[1]
     assert job2["name"] == "Another Food Bank"
@@ -185,34 +189,34 @@ async def test_scrape_with_geocoding_failure(scraper: FoodBankForNewYorkCityNySc
     </Placemark>
   </Document>
 </kml>"""
-    
+
     # Mock download_kml
     scraper.download_kml = AsyncMock(return_value=kml_no_coords)
-    
+
     # Mock geocoder to fail
     scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
     scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
-    
+
     # Track submitted jobs
     submitted_jobs = []
-    
+
     def mock_submit(content: str) -> str:
         submitted_jobs.append(json.loads(content))
         return f"job-{len(submitted_jobs)}"
-    
+
     scraper.submit_to_queue = Mock(side_effect=mock_submit)
-    
+
     # Run scraper
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
-    
+
     # Verify fallback coordinates were used
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
     assert job["name"] == "No Coords Pantry"
     assert job["latitude"] == 39.0
     assert job["longitude"] == -76.0
-    
+
     # Verify geocoding stats
     assert summary["geocoding_stats"]["failed"] == 1
     assert summary["geocoding_stats"]["success"] == 0
@@ -224,13 +228,11 @@ def test_scraper_initialization():
     scraper1 = FoodBankForNewYorkCityNyScraper()
     assert scraper1.scraper_id == "food_bank_for_new_york_city_ny"
     assert scraper1.test_mode is False
-    
+
     # Test with custom ID
     scraper2 = FoodBankForNewYorkCityNyScraper(scraper_id="custom_id")
     assert scraper2.scraper_id == "custom_id"
-    
+
     # Test with test mode
     scraper3 = FoodBankForNewYorkCityNyScraper(test_mode=True)
     assert scraper3.test_mode is True
-
-
