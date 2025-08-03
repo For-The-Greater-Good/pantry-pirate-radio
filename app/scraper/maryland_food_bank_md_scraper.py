@@ -89,8 +89,9 @@ class MarylandFoodBankMdScraper(ScraperJob):
                             logger.info(f"Clicked List view using selector: {selector}")
                             button_found = True
                             break
-                        except Exception:
+                        except Exception as e:
                             # Skip this selector and try the next one
+                            logger.debug(f"Selector {selector} failed: {e}")
                             continue
 
                     if not button_found:
@@ -140,8 +141,9 @@ class MarylandFoodBankMdScraper(ScraperJob):
                                     )
                                     select_found = True
                                     break
-                        except Exception:
+                        except Exception as e:
                             # Skip this selector and try the next one
+                            logger.debug(f"Selector {selector} failed: {e}")
                             continue
 
                     if not select_found:
