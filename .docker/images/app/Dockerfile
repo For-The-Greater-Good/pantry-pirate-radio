@@ -123,7 +123,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 FROM production-base AS worker
 
 # Use startup script as entrypoint with fallback to RQ worker
-ENTRYPOINT ["/usr/local/bin/container_startup.sh"]
+ENTRYPOINT ["/app/scripts/container_startup.sh"]
 CMD ["rq", "worker", "llm"]
 
 # =============================================================================

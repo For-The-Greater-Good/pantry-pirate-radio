@@ -64,7 +64,7 @@ WORKER_COUNT=${WORKER_COUNT:-1}
 if [[ "$WORKER_COUNT" =~ ^[0-9]+$ ]] && [ "$WORKER_COUNT" -ge 1 ] && [ "$WORKER_COUNT" -le 20 ]; then
     if [ "$WORKER_COUNT" -gt 1 ]; then
         echo "🔧 Starting $WORKER_COUNT RQ workers..."
-        exec /usr/local/bin/multi_worker.sh
+        exec /app/scripts/multi_worker.sh
     else
         # Start single worker (default behavior)
         echo "🔧 Starting single RQ worker..."
