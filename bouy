@@ -45,6 +45,22 @@ VERSION="1.0.0"
 # Set consistent project name to avoid network naming issues
 export COMPOSE_PROJECT_NAME="pantry-pirate-radio"
 
+# Export .env variables if the file exists
+if [ -f .env ]; then
+    # Use a safer method that handles special characters properly
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        if [[ ! "$key" =~ ^[[:space:]]*# ]] && [[ -n "$key" ]]; then
+            # Remove leading/trailing whitespace from key
+            key=$(echo "$key" | xargs)
+            # Export the variable if it's a valid name
+            if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                export "$key=$value"
+            fi
+        fi
+    done < .env
+fi
+
 # Test mode support - allows overriding docker compose command for testing
 if [ -n "$BOUY_TEST_MODE" ]; then
     COMPOSE_CMD="${BOUY_TEST_COMPOSE_CMD:-docker compose}"
