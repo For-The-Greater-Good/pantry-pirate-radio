@@ -34,51 +34,30 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
     try:
         module = importlib.import_module(f"app.scraper.{scraper_name}_scraper")
         
-        # Try multiple naming conventions
-        # 1. First try with underscores preserved and each part capitalized
-        parts = scraper_name.split("_")
-        camel_parts = []
-        for part in parts:
-            # Check if it's a state abbreviation (2 letters)
-            if len(part) == 2 and part.isalpha():
-                camel_parts.append(part.upper())
-            else:
-                camel_parts.append(part.capitalize())
+        # Get all classes that end with "Scraper" in the module
+        available_classes = [name for name in dir(module) if name.endswith("Scraper") and not name.startswith("_")]
         
-        class_name_with_underscores = f"{'_'.join(camel_parts)}Scraper"
+        if not available_classes:
+            raise ImportError(f"No scraper classes found in module {scraper_name}_scraper")
         
-        # 2. Also prepare version without underscores
-        class_name_without_underscores = f"{''.join(camel_parts)}Scraper"
+        # If there's only one scraper class, use it (most common case)
+        if len(available_classes) == 1:
+            return getattr(module, available_classes[0])
         
-        # 3. Try with all uppercase state abbreviations at the end
-        # Handle cases like "food_lifeline_wa" -> "FoodLifelineWAScraper"
-        if len(parts) > 1 and len(parts[-1]) == 2 and parts[-1].isalpha():
-            parts_with_upper_state = [p.capitalize() for p in parts[:-1]] + [parts[-1].upper()]
-            class_name_upper_state = f"{''.join(parts_with_upper_state)}Scraper"
-        else:
-            class_name_upper_state = None
+        # Multiple classes found - do case-insensitive matching
+        # Normalize the scraper name by removing underscores and converting to lowercase
+        scraper_name_normalized = scraper_name.replace("_", "").lower()
         
-        # Try to find the class with any naming convention
-        scraper_class = None
-        possible_names = [class_name_with_underscores, class_name_without_underscores]
-        if class_name_upper_state:
-            possible_names.append(class_name_upper_state)
+        for class_name in available_classes:
+            # Normalize class name by removing "Scraper" suffix and converting to lowercase
+            class_name_normalized = class_name[:-7].replace("_", "").lower()  # Remove "Scraper" suffix
             
-        for class_name in possible_names:
-            try:
-                scraper_class = getattr(module, class_name)
-                break
-            except AttributeError:
-                continue
+            if class_name_normalized == scraper_name_normalized:
+                return getattr(module, class_name)
         
-        if scraper_class is None:
-            # List available classes in the module for debugging
-            available_classes = [name for name in dir(module) if name.endswith("Scraper")]
-            logger.error(f"Could not find scraper class. Tried: {possible_names}")
-            logger.error(f"Available classes in module: {available_classes}")
-            raise ImportError(f"Scraper class not found in module {scraper_name}_scraper")
-        
-        return scraper_class
+        # If still not found, just use the first available scraper class
+        logger.warning(f"Could not find exact match for {scraper_name}, using {available_classes[0]}")
+        return getattr(module, available_classes[0])
 
     except ImportError as e:
         logger.error(f"Failed to import scraper '{scraper_name}': {e}")
