@@ -33,30 +33,40 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
     """
     try:
         module = importlib.import_module(f"app.scraper.{scraper_name}_scraper")
-        
+
         # Get all classes that end with "Scraper" in the module
-        available_classes = [name for name in dir(module) if name.endswith("Scraper") and not name.startswith("_")]
-        
+        available_classes = [
+            name
+            for name in dir(module)
+            if name.endswith("Scraper") and not name.startswith("_")
+        ]
+
         if not available_classes:
-            raise ImportError(f"No scraper classes found in module {scraper_name}_scraper")
-        
+            raise ImportError(
+                f"No scraper classes found in module {scraper_name}_scraper"
+            )
+
         # If there's only one scraper class, use it (most common case)
         if len(available_classes) == 1:
             return getattr(module, available_classes[0])
-        
+
         # Multiple classes found - do case-insensitive matching
         # Normalize the scraper name by removing underscores and converting to lowercase
         scraper_name_normalized = scraper_name.replace("_", "").lower()
-        
+
         for class_name in available_classes:
             # Normalize class name by removing "Scraper" suffix and converting to lowercase
-            class_name_normalized = class_name[:-7].replace("_", "").lower()  # Remove "Scraper" suffix
-            
+            class_name_normalized = (
+                class_name[:-7].replace("_", "").lower()
+            )  # Remove "Scraper" suffix
+
             if class_name_normalized == scraper_name_normalized:
                 return getattr(module, class_name)
-        
+
         # If still not found, just use the first available scraper class
-        logger.warning(f"Could not find exact match for {scraper_name}, using {available_classes[0]}")
+        logger.warning(
+            f"Could not find exact match for {scraper_name}, using {available_classes[0]}"
+        )
         return getattr(module, available_classes[0])
 
     except ImportError as e:
