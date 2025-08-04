@@ -81,7 +81,7 @@ services:
       # Worker specific
       WORKER_COUNT: ${WORKER_COUNT:-1}
       QUEUE_NAME: llm
-      CONTENT_STORE_PATH: ${CONTENT_STORE_PATH:-/data-repo/content_store}
+      CONTENT_STORE_PATH: ${CONTENT_STORE_PATH:-/data-repo}
       CONTENT_STORE_ENABLED: ${CONTENT_STORE_ENABLED:-true}
 
       # Claude specific (if using Claude)
@@ -124,7 +124,7 @@ services:
       LLM_TIMEOUT: ${LLM_TIMEOUT:-30}
 
       # Content store
-      CONTENT_STORE_PATH: ${CONTENT_STORE_PATH:-/data-repo/content_store}
+      CONTENT_STORE_PATH: ${CONTENT_STORE_PATH:-/data-repo}
       CONTENT_STORE_ENABLED: ${CONTENT_STORE_ENABLED:-true}
     volumes:
       - haarrrvest_repo:/data-repo

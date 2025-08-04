@@ -1201,7 +1201,7 @@ case "$1" in
         # Check content store if enabled
         if $COMPOSE_CMD $COMPOSE_FILES exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
             output info "Content store is enabled, checking configuration..."
-            if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content-store" 2>/dev/null; then
+            if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content_store" 2>/dev/null; then
                 output warning "Content store directory not found - deduplication may not work"
             else
                 output success "Content store directory found"
@@ -1444,14 +1444,14 @@ case "$1" in
         output info "Checking content store configuration..."
 
         # Check if content store directory exists
-        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -d "/data-repo/content-store" 2>/dev/null; then
+        if ! $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -d "/data-repo/content_store" 2>/dev/null; then
             output warning "Content store directory not found in data repo"
             output info "Content store may be disabled or not yet initialized"
         else
             output success "Content store directory found"
 
             # Check for SQLite database
-            if $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -f "/data-repo/content-store/index.db" 2>/dev/null; then
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T worker test -f "/data-repo/content_store/index.db" 2>/dev/null; then
                 output success "Content store SQLite database found"
             else
                 output warning "Content store SQLite database not found - will be created on first use"
