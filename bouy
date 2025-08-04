@@ -1228,9 +1228,16 @@ case "$1" in
                 fi
                 $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --all
                 ;;
-            full-broadside)
-                output info "🚢 FULL BROADSIDE! Running all scrapers in parallel..."
-                output info "This will run all scrapers simultaneously for maximum data collection"
+            scouting-party)
+                # Check if next argument is a number (concurrent scrapers)
+                MAX_CONCURRENT=5  # default
+                if [ $# -gt 1 ] && [[ "$2" =~ ^[0-9]+$ ]]; then
+                    MAX_CONCURRENT=$2
+                    shift  # consume the number argument
+                fi
+                
+                output info "🔍 SCOUTING PARTY! Running all scrapers in parallel..."
+                output info "Dispatching $MAX_CONCURRENT scouts at a time"
                 
                 # Run the parallel scraper script inside the container
                 EXEC_FLAGS=""
@@ -1239,7 +1246,7 @@ case "$1" in
                 fi
                 
                 # Create the parallel scraper script inside the container
-                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper bash -c '
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper bash -c "
                     # Colors for output
                     GREEN="\033[0;32m"
                     YELLOW="\033[1;33m"
@@ -1259,37 +1266,37 @@ case "$1" in
                     SCRAPERS=$(python -m app.scraper --list | grep "^  -" | sed "s/^  - //")
                     SCRAPER_COUNT=$(echo "$SCRAPERS" | wc -l)
                     
-                    log "🎯 Targeting $SCRAPER_COUNT scrapers for parallel execution"
-                    log "⚡ Firing all cannons!"
+                    log "🎯 Found $SCRAPER_COUNT scrapers to scout"
+                    log "🔍 Dispatching scouts!"
                     
-                    # Run scrapers in parallel, max 5 at a time
-                    echo "$SCRAPERS" | xargs -P 5 -I {} bash -c "
-                        echo \"🔫 Firing: {}\"
+                    # Run scrapers in parallel, max concurrent as specified
+                    echo "$SCRAPERS" | xargs -P '$MAX_CONCURRENT' -I {} bash -c "
+                        echo \"🏃 Scouting: {}\"
                         if python -m app.scraper {} > /tmp/scraper_{}.log 2>&1; then
-                            echo \"✅ Hit: {}\"
+                            echo \"✅ Found data: {}\"
                         else
-                            echo \"❌ Miss: {}\"
+                            echo \"❌ No data: {}\"
                             tail -5 /tmp/scraper_{}.log
                         fi
                     "
                     
-                    log "🏁 Full broadside complete!"
+                    log "🏁 Scouting party complete!"
                 '
                 ;;
             help|"")
                 if [ $PROGRAMMATIC_MODE -eq 0 ]; then
-                    echo "Usage: ./bouy scraper [--list|--all|full-broadside|SCRAPER_NAME]"
+                    echo "Usage: ./bouy scraper [--list|--all|scouting-party [N]|SCRAPER_NAME]"
                     echo ""
                     echo "Options:"
-                    echo "  --list           List all available scrapers"
-                    echo "  --all            Run all scrapers sequentially"
-                    echo "  full-broadside   Run all scrapers in parallel (maximum firepower!)"
-                    echo "  SCRAPER_NAME     Run a specific scraper"
+                    echo "  --list              List all available scrapers"
+                    echo "  --all               Run all scrapers sequentially"
+                    echo "  scouting-party [N]  Run all scrapers in parallel (N concurrent, default 5)"
+                    echo "  SCRAPER_NAME        Run a specific scraper"
                     echo ""
                     echo "Available scrapers:"
                     $COMPOSE_CMD $COMPOSE_FILES exec scraper python -m app.scraper --list
                 else
-                    output error "No scraper command specified. Use --list, --all, full-broadside, or provide a scraper name."
+                    output error "No scraper command specified. Use --list, --all, scouting-party, or provide a scraper name."
                     exit 1
                 fi
                 ;;

@@ -34,10 +34,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy test --xenon          # Code complexity analysis
 
 # Scraper Commands
-./bouy scraper --list       # List all scrapers
-./bouy scraper --all        # Run all scrapers
-./bouy scraper NAME         # Run specific scraper
-./bouy scraper-test NAME    # Test scraper (dry run)
+./bouy scraper --list         # List all scrapers
+./bouy scraper --all          # Run all scrapers
+./bouy scraper NAME           # Run specific scraper
+./bouy scraper scouting-party # Run all scrapers in parallel
+./bouy scraper-test NAME      # Test scraper (dry run)
 
 # Service Management
 ./bouy build                # Build all services
