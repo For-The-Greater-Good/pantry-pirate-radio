@@ -72,20 +72,45 @@ check_db_schema() {
 # Function to check and wait for data repo to be ready
 check_data_repo() {
     if [ ! -d "$DATA_REPO_PATH" ]; then
-        warn "HAARRRvest data repository not found at $DATA_REPO_PATH"
-        warn "Skipping data population - database will start empty"
-        return 1
-    fi
-
-    # Use the wait script to ensure repository is fully cloned
-    log "Waiting for HAARRRvest repository to be fully cloned..."
-    if /app/scripts/wait-for-repo-ready.sh; then
-        log "HAARRRvest repository is ready"
-        return 0
+        log "HAARRRvest data repository not found at $DATA_REPO_PATH"
+        log "Cloning HAARRRvest repository for database initialization..."
+        
+        # Get repository URL and token from environment
+        local repo_url="${DATA_REPO_URL:-https://github.com/For-The-Greater-Good/HAARRRvest.git}"
+        local repo_token="${DATA_REPO_TOKEN}"
+        
+        # Add token to URL if provided
+        if [ -n "$repo_token" ] && [[ "$repo_url" == https://* ]]; then
+            # Insert token into HTTPS URL
+            repo_url=$(echo "$repo_url" | sed "s|https://|https://${repo_token}@|")
+        fi
+        
+        # Create parent directory if needed
+        mkdir -p "$(dirname "$DATA_REPO_PATH")"
+        
+        # Clone the repository
+        if git clone "$repo_url" "$DATA_REPO_PATH"; then
+            log "Successfully cloned HAARRRvest repository"
+            # After successful clone, wait a moment for filesystem to settle
+            sleep 2
+            log "HAARRRvest repository is ready"
+            return 0
+        else
+            warn "Failed to clone HAARRRvest repository"
+            warn "Skipping data population - database will start empty"
+            return 1
+        fi
     else
-        warn "Failed to wait for repository to be ready"
-        warn "Skipping data population - database will start empty"
-        return 1
+        # Repository already exists, use the wait script to ensure it's stable
+        log "HAARRRvest repository already exists, checking if it's ready..."
+        if /app/scripts/wait-for-repo-ready.sh; then
+            log "HAARRRvest repository is ready"
+            return 0
+        else
+            warn "Failed to verify repository is ready"
+            warn "Skipping data population - database will start empty"
+            return 1
+        fi
     fi
 }
 

@@ -181,8 +181,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      haarrrvest-publisher:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/scripts/wait-for-db-ready.sh", "init"]
       interval: 30s
