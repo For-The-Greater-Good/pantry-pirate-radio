@@ -79,11 +79,6 @@ ENV POETRY_VIRTUALENVS_CREATE=false
 # Copy dependency files
 COPY pyproject.toml poetry.lock ./
 
-# Install Playwright
-RUN pip install playwright
-RUN playwright install chromium
-RUN playwright install-deps chromium
-
 # =============================================================================
 # PRODUCTION BASE - Complete image with everything
 # =============================================================================
@@ -91,6 +86,10 @@ FROM base AS production-base
 
 # Install all dependencies (including dev for full functionality)
 RUN poetry install --no-interaction --no-ansi
+
+# Install Playwright browsers after poetry install
+RUN playwright install chromium
+RUN playwright install-deps chromium
 
 # Copy everything
 COPY . .
