@@ -11,7 +11,6 @@ This directory contains detailed documentation for each data source scraper in t
 ### Food Bank Networks
 - **[Care and Share Food Locator](care_and_share_food_locator_scraper.md)** - Colorado Springs/Southern Colorado
 - **[HCCC Food Pantry](hccc_food_pantry_scraper.md)** - Hudson County Community College pantries
-- **[HFC Partner Data](hfc_partner_data_scraper.md)** - Houston Food Bank partner network
 
 ### Technology Platforms
 - **[Plentiful](plentiful_scraper.md)** - Food pantry reservation system

@@ -1270,7 +1270,7 @@ case "$1" in
                     log "🔍 Dispatching scouts!"
                     
                     # Run scrapers in parallel, max concurrent as specified
-                    echo "$SCRAPERS" | xargs -P '$MAX_CONCURRENT' -I {} bash -c "
+                    echo "$SCRAPERS" | xargs -P $MAX_CONCURRENT -I {} bash -c "
                         echo \"🏃 Scouting: {}\"
                         if python -m app.scraper {} > /tmp/scraper_{}.log 2>&1; then
                             echo \"✅ Found data: {}\"
