@@ -1248,11 +1248,11 @@ case "$1" in
                     NC="\033[0m"
                     
                     log() {
-                        echo -e "${GREEN}[$(date +\"%Y-%m-%d %H:%M:%S\")]${NC} $1"
+                        echo -e "${GREEN}[$(date +%Y-%m-%d\ %H:%M:%S)]${NC} $1"
                     }
                     
                     error() {
-                        echo -e "${RED}[$(date +\"%Y-%m-%d %H:%M:%S\")] ERROR:${NC} $1" >&2
+                        echo -e "${RED}[$(date +%Y-%m-%d\ %H:%M:%S)] ERROR:${NC} $1" >&2
                     }
                     
                     # Get list of all scrapers
