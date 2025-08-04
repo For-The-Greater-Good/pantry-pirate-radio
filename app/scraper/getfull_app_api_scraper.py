@@ -50,21 +50,37 @@ class Getfull_App_ApiScraper(ScraperJob):
                 )
 
                 if session_response.status_code == 200:
-                    session_data = session_response.json()
-                    # Extract token from session if available
-                    if "token" in session_data:
-                        return session_data["token"]
+                    logger.info(f"Session response status: {session_response.status_code}")
+                    logger.info(f"Session response headers: {dict(session_response.headers)}")
+                    logger.info(f"Session response text: {session_response.text[:200]}")  # First 200 chars
+                    
+                    if session_response.text.strip():
+                        try:
+                            session_data = session_response.json()
+                            # Extract token from session if available
+                            if "token" in session_data:
+                                return session_data["token"]
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse session response as JSON: {e}")
 
                 # Try anonymous auth
+                logger.info("Trying anonymous auth endpoint")
                 auth_response = await client.post(
                     f"{self.api_url}/auth-api/anonymous",
                     headers={"Accept": "application/json"},
                 )
 
-                if auth_response.status_code == 200:
-                    auth_data = auth_response.json()
-                    if "token" in auth_data:
-                        return auth_data["token"]
+                logger.info(f"Anonymous auth response status: {auth_response.status_code}")
+                logger.info(f"Anonymous auth response headers: {dict(auth_response.headers)}")
+                logger.info(f"Anonymous auth response text: {auth_response.text[:200]}")
+
+                if auth_response.status_code == 200 and auth_response.text.strip():
+                    try:
+                        auth_data = auth_response.json()
+                        if "token" in auth_data:
+                            return auth_data["token"]
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse anonymous auth response as JSON: {e}")
 
         except Exception as e:
             logger.warning(f"Failed to get auth token: {e}")
@@ -73,14 +89,14 @@ class Getfull_App_ApiScraper(ScraperJob):
         return None
 
     async def search_pantries_by_bbox(
-        self, top_left: list[float], bottom_right: list[float], auth_token: str
+        self, top_left: list[float], bottom_right: list[float], auth_token: str | None = None
     ) -> list[dict[str, Any]]:
         """Search for pantries within a bounding box.
 
         Args:
             top_left: [lat, lng] of top-left corner
             bottom_right: [lat, lng] of bottom-right corner
-            auth_token: Authentication token
+            auth_token: Authentication token (optional)
 
         Returns:
             List of pantry data
@@ -88,9 +104,12 @@ class Getfull_App_ApiScraper(ScraperJob):
         search_url = f"{self.api_url}/es/search/geo/pantries"
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {auth_token}",
             "Content-Type": "application/json",
         }
+        
+        # Only add Authorization header if we have a token
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
 
         payload = {
             "top_left": top_left,
@@ -285,21 +304,20 @@ class Getfull_App_ApiScraper(ScraperJob):
         """
         logger.info("Starting GetFull.app API scraper")
 
-        # Get authentication token
+        # Try to get authentication token
         auth_token = await self.get_auth_token()
         if not auth_token:
-            logger.error("Failed to get authentication token")
-            # Try environment variable before failing
+            logger.warning("Failed to get authentication token from API")
+            # Try environment variable as fallback
             import os
 
             auth_token = os.getenv("GETFULL_AUTH_TOKEN")
-            if not auth_token:
-                raise RuntimeError(
-                    "Could not obtain authentication token. "
-                    "Please set GETFULL_AUTH_TOKEN environment variable."
-                )
+            if auth_token:
+                logger.info("Using auth token from environment variable")
+            else:
+                logger.warning("No auth token available - will try API without authentication")
         else:
-            logger.info("Successfully obtained auth token")
+            logger.info("Successfully obtained auth token from API")
 
         # Create search grid
         search_areas = self.create_search_grid()
