@@ -249,7 +249,7 @@ services:
       SKIP_DB_INIT: ${SKIP_DB_INIT:-false}
     volumes:
       - ./scripts:/app/scripts:ro
-      - haarrrvest_repo:/data-repo:ro
+      - haarrrvest_repo:/data-repo
     depends_on:
       db:
         condition: service_healthy

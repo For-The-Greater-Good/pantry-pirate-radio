@@ -175,7 +175,7 @@ services:
     volumes:
       - ../../outputs:/app/outputs
       - ../../scripts:/app/scripts:ro
-      - haarrrvest_repo:/data-repo:ro
+      - haarrrvest_repo:/data-repo
       - app_data:/app/data
       - claude_config:/root/.config/claude
     depends_on:
