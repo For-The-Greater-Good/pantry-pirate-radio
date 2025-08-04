@@ -71,7 +71,7 @@ check_db_schema() {
 
 # Function to check and wait for data repo to be ready
 check_data_repo() {
-    if [ ! -d "$DATA_REPO_PATH" ]; then
+    if [ ! -d "$DATA_REPO_PATH/.git" ]; then
         log "HAARRRvest data repository not found at $DATA_REPO_PATH"
         log "Cloning HAARRRvest repository for database initialization..."
         
