@@ -261,7 +261,8 @@ main() {
         log "Proceeding without data population"
     fi
 
-    # Step 5: Sync content store from repository (replace local)
+    # Step 5: Setup content store
+    # Check if content store exists in repository
     if [ -d "$DATA_REPO_PATH/content_store" ]; then
         log "Found content store in repository"
         
@@ -296,7 +297,34 @@ except:
             log "Content store synced (no index.db found)"
         fi
     else
-        log "No content store found in repository at $DATA_REPO_PATH/content_store"
+        log "No content store found in repository, creating new one..."
+        
+        # Create content store directory structure
+        mkdir -p /data-repo/content_store/{content,results}
+        
+        # Create index.db with correct schema
+        python3 -c "
+import sqlite3
+conn = sqlite3.connect('/data-repo/content_store/index.db')
+conn.execute('''
+    CREATE TABLE IF NOT EXISTS content_index (
+        hash TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        content_path TEXT NOT NULL,
+        result_path TEXT,
+        job_id TEXT,
+        created_at TIMESTAMP NOT NULL,
+        processed_at TIMESTAMP
+    )
+''')
+conn.commit()
+conn.close()
+print('Created new content store with empty index.db')
+" || {
+            warn "Failed to create content store index.db"
+        }
+        
+        log "Content store initialized successfully"
     fi
 
     # Step 6: Mark as healthy
