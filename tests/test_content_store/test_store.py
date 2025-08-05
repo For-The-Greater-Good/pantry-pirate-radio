@@ -334,3 +334,54 @@ class TestContentStore:
         # Test _get_result_path
         with pytest.raises(ValueError, match="Invalid hash format"):
             content_store._get_result_path(invalid_hash)
+
+    def test_is_job_active_handles_exceptions(self, content_store):
+        """_is_job_active should handle Redis exceptions gracefully."""
+        from rq.job import Job
+        
+        # Test with valid job that exists
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "started"
+            mock_fetch.return_value = mock_job
+            
+            assert content_store._is_job_active("job-active-123") is True
+            mock_fetch.assert_called_once_with("job-active-123", connection=content_store.redis_conn)
+        
+        # Test with job in queued status
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "queued"
+            mock_fetch.return_value = mock_job
+            
+            assert content_store._is_job_active("job-queued-456") is True
+        
+        # Test with completed job (not active)
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "finished"
+            mock_fetch.return_value = mock_job
+            
+            assert content_store._is_job_active("job-finished-789") is False
+        
+        # Test with failed job (not active)
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "failed"
+            mock_fetch.return_value = mock_job
+            
+            assert content_store._is_job_active("job-failed-999") is False
+        
+        # Test when Job.fetch raises exception (job doesn't exist)
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_fetch.side_effect = Exception("Job not found")
+            
+            assert content_store._is_job_active("job-nonexistent-111") is False
+            mock_fetch.assert_called_once_with("job-nonexistent-111", connection=content_store.redis_conn)
+        
+        # Test with Redis connection error
+        with patch.object(Job, "fetch") as mock_fetch:
+            from redis.exceptions import ConnectionError
+            mock_fetch.side_effect = ConnectionError("Redis connection failed")
+            
+            assert content_store._is_job_active("job-redis-error-222") is False
