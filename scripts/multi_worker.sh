@@ -59,9 +59,14 @@ for i in $(seq 1 $WORKER_COUNT); do
         redis-cli -u "${REDIS_URL:-redis://cache:6379}" del "rq:worker:$WORKER_NAME" &> /dev/null || true
     fi
 
-    # Use explicit command to avoid any configuration conflicts
-    echo "   Command: /usr/local/bin/python -m rq.cli worker $QUEUE_NAME --name $WORKER_NAME"
-    /usr/local/bin/python -m rq.cli worker "$QUEUE_NAME" --name "$WORKER_NAME" 2>&1 &
+    # Use custom Claude worker for llm queue, standard worker for others
+    if [ "$QUEUE_NAME" = "llm" ]; then
+        echo "   Command: /usr/local/bin/python /app/scripts/claude_worker.py $QUEUE_NAME $WORKER_NAME"
+        /usr/local/bin/python /app/scripts/claude_worker.py "$QUEUE_NAME" "$WORKER_NAME" 2>&1 &
+    else
+        echo "   Command: /usr/local/bin/python -m rq.cli worker $QUEUE_NAME --name $WORKER_NAME"
+        /usr/local/bin/python -m rq.cli worker "$QUEUE_NAME" --name "$WORKER_NAME" 2>&1 &
+    fi
     WORKER_PID=$!
     WORKER_PIDS+=($WORKER_PID)
     echo "   Started with PID: $WORKER_PID"
