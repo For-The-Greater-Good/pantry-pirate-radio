@@ -47,7 +47,6 @@ def test_process_llm_job_coroutine_success(
     sample_job: LLMJob,
     mock_provider: MagicMock,
     sample_llm_response: LLMResponse,
-    no_content_store,
 ) -> None:
     """Test successful processing of LLM job with coroutine result."""
 
@@ -60,7 +59,8 @@ def test_process_llm_job_coroutine_success(
     # Mock the queue operations
     with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
         with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
-            result = process_llm_job(sample_job, mock_provider)
+            with patch("app.content_store.config.get_content_store", return_value=None):
+                result = process_llm_job(sample_job, mock_provider)
 
     # Verify result
     assert result == sample_llm_response
@@ -95,7 +95,6 @@ def test_process_llm_job_async_generator_success(
     sample_job: LLMJob,
     mock_provider: MagicMock,
     sample_llm_response: LLMResponse,
-    no_content_store,
 ) -> None:
     """Test successful processing of LLM job with async generator result."""
 
@@ -110,7 +109,8 @@ def test_process_llm_job_async_generator_success(
     # Mock the queue operations
     with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
         with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
-            result = process_llm_job(sample_job, mock_provider)
+            with patch("app.content_store.config.get_content_store", return_value=None):
+                result = process_llm_job(sample_job, mock_provider)
 
     # Verify result
     assert result == sample_llm_response
@@ -120,219 +120,97 @@ def test_process_llm_job_async_generator_success(
     mock_recorder_queue.enqueue_call.assert_called_once()
 
 
-def test_process_llm_job_claude_not_authenticated_first_retry(
+def test_process_llm_job_claude_not_authenticated_updates_state(
     sample_job: LLMJob, mock_provider: MagicMock
 ) -> None:
-    """Test handling of Claude authentication error with retry."""
+    """Test handling of Claude authentication error updates state and raises."""
     from app.llm.providers.claude import ClaudeNotAuthenticatedException
 
     # Mock provider to raise authentication error
-    mock_provider.generate.side_effect = ClaudeNotAuthenticatedException(
-        "Authentication required"
+    auth_error = ClaudeNotAuthenticatedException(
+        "Authentication required", retry_after=300
     )
+    mock_provider.generate.side_effect = auth_error
 
-    # Mock current job context
-    mock_job = MagicMock()
-    mock_job.meta = {}
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
+    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+        with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
+            mock_auth_instance = MagicMock()
+            mock_auth_manager.return_value = mock_auth_instance
 
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-            mock_retry_job = MagicMock()
-            mock_retry_job.id = "retry-job-123"
-            mock_llm_queue.enqueue_in.return_value = mock_retry_job
+            # Should raise the auth exception
+            with pytest.raises(ClaudeNotAuthenticatedException):
+                process_llm_job(sample_job, mock_provider)
 
-            result = process_llm_job(sample_job, mock_provider)
-
-    # Verify retry was scheduled
-    assert isinstance(result, LLMResponse)
-    assert "Authentication required" in result.text
-    assert result.raw["auth_retry_scheduled"] is True
-    assert result.raw["retry_delay"] == 300  # 5 minutes
-
-    # Verify job metadata was updated
-    assert mock_job.meta["auth_retry_count"] == 1
-    mock_job.save_meta.assert_called_once()
-
-    # Verify retry job was enqueued
-    mock_llm_queue.enqueue_in.assert_called_once()
-    call_args = mock_llm_queue.enqueue_in.call_args
-    assert call_args[0][0] == timedelta(seconds=300)
-    assert "auth_retry" in call_args[1]["job_id"]
+            # Verify auth state was updated
+            mock_auth_manager.assert_called_once_with(mock_queue.connection)
+            mock_auth_instance.set_auth_failed.assert_called_once_with(
+                "Authentication required", retry_after=300
+            )
 
 
-def test_process_llm_job_claude_not_authenticated_max_retries(
+def test_process_llm_job_claude_not_authenticated_always_raises(
     sample_job: LLMJob, mock_provider: MagicMock
 ) -> None:
-    """Test handling of Claude authentication error after max retries."""
+    """Test that auth errors always raise and update state."""
     from app.llm.providers.claude import ClaudeNotAuthenticatedException
 
     # Mock provider to raise authentication error
     auth_error = ClaudeNotAuthenticatedException("Authentication required")
     mock_provider.generate.side_effect = auth_error
 
-    # Mock current job context with max retries reached
-    mock_job = MagicMock()
-    mock_job.meta = MagicMock()
-    mock_job.meta.auth_retry_count = 12  # Max retries
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
+    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+        with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
+            mock_auth_instance = MagicMock()
+            mock_auth_manager.return_value = mock_auth_instance
 
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with pytest.raises(ClaudeNotAuthenticatedException):
-            process_llm_job(sample_job, mock_provider)
+            with pytest.raises(ClaudeNotAuthenticatedException):
+                process_llm_job(sample_job, mock_provider)
+
+            # Verify auth state was updated
+            mock_auth_manager.assert_called_once()
 
 
-def test_process_llm_job_claude_not_authenticated_no_job_context(
+def test_process_llm_job_claude_quota_exceeded_updates_state(
     sample_job: LLMJob, mock_provider: MagicMock
 ) -> None:
-    """Test handling of Claude authentication error without job context."""
-    from app.llm.providers.claude import ClaudeNotAuthenticatedException
-
-    # Mock provider to raise authentication error
-    auth_error = ClaudeNotAuthenticatedException("Authentication required")
-    mock_provider.generate.side_effect = auth_error
-
-    # Mock no current job context
-    with patch("app.llm.queue.processor.get_current_job", return_value=None):
-        with pytest.raises(ClaudeNotAuthenticatedException):
-            process_llm_job(sample_job, mock_provider)
-
-
-def test_process_llm_job_claude_quota_exceeded_first_retry(
-    sample_job: LLMJob, mock_provider: MagicMock
-) -> None:
-    """Test handling of Claude quota exceeded error with retry."""
+    """Test handling of Claude quota exceeded error updates state and raises."""
     from app.llm.providers.claude import ClaudeQuotaExceededException
 
     # Mock provider to raise quota exceeded error
-    mock_provider.generate.side_effect = ClaudeQuotaExceededException("Quota exceeded")
-
-    # Mock current job context
-    mock_job = MagicMock()
-    mock_job.meta = {}
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
-
-    # Mock settings
-    mock_settings = MagicMock()
-    mock_settings.CLAUDE_QUOTA_RETRY_DELAY = 3600
-    mock_settings.CLAUDE_QUOTA_MAX_DELAY = 14400
-    mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
-
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.processor.settings", mock_settings):
-            with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-                mock_retry_job = MagicMock()
-                mock_retry_job.id = "retry-job-123"
-                mock_llm_queue.enqueue_in.return_value = mock_retry_job
-
-                result = process_llm_job(sample_job, mock_provider)
-
-    # Verify retry was scheduled
-    assert isinstance(result, LLMResponse)
-    assert "Quota exceeded" in result.text
-    assert result.raw["retry_scheduled"] is True
-    assert result.raw["retry_delay"] == 3600  # Base delay
-
-    # Verify job metadata was updated
-    assert mock_job.meta["quota_retry_count"] == 1
-    mock_job.save_meta.assert_called_once()
-
-    # Verify retry job was enqueued
-    mock_llm_queue.enqueue_in.assert_called_once()
-
-
-def test_process_llm_job_claude_quota_exceeded_exponential_backoff(
-    sample_job: LLMJob, mock_provider: MagicMock
-) -> None:
-    """Test exponential backoff for quota exceeded retries."""
-    from app.llm.providers.claude import ClaudeQuotaExceededException
-
-    # Mock provider to raise quota exceeded error
-    mock_provider.generate.side_effect = ClaudeQuotaExceededException("Quota exceeded")
-
-    # Mock current job context with existing retry count
-    mock_job = MagicMock()
-    mock_job.meta = MagicMock()
-    mock_job.meta.quota_retry_count = 2  # Third retry
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
-
-    # Mock settings
-    mock_settings = MagicMock()
-    mock_settings.CLAUDE_QUOTA_RETRY_DELAY = 3600  # 1 hour
-    mock_settings.CLAUDE_QUOTA_MAX_DELAY = 14400  # 4 hours
-    mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
-
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.processor.settings", mock_settings):
-            with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-                mock_retry_job = MagicMock()
-                mock_retry_job.id = "retry-job-123"
-                mock_llm_queue.enqueue_in.return_value = mock_retry_job
-
-                result = process_llm_job(sample_job, mock_provider)
-
-    # Calculate expected delay: 3600 * (1.5^2) = 8100
-    expected_delay = 8100
-    assert result.raw["retry_delay"] == expected_delay
-
-    # Verify retry job was enqueued with correct delay
-    call_args = mock_llm_queue.enqueue_in.call_args
-    assert call_args[0][0] == timedelta(seconds=expected_delay)
-
-
-def test_process_llm_job_claude_quota_exceeded_max_delay(
-    sample_job: LLMJob, mock_provider: MagicMock
-) -> None:
-    """Test that exponential backoff respects max delay."""
-    from app.llm.providers.claude import ClaudeQuotaExceededException
-
-    # Mock provider to raise quota exceeded error
-    mock_provider.generate.side_effect = ClaudeQuotaExceededException("Quota exceeded")
-
-    # Mock current job context with high retry count
-    mock_job = MagicMock()
-    mock_job.meta = MagicMock()
-    mock_job.meta.quota_retry_count = 10  # High retry count
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
-
-    # Mock settings
-    mock_settings = MagicMock()
-    mock_settings.CLAUDE_QUOTA_RETRY_DELAY = 3600  # 1 hour
-    mock_settings.CLAUDE_QUOTA_MAX_DELAY = 14400  # 4 hours max
-    mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
-
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.processor.settings", mock_settings):
-            with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-                mock_retry_job = MagicMock()
-                mock_retry_job.id = "retry-job-123"
-                mock_llm_queue.enqueue_in.return_value = mock_retry_job
-
-                result = process_llm_job(sample_job, mock_provider)
-
-    # Should be capped at max delay
-    assert result.raw["retry_delay"] == 14400
-
-
-def test_process_llm_job_claude_quota_exceeded_no_job_context(
-    sample_job: LLMJob, mock_provider: MagicMock
-) -> None:
-    """Test handling of Claude quota exceeded error without job context."""
-    from app.llm.providers.claude import ClaudeQuotaExceededException
-
-    # Mock provider to raise quota exceeded error
-    quota_error = ClaudeQuotaExceededException("Quota exceeded")
+    quota_error = ClaudeQuotaExceededException("Quota exceeded", retry_after=3600)
     mock_provider.generate.side_effect = quota_error
 
-    # Mock no current job context
-    with patch("app.llm.queue.processor.get_current_job", return_value=None):
-        with pytest.raises(ClaudeQuotaExceededException):
+    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+        with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
+            mock_auth_instance = MagicMock()
+            mock_auth_manager.return_value = mock_auth_instance
+
+            # Should raise the quota exception
+            with pytest.raises(ClaudeQuotaExceededException):
+                process_llm_job(sample_job, mock_provider)
+
+            # Verify quota state was updated
+            mock_auth_manager.assert_called_once_with(mock_queue.connection)
+            mock_auth_instance.set_quota_exceeded.assert_called_once_with(
+                "Quota exceeded", retry_after=3600
+            )
+
+
+def test_process_llm_job_other_errors_do_not_update_state(
+    sample_job: LLMJob, mock_provider: MagicMock
+) -> None:
+    """Test that non-Claude errors don't update auth state."""
+    # Mock provider to raise generic error
+    generic_error = ValueError("Something went wrong")
+    mock_provider.generate.side_effect = generic_error
+
+    with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
+        # Should raise the generic exception
+        with pytest.raises(ValueError, match="Something went wrong"):
             process_llm_job(sample_job, mock_provider)
+
+        # Auth manager should not be instantiated for generic errors
+        mock_auth_manager.assert_not_called()
 
 
 def test_process_llm_job_generic_exception(
@@ -347,46 +225,10 @@ def test_process_llm_job_generic_exception(
         process_llm_job(sample_job, mock_provider)
 
 
-def test_process_llm_job_settings_fallback(
-    sample_job: LLMJob, mock_provider: MagicMock
-) -> None:
-    """Test fallback behavior when settings attributes are missing."""
-    from app.llm.providers.claude import ClaudeQuotaExceededException
-
-    # Mock provider to raise quota exceeded error
-    mock_provider.generate.side_effect = ClaudeQuotaExceededException("Quota exceeded")
-
-    # Mock current job context
-    mock_job = MagicMock()
-    mock_job.meta = {}
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
-
-    # Mock settings to use default values when attributes are missing
-    mock_settings = MagicMock()
-    # Remove the Claude-specific attributes to trigger getattr defaults
-    del mock_settings.CLAUDE_QUOTA_RETRY_DELAY
-    del mock_settings.CLAUDE_QUOTA_MAX_DELAY
-    del mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER
-
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.processor.settings", mock_settings):
-            with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-                mock_retry_job = MagicMock()
-                mock_retry_job.id = "retry-job-123"
-                mock_llm_queue.enqueue_in.return_value = mock_retry_job
-
-                result = process_llm_job(sample_job, mock_provider)
-
-    # Should use default values (3600 is the default for CLAUDE_QUOTA_RETRY_DELAY)
-    assert result.raw["retry_delay"] == 3600  # Default base delay
-
-
 def test_process_llm_job_event_loop_cleanup(
     sample_job: LLMJob,
     mock_provider: MagicMock,
     sample_llm_response: LLMResponse,
-    no_content_store,
 ) -> None:
     """Test that event loop is properly cleaned up."""
 
@@ -404,7 +246,10 @@ def test_process_llm_job_event_loop_cleanup(
         with patch("asyncio.set_event_loop"):
             with patch("app.llm.queue.processor.reconciler_queue"):
                 with patch("app.llm.queue.processor.recorder_queue"):
-                    process_llm_job(sample_job, mock_provider)
+                    with patch(
+                        "app.content_store.config.get_content_store", return_value=None
+                    ):
+                        process_llm_job(sample_job, mock_provider)
 
     # Verify loop was closed
     mock_loop.close.assert_called_once()
@@ -430,7 +275,7 @@ def test_process_llm_job_exception_with_loop_cleanup(
 
 
 def test_process_llm_job_provider_without_model_name(
-    sample_job: LLMJob, sample_llm_response: LLMResponse, no_content_store
+    sample_job: LLMJob, sample_llm_response: LLMResponse
 ) -> None:
     """Test handling of provider without model_name attribute."""
     # Create provider without model_name
@@ -445,71 +290,7 @@ def test_process_llm_job_provider_without_model_name(
 
     with patch("app.llm.queue.processor.reconciler_queue"):
         with patch("app.llm.queue.processor.recorder_queue"):
-            result = process_llm_job(sample_job, mock_provider)
-
-    assert result == sample_llm_response
-
-
-def test_process_llm_job_claude_auth_error_provider_without_model_name(
-    sample_job: LLMJob,
-) -> None:
-    """Test Claude auth error handling with provider without model_name."""
-    from app.llm.providers.claude import ClaudeNotAuthenticatedException
-
-    # Create provider without model_name
-    mock_provider = MagicMock()
-    mock_provider.model_name = None
-    mock_provider.generate.side_effect = ClaudeNotAuthenticatedException(
-        "Authentication required"
-    )
-
-    # Mock current job context
-    mock_job = MagicMock()
-    mock_job.meta = {}
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
-
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-            mock_retry_job = MagicMock()
-            mock_retry_job.id = "retry-job-123"
-            mock_llm_queue.enqueue_in.return_value = mock_retry_job
-
-            result = process_llm_job(sample_job, mock_provider)
-
-    # Should use "claude" as fallback model name
-    assert result.model == "claude"
-
-
-def test_process_llm_job_quota_error_provider_without_model_name(
-    sample_job: LLMJob,
-) -> None:
-    """Test Claude quota error handling with provider without model_name."""
-    from app.llm.providers.claude import ClaudeQuotaExceededException
-
-    # Create provider without model_name
-    mock_provider = MagicMock()
-    mock_provider.model_name = None
-    mock_provider.generate.side_effect = ClaudeQuotaExceededException("Quota exceeded")
-
-    # Mock current job context
-    mock_job = MagicMock()
-    mock_job.meta = {}
-    mock_job.id = "current-job-123"
-    mock_job.save_meta = MagicMock()  # Mock the save_meta method
-
-    with patch("app.llm.queue.processor.get_current_job", return_value=mock_job):
-        with patch("app.llm.queue.processor.settings") as mock_settings:
-            mock_settings.CLAUDE_QUOTA_RETRY_DELAY = 3600
-            mock_settings.CLAUDE_QUOTA_MAX_DELAY = 14400
-            mock_settings.CLAUDE_QUOTA_BACKOFF_MULTIPLIER = 1.5
-
-            with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
-                mock_retry_job = MagicMock()
-                mock_retry_job.id = "retry-job-123"
-                mock_llm_queue.enqueue_in.return_value = mock_retry_job
-
+            with patch("app.content_store.config.get_content_store", return_value=None):
                 result = process_llm_job(sample_job, mock_provider)
 
-    # Should use "claude" as fallback model name
-    assert result.model == "claude"
+    assert result == sample_llm_response
