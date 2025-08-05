@@ -15,7 +15,7 @@ echo ""
 
 # 2. Check directory structure
 echo "2. Checking Content Store Directory Structure..."
-./bouy exec app ls -la /data-repo/content-store/ 2>/dev/null || echo "WARNING: Content store directory not found!"
+./bouy exec app ls -la /data-repo/content_store/ 2>/dev/null || echo "WARNING: Content store directory not found!"
 echo ""
 
 # 3. Run status check

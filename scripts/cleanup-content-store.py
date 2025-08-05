@@ -109,7 +109,7 @@ def main():
     parser.add_argument(
         "--content-store-path",
         type=Path,
-        default=Path("/data-repo/content-store"),
+        default=Path("/data-repo/content_store"),
         help="Path to content store directory"
     )
     parser.add_argument(

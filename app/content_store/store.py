@@ -29,7 +29,7 @@ class ContentStore:
             redis_url: Redis connection URL for checking job status
         """
         self.store_path = store_path
-        self.content_store_path = store_path / "content-store"
+        self.content_store_path = store_path / "content_store"
         self.redis_conn = redis.from_url(redis_url)
 
         # Create directory structure

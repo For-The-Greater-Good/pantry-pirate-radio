@@ -262,29 +262,29 @@ main() {
     fi
 
     # Step 5: Sync content store from repository (replace local)
-    if [ -d "$DATA_REPO_PATH/content-store" ]; then
+    if [ -d "$DATA_REPO_PATH/content_store" ]; then
         log "Found content store in repository"
         
         # Ensure the parent directory exists
         mkdir -p /data-repo
         
         # Remove existing local content store to ensure clean sync
-        if [ -d "/data-repo/content-store" ]; then
+        if [ -d "/data-repo/content_store" ]; then
             log "Removing existing local content store to sync from repository..."
-            rm -rf /data-repo/content-store
+            rm -rf /data-repo/content_store
         fi
         
         # Copy from repository (this is the source of truth)
         log "Syncing content store from repository..."
-        cp -r "$DATA_REPO_PATH/content-store" /data-repo/
+        cp -r "$DATA_REPO_PATH/content_store" /data-repo/content_store
         
         # Verify the sync
-        if [ -f "/data-repo/content-store/index.db" ]; then
+        if [ -f "/data-repo/content_store/index.db" ]; then
             # Quick check of the synced content
             local entry_count=$(python3 -c "
 import sqlite3
 try:
-    conn = sqlite3.connect('/data-repo/content-store/index.db')
+    conn = sqlite3.connect('/data-repo/content_store/index.db')
     cursor = conn.execute('SELECT COUNT(*) FROM content_index')
     print(cursor.fetchone()[0])
     conn.close()
@@ -296,7 +296,7 @@ except:
             log "Content store synced (no index.db found)"
         fi
     else
-        log "No content store found in repository at $DATA_REPO_PATH/content-store"
+        log "No content store found in repository at $DATA_REPO_PATH/content_store"
     fi
 
     # Step 6: Mark as healthy
