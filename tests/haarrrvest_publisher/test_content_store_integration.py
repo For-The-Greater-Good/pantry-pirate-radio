@@ -97,7 +97,7 @@ class TestHAARRRvestContentStoreIntegration:
         def git_side_effect(cmd, cwd=None):
             if cmd == ["git", "status", "--porcelain"]:
                 # Return non-empty to indicate changes
-                return (0, "M README.md\nA content_store/", "")
+                return (0, "M README.md\nA content-store/", "")
             return (0, "", "")
 
         mock_git_setup.side_effect = git_side_effect
@@ -106,14 +106,14 @@ class TestHAARRRvestContentStoreIntegration:
         publisher.process_once()
 
         # Assert - check that content store was synced
-        synced_store_path = temp_dirs["repo"] / "content_store"
+        synced_store_path = temp_dirs["repo"] / "content-store"
         # The sync happens even if git commit doesn't, so check the method was called
         # or check for actual files if sync was successful
-        assert (synced_store_path / "content-store").exists()
-        assert (synced_store_path / "content-store" / "index.db").exists()
+        assert synced_store_path.exists()
+        assert (synced_store_path / "index.db").exists()
 
         # Verify content files were synced
-        content_dir = synced_store_path / "content-store" / "content"
+        content_dir = synced_store_path / "content"
         assert content_dir.exists()
 
         # Check that git add was called with content store
@@ -130,10 +130,10 @@ class TestHAARRRvestContentStoreIntegration:
         """Should respect .gitignore for content store if configured."""
         # Setup - create .gitignore in repo
         gitignore_path = temp_dirs["repo"] / ".gitignore"
-        gitignore_path.write_text("# Content store\ncontent_store/\n")
+        gitignore_path.write_text("# Content store\ncontent-store/\n")
 
         # Create content store directory
-        content_store_dir = temp_dirs["repo"] / "content_store"
+        content_store_dir = temp_dirs["repo"] / "content-store"
         content_store_dir.mkdir(parents=True)
         (content_store_dir / "test.db").touch()
 
@@ -170,7 +170,7 @@ class TestHAARRRvestContentStoreIntegration:
     ):
         """Should preserve local content store when pulling updates."""
         # Setup - simulate existing content store
-        local_store_path = temp_dirs["repo"] / "content_store"
+        local_store_path = temp_dirs["repo"] / "content-store"
         local_store_path.mkdir(parents=True)
 
         # Create some local content
@@ -314,7 +314,7 @@ class TestHAARRRvestContentStoreIntegration:
             assert synced_output.exists()
 
             # Check content store was synced (if implemented)
-            synced_store = temp_dirs["repo"] / "content_store"
+            synced_store = temp_dirs["repo"] / "content-store"
             # This assertion depends on implementation
 
             # Verify git operations

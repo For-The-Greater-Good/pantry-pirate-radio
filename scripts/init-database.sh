@@ -101,8 +101,32 @@ check_data_repo() {
             return 1
         fi
     else
-        # Repository already exists, use the wait script to ensure it's stable
-        log "HAARRRvest repository already exists, checking if it's ready..."
+        # Repository already exists
+        log "HAARRRvest repository already exists, updating to latest..."
+        
+        # Enter the repository directory
+        cd "$DATA_REPO_PATH"
+        
+        # Ensure we're on main branch
+        if ! git checkout main 2>/dev/null; then
+            warn "Failed to checkout main branch"
+            warn "Repository may be in an inconsistent state"
+            return 1
+        fi
+        
+        # Pull latest changes
+        log "Pulling latest changes from origin/main..."
+        if git pull origin main; then
+            log "Repository updated successfully"
+        else
+            warn "Failed to pull latest changes"
+            warn "Continuing with existing repository state"
+        fi
+        
+        # Return to original directory
+        cd - >/dev/null
+        
+        # Wait for repository to be stable
         if /app/scripts/wait-for-repo-ready.sh; then
             log "HAARRRvest repository is ready"
             return 0
@@ -237,7 +261,45 @@ main() {
         log "Proceeding without data population"
     fi
 
-    # Step 5: Mark as healthy
+    # Step 5: Sync content store from repository (replace local)
+    if [ -d "$DATA_REPO_PATH/content-store" ]; then
+        log "Found content store in repository"
+        
+        # Ensure the parent directory exists
+        mkdir -p /data-repo
+        
+        # Remove existing local content store to ensure clean sync
+        if [ -d "/data-repo/content-store" ]; then
+            log "Removing existing local content store to sync from repository..."
+            rm -rf /data-repo/content-store
+        fi
+        
+        # Copy from repository (this is the source of truth)
+        log "Syncing content store from repository..."
+        cp -r "$DATA_REPO_PATH/content-store" /data-repo/
+        
+        # Verify the sync
+        if [ -f "/data-repo/content-store/index.db" ]; then
+            # Quick check of the synced content
+            local entry_count=$(python3 -c "
+import sqlite3
+try:
+    conn = sqlite3.connect('/data-repo/content-store/index.db')
+    cursor = conn.execute('SELECT COUNT(*) FROM content_index')
+    print(cursor.fetchone()[0])
+    conn.close()
+except:
+    print('0')
+" 2>/dev/null || echo "0")
+            log "Content store synced successfully with $entry_count entries"
+        else
+            log "Content store synced (no index.db found)"
+        fi
+    else
+        log "No content store found in repository at $DATA_REPO_PATH/content-store"
+    fi
+
+    # Step 6: Mark as healthy
     touch "$HEALTH_CHECK_FILE"
     log "Database initialization complete!"
 

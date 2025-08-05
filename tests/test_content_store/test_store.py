@@ -203,8 +203,8 @@ class TestContentStore:
         stored_job_id = content_store.get_job_id(entry.hash)
         assert stored_job_id == job_id
 
-    def test_should_return_existing_job_id_for_duplicate_content(self, content_store):
-        """Should return existing job ID when same content is stored again."""
+    def test_should_not_return_pending_job_for_duplicate_content(self, content_store):
+        """Should NOT return existing job ID for pending content (allow reprocessing)."""
         content = '{"name": "Duplicate Pantry", "address": "789 Pine St"}'
         metadata = {"scraper_id": "test_scraper"}
 
@@ -221,11 +221,36 @@ class TestContentStore:
             job_id = "job-999"
             content_store.link_job(entry1.hash, job_id)
 
-            # Second time: should return existing job ID
+            # Second time: should allow new processing (not return existing job)
             entry2 = content_store.store_content(content, metadata)
             assert entry2.hash == entry1.hash
             assert entry2.status == "pending"
-            assert entry2.job_id == job_id
+            assert entry2.job_id is None  # Should NOT return the existing job
+
+    def test_should_cleanup_failed_job_and_allow_reprocessing(self, content_store):
+        """Should clear failed job IDs and allow reprocessing."""
+        content = '{"name": "Failed Job Pantry"}'
+        metadata = {"scraper_id": "test_scraper"}
+
+        # Mock the _is_job_active method to return False (job failed/expired)
+        with patch.object(content_store, "_is_job_active") as mock_is_active:
+            mock_is_active.return_value = False
+
+            # First time: store content and link a job
+            entry1 = content_store.store_content(content, metadata)
+            content_store.link_job(entry1.hash, "job-failed-123")
+
+            # Verify job is linked
+            assert content_store.get_job_id(entry1.hash) == "job-failed-123"
+
+            # Second time: should clear the failed job and allow new processing
+            entry2 = content_store.store_content(content, metadata)
+            assert entry2.hash == entry1.hash
+            assert entry2.status == "pending"
+            assert entry2.job_id is None
+
+            # Verify the old job_id was cleared
+            assert content_store.get_job_id(entry1.hash) is None
 
     def test_should_prioritize_completed_over_pending(self, content_store):
         """Should return completed result even if job_id exists for pending."""

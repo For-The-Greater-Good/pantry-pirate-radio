@@ -330,7 +330,7 @@ class HAARRRvestPublisher:
                 return
 
             # Target path in HAARRRvest
-            target_path = self.data_repo_path / "content_store" / "content-store"
+            target_path = self.data_repo_path / "content-store"
 
             # Create target directory
             target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -393,7 +393,7 @@ class HAARRRvestPublisher:
 - `latest/` - Most recent data for each scraper
 - `sql_dumps/` - PostgreSQL dumps for fast initialization
 - `sqlite/` - SQLite database exports for Datasette
-- `content_store/` - Content deduplication store (if configured)
+- `content-store/` - Content deduplication store (if configured)
 
 ## Usage
 

@@ -162,21 +162,12 @@ class ContentStore:
                 job_id=result_data.get("job_id"),
             )
 
-        # Check if content already exists with a job_id (pending or processing)
+        # Check if content already exists with a job_id (for cleanup only)
         existing_job_id = self.get_job_id(content_hash)
-        if existing_job_id:
-            # Check if the job is still active
-            if self._is_job_active(existing_job_id):
-                return ContentEntry(
-                    hash=content_hash,
-                    status="pending",
-                    result=None,
-                    job_id=existing_job_id,
-                )
-            else:
-                # Job is no longer active (failed, expired, etc.)
-                # Clear the old job_id so content can be reprocessed
-                self.clear_job_id(content_hash)
+        if existing_job_id and not self._is_job_active(existing_job_id):
+            # Job is no longer active (failed, expired, etc.)
+            # Clear the old job_id so content can be reprocessed
+            self.clear_job_id(content_hash)
 
         # Store content if not already stored
         content_path = self._get_content_path(content_hash)
@@ -206,11 +197,9 @@ class ContentStore:
                 )
                 conn.commit()
 
-        # Check if we have a linked job_id for this content
-        job_id = self.get_job_id(content_hash)
-
+        # Return pending status without job_id (allow new processing)
         return ContentEntry(
-            hash=content_hash, status="pending", result=None, job_id=job_id
+            hash=content_hash, status="pending", result=None, job_id=None
         )
 
     def store_result(self, content_hash: str, result: str, job_id: str):
