@@ -262,50 +262,58 @@ main() {
     fi
 
     # Step 5: Setup content store
-    # Check if content store exists in repository
+    # The repository is cloned to /data-repo, check if content_store exists there
     if [ -d "$DATA_REPO_PATH/content_store" ]; then
-        log "Found content store in repository"
+        log "Found content_store directory in repository"
         
-        # Ensure the parent directory exists
-        mkdir -p /data-repo
-        
-        # Remove existing local content store to ensure clean sync
-        if [ -d "/data-repo/content_store" ]; then
-            log "Removing existing local content store to sync from repository..."
-            rm -rf /data-repo/content_store
-        fi
-        
-        # Copy from repository (this is the source of truth)
-        log "Syncing content store from repository..."
-        cp -r "$DATA_REPO_PATH/content_store" /data-repo/content_store
-        
-        # Verify the sync
-        if [ -f "/data-repo/content_store/index.db" ]; then
-            # Quick check of the synced content
+        # Check if it has a valid index.db
+        if [ -f "$DATA_REPO_PATH/content_store/index.db" ]; then
+            # Verify it has data
             local entry_count=$(python3 -c "
 import sqlite3
 try:
-    conn = sqlite3.connect('/data-repo/content_store/index.db')
+    conn = sqlite3.connect('$DATA_REPO_PATH/content_store/index.db')
     cursor = conn.execute('SELECT COUNT(*) FROM content_index')
     print(cursor.fetchone()[0])
     conn.close()
 except:
     print('0')
 " 2>/dev/null || echo "0")
-            log "Content store synced successfully with $entry_count entries"
+            log "Content store found with $entry_count entries"
         else
-            log "Content store synced (no index.db found)"
+            log "Content store directory exists but no index.db, creating one..."
+            # Create index.db with correct schema
+            python3 -c "
+import sqlite3
+conn = sqlite3.connect('$DATA_REPO_PATH/content_store/index.db')
+conn.execute('''
+    CREATE TABLE IF NOT EXISTS content_index (
+        hash TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        content_path TEXT NOT NULL,
+        result_path TEXT,
+        job_id TEXT,
+        created_at TIMESTAMP NOT NULL,
+        processed_at TIMESTAMP
+    )
+''')
+conn.commit()
+conn.close()
+print('Created new index.db with correct schema')
+" || {
+                warn "Failed to create content store index.db"
+            }
         fi
     else
         log "No content store found in repository, creating new one..."
         
         # Create content store directory structure
-        mkdir -p /data-repo/content_store/{content,results}
+        mkdir -p "$DATA_REPO_PATH/content_store/content" "$DATA_REPO_PATH/content_store/results"
         
         # Create index.db with correct schema
         python3 -c "
 import sqlite3
-conn = sqlite3.connect('/data-repo/content_store/index.db')
+conn = sqlite3.connect('$DATA_REPO_PATH/content_store/index.db')
 conn.execute('''
     CREATE TABLE IF NOT EXISTS content_index (
         hash TEXT PRIMARY KEY,
