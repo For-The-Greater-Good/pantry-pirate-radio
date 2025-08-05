@@ -211,8 +211,13 @@ def test_run_server_default_port():
 
             # Verify startup messages
             mock_print.assert_any_call("🏥 Claude Health Server running on port 8080")
-            mock_print.assert_any_call("   Health check: http://localhost:8080/health")
-            mock_print.assert_any_call("   Auth status:  http://localhost:8080/auth")
+            mock_print.assert_any_call(
+                "   Health check:   http://localhost:8080/health"
+            )
+            mock_print.assert_any_call("   Auth status:    http://localhost:8080/auth")
+            mock_print.assert_any_call(
+                "   Worker status:  http://localhost:8080/worker-status"
+            )
 
             # Verify shutdown
             mock_server_instance.serve_forever.assert_called_once()

@@ -57,6 +57,7 @@ class TestGetfullAppApiScraper:
         # Arrange
         mock_response = MagicMock(spec=Response)
         mock_response.status_code = 200
+        mock_response.headers = {"Set-Cookie": "token=test-token-123"}
         mock_response.json.return_value = {"token": "valid_token"}
 
         with patch.object(AsyncClient, "__aenter__") as mock_client:
@@ -385,17 +386,38 @@ class TestGetfullAppApiScraper:
         assert hsds_data["location"] == {}  # Empty location when coordinates invalid
 
     @pytest.mark.asyncio
-    async def test_should_raise_error_when_no_auth_token_available(self, scraper):
-        """Test that scraper raises error when no auth token is available."""
+    async def test_should_continue_without_auth_when_no_token_available(self, scraper):
+        """Test that scraper continues without auth when no token is available."""
         # Arrange
+        mock_grid_point = MagicMock()
+        mock_grid_point.name = "Test Location"
+        mock_grid_point.latitude = 40.7128
+        mock_grid_point.longitude = -74.0060
+
+        mock_response = MagicMock(spec=Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_response.raise_for_status = MagicMock()
+
         with patch.object(scraper, "get_auth_token", return_value=None):
             with patch.object(os, "getenv", return_value=None):
-
-                # Act & Assert
-                with pytest.raises(
-                    RuntimeError, match="Could not obtain authentication token"
+                with patch.object(
+                    scraper.utils, "get_us_grid_points", return_value=[mock_grid_point]
                 ):
-                    await scraper.scrape()
+                    with patch.object(AsyncClient, "__aenter__") as mock_client:
+                        mock_client.return_value.post = AsyncMock(
+                            return_value=mock_response
+                        )
+
+                        # Act - should not raise error
+                        result = await scraper.scrape()
+
+                        # Assert
+                        assert result is not None
+                        summary = json.loads(result)
+                        assert summary["total_search_areas"] == 1
+                        assert summary["total_pantries_found"] == 0
+                        assert summary["jobs_created"] == 0
 
     def test_should_handle_alternative_hour_field_names(self, scraper):
         """Test handling of alternative field names for hours."""
