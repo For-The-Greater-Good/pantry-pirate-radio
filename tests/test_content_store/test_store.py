@@ -36,10 +36,10 @@ class TestContentStore:
             mock_redis.return_value = mock_conn
             store = ContentStore(store_path=temp_store_path)
         assert store.store_path == temp_store_path
-        assert (temp_store_path / "content-store").exists()
-        assert (temp_store_path / "content-store" / "content").exists()
-        assert (temp_store_path / "content-store" / "results").exists()
-        assert (temp_store_path / "content-store" / "index.db").exists()
+        assert (temp_store_path / "content_store").exists()
+        assert (temp_store_path / "content_store" / "content").exists()
+        assert (temp_store_path / "content_store" / "results").exists()
+        assert (temp_store_path / "content_store" / "index.db").exists()
 
     def test_should_hash_content_deterministically(self, content_store):
         """Content hashing should be deterministic."""
@@ -162,7 +162,7 @@ class TestContentStore:
 
         # Should create subdirectory with first 2 chars of hash
         prefix = content_hash[:2]
-        content_dir = content_store.store_path / "content-store" / "content" / prefix
+        content_dir = content_store.store_path / "content_store" / "content" / prefix
         assert content_dir.exists()
         assert (content_dir / f"{content_hash}.json").exists()
 
