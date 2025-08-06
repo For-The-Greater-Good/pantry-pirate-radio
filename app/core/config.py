@@ -71,11 +71,12 @@ class Settings(BaseSettings):
                 "http://localhost:3000",
             ]
         return self
-    
+
     @model_validator(mode="after")
     def use_test_redis_for_testing(self) -> "Settings":
         """Use Redis database 1 for tests to ensure isolation."""
         import os
+
         if os.getenv("TESTING") == "true":
             # Use TEST_REDIS_URL if provided, otherwise switch to database 1
             test_redis_url = os.getenv("TEST_REDIS_URL")

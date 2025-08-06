@@ -37,31 +37,75 @@ class MergeStrategy(BaseReconciler):
         Returns:
             Dictionary representation of the row
         """
+        # Handle the case where row is a UUID string (36 chars with dashes)
+        if isinstance(row, str):
+            # Check if it looks like a UUID
+            if len(row) == 36 and row.count('-') == 4:
+                self.logger.debug(f"Row appears to be a UUID string: {row}")
+                # This shouldn't happen in normal operation
+                column_names = list(result.keys()) if hasattr(result, 'keys') else []
+                if len(column_names) == 1:
+                    return {column_names[0]: row}
+                else:
+                    self.logger.error(
+                        f"UUID string row with unexpected columns: {row}, columns: {column_names}"
+                    )
+                    return {}
+            # Handle other string cases
+            column_names = list(result.keys()) if hasattr(result, 'keys') else []
+            if len(column_names) == 1:
+                return {column_names[0]: row}
+            else:
+                self.logger.error(
+                    f"String value row with multiple columns: {row}, columns: {column_names}"
+                )
+                return {}
+        
         # If the row is already a mapping or dict-like, use it directly
         if hasattr(row, "items") and callable(row.items):
-            return dict(row)
+            try:
+                return dict(row)
+            except (TypeError, ValueError) as e:
+                self.logger.error(f"Failed to convert row with items() to dict: {e}, row type: {type(row)}")
+                return {}
+        
         # SQLAlchemy 1.4+ style with _mapping attribute (Row objects)
         if isinstance(row, Row):
-            # Use the mapping directly or convert to dict
-            return dict(row)
+            try:
+                # Use the mapping directly or convert to dict
+                return dict(row)
+            except (TypeError, ValueError) as e:
+                self.logger.error(f"Failed to convert Row to dict: {e}")
+                return {}
+        
         # SQLAlchemy named tuple style with _asdict method
         elif hasattr(row, "_asdict") and callable(row._asdict):
-            return dict(row._asdict())
+            try:
+                return dict(row._asdict())
+            except (TypeError, ValueError) as e:
+                self.logger.error(f"Failed to convert row with _asdict() to dict: {e}")
+                return {}
+        
         # Manual mapping using column names and values
         else:
-            column_names = list(result.keys())
+            column_names = list(result.keys()) if hasattr(result, 'keys') else []
             # Handle case where row might be a single value instead of tuple
-            if isinstance(row, str) or not hasattr(row, "__iter__"):
+            if not hasattr(row, "__iter__"):
                 # Single value result - likely just the ID
                 if len(column_names) == 1:
                     return {column_names[0]: row}
                 else:
                     # This shouldn't happen but log it
                     self.logger.error(
-                        f"Single value row with multiple columns: {row}, columns: {column_names}"
+                        f"Single non-iterable value with multiple columns: {row}, columns: {column_names}"
                     )
                     return {}
-            return dict(zip(column_names, row, strict=False))
+            
+            try:
+                return dict(zip(column_names, row, strict=False))
+            except (TypeError, ValueError) as e:
+                self.logger.error(f"Failed to zip columns with row values: {e}, row: {row}, columns: {column_names}")
+                return {}
 
     def merge_location(self, location_id: str) -> None:
         """Merge source-specific location records into a canonical record.
@@ -98,9 +142,15 @@ class MergeStrategy(BaseReconciler):
             # Use safer conversion method
             source_records = [self._row_to_dict(row, result) for row in rows]
 
-            # Check if any records are empty (conversion failed)
-            if any(not record for record in source_records):
-                raise ValueError("Row conversion resulted in empty records")
+            # Filter out any empty records (conversion failures)
+            valid_records = [record for record in source_records if record]
+            
+            # If no valid records after conversion, fall back
+            if not valid_records:
+                self.logger.warning(
+                    f"No valid source records after conversion for location {location_id}"
+                )
+                raise ValueError("No valid source records after conversion")
 
         except Exception as e:
             # Log error with more details
@@ -146,7 +196,7 @@ class MergeStrategy(BaseReconciler):
             return
 
         # Apply merging strategy to create canonical record
-        merged_data = self._merge_location_data(source_records)
+        merged_data = self._merge_location_data(valid_records)
 
         # Update canonical record
         update_query = text(
@@ -175,7 +225,7 @@ class MergeStrategy(BaseReconciler):
         self.db.commit()
 
         self.logger.info(
-            f"Merged {len(source_records)} source records for location {location_id}"
+            f"Merged {len(valid_records)} source records for location {location_id}"
         )
 
     def _merge_location_data(
@@ -259,9 +309,15 @@ class MergeStrategy(BaseReconciler):
             # Use safer conversion method
             source_records = [self._row_to_dict(row, result) for row in rows]
 
-            # Check if any records are empty (conversion failed)
-            if any(not record for record in source_records):
-                raise ValueError("Row conversion resulted in empty records")
+            # Filter out any empty records (conversion failures)
+            valid_records = [record for record in source_records if record]
+            
+            # If no valid records after conversion, fall back
+            if not valid_records:
+                self.logger.warning(
+                    f"No valid source records after conversion for organization {organization_id}"
+                )
+                raise ValueError("No valid source records after conversion")
 
         except Exception as e:
             # Log the error and check the actual data structure
@@ -313,8 +369,8 @@ class MergeStrategy(BaseReconciler):
             )
             return
 
-        # Apply merging strategy to create canonical record
-        merged_data = self._merge_organization_data(source_records)
+        # Apply merging strategy to create canonical record  
+        merged_data = self._merge_organization_data(valid_records)
 
         # Update canonical record
         update_query = text(
@@ -352,7 +408,7 @@ class MergeStrategy(BaseReconciler):
         self.db.commit()
 
         self.logger.info(
-            f"Merged {len(source_records)} source records for organization {organization_id}"
+            f"Merged {len(valid_records)} source records for organization {organization_id}"
         )
 
     def _merge_organization_data(
