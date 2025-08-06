@@ -27,22 +27,26 @@ class ValidationResultDict(TypedDict):
 class ValidationConfig:
     """Configuration for HSDS validation."""
 
-    min_confidence: float = 0.82  # Default value, overridden in __post_init__
-    retry_threshold: float = 0.65  # Default value, overridden in __post_init__
-    max_retries: int = 5  # Default value, overridden in __post_init__
+    min_confidence: float = 0.82  # Default value
+    retry_threshold: float = 0.65  # Default value
+    max_retries: int = 5  # Default value
     # Optional different model to use for validation
     validation_model: str | None = None
+    # Flag to control whether to load from environment
+    load_from_env: bool = True
 
     def __post_init__(self) -> None:
         """Load from environment and validate configuration values."""
-        # Load from environment, using class defaults as fallback
-        self.min_confidence = float(
-            os.getenv("HSDS_MIN_CONFIDENCE", str(self.min_confidence))
-        )
-        self.retry_threshold = float(
-            os.getenv("HSDS_RETRY_THRESHOLD", str(self.retry_threshold))
-        )
-        self.max_retries = int(os.getenv("HSDS_MAX_RETRIES", str(self.max_retries)))
+        # Only load from environment if flag is set (allows tests to disable)
+        if self.load_from_env:
+            # Load from environment, using class defaults as fallback
+            self.min_confidence = float(
+                os.getenv("HSDS_MIN_CONFIDENCE", str(self.min_confidence))
+            )
+            self.retry_threshold = float(
+                os.getenv("HSDS_RETRY_THRESHOLD", str(self.retry_threshold))
+            )
+            self.max_retries = int(os.getenv("HSDS_MAX_RETRIES", str(self.max_retries)))
 
         # Validate values
         if not 0.0 <= self.min_confidence <= 1.0:

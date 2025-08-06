@@ -168,7 +168,7 @@ async def test_aligner_validation_success(
     )
 
     # Create aligner with default validation config and provider
-    config = ValidationConfig()  # Uses 0.82 min_confidence by default
+    config = ValidationConfig(load_from_env=False)  # Uses 0.82 min_confidence by default
     aligner = HSDSAligner(
         mock_provider,
         schema_path,
@@ -231,7 +231,7 @@ async def test_aligner_validation_failure(
     )
 
     # Create aligner with default validation config and provider
-    config = ValidationConfig()  # Uses 0.82 min_confidence by default
+    config = ValidationConfig(load_from_env=False)  # Uses 0.82 min_confidence by default
     aligner = HSDSAligner(
         mock_provider,
         schema_path,
@@ -411,7 +411,7 @@ async def test_aligner_validation_retry_success(
     ]
 
     # Create aligner with default validation config
-    config = ValidationConfig()  # Uses 0.82 min_confidence and 0.65 retry_threshold
+    config = ValidationConfig(load_from_env=False)  # Uses 0.82 min_confidence and 0.65 retry_threshold
     aligner = HSDSAligner(
         mock_provider,
         schema_path,
