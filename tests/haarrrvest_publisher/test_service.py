@@ -193,8 +193,12 @@ class TestHAARRRvestPublisher:
         mock_run.side_effect = [
             Mock(returncode=0, stdout="", stderr=""),  # config user.email
             Mock(returncode=0, stdout="", stderr=""),  # config user.name
-            Mock(returncode=0, stdout="M file.txt", stderr=""),  # status --porcelain (first check)
-            Mock(returncode=0, stdout="M file.txt", stderr=""),  # status --porcelain (second check after content_store handling)
+            Mock(
+                returncode=0, stdout="M file.txt", stderr=""
+            ),  # status --porcelain (first check)
+            Mock(
+                returncode=0, stdout="M file.txt", stderr=""
+            ),  # status --porcelain (second check after content_store handling)
             Mock(returncode=0, stdout="", stderr=""),  # stash push
             Mock(returncode=0, stdout="", stderr=""),  # checkout main
             Mock(returncode=0, stdout="", stderr=""),  # fetch

@@ -32,7 +32,7 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
     logger.info(
         f"Starting to process LLM job {job.id} with provider {provider.model_name}"
     )
-    
+
     # DEBUG: Check metadata for content_hash
     print(f"DEBUG: Job {job.id} metadata: {job.metadata}")
     logger.warning(f"DEBUG: Job {job.id} metadata: {job.metadata}")
@@ -76,10 +76,14 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         if content_store:
             if "content_hash" in job.metadata:
                 content_hash = job.metadata["content_hash"]
-                logger.info(f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})")
+                logger.info(
+                    f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
+                )
                 try:
                     content_store.store_result(content_hash, llm_result.text, job.id)
-                    logger.info(f"Successfully stored result for hash {content_hash[:8]}...")
+                    logger.info(
+                        f"Successfully stored result for hash {content_hash[:8]}..."
+                    )
                 except Exception as e:
                     logger.error(f"Failed to store result in content store: {e}")
                     # Don't fail the job, but log the error

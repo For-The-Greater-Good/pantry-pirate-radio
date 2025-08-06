@@ -128,13 +128,13 @@ class TestDashboardRoutes:
     @patch("app.content_store.dashboard.get_content_store")
     @patch("app.content_store.dashboard.get_redis_connection")
     @patch("app.content_store.dashboard.sqlite3.connect")
-    def test_api_stats_success(
-        self, mock_connect, mock_redis, mock_get_store, client
-    ):
+    def test_api_stats_success(self, mock_connect, mock_redis, mock_get_store, client):
         """API stats endpoint should return dashboard statistics."""
         # Mock ContentStore with proper content_store_path
         mock_store = Mock()
-        mock_store.content_store_path = Path("/data-repo/content_store")  # Use real Path object
+        mock_store.content_store_path = Path(
+            "/data-repo/content_store"
+        )  # Use real Path object
         mock_store.get_statistics.return_value = {
             "total_content": 100,
             "processed_content": 75,
@@ -213,7 +213,9 @@ class TestDashboardRoutes:
         """API stats should handle job fetch exceptions gracefully."""
         # Mock ContentStore with proper content_store_path
         mock_store = Mock()
-        mock_store.content_store_path = Path("/data-repo/content_store")  # Use real Path object
+        mock_store.content_store_path = Path(
+            "/data-repo/content_store"
+        )  # Use real Path object
         mock_store.get_statistics.return_value = {
             "total_content": 10,
             "processed_content": 5,
@@ -262,7 +264,9 @@ class TestDashboardRoutes:
         """API stats should handle content file read exceptions gracefully."""
         # Mock ContentStore with proper content_store_path
         mock_store = Mock()
-        mock_store.content_store_path = Path("/data-repo/content_store")  # Use real Path object
+        mock_store.content_store_path = Path(
+            "/data-repo/content_store"
+        )  # Use real Path object
         mock_store.get_statistics.return_value = {
             "total_content": 10,
             "processed_content": 5,
@@ -540,10 +544,10 @@ class TestDashboardIntegration:
         # Create a mock content store directory structure
         content_store_dir = temp_db_path.parent / "content_store_test"
         content_store_dir.mkdir(exist_ok=True)
-        
+
         # Create an actual database file
         index_db_path = content_store_dir / "index.db"
-        
+
         # Create and populate test database
         conn = sqlite3.connect(index_db_path)
         conn.execute(
@@ -564,10 +568,12 @@ class TestDashboardIntegration:
             ("test_hash_123", "completed", "job_456", "2023-12-01 10:00:00"),
         )
         conn.commit()
-        
+
         # Mock ContentStore with proper content_store_path
         mock_store = Mock()
-        mock_store.content_store_path = content_store_dir  # Use directory containing index.db
+        mock_store.content_store_path = (
+            content_store_dir  # Use directory containing index.db
+        )
         mock_store.get_statistics.return_value = {
             "total_content": 50,
             "processed_content": 30,
@@ -588,7 +594,7 @@ class TestDashboardIntegration:
         mock_store._get_content_path.return_value = mock_content_path
 
         response = client.get("/api/stats")
-        
+
         # Close connection after test
         conn.close()
 
@@ -600,12 +606,12 @@ class TestDashboardIntegration:
         assert "recent_entries" in data
         assert "cache_hits" in data
         assert "timestamp" in data
-        
+
         # Verify stats from mock
         assert data["stats"]["total_content"] == 50
         assert data["stats"]["processed_content"] == 30
         assert data["stats"]["pending_content"] == 20
-        
+
         # Verify recent entries were retrieved
         assert isinstance(data["recent_entries"], list)
         if len(data["recent_entries"]) > 0:

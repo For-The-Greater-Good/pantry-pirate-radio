@@ -42,7 +42,9 @@ class MergeStrategy(BaseReconciler):
             # Check if it looks like a UUID
             if len(row) == 36 and row.count("-") == 4:
                 self.logger.warning(f"Row appears to be a UUID string: {row}")
-                self.logger.warning(f"Result type: {type(result)}, has keys: {hasattr(result, 'keys')}")
+                self.logger.warning(
+                    f"Result type: {type(result)}, has keys: {hasattr(result, 'keys')}"
+                )
                 # This shouldn't happen in normal operation
                 column_names = list(result.keys()) if hasattr(result, "keys") else []
                 self.logger.warning(f"Column names from result: {column_names}")

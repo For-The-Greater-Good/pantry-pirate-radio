@@ -244,7 +244,7 @@ class ContentStore:
                     content_hash,
                 ),
             )
-            
+
             # If no rows were updated, insert a new entry
             if cursor.rowcount == 0:
                 # Entry doesn't exist - this can happen if content was processed
@@ -260,14 +260,16 @@ class ContentStore:
                     (
                         content_hash,
                         "completed",
-                        str(content_path),  # Use expected content path even if file doesn't exist
+                        str(
+                            content_path
+                        ),  # Use expected content path even if file doesn't exist
                         str(result_path),
                         job_id,
                         datetime.utcnow(),
                         datetime.utcnow(),
                     ),
                 )
-            
+
             conn.commit()
 
     def get_job_id(self, content_hash: str) -> Optional[str]:
