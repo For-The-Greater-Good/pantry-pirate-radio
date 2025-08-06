@@ -24,17 +24,50 @@ echo "Running CI checks locally..."
 # Pre-commit style checks
 echo -e "\n=== Running Pre-commit Style Checks ==="
 # Check YAML files
-if find . -name "*.yaml" -o -name "*.yml" | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)" | head -1 > /dev/null 2>&1; then
-    run_check "YAML Check" find . -name "*.yaml" -o -name "*.yml" | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)" | xargs -I {} python -c "import yaml; yaml.safe_load(open('{}'))"
+echo "=== Running YAML Check ==="
+if find . \( -name "*.yaml" -o -name "*.yml" \) | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)" | head -1 > /dev/null 2>&1; then
+    yaml_files=$(find . \( -name "*.yaml" -o -name "*.yml" \) | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)")
+    if [ -n "$yaml_files" ]; then
+        for file in $yaml_files; do
+            if ! python -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
+                errors=$((errors + 1))
+                error_list="$error_list\n- YAML Check failed for $file"
+            fi
+        done
+    fi
 fi
+
 # Check TOML files
+echo "=== Running TOML Check ==="
 if find . -name "*.toml" | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)" | head -1 > /dev/null 2>&1; then
-    run_check "TOML Check" find . -name "*.toml" | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)" | xargs -I {} python -c "import tomllib; tomllib.load(open('{}', 'rb'))"
+    toml_files=$(find . -name "*.toml" | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pycache__|htmlcov)")
+    if [ -n "$toml_files" ]; then
+        for file in $toml_files; do
+            if ! python -c "import tomllib; tomllib.load(open('$file', 'rb'))" 2>/dev/null; then
+                errors=$((errors + 1))
+                error_list="$error_list\n- TOML Check failed for $file"
+            fi
+        done
+    fi
 fi
+
 # Check for large files (>500KB)
-run_check "Large Files Check" bash -c 'large_files=$(find . -type f -size +500k -not -path "./.git/*" -not -path "./.*" 2>/dev/null | head -10); [ -z "$large_files" ] || (echo "Large files found: $large_files" && false)'
+echo "=== Running Large Files Check ==="
+large_files=$(find . -type f -size +500k -not -path "./.git/*" -not -path "./.*" 2>/dev/null | head -10)
+if [ -n "$large_files" ]; then
+    echo "Large files found: $large_files"
+    errors=$((errors + 1))
+    error_list="$error_list\n- Large Files Check failed"
+fi
+
 # Check for trailing whitespace
-run_check "Trailing Whitespace" bash -c 'files_with_trailing=$(find . -name "*.py" -exec grep -l "[[:space:]]$" {} \; 2>/dev/null | head -10); [ -z "$files_with_trailing" ] || (echo "Files with trailing whitespace: $files_with_trailing" && false)'
+echo "=== Running Trailing Whitespace ==="
+files_with_trailing=$(find . -name "*.py" -exec grep -l "[[:space:]]$" {} \; 2>/dev/null | head -10)
+if [ -n "$files_with_trailing" ]; then
+    echo "Files with trailing whitespace: $files_with_trailing"
+    errors=$((errors + 1))
+    error_list="$error_list\n- Trailing Whitespace Check failed"
+fi
 
 # Code Formatting and Linting
 echo -e "\n=== Running Code Formatting and Linting ==="

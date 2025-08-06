@@ -64,6 +64,24 @@ class HAARRRvestPublisher:
                 "✅ Publisher running in READ-ONLY mode - no remote pushes will occur"
             )
 
+    def _safe_log(self, level, message):
+        """Safely log a message, checking if logger handlers are still open."""
+        # Check if logger handlers are still open before logging
+        # This prevents "I/O operation on closed file" errors during test teardown
+        if logger.handlers and all(
+            not getattr(h.stream, "closed", False)
+            for h in logger.handlers
+            if hasattr(h, "stream")
+        ):
+            if level == "info":
+                logger.info(message)
+            elif level == "warning":
+                logger.warning(message)
+            elif level == "error":
+                logger.error(message)
+            elif level == "debug":
+                logger.debug(message)
+
     def _load_processed_files(self):
         """Load list of already processed files."""
         state_file = self.output_dir / ".haarrrvest_publisher_state.json"
@@ -655,7 +673,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 
     def _export_to_sql_dump(self):
         """Export PostgreSQL database to compressed SQL dump for fast initialization."""
-        logger.info("Creating PostgreSQL SQL dump")
+        self._safe_log("info", "Creating PostgreSQL SQL dump")
 
         try:
             # Create sql_dumps directory in repo
@@ -695,7 +713,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 raise Exception("Cannot verify database state before dump")
 
             current_count = int(result.stdout.strip())
-            logger.info(f"Current database has {current_count} organizations")
+            self._safe_log(
+                "info", f"Current database has {current_count} organizations"
+            )
 
             # Load or initialize ratchet file
             ratchet_file = sql_dumps_dir / ".record_count_ratchet"
@@ -705,7 +725,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 try:
                     ratchet_data = json.loads(ratchet_file.read_text())
                     max_known_count = ratchet_data.get("max_record_count", 0)
-                    logger.info(f"Previous maximum record count: {max_known_count}")
+                    self._safe_log(
+                        "info", f"Previous maximum record count: {max_known_count}"
+                    )
                 except Exception as e:
                     logger.warning(f"Could not read ratchet file: {e}")
 
@@ -756,7 +778,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 
             # Update ratchet if current count is higher
             if current_count > max_known_count:
-                logger.info(f"New record count high water mark: {current_count}")
+                self._safe_log(
+                    "info", f"New record count high water mark: {current_count}"
+                )
                 ratchet_data = {
                     "max_record_count": current_count,
                     "updated_at": datetime.now().isoformat(),
@@ -771,7 +795,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             # Create a plain SQL dump without compression for better git tracking
             # Git can efficiently track text file changes
             # Run pg_dump without shell
-            logger.info(f"Running pg_dump to create {dump_filename}")
+            self._safe_log("info", f"Running pg_dump to create {dump_filename}")
             env = os.environ.copy()
             env["PGPASSWORD"] = db_password
             dump_cmd = [
@@ -801,8 +825,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             if result.returncode == 0:
                 # Get file size
                 file_size_mb = dump_path.stat().st_size / (1024 * 1024)
-                logger.info(
-                    f"Successfully created SQL dump: {dump_filename} ({file_size_mb:.1f} MB)"
+                self._safe_log(
+                    "info",
+                    f"Successfully created SQL dump: {dump_filename} ({file_size_mb:.1f} MB)",
                 )
 
                 # Create a latest symlink for easy access
@@ -810,7 +835,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 if latest_link.exists():
                     latest_link.unlink()
                 latest_link.symlink_to(dump_filename)
-                logger.info("Updated latest.sql symlink")
+                self._safe_log("info", "Updated latest.sql symlink")
 
                 # Keep only recent dumps (last 24 hours worth)
                 self._cleanup_old_dumps(sql_dumps_dir, keep_hours=24)
@@ -1077,13 +1102,14 @@ This repository contains food resource data collected by Pantry Pirate Radio.
     def _shutdown_handler(self, signum=None, frame=None):
         """Handle shutdown by creating a final SQL dump."""
         _ = signum, frame  # Signal handler parameters, not used but required
-        logger.info("Received shutdown signal, creating final SQL dump...")
+
+        self._safe_log("info", "Received shutdown signal, creating final SQL dump...")
         try:
             # Create a final SQL dump before shutdown
             self._export_to_sql_dump()
-            logger.info("Final SQL dump created successfully")
+            self._safe_log("info", "Final SQL dump created successfully")
         except Exception as e:
-            logger.error(f"Failed to create final SQL dump: {e}")
+            self._safe_log("error", f"Failed to create final SQL dump: {e}")
 
     def run(self):
         """Run the service continuously."""
