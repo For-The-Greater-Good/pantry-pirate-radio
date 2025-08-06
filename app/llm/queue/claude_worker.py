@@ -39,50 +39,12 @@ class ClaudeWorker(Worker):
         logger.info("Claude worker initialized with auth state management")
 
     def execute_job(self, job: Job, queue: Any) -> None:
-        """Execute job with pre-flight auth check.
+        """Execute job with auth state management.
 
         Args:
             job: The RQ job to execute
             queue: The queue the job came from
         """
-        # Check auth state before executing
-        is_healthy, error_details = self.auth_manager.is_healthy()
-
-        if not is_healthy:
-            # Log the issue
-            error_type = (
-                error_details.get("status", "unknown") if error_details else "unknown"
-            )
-            retry_in = error_details.get("retry_in_seconds", 0) if error_details else 0
-
-            logger.warning(
-                f"Worker skipping job {job.id} due to {error_type}. "
-                f"Will retry in {retry_in} seconds"
-            )
-
-            # Requeue the job for later using RQ's retry mechanism
-            # Calculate delay based on retry time
-            retry_delay = max(1, min(retry_in, 300))  # 1 sec to 5 min delay
-
-            from datetime import datetime, timedelta
-            from rq.registry import ScheduledJobRegistry
-            from rq.job import JobStatus
-
-            # Add job to scheduled registry instead of immediate queue
-            registry = ScheduledJobRegistry(queue=queue, connection=self.connection)
-            scheduled_time = datetime.now() + timedelta(seconds=retry_delay)
-            registry.schedule(job, scheduled_datetime=scheduled_time)
-
-            logger.info(f"Scheduled job {job.id} for retry in {retry_delay}s")
-
-            # Mark job as deferred (scheduled for retry)
-            job.set_status(JobStatus.DEFERRED)
-            job.save_meta()  # Save the updated metadata
-
-            # Sleep briefly to avoid burning CPU
-            time.sleep(1)
-            return
-
         # Perform periodic auth check if needed
         if self.auth_manager.should_check_auth(self.auth_check_interval):
             self._perform_auth_check()
@@ -132,6 +94,40 @@ class ClaudeWorker(Worker):
         except Exception as e:
             logger.error(f"Error during background auth check: {e}")
             # Don't update state on check errors
+
+    def dequeue_job_and_maintain_ttl(self, timeout: Optional[int] = None, max_idle_time: Optional[int] = None) -> Optional[tuple]:
+        """Override dequeue to check auth state before picking up jobs.
+        
+        Args:
+            timeout: Timeout for blocking dequeue
+            max_idle_time: Maximum idle time before worker shuts down
+            
+        Returns:
+            Job tuple if auth is healthy and job available, None otherwise
+        """
+        # Check auth state before attempting to dequeue
+        is_healthy, error_details = self.auth_manager.is_healthy()
+        
+        if not is_healthy:
+            # Don't dequeue jobs when auth is unhealthy
+            # Sleep for a short time to avoid burning CPU
+            retry_in = error_details.get("retry_in_seconds", 60) if error_details else 60
+            sleep_time = min(10, retry_in)  # Sleep max 10 seconds at a time
+            
+            # Log periodically (not every loop)
+            if not hasattr(self, "_last_auth_log") or time.time() - self._last_auth_log > 30:
+                error_type = error_details.get("status", "unknown") if error_details else "unknown"
+                logger.debug(
+                    f"Worker paused due to {error_type}. "
+                    f"Will check again in {retry_in} seconds"
+                )
+                self._last_auth_log = time.time()
+            
+            time.sleep(sleep_time)
+            return None
+            
+        # Auth is healthy, proceed with normal dequeue
+        return super().dequeue_job_and_maintain_ttl(timeout, max_idle_time)
 
     def work(self, *args, **kwargs):
         """Override work method to add startup auth check."""

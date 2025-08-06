@@ -112,6 +112,10 @@ class AuthStateManager:
         if auth_data:
             auth_state = json.loads(auth_data)
             if auth_state.get("retry_at", 0) > time.time():
+                # Add retry_in_seconds for convenience
+                auth_state["retry_in_seconds"] = max(
+                    0, int(auth_state.get("retry_at", 0) - time.time())
+                )
                 return False, auth_state
 
         # Check quota status
@@ -119,6 +123,10 @@ class AuthStateManager:
         if quota_data:
             quota_state = json.loads(quota_data)
             if quota_state.get("retry_at", 0) > time.time():
+                # Add retry_in_seconds for convenience
+                quota_state["retry_in_seconds"] = max(
+                    0, int(quota_state.get("retry_at", 0) - time.time())
+                )
                 return False, quota_state
 
         return True, None

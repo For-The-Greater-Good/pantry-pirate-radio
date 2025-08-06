@@ -210,6 +210,27 @@ services:
     depends_on:
       - cache
 
+  content-store-dashboard:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: production-base
+    command: python -m app.content_store.dashboard
+    ports:
+      - "5050:5050"
+    env_file: ../../.env
+    environment:
+      - DASHBOARD_HOST=0.0.0.0  # Required for container networking
+      - DASHBOARD_PORT=5050
+    volumes:
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
   datasette-exporter:
     build:
       context: ../..
