@@ -595,4 +595,3 @@ class TestDashboardIntegration:
         assert "stats-grid" in content
         assert "stat-card" in content
         assert "table-container" in content
-

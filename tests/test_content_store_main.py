@@ -413,7 +413,9 @@ class TestContentStoreMain:
         mock_app.run.assert_called_once_with(host="localhost", port=8080, debug=False)
 
         captured = capsys.readouterr()
-        assert "Starting Content Store Dashboard on http://localhost:8080" in captured.out
+        assert (
+            "Starting Content Store Dashboard on http://localhost:8080" in captured.out
+        )
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
@@ -549,4 +551,3 @@ class TestMainEntryPoint:
 if __name__ == "__main__":
     # Test the module entry point pattern
     pytest.main([__file__])
-

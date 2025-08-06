@@ -308,4 +308,3 @@ class TestAuthStatus:
         assert AuthStatus.HEALTHY.value == "healthy"
         assert AuthStatus.AUTH_FAILED.value == "auth_failed"
         assert AuthStatus.QUOTA_EXCEEDED.value == "quota_exceeded"
-
