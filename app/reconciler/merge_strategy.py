@@ -41,9 +41,11 @@ class MergeStrategy(BaseReconciler):
         if isinstance(row, str):
             # Check if it looks like a UUID
             if len(row) == 36 and row.count("-") == 4:
-                self.logger.debug(f"Row appears to be a UUID string: {row}")
+                self.logger.warning(f"Row appears to be a UUID string: {row}")
+                self.logger.warning(f"Result type: {type(result)}, has keys: {hasattr(result, 'keys')}")
                 # This shouldn't happen in normal operation
                 column_names = list(result.keys()) if hasattr(result, "keys") else []
+                self.logger.warning(f"Column names from result: {column_names}")
                 if len(column_names) == 1:
                     return {column_names[0]: row}
                 else:
@@ -159,6 +161,11 @@ class MergeStrategy(BaseReconciler):
         if not rows:
             self.logger.warning(f"No source records found for location {location_id}")
             return
+
+        # Debug logging to understand what we're getting
+        self.logger.debug(f"Query returned {len(rows)} rows for location {location_id}")
+        if rows:
+            self.logger.debug(f"First row type: {type(rows[0])}, value: {rows[0]}")
 
         try:
             # Use safer conversion method
