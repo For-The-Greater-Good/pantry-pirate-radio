@@ -63,7 +63,9 @@
       "mcp__playwright__browser_evaluate",
       "mcp_playwright_browser_*",
       "Bash(./scripts/feeding-america/create_scraper_from_issue.py:*)",
-      "Bash(./bouy exec app python3:*)"
+      "Bash(./bouy exec app python3:*)",
+      "Bash(mkdir:*)",
+      "Bash(./bouy test:*)"
     ],
     "deny": []
   }

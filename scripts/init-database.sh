@@ -71,21 +71,70 @@ check_db_schema() {
 
 # Function to check and wait for data repo to be ready
 check_data_repo() {
-    if [ ! -d "$DATA_REPO_PATH" ]; then
-        warn "HAARRRvest data repository not found at $DATA_REPO_PATH"
-        warn "Skipping data population - database will start empty"
-        return 1
-    fi
-
-    # Use the wait script to ensure repository is fully cloned
-    log "Waiting for HAARRRvest repository to be fully cloned..."
-    if /app/scripts/wait-for-repo-ready.sh; then
-        log "HAARRRvest repository is ready"
-        return 0
+    if [ ! -d "$DATA_REPO_PATH/.git" ]; then
+        log "HAARRRvest data repository not found at $DATA_REPO_PATH"
+        log "Cloning HAARRRvest repository for database initialization..."
+        
+        # Get repository URL and token from environment
+        local repo_url="${DATA_REPO_URL:-https://github.com/For-The-Greater-Good/HAARRRvest.git}"
+        local repo_token="${DATA_REPO_TOKEN}"
+        
+        # Add token to URL if provided
+        if [ -n "$repo_token" ] && [[ "$repo_url" == https://* ]]; then
+            # Insert token into HTTPS URL
+            repo_url=$(echo "$repo_url" | sed "s|https://|https://${repo_token}@|")
+        fi
+        
+        # Create parent directory if needed
+        mkdir -p "$(dirname "$DATA_REPO_PATH")"
+        
+        # Clone the repository
+        if git clone "$repo_url" "$DATA_REPO_PATH"; then
+            log "Successfully cloned HAARRRvest repository"
+            # After successful clone, wait a moment for filesystem to settle
+            sleep 2
+            log "HAARRRvest repository is ready"
+            return 0
+        else
+            warn "Failed to clone HAARRRvest repository"
+            warn "Skipping data population - database will start empty"
+            return 1
+        fi
     else
-        warn "Failed to wait for repository to be ready"
-        warn "Skipping data population - database will start empty"
-        return 1
+        # Repository already exists
+        log "HAARRRvest repository already exists, updating to latest..."
+        
+        # Enter the repository directory
+        cd "$DATA_REPO_PATH"
+        
+        # Ensure we're on main branch
+        if ! git checkout main 2>/dev/null; then
+            warn "Failed to checkout main branch"
+            warn "Repository may be in an inconsistent state"
+            return 1
+        fi
+        
+        # Pull latest changes
+        log "Pulling latest changes from origin/main..."
+        if git pull origin main; then
+            log "Repository updated successfully"
+        else
+            warn "Failed to pull latest changes"
+            warn "Continuing with existing repository state"
+        fi
+        
+        # Return to original directory
+        cd - >/dev/null
+        
+        # Wait for repository to be stable
+        if /app/scripts/wait-for-repo-ready.sh; then
+            log "HAARRRvest repository is ready"
+            return 0
+        else
+            warn "Failed to verify repository is ready"
+            warn "Skipping data population - database will start empty"
+            return 1
+        fi
     fi
 }
 
@@ -212,7 +261,81 @@ main() {
         log "Proceeding without data population"
     fi
 
-    # Step 5: Mark as healthy
+    # Step 5: Setup content store
+    # The repository is cloned to /data-repo, check if content_store exists there
+    if [ -d "$DATA_REPO_PATH/content_store" ]; then
+        log "Found content_store directory in repository"
+        
+        # Check if it has a valid index.db
+        if [ -f "$DATA_REPO_PATH/content_store/index.db" ]; then
+            # Verify it has data
+            local entry_count=$(python3 -c "
+import sqlite3
+try:
+    conn = sqlite3.connect('$DATA_REPO_PATH/content_store/index.db')
+    cursor = conn.execute('SELECT COUNT(*) FROM content_index')
+    print(cursor.fetchone()[0])
+    conn.close()
+except:
+    print('0')
+" 2>/dev/null || echo "0")
+            log "Content store found with $entry_count entries"
+        else
+            log "Content store directory exists but no index.db, creating one..."
+            # Create index.db with correct schema
+            python3 -c "
+import sqlite3
+conn = sqlite3.connect('$DATA_REPO_PATH/content_store/index.db')
+conn.execute('''
+    CREATE TABLE IF NOT EXISTS content_index (
+        hash TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        content_path TEXT NOT NULL,
+        result_path TEXT,
+        job_id TEXT,
+        created_at TIMESTAMP NOT NULL,
+        processed_at TIMESTAMP
+    )
+''')
+conn.commit()
+conn.close()
+print('Created new index.db with correct schema')
+" || {
+                warn "Failed to create content store index.db"
+            }
+        fi
+    else
+        log "No content store found in repository, creating new one..."
+        
+        # Create content store directory structure
+        mkdir -p "$DATA_REPO_PATH/content_store/content" "$DATA_REPO_PATH/content_store/results"
+        
+        # Create index.db with correct schema
+        python3 -c "
+import sqlite3
+conn = sqlite3.connect('$DATA_REPO_PATH/content_store/index.db')
+conn.execute('''
+    CREATE TABLE IF NOT EXISTS content_index (
+        hash TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        content_path TEXT NOT NULL,
+        result_path TEXT,
+        job_id TEXT,
+        created_at TIMESTAMP NOT NULL,
+        processed_at TIMESTAMP
+    )
+''')
+conn.commit()
+conn.close()
+print('Created new content store with empty index.db')
+" || {
+            warn "Failed to create content store index.db"
+        }
+        
+        log "Content store initialized successfully"
+    fi
+
+    # Step 6: Mark as healthy
     touch "$HEALTH_CHECK_FILE"
     log "Database initialization complete!"
 

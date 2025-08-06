@@ -64,11 +64,17 @@ WORKER_COUNT=${WORKER_COUNT:-1}
 if [[ "$WORKER_COUNT" =~ ^[0-9]+$ ]] && [ "$WORKER_COUNT" -ge 1 ] && [ "$WORKER_COUNT" -le 20 ]; then
     if [ "$WORKER_COUNT" -gt 1 ]; then
         echo "🔧 Starting $WORKER_COUNT RQ workers..."
-        exec /usr/local/bin/multi_worker.sh
+        exec /app/scripts/multi_worker.sh
     else
         # Start single worker (default behavior)
         echo "🔧 Starting single RQ worker..."
-        exec "$@"
+        # Check if this is the llm queue worker
+        if [[ "$*" == *"llm"* ]]; then
+            echo "   Using Claude-aware worker for LLM queue"
+            exec /usr/local/bin/python /app/scripts/claude_worker.py llm
+        else
+            exec "$@"
+        fi
     fi
 else
     echo "⚠️ Invalid WORKER_COUNT: '$WORKER_COUNT'. Must be an integer between 1-20."

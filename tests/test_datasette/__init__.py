@@ -1,1 +1,1 @@
-"""Tests for the Datasette exporter module."""
+# Tests for datasette module

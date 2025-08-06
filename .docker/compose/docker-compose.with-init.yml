@@ -63,3 +63,12 @@ services:
     depends_on:
       db-init:
         condition: service_healthy
+  
+  haarrrvest-publisher:
+    depends_on:
+      db-init:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started

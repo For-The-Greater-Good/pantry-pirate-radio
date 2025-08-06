@@ -36,10 +36,10 @@ class TestContentStore:
             mock_redis.return_value = mock_conn
             store = ContentStore(store_path=temp_store_path)
         assert store.store_path == temp_store_path
-        assert (temp_store_path / "content-store").exists()
-        assert (temp_store_path / "content-store" / "content").exists()
-        assert (temp_store_path / "content-store" / "results").exists()
-        assert (temp_store_path / "content-store" / "index.db").exists()
+        assert (temp_store_path / "content_store").exists()
+        assert (temp_store_path / "content_store" / "content").exists()
+        assert (temp_store_path / "content_store" / "results").exists()
+        assert (temp_store_path / "content_store" / "index.db").exists()
 
     def test_should_hash_content_deterministically(self, content_store):
         """Content hashing should be deterministic."""
@@ -162,7 +162,7 @@ class TestContentStore:
 
         # Should create subdirectory with first 2 chars of hash
         prefix = content_hash[:2]
-        content_dir = content_store.store_path / "content-store" / "content" / prefix
+        content_dir = content_store.store_path / "content_store" / "content" / prefix
         assert content_dir.exists()
         assert (content_dir / f"{content_hash}.json").exists()
 
@@ -203,8 +203,8 @@ class TestContentStore:
         stored_job_id = content_store.get_job_id(entry.hash)
         assert stored_job_id == job_id
 
-    def test_should_return_existing_job_id_for_duplicate_content(self, content_store):
-        """Should return existing job ID when same content is stored again."""
+    def test_should_not_return_pending_job_for_duplicate_content(self, content_store):
+        """Should NOT return existing job ID for pending content (allow reprocessing)."""
         content = '{"name": "Duplicate Pantry", "address": "789 Pine St"}'
         metadata = {"scraper_id": "test_scraper"}
 
@@ -221,11 +221,36 @@ class TestContentStore:
             job_id = "job-999"
             content_store.link_job(entry1.hash, job_id)
 
-            # Second time: should return existing job ID
+            # Second time: should allow new processing (not return existing job)
             entry2 = content_store.store_content(content, metadata)
             assert entry2.hash == entry1.hash
             assert entry2.status == "pending"
-            assert entry2.job_id == job_id
+            assert entry2.job_id is None  # Should NOT return the existing job
+
+    def test_should_cleanup_failed_job_and_allow_reprocessing(self, content_store):
+        """Should clear failed job IDs and allow reprocessing."""
+        content = '{"name": "Failed Job Pantry"}'
+        metadata = {"scraper_id": "test_scraper"}
+
+        # Mock the _is_job_active method to return False (job failed/expired)
+        with patch.object(content_store, "_is_job_active") as mock_is_active:
+            mock_is_active.return_value = False
+
+            # First time: store content and link a job
+            entry1 = content_store.store_content(content, metadata)
+            content_store.link_job(entry1.hash, "job-failed-123")
+
+            # Verify job is linked
+            assert content_store.get_job_id(entry1.hash) == "job-failed-123"
+
+            # Second time: should clear the failed job and allow new processing
+            entry2 = content_store.store_content(content, metadata)
+            assert entry2.hash == entry1.hash
+            assert entry2.status == "pending"
+            assert entry2.job_id is None
+
+            # Verify the old job_id was cleared
+            assert content_store.get_job_id(entry1.hash) is None
 
     def test_should_prioritize_completed_over_pending(self, content_store):
         """Should return completed result even if job_id exists for pending."""
@@ -309,3 +334,59 @@ class TestContentStore:
         # Test _get_result_path
         with pytest.raises(ValueError, match="Invalid hash format"):
             content_store._get_result_path(invalid_hash)
+
+    def test_is_job_active_handles_exceptions(self, content_store):
+        """_is_job_active should handle Redis exceptions gracefully."""
+        from rq.job import Job
+
+        # Test with valid job that exists
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "started"
+            mock_fetch.return_value = mock_job
+
+            assert content_store._is_job_active("job-active-123") is True
+            mock_fetch.assert_called_once_with(
+                "job-active-123", connection=content_store.redis_conn
+            )
+
+        # Test with job in queued status
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "queued"
+            mock_fetch.return_value = mock_job
+
+            assert content_store._is_job_active("job-queued-456") is True
+
+        # Test with completed job (not active)
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "finished"
+            mock_fetch.return_value = mock_job
+
+            assert content_store._is_job_active("job-finished-789") is False
+
+        # Test with failed job (not active)
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_job = Mock()
+            mock_job.get_status.return_value = "failed"
+            mock_fetch.return_value = mock_job
+
+            assert content_store._is_job_active("job-failed-999") is False
+
+        # Test when Job.fetch raises exception (job doesn't exist)
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_fetch.side_effect = Exception("Job not found")
+
+            assert content_store._is_job_active("job-nonexistent-111") is False
+            mock_fetch.assert_called_once_with(
+                "job-nonexistent-111", connection=content_store.redis_conn
+            )
+
+        # Test with Redis connection error
+        with patch.object(Job, "fetch") as mock_fetch:
+            from redis.exceptions import ConnectionError
+
+            mock_fetch.side_effect = ConnectionError("Redis connection failed")
+
+            assert content_store._is_job_active("job-redis-error-222") is False

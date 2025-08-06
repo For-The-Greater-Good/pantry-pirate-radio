@@ -103,7 +103,7 @@ def test_should_exec_multi_worker_script_for_multiple_workers(startup_script):
     with open(startup_script, "r") as f:
         script_content = f.read()
 
-    assert "exec /usr/local/bin/multi_worker.sh" in script_content
+    assert "exec /app/scripts/multi_worker.sh" in script_content
 
 
 def test_should_exec_single_worker_for_default_case(startup_script):

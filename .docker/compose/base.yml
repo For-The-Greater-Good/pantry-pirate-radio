@@ -10,6 +10,11 @@ services:
     env_file: ../../.env
     # All environment variables are loaded from .env file
     # Override specific values as needed for your environment
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     depends_on:
       db:
         condition: service_healthy
@@ -30,8 +35,10 @@ services:
       - CLAUDE_HEALTH_SERVER=true
       - QUEUE_NAME=llm
     volumes:
-      - claude_config:/root/.config/claude  # Shared Claude authentication
+      - ../../outputs:/app/outputs
       - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
+      - app_data:/app/data
+      - claude_config:/root/.config/claude  # Shared Claude authentication
     depends_on:
       db:
         condition: service_healthy
@@ -58,6 +65,9 @@ services:
     volumes:
       - ../../outputs:/app/outputs
       - ../../archives:/app/archives
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
 
   scraper:
     build:
@@ -73,8 +83,11 @@ services:
       cache:
         condition: service_started
     volumes:
+      - ../../outputs:/app/outputs
       - ../../docs:/app/docs
       - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
 
   reconciler:
     build:
@@ -84,6 +97,11 @@ services:
     command: rq worker reconciler
     env_file: ../../.env
     # All environment variables are loaded from .env file
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     depends_on:
       db:
         condition: service_healthy
@@ -107,6 +125,8 @@ services:
       - ../../outputs:/app/outputs
       - haarrrvest_repo:/data-repo
       - ../../scripts:/app/scripts:ro
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     depends_on:
       db:
         condition: service_healthy
@@ -153,12 +173,13 @@ services:
       - REPO_STABILITY_THRESHOLD=${REPO_STABILITY_THRESHOLD:-3}
       - REPO_MAX_WAIT_TIME=${REPO_MAX_WAIT_TIME:-1800}
     volumes:
+      - ../../outputs:/app/outputs
       - ../../scripts:/app/scripts:ro
-      - haarrrvest_repo:/data-repo:ro
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     depends_on:
       db:
-        condition: service_healthy
-      haarrrvest-publisher:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/scripts/wait-for-db-ready.sh", "init"]
@@ -189,6 +210,27 @@ services:
     depends_on:
       - cache
 
+  content-store-dashboard:
+    build:
+      context: ../..
+      dockerfile: .docker/images/app/Dockerfile
+      target: production-base
+    command: python -m app.content_store.dashboard
+    ports:
+      - "5050:5050"
+    env_file: ../../.env
+    environment:
+      - DASHBOARD_HOST=0.0.0.0  # Required for container networking
+      - DASHBOARD_PORT=5050
+    volumes:
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
   datasette-exporter:
     build:
       context: ../..
@@ -203,8 +245,12 @@ services:
       db:
         condition: service_healthy
     volumes:
+      - ../../outputs:/app/outputs
       - datasette_data:/data
       - ../../datasette-metadata.json:/data/metadata.json
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
 
   datasette:
     build:
@@ -245,3 +291,4 @@ volumes:
   postgres_backups:
   claude_config:  # Shared Claude authentication across worker containers
   haarrrvest_repo:  # HAARRRvest repository managed by publisher service
+  app_data:  # Shared application data across all services

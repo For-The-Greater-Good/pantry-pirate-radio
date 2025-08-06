@@ -8,7 +8,7 @@
 # Base stage with common dependencies
 FROM python:3.11-slim-bullseye AS base
 
-# Install system dependencies including Node.js for Claude CLI
+# Install system dependencies including Node.js for Claude CLI and Playwright
 # First add PostgreSQL 15 repository to get matching client version
 RUN apt-get update && apt-get install -y \
     curl \
@@ -16,117 +16,6 @@ RUN apt-get update && apt-get install -y \
     jq \
     lsb-release \
     gnupg \
-    && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
-    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
-    && apt-get update \
-    && apt-get install -y postgresql-client-15 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js (v18 LTS)
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Claude CLI globally
-RUN npm install -g @anthropic-ai/claude-code
-
-# Set working directory
-WORKDIR /app
-
-# Install Poetry
-RUN pip install poetry
-
-# Configure Poetry
-ENV POETRY_VIRTUALENVS_CREATE=false
-
-# Copy dependency files
-COPY pyproject.toml poetry.lock ./
-
-# =============================================================================
-# PRODUCTION BASE - Install only production dependencies
-# =============================================================================
-FROM base AS production-base
-
-# Install production dependencies
-RUN poetry install --without dev --no-interaction --no-ansi
-
-# Copy application code
-COPY app app/
-COPY docs docs/
-
-# Set Python path
-ENV PYTHONPATH=/app
-
-# =============================================================================
-# DEVELOPMENT/TEST BASE - Install all dependencies including dev
-# =============================================================================
-FROM base AS development-base
-
-# Install all dependencies including dev dependencies
-RUN poetry install --no-interaction --no-ansi
-
-# Set Python path
-ENV PYTHONPATH=/app
-
-# Copy only necessary files for tests (not everything)
-COPY app app/
-COPY docs docs/
-COPY tests tests/
-COPY scripts scripts/
-COPY .env.example .
-COPY pytest.ini .
-
-# =============================================================================
-# FASTAPI APPLICATION SERVICE
-# =============================================================================
-FROM production-base AS app
-
-# Expose the port the app runs on
-EXPOSE 8000
-
-# Start FastAPI application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# =============================================================================
-# LLM WORKER SERVICE (with Claude authentication and multi-worker support)
-# =============================================================================
-FROM production-base AS worker
-
-# Copy startup scripts
-COPY scripts/container_startup.sh /usr/local/bin/container_startup.sh
-COPY scripts/multi_worker.sh /usr/local/bin/multi_worker.sh
-RUN chmod +x /usr/local/bin/container_startup.sh /usr/local/bin/multi_worker.sh
-
-# Use startup script as entrypoint with fallback to RQ worker
-ENTRYPOINT ["/usr/local/bin/container_startup.sh"]
-CMD ["rq", "worker", "llm"]
-
-# =============================================================================
-# SIMPLE RQ WORKER SERVICE (for other queues without Claude setup)
-# =============================================================================
-FROM production-base AS simple-worker
-
-# Start RQ worker directly without startup scripts
-CMD ["rq", "worker"]
-
-# =============================================================================
-# RECORDER SERVICE
-# =============================================================================
-FROM production-base AS recorder
-
-# Create directories for outputs and archives
-RUN mkdir -p /app/outputs /app/archives
-
-# Start recorder worker
-CMD ["rq", "worker", "recorder"]
-
-# =============================================================================
-# SCRAPER SERVICE
-# =============================================================================
-FROM production-base AS scraper
-
-# Install system dependencies required by Playwright
-RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
     fonts-liberation \
@@ -161,13 +50,101 @@ RUN apt-get update && apt-get install -y \
     libxrender1 \
     libxss1 \
     libxtst6 \
-    lsb-release \
     xdg-utils \
+    build-essential \
+    libpq-dev \
+    && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && apt-get update \
+    && apt-get install -y postgresql-client-15 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright browsers
+# Install Node.js (v18 LTS)
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Set working directory
+WORKDIR /app
+
+# Install Poetry
+RUN pip install poetry
+
+# Configure Poetry
+ENV POETRY_VIRTUALENVS_CREATE=false
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock ./
+
+# =============================================================================
+# PRODUCTION BASE - Complete image with everything
+# =============================================================================
+FROM base AS production-base
+
+# Install all dependencies (including dev for full functionality)
+RUN poetry install --no-interaction --no-ansi
+
+# Install Playwright browsers after poetry install
 RUN playwright install chromium
 RUN playwright install-deps chromium
+
+# Copy everything
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/outputs /app/archives /data /app/data
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Make all scripts executable
+RUN find scripts -name "*.sh" -exec chmod +x {} \;
+
+# Note: development-base is now same as production-base since we include everything
+
+# =============================================================================
+# FASTAPI APPLICATION SERVICE
+# =============================================================================
+FROM production-base AS app
+
+# Expose the port the app runs on
+EXPOSE 8000
+
+# Start FastAPI application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# =============================================================================
+# LLM WORKER SERVICE (with Claude authentication and multi-worker support)
+# =============================================================================
+FROM production-base AS worker
+
+# Use startup script as entrypoint with fallback to RQ worker
+ENTRYPOINT ["/app/scripts/container_startup.sh"]
+CMD ["rq", "worker", "llm"]
+
+# =============================================================================
+# SIMPLE RQ WORKER SERVICE (for other queues without Claude setup)
+# =============================================================================
+FROM production-base AS simple-worker
+
+# Start RQ worker directly without startup scripts
+CMD ["rq", "worker"]
+
+# =============================================================================
+# RECORDER SERVICE
+# =============================================================================
+FROM production-base AS recorder
+
+# Start recorder worker
+CMD ["rq", "worker", "recorder"]
+
+# =============================================================================
+# SCRAPER SERVICE
+# =============================================================================
+FROM production-base AS scraper
 
 # Start scraper service
 CMD ["python", "-m", "app.scraper"]
@@ -175,7 +152,7 @@ CMD ["python", "-m", "app.scraper"]
 # =============================================================================
 # TEST SERVICE
 # =============================================================================
-FROM development-base AS test
+FROM production-base AS test
 
 # Run tests
 CMD ["poetry", "run", "pytest"]
@@ -184,17 +161,6 @@ CMD ["poetry", "run", "pytest"]
 # DATASETTE EXPORTER SERVICE
 # =============================================================================
 FROM production-base AS datasette-exporter
-
-# Install additional build dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create data directory
-RUN mkdir -p /data
 
 # Set environment variables
 ENV OUTPUT_DIR=/data

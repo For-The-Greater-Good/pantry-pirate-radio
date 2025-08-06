@@ -101,6 +101,23 @@ services:
     depends_on:
       - cache
 
+  content-store-dashboard:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:app-${DOCKER_TAG:-latest}
+    command: python -m app.content_store.dashboard
+    # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 5050:content-store-dashboard:5050 user@server
+    env_file: .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - DASHBOARD_HOST=0.0.0.0  # Required for container networking
+      - DASHBOARD_PORT=5050
+    volumes:
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+    depends_on:
+      - db
+      - cache
+
   datasette-exporter:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-exporter-${DOCKER_TAG:-latest}
     env_file: .env

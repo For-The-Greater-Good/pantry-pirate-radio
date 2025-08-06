@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 
 def load_tracking_data() -> Dict[str, Any]:
     """Load tracking data to get food bank information.
-    
+
     Returns:
         Tracking data dictionary
     """
@@ -25,18 +25,18 @@ def load_tracking_data() -> Dict[str, Any]:
         print(f"Error: Tracking file not found at {tracking_file}")
         print("Run generate_scraper_tracking.py first.")
         sys.exit(1)
-    
+
     with open(tracking_file) as f:
         return json.load(f)
 
 
 def find_food_bank_by_issue(data: Dict[str, Any], issue_number: int) -> Optional[Dict[str, Any]]:
     """Find food bank data by issue number.
-    
+
     Args:
         data: Tracking data
         issue_number: GitHub issue number
-        
+
     Returns:
         Food bank data or None
     """
@@ -48,10 +48,10 @@ def find_food_bank_by_issue(data: Dict[str, Any], issue_number: int) -> Optional
 
 def sanitize_name(name: str) -> str:
     """Sanitize name for use in Python identifiers.
-    
+
     Args:
         name: Original name
-        
+
     Returns:
         Sanitized name
     """
@@ -70,10 +70,10 @@ def sanitize_name(name: str) -> str:
 
 def create_class_name(name: str) -> str:
     """Create PascalCase class name from food bank name.
-    
+
     Args:
         name: Food bank name
-        
+
     Returns:
         PascalCase class name
     """
@@ -86,10 +86,10 @@ def create_class_name(name: str) -> str:
 
 def load_template(template_name: str) -> str:
     """Load Jinja2 template content.
-    
+
     Args:
         template_name: Template filename
-        
+
     Returns:
         Template content
     """
@@ -97,17 +97,17 @@ def load_template(template_name: str) -> str:
     if not template_path.exists():
         print(f"Error: Template not found at {template_path}")
         sys.exit(1)
-    
+
     return template_path.read_text()
 
 
 def render_template(template_content: str, context: Dict[str, Any]) -> str:
     """Render template with context (simple string replacement).
-    
+
     Args:
         template_content: Template content
         context: Variables to replace
-        
+
     Returns:
         Rendered content
     """
@@ -120,10 +120,10 @@ def render_template(template_content: str, context: Dict[str, Any]) -> str:
 
 def get_state_coordinates(state: str) -> tuple[float, float]:
     """Get approximate coordinates for a US state.
-    
+
     Args:
         state: Two-letter state code
-        
+
     Returns:
         Tuple of (latitude, longitude)
     """
@@ -156,13 +156,13 @@ def get_state_coordinates(state: str) -> tuple[float, float]:
         "WI": (44.268543, -89.616508), "WY": (42.755966, -107.302490),
         "DC": (38.897438, -77.026817), "PR": (18.220833, -66.590149),
     }
-    
+
     return state_coords.get(state.upper(), (39.8283, -98.5795))  # Default to US center
 
 
 def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> None:
     """Create scraper and test files from templates.
-    
+
     Args:
         food_bank: Food bank data from tracking
         dry_run: If True, show what would be created without creating files
@@ -172,7 +172,7 @@ def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> No
     name = fb_data["name"]
     state = fb_data.get("state", "US")
     url = fb_data.get("find_food_url") or fb_data.get("url", "https://example.com")
-    
+
     # Generate names - include state for uniqueness
     if state and state != "US" and state not in name:
         full_name = f"{name} {state}"
@@ -181,13 +181,13 @@ def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> No
     else:
         sanitized_name = sanitize_name(name)
         class_name = create_class_name(name)
-    
+
     scraper_id = sanitized_name
     module_name = sanitized_name
-    
+
     # Get state coordinates
     lat, lon = get_state_coordinates(state)
-    
+
     # Create context for template rendering
     context = {
         "food_bank_name": name,
@@ -198,10 +198,10 @@ def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> No
         "state": state,
         "state|lower": state.lower() if state else "us",
     }
-    
+
     # Update geocoder coordinates in template
     state_coords_line = f'                "{state}": ({lat:.6f}, {lon:.6f}),'
-    
+
     print(f"\nCreating scraper for: {name}")
     print(f"  Class name: {class_name}")
     print(f"  Module name: {module_name}")
@@ -209,17 +209,17 @@ def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> No
     print(f"  State: {state}")
     print(f"  URL: {url}")
     print(f"  Coordinates: {lat:.6f}, {lon:.6f}")
-    
+
     # Define file paths
     scraper_path = Path(f"app/scraper/{module_name}_scraper.py")
     test_path = Path(f"tests/test_scraper/test_{module_name}_scraper.py")
-    
+
     if dry_run:
         print(f"\n[DRY RUN] Would create:")
         print(f"  - {scraper_path}")
         print(f"  - {test_path}")
         return
-    
+
     # Check if files already exist
     if scraper_path.exists():
         print(f"\nWarning: Scraper already exists at {scraper_path}")
@@ -227,33 +227,33 @@ def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> No
         if response.lower() != 'y':
             print("Skipping scraper creation.")
             return
-    
+
     # Load and render templates
     scraper_template = load_template("scraper_template.py.jinja2")
     test_template = load_template("test_scraper_template.py.jinja2")
-    
+
     # Render templates
     scraper_content = render_template(scraper_template, context)
     test_content = render_template(test_template, context)
-    
+
     # Update coordinates in scraper
     scraper_content = scraper_content.replace(
         '                "' + state + '": (40.0, -75.0),  # Replace with actual coordinates',
         state_coords_line + '  # ' + name + ' region'
     )
-    
+
     # Create directories if needed
     scraper_path.parent.mkdir(parents=True, exist_ok=True)
     test_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Write files
     scraper_path.write_text(scraper_content)
     test_path.write_text(test_content)
-    
+
     print(f"\nFiles created:")
     print(f"  ✓ {scraper_path}")
     print(f"  ✓ {test_path}")
-    
+
     # Update tracking to mark scraper as in progress
     update_cmd = [
         "python3", "scripts/feeding-america/update_scraper_progress.py",
@@ -262,13 +262,13 @@ def create_scraper_files(food_bank: Dict[str, Any], dry_run: bool = False) -> No
         "--status", "in_progress",
         "--file", str(scraper_path)
     ]
-    
+
     try:
         subprocess.run(update_cmd, check=True, capture_output=True)
         print(f"\n✓ Updated tracking: scraper marked as in_progress")
     except subprocess.CalledProcessError as e:
         print(f"\nWarning: Failed to update tracking: {e}")
-    
+
     # Provide next steps
     print(f"\nNext steps:")
     print(f"1. Visit {url} to explore the website")
@@ -291,18 +291,18 @@ def main():
                        help="GitHub issue number")
     parser.add_argument("--dry-run", action="store_true",
                        help="Show what would be created without creating files")
-    
+
     args = parser.parse_args()
-    
+
     # Load tracking data
     data = load_tracking_data()
-    
+
     # Find food bank
     food_bank = find_food_bank_by_issue(data, args.issue)
     if not food_bank:
         print(f"Error: No food bank found for issue #{args.issue}")
         sys.exit(1)
-    
+
     # Create files
     create_scraper_files(food_bank, dry_run=args.dry_run)
 

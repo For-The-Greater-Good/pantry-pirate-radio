@@ -60,6 +60,13 @@ Examples:
         "--days", type=int, default=7, help="Number of days for timeline"
     )
 
+    # Dashboard command
+    dashboard_parser = subparsers.add_parser("dashboard", help="Run web dashboard")
+    dashboard_parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    dashboard_parser.add_argument(
+        "--port", type=int, default=5050, help="Port to bind to"
+    )
+
     args = parser.parse_args()
 
     # Get content store
@@ -138,6 +145,13 @@ Examples:
                 f"{day['processed']} processed, "
                 f"{day['pending']} pending"
             )
+
+    elif args.command == "dashboard":
+        from app.content_store.dashboard import app
+
+        print(f"Starting Content Store Dashboard on http://{args.host}:{args.port}")
+        print("Access the dashboard at http://localhost:5050 from your host machine")
+        app.run(host=args.host, port=args.port, debug=False)
 
     else:
         parser.print_help()

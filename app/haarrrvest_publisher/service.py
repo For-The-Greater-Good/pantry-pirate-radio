@@ -323,14 +323,14 @@ class HAARRRvestPublisher:
 
             logger.info("Syncing content store to HAARRRvest")
 
-            # Get content store path
-            content_store_path = content_store.store_path / "content-store"
+            # Get content store path - use the actual content_store_path from ContentStore
+            content_store_path = content_store.content_store_path
             if not content_store_path.exists():
                 logger.warning("Content store path does not exist, skipping sync")
                 return
 
-            # Target path in HAARRRvest
-            target_path = self.data_repo_path / "content_store" / "content-store"
+            # Target path in HAARRRvest - use underscore to match repository convention
+            target_path = self.data_repo_path / "content_store"
 
             # Create target directory
             target_path.parent.mkdir(parents=True, exist_ok=True)
