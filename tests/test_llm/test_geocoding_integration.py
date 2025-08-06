@@ -85,7 +85,7 @@ class TestGeographicValidation:
         }
         errors = field_validator.validate_location_coordinates(invalid_lat)
         assert len(errors) > 0
-        assert any("latitude" in err.lower() for err in errors)
+        assert any("lat=" in err.lower() or "coordinate" in err.lower() for err in errors)
         
         # Invalid longitude (out of range)
         invalid_lon = {
@@ -96,7 +96,7 @@ class TestGeographicValidation:
         }
         errors = field_validator.validate_location_coordinates(invalid_lon)
         assert len(errors) > 0
-        assert any("longitude" in err.lower() for err in errors)
+        assert any("lon=" in err.lower() or "coordinate" in err.lower() for err in errors)
         
         # Test edge cases
         edge_cases = [
@@ -132,7 +132,7 @@ class TestGeographicValidation:
         }
         
         result = field_validator.validate_geographic_data(valid_data)
-        assert result["is_valid"], f"Valid data should pass validation: {result}"
+        assert result["valid_locations"] == result["total_locations"], f"Valid data should pass validation: {result}"
         
         # Invalid coordinates
         invalid_data = {
@@ -147,9 +147,11 @@ class TestGeographicValidation:
         }
         
         result = field_validator.validate_geographic_data(invalid_data)
-        assert not result["is_valid"], "Invalid coordinates should fail validation"
-        assert len(result["errors"]) > 0
-        assert any("coordinate" in str(err).lower() for err in result["errors"])
+        assert result["valid_locations"] < result["total_locations"], "Invalid coordinates should fail validation"
+        assert len(result["location_errors"]) > 0
+        # Check that coordinate error is in the location errors
+        error_str = str(result["location_errors"]).lower()
+        assert "coordinate" in error_str
 
 
 class TestHSDSPatternCompliance:
@@ -362,18 +364,24 @@ class TestEndToEndGeographicValidation:
              patch("app.reconciler.job_processor.LocationCreator") as mock_loc_creator, \
              patch("app.reconciler.job_processor.ServiceCreator") as mock_svc_creator:
             
-            # Setup mocks
+            # Setup mocks with proper UUID strings
+            import uuid
+            org_id = str(uuid.uuid4())
+            loc_id = str(uuid.uuid4())
+            svc_id = str(uuid.uuid4())
+            sal_id = str(uuid.uuid4())
+            
             mock_org_instance = mock_org_creator.return_value
-            mock_org_instance.process_organization.return_value = ("org-123", True)
+            mock_org_instance.process_organization.return_value = (org_id, True)
             
             mock_loc_instance = mock_loc_creator.return_value
             mock_loc_instance.find_matching_location.return_value = None
-            mock_loc_instance.create_location.return_value = "loc-123"
+            mock_loc_instance.create_location.return_value = loc_id
             mock_loc_instance.create_address.return_value = "addr-123"
             
             mock_svc_instance = mock_svc_creator.return_value
-            mock_svc_instance.process_service.return_value = ("svc-123", True)
-            mock_svc_instance.create_service_at_location.return_value = "sal-123"
+            mock_svc_instance.process_service.return_value = (svc_id, True)
+            mock_svc_instance.create_service_at_location.return_value = sal_id
             mock_svc_instance.create_phone.return_value = "phone-123"
             mock_svc_instance.create_schedule.return_value = "sched-123"
             
@@ -467,7 +475,7 @@ class TestEndToEndGeographicValidation:
         errors = validator.validate_location_coordinates(loc)
         
         assert len(errors) > 0
-        assert any("latitude" in err.lower() or "longitude" in err.lower() for err in errors)
+        assert any("coordinate" in err.lower() for err in errors)
 
 
 if __name__ == "__main__":

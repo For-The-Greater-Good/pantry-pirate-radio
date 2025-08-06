@@ -8,6 +8,8 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from geopy.geocoders import Nominatim, ArcGIS
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
 from app.llm.utils.geocoding_validator import GeocodingValidator
 
@@ -17,14 +19,16 @@ logger = logging.getLogger(__name__)
 class GeocodingCorrector:
     """Corrects invalid geographic coordinates in location data."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Optional[Session] = None):
         """Initialize the geocoding corrector.
 
         Args:
-            db: Database session
+            db: Database session (optional)
         """
         self.db = db
         self.validator = GeocodingValidator()
+        self.nominatim = None
+        self.arcgis = None
 
     def find_invalid_locations(self) -> List[Dict[str, Any]]:
         """Find all locations with invalid coordinates.
@@ -323,6 +327,99 @@ class GeocodingCorrector:
                 "failed_corrections": 0,
                 "correction_rate": 0,
             }
+    
+    def validate_coordinates(
+        self, latitude: float, longitude: float, address: str
+    ) -> Tuple[bool, float, Optional[Tuple[float, float]]]:
+        """Validate coordinates against an address.
+        
+        Args:
+            latitude: Latitude to validate
+            longitude: Longitude to validate
+            address: Address to validate against
+            
+        Returns:
+            Tuple of (is_valid, confidence, suggested_coords)
+            - is_valid: Whether the coordinates are valid for the address
+            - confidence: Confidence score (0-1)
+            - suggested_coords: Suggested corrected coordinates if invalid
+        """
+        # First check if coordinates are valid lat/long
+        if not self.validator.is_valid_lat_long(latitude, longitude):
+            # Try to geocode the address to get correct coordinates
+            suggested = self._geocode_address(address)
+            if suggested:
+                return False, 0.0, suggested
+            return False, 0.0, None
+        
+        # Geocode the address to get expected coordinates
+        expected_coords = self._geocode_address(address)
+        if not expected_coords:
+            # Can't validate without geocoding result
+            return True, 0.5, None  # Medium confidence
+        
+        # Calculate distance between provided and expected coordinates
+        distance = self._calculate_distance(
+            latitude, longitude, expected_coords[0], expected_coords[1]
+        )
+        
+        # Determine validity and confidence based on distance
+        if distance < 0.1:  # Within ~11km
+            return True, 0.95, None
+        elif distance < 0.5:  # Within ~55km
+            return True, 0.7, None
+        elif distance < 1.0:  # Within ~111km
+            return False, 0.4, expected_coords
+        else:
+            return False, 0.1, expected_coords
+    
+    def _geocode_address(self, address: str) -> Optional[Tuple[float, float]]:
+        """Geocode an address to get coordinates.
+        
+        Args:
+            address: Address to geocode
+            
+        Returns:
+            Tuple of (latitude, longitude) or None if geocoding fails
+        """
+        # Try Nominatim first
+        try:
+            if not self.nominatim:
+                self.nominatim = Nominatim(user_agent="pantry-pirate-radio")
+            
+            location = self.nominatim.geocode(address)
+            if location:
+                return (location.latitude, location.longitude)
+        except (GeocoderTimedOut, GeocoderServiceError) as e:
+            logger.warning(f"Nominatim geocoding failed: {e}")
+        
+        # Fallback to ArcGIS
+        try:
+            if not self.arcgis:
+                self.arcgis = ArcGIS()
+            
+            location = self.arcgis.geocode(address)
+            if location:
+                return (location.latitude, location.longitude)
+        except (GeocoderTimedOut, GeocoderServiceError) as e:
+            logger.warning(f"ArcGIS geocoding failed: {e}")
+        
+        return None
+    
+    def _calculate_distance(
+        self, lat1: float, lon1: float, lat2: float, lon2: float
+    ) -> float:
+        """Calculate approximate distance between two coordinates.
+        
+        Args:
+            lat1, lon1: First coordinate
+            lat2, lon2: Second coordinate
+            
+        Returns:
+            Distance in degrees (approximate)
+        """
+        import math
+        return math.sqrt((lat2 - lat1) ** 2 + (lon2 - lon1) ** 2)
 
     def convert_projected_to_wgs84(self, x: float, y: float) -> Tuple[float, float]:
         """Convert projected coordinates to WGS84.
