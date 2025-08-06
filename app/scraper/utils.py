@@ -185,11 +185,9 @@ class ScraperUtils:
         self.schema_converter = SchemaConverter(schema_path)
         self.system_prompt = prompt_path.read_text()
 
-        # Configure validation with high confidence thresholds
-        self.validation_config = ValidationConfig(
-            min_confidence=0.90,  # Set 90% confidence threshold
-            retry_threshold=0.75,  # Higher retry threshold for better quality
-        )
+        # Configure validation - will load thresholds from environment
+        # HSDS_MIN_CONFIDENCE, HSDS_RETRY_THRESHOLD, HSDS_MAX_RETRIES
+        self.validation_config = ValidationConfig()
 
         # Convert schema for structured output
         self.hsds_schema = self.schema_converter.convert_to_llm_schema("organization")

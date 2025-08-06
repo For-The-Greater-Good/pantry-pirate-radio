@@ -4,6 +4,7 @@ This module provides validation functionality for HSDS data alignment,
 using LLMs to validate mapping quality and detect hallucinations.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Any, NotRequired, Required, TypedDict, cast
 
@@ -26,14 +27,23 @@ class ValidationResultDict(TypedDict):
 class ValidationConfig:
     """Configuration for HSDS validation."""
 
-    min_confidence: float = 0.85  # Minimum confidence score for acceptance
-    retry_threshold: float = 0.5  # Minimum confidence score to attempt retry
-    max_retries: int = 5  # Maximum number of retry attempts
+    min_confidence: float | None = None
+    retry_threshold: float | None = None
+    max_retries: int | None = None
     # Optional different model to use for validation
     validation_model: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate configuration values."""
+        """Load from environment and validate configuration values."""
+        # Load from environment if not provided
+        if self.min_confidence is None:
+            self.min_confidence = float(os.getenv("HSDS_MIN_CONFIDENCE", "0.82"))
+        if self.retry_threshold is None:
+            self.retry_threshold = float(os.getenv("HSDS_RETRY_THRESHOLD", "0.65"))
+        if self.max_retries is None:
+            self.max_retries = int(os.getenv("HSDS_MAX_RETRIES", "5"))
+        
+        # Validate values
         if not 0.0 <= self.min_confidence <= 1.0:
             raise ValueError("min_confidence must be between 0.0 and 1.0")
         if not 0.0 <= self.retry_threshold <= 1.0:

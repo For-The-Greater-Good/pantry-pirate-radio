@@ -137,8 +137,8 @@ def test_validation_result_model(validation_result: Dict[str, Any]) -> None:
 def test_validation_config_defaults() -> None:
     """Test ValidationConfig default values."""
     config = ValidationConfig()
-    assert config.min_confidence == 0.85  # Lower threshold for new deduction system
-    assert config.retry_threshold == 0.5
+    assert config.min_confidence == 0.82  # Lowered to allow smart inference
+    assert config.retry_threshold == 0.65  # Updated for better efficiency
     assert config.max_retries == 5
     assert config.validation_model is None
 
