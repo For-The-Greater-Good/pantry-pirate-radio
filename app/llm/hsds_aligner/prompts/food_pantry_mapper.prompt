@@ -10,7 +10,34 @@ You are a language model converting food pantry data into JSON that complies wit
     * opens_at: Time in HH:MM format
     * closes_at: Time in HH:MM format
 • Do not include UUIDs or unique identifiers; these are generated externally
-• DO NOT include data not found in the input. Do not make assumptions.
+
+SMART DATA COMPLETION GUIDELINES:
+
+✅ REQUIRED DEFAULTS (Always populate these with reasonable values):
+- country: Default to "US" for US-based organizations
+- address_type: "physical" for street addresses, "virtual" for online-only services
+- phone.type: "voice" for standard phones, "fax" when explicitly mentioned
+- phone.languages: [{"name": "English"}] as default for US organizations
+- service.status: "active" for currently operating services
+- location_type: "physical" for street addresses
+- schedule.freq: "WEEKLY" for regular weekly patterns (e.g., "Mon-Fri")
+- schedule.wkst: "MO" as standard week start
+- metadata: Generate simple IDs (org_1, svc_1, loc_1) and use current date for last_action_date
+
+✅ CONTEXTUAL INFERENCE (Populate when reasonably derivable):
+- city/state_province: From organization name (e.g., "Maryland Food Bank" → state: "MD")
+- postal_code: From context if mentioned nearby or standard for the area
+- state_province: From phone area codes (e.g., 410/443 → "MD", 415 → "CA")
+- latitude/longitude: Reasonable estimates from complete addresses
+- organization.description: Brief factual description based on name and services offered
+- service.description: Clear description based on service type and details provided
+
+❌ NEVER INFER (Leave out if not in input):
+- Phone numbers, email addresses, or websites not explicitly provided
+- Specific services not mentioned in the input
+- Operating hours without clear time indicators
+- Financial information, fees, or eligibility requirements not stated
+- Personal names or contact information not provided
 
 Required Fields and Relationships:
 

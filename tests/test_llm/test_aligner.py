@@ -168,7 +168,7 @@ async def test_aligner_validation_success(
     )
 
     # Create aligner with default validation config and provider
-    config = ValidationConfig()  # Uses 0.85 min_confidence by default
+    config = ValidationConfig()  # Uses 0.82 min_confidence by default
     aligner = HSDSAligner(
         mock_provider,
         schema_path,
@@ -231,7 +231,7 @@ async def test_aligner_validation_failure(
     )
 
     # Create aligner with default validation config and provider
-    config = ValidationConfig()  # Uses 0.85 min_confidence by default
+    config = ValidationConfig()  # Uses 0.82 min_confidence by default
     aligner = HSDSAligner(
         mock_provider,
         schema_path,
@@ -244,7 +244,7 @@ async def test_aligner_validation_failure(
     # Test should raise ValueError with appropriate message
     with pytest.raises(
         ValueError,
-        match=r"Failed to achieve minimum confidence score of 0\.85 after 5 attempts\. Final confidence: 0\.0",
+        match=r"Failed to achieve minimum confidence score of 0\.82 after 5 attempts\. Final confidence: 0\.0",
     ):
         await aligner.align(raw_data)
 
@@ -391,7 +391,7 @@ async def test_aligner_validation_retry_success(
     )
 
     second_validation_data: Dict[str, Any] = {
-        "confidence": 0.85,  # Match new threshold
+        "confidence": 0.82,  # Match new threshold (lowered for smart inference)
         "feedback": None,
         "hallucination_detected": False,
         "missing_required_fields": [],  # Required by schema
@@ -411,7 +411,7 @@ async def test_aligner_validation_retry_success(
     ]
 
     # Create aligner with default validation config
-    config = ValidationConfig()  # Uses 0.85 min_confidence and 0.5 retry_threshold
+    config = ValidationConfig()  # Uses 0.82 min_confidence and 0.65 retry_threshold
     aligner = HSDSAligner(
         mock_provider,
         schema_path,
