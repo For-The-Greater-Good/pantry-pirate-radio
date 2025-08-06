@@ -149,14 +149,14 @@ DASHBOARD_TEMPLATE = """
                     document.getElementById('pending-content').textContent = data.stats.pending_content;
                     document.getElementById('cache-hits').textContent = data.cache_hits;
                     document.getElementById('store-size').textContent = (data.stats.store_size_bytes / 1024 / 1024).toFixed(2) + ' MB';
-                    
+
                     // Update efficiency meter
-                    const efficiency = data.stats.total_content > 0 
+                    const efficiency = data.stats.total_content > 0
                         ? (data.stats.processed_content / data.stats.total_content * 100)
                         : 0;
                     document.getElementById('efficiency-fill').style.width = efficiency + '%';
                     document.getElementById('efficiency-text').textContent = efficiency.toFixed(1) + '%';
-                    
+
                     // Update recent entries
                     const tbody = document.getElementById('recent-entries');
                     tbody.innerHTML = data.recent_entries.map(entry => `
@@ -168,15 +168,15 @@ DASHBOARD_TEMPLATE = """
                             <td>${entry.job_status || '-'}</td>
                         </tr>
                     `).join('');
-                    
+
                     // Update last refresh time
                     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
                 });
         }
-        
+
         // Refresh every 5 seconds
         setInterval(refreshData, 5000);
-        
+
         // Initial load
         window.onload = refreshData;
     </script>
@@ -184,37 +184,37 @@ DASHBOARD_TEMPLATE = """
 <body>
     <div class="container">
         <h1>Content Store Dashboard</h1>
-        
+
         <div class="refresh-info">
             Last refresh: <span id="last-refresh">-</span> | Auto-refresh: 5s
         </div>
-        
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Total Content</div>
                 <div class="stat-value" id="total-content">-</div>
             </div>
-            
+
             <div class="stat-card">
                 <div class="stat-label">Completed</div>
                 <div class="stat-value" id="completed-content">-</div>
             </div>
-            
+
             <div class="stat-card">
                 <div class="stat-label">Pending</div>
                 <div class="stat-value" id="pending-content">-</div>
             </div>
-            
+
             <div class="stat-card">
                 <div class="stat-label">Cache Hits (Est.)</div>
                 <div class="stat-value" id="cache-hits">-</div>
             </div>
-            
+
             <div class="stat-card">
                 <div class="stat-label">Store Size</div>
                 <div class="stat-value" id="store-size">-</div>
             </div>
-            
+
             <div class="stat-card">
                 <div class="stat-label">Completion Rate</div>
                 <div class="efficiency-meter">
@@ -223,9 +223,9 @@ DASHBOARD_TEMPLATE = """
                 <div id="efficiency-text">0%</div>
             </div>
         </div>
-        
+
         <div id="warnings"></div>
-        
+
         <div class="table-container">
             <h2>Recent Entries</h2>
             <table>

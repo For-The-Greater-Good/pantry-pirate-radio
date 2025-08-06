@@ -16,12 +16,12 @@ def fetch_food_banks_from_api() -> List[Dict[str, any]]:
     api_params = {
         "orgFields": "OrganizationID,FullName,MailAddress,ListPDOs,Drupal,URL,Phone,AgencyURL,VolunteerURL,SocialUrls,ListFipsCounty,LogoUrls,ListPDOs,list_PDO,list_LocalFindings,CountyName"
     }
-    
+
     # Build URL with parameters
     url = api_url + "?" + urllib.parse.urlencode(api_params)
-    
+
     print(f"Fetching data from API: {url}")
-    
+
     try:
         with urllib.request.urlopen(url) as response:
             data = json.loads(response.read().decode())
@@ -35,11 +35,11 @@ def extract_food_bank_info(org_data: Dict[str, any]) -> Dict[str, any]:
     """Extract information from a single food bank organization."""
     try:
         info = {}
-        
+
         # Basic information
         info["org_id"] = str(org_data.get("OrganizationID", ""))
         info["name"] = org_data.get("FullName", "")
-        
+
         # Extract address information
         mail_address = org_data.get("MailAddress", {})
         if mail_address:
@@ -50,18 +50,18 @@ def extract_food_bank_info(org_data: Dict[str, any]) -> Dict[str, any]:
                 address_parts.append(mail_address["Address2"])
             if mail_address.get("City") and mail_address.get("State") and mail_address.get("Zip"):
                 address_parts.append(f"{mail_address['City']}, {mail_address['State']} {mail_address['Zip']}")
-            
+
             info["address"] = ", ".join(address_parts)
             info["state"] = mail_address.get("State", "")
             info["latitude"] = mail_address.get("Latitude")
             info["longitude"] = mail_address.get("Longitude")
-        
+
         # URLs and contact
         info["phone"] = org_data.get("Phone", "")
         info["website"] = normalize_url(org_data.get("URL", ""))
         info["find_food_url"] = normalize_url(org_data.get("AgencyURL", ""))
         info["volunteer_url"] = normalize_url(org_data.get("VolunteerURL", ""))
-        
+
         # Extract URL slug from Drupal path if available
         drupal_info = org_data.get("Drupal", {})
         if drupal_info and drupal_info.get("Path"):
@@ -69,7 +69,7 @@ def extract_food_bank_info(org_data: Dict[str, any]) -> Dict[str, any]:
             info["url_slug"] = extract_url_slug(drupal_info.get("Path", ""))
         else:
             info["url_slug"] = extract_url_slug(org_data.get("URL", ""))
-        
+
         # Social URLs
         social_urls = org_data.get("SocialUrls", {})
         if social_urls:
@@ -77,13 +77,13 @@ def extract_food_bank_info(org_data: Dict[str, any]) -> Dict[str, any]:
             info["social_twitter"] = social_urls.get("Twitter", "")
             info["social_donateurl"] = social_urls.get("DonateUrl", "")
             info["social_weburl"] = social_urls.get("WebUrl", "")
-        
+
         # Logo URLs
         logo_urls = org_data.get("LogoUrls", {})
         if logo_urls:
             info["logo_url"] = logo_urls.get("LogoUrl", "")
             info["logo_url_alt"] = logo_urls.get("LogoUrlAlt", "")
-        
+
         # Extract counties from ListFipsCounty
         counties = []
         fips_list = org_data.get("ListFipsCounty", {}).get("LocalFindings", [])
@@ -93,19 +93,19 @@ def extract_food_bank_info(org_data: Dict[str, any]) -> Dict[str, any]:
             if county_name and state:
                 counties.append(f"{county_name.upper()}, {state}")
         info["counties"] = counties
-        
+
         # Additional Drupal fields
         if drupal_info:
             info["food_donation_link"] = normalize_url(drupal_info.get("FoodDonationLink", ""))
             info["food_drive_link"] = normalize_url(drupal_info.get("FoodDriveLink", ""))
             info["snap_link"] = normalize_url(drupal_info.get("SnapLink", ""))
-        
+
         # Mark as main organization (not affiliate)
         info["is_affiliate"] = False
         info["parent_org_id"] = None
-        
+
         return info
-        
+
     except Exception as e:
         print(f"Error extracting food bank info: {e}")
         return None
@@ -115,27 +115,27 @@ def extract_affiliate_info(pdo_data: Dict[str, any], parent_org_id: str, parent_
     """Extract information from an affiliate (PDO) food bank."""
     try:
         info = {}
-        
+
         # Basic information
         info["org_id"] = f"{parent_org_id}-{pdo_data.get('Distorgid', '')}"
         info["name"] = pdo_data.get("Title", "")
         info["is_affiliate"] = True
         info["parent_org_id"] = parent_org_id
         info["parent_org_name"] = parent_org_name
-        
+
         # Address
         address_parts = []
         if pdo_data.get("Address"):
             address_parts.append(pdo_data["Address"])
         if pdo_data.get("City") and pdo_data.get("State") and pdo_data.get("ZipCode"):
             address_parts.append(f"{pdo_data['City']}, {pdo_data['State']} {pdo_data['ZipCode']}")
-        
+
         info["address"] = ", ".join(address_parts)
         info["state"] = pdo_data.get("State", "")
-        
+
         # Contact
         info["website"] = normalize_url(pdo_data.get("Website", ""))
-        
+
         # Director info
         director_name_parts = []
         if pdo_data.get("DirectorFirstName"):
@@ -144,11 +144,11 @@ def extract_affiliate_info(pdo_data: Dict[str, any], parent_org_id: str, parent_
             director_name_parts.append(pdo_data["DirectorMiddleName"].strip())
         if pdo_data.get("DirectorLastName"):
             director_name_parts.append(pdo_data["DirectorLastName"].strip())
-        
+
         if director_name_parts:
             info["director_name"] = " ".join(director_name_parts)
         info["director_email"] = pdo_data.get("DirectorEmail", "")
-        
+
         # Extract counties specific to this affiliate
         counties = []
         if "counties" in pdo_data and "LocalFindings" in pdo_data["counties"]:
@@ -159,9 +159,9 @@ def extract_affiliate_info(pdo_data: Dict[str, any], parent_org_id: str, parent_
                 if county_name and state:
                     counties.append(f"{county_name.title()}, {state}")
         info["counties"] = counties
-        
+
         return info
-        
+
     except Exception as e:
         print(f"Error extracting affiliate info: {e}")
         return None
@@ -171,7 +171,7 @@ def normalize_url(url: str) -> str:
     """Normalize a URL to ensure it has proper protocol."""
     if not url:
         return ""
-    
+
     url = url.strip()
     if url.startswith("//"):
         return "https:" + url
@@ -184,18 +184,18 @@ def extract_url_slug(url: str) -> str:
     """Extract the URL slug from a Feeding America URL."""
     if not url:
         return ""
-    
+
     # Look for pattern like /find-your-local-foodbank/food-bank-name
     match = re.search(r'/find-your-local-foodbank/([^/]+)', url)
     if match:
         return match.group(1)
-    
+
     # Otherwise try to get the last part of the path
     parsed = urllib.parse.urlparse(url)
     path_parts = parsed.path.strip('/').split('/')
     if path_parts:
         return path_parts[-1]
-    
+
     return ""
 
 
@@ -381,34 +381,34 @@ def main():
     print("Fetching food banks from Feeding America API...")
     organizations = fetch_food_banks_from_api()
     print(f"Found {len(organizations)} organizations from API")
-    
+
     # Process all food banks (main and affiliates)
     all_food_banks = []
-    
+
     for org in organizations:
         # Extract main food bank
         main_fb = extract_food_bank_info(org)
         if main_fb:
             all_food_banks.append(main_fb)
-            
+
             # Extract affiliate food banks (PDOs)
             pdos = org.get("ListPDOs", {}).get("PDO", [])
             if isinstance(pdos, dict):
                 pdos = [pdos]  # Convert single PDO to list
-            
+
             for pdo in pdos:
                 affiliate = extract_affiliate_info(
-                    pdo, 
-                    main_fb["org_id"], 
+                    pdo,
+                    main_fb["org_id"],
                     main_fb["name"]
                 )
                 if affiliate:
                     all_food_banks.append(affiliate)
-    
+
     print(f"Total food banks extracted: {len(all_food_banks)}")
     print(f"  - Main food banks: {len([fb for fb in all_food_banks if not fb.get('is_affiliate', False)])}")
     print(f"  - Affiliate food banks: {len([fb for fb in all_food_banks if fb.get('is_affiliate', False)])}")
-    
+
     food_banks = all_food_banks
 
     # Categorize food banks
@@ -449,7 +449,7 @@ def main():
     # Create summary report
     main_food_banks = [fb for fb in food_banks if not fb.get('is_affiliate', False)]
     affiliate_food_banks = [fb for fb in food_banks if fb.get('is_affiliate', False)]
-    
+
     summary = f"""# Feeding America Food Banks Analysis
 
 ## Summary

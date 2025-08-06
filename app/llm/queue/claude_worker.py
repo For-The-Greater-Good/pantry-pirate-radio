@@ -98,7 +98,7 @@ class ClaudeWorker(Worker):
 
     def dequeue_job_and_maintain_ttl(
         self, timeout: Optional[int] = None, max_idle_time: Optional[int] = None
-    ) -> Optional[Tuple[Job, Queue]]:
+    ) -> Tuple[Job, Queue]:
         """Override dequeue to check auth state before picking up jobs.
 
         Args:
@@ -136,7 +136,7 @@ class ClaudeWorker(Worker):
                 self._last_auth_log = time.time()
 
             time.sleep(sleep_time)
-            return None
+            return None  # type: ignore[return-value]
 
         # Auth is healthy, proceed with normal dequeue
         return super().dequeue_job_and_maintain_ttl(timeout, max_idle_time)
