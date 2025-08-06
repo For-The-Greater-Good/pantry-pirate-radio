@@ -33,7 +33,7 @@ def mock_html_response() -> str:
                 <span class="location_name">Broadway Baptist Church</span>
                 <div class="slp_result_address">
                     305 W Broadway<br/>
-                    Fort Worth, TX 76104  
+                    Fort Worth, TX 76104
                 </div>
                 <span class="slp_result_phone">817-336-5761</span>
             </div>

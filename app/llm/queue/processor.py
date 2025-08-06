@@ -3,16 +3,14 @@
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Coroutine
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, cast
-
-from rq import get_current_job
 
 from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.models import JobResult, JobStatus, LLMJob
-from app.llm.queue.queues import reconciler_queue, recorder_queue
+from app.llm.queue.queues import reconciler_queue, recorder_queue, llm_queue
 
 logger = logging.getLogger(__name__)
 
@@ -122,124 +120,34 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         )
 
         if isinstance(e, ClaudeNotAuthenticatedException):
-            current_job = get_current_job()
-            if current_job:
-                # Get current retry count for auth errors
-                retry_count = getattr(current_job.meta, "auth_retry_count", 0)
+            # Update auth state in Redis
+            from app.llm.queue.auth_state import AuthStateManager
 
-                # For auth errors, use shorter delays (5 minutes)
-                delay = 300  # 5 minutes
-                max_auth_retries = 12  # Try for 1 hour total (12 * 5 min)
+            auth_manager = AuthStateManager(llm_queue.connection)
+            auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
 
-                if retry_count < max_auth_retries:
-                    # Update retry count in job metadata
-                    current_job.meta["auth_retry_count"] = retry_count + 1
-                    current_job.save_meta()
-
-                    logger.warning(
-                        f"Claude not authenticated (attempt {retry_count + 1}/{max_auth_retries}). "
-                        f"Retrying in {delay} seconds. Please run: docker compose exec worker claude"
-                    )
-
-                    # Schedule retry by enqueuing the job again with delay
-                    from app.llm.queue.queues import llm_queue
-
-                    retry_job = llm_queue.enqueue_in(
-                        timedelta(seconds=delay),
-                        "app.llm.queue.processor.process_llm_job",
-                        job,
-                        provider,
-                        job_id=f"{job.id}_auth_retry_{retry_count + 1}",
-                        meta={"auth_retry_count": retry_count + 1},
-                        result_ttl=settings.REDIS_TTL_SECONDS,
-                        failure_ttl=settings.REDIS_TTL_SECONDS,
-                    )
-
-                    logger.info(
-                        f"Scheduled auth retry job {retry_job.id} for {delay} seconds"
-                    )
-
-                    # Return a special response indicating auth retry scheduled
-                    return LLMResponse(
-                        text=f"Authentication required, retry scheduled in {delay}s. Please run: docker compose exec worker claude",
-                        model=provider.model_name or "claude",
-                        usage={
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0,
-                            "total_tokens": 0,
-                        },
-                        raw={"auth_retry_scheduled": True, "retry_delay": delay},
-                    )
-                else:
-                    logger.error(
-                        f"Claude authentication failed after {max_auth_retries} attempts. Giving up."
-                    )
-                    raise e
-            else:
-                logger.error("Claude not authenticated and no job context available")
-                raise e
+            logger.error(
+                f"Claude authentication failed: {e}. "
+                f"Worker will pause job processing."
+            )
+            # Just re-raise - the worker will handle retries
+            raise
 
         elif isinstance(e, ClaudeQuotaExceededException):
-            current_job = get_current_job()
-            if current_job:
-                # Get current retry count
-                retry_count = getattr(current_job.meta, "quota_retry_count", 0)
+            # Update quota state in Redis
+            from app.llm.queue.auth_state import AuthStateManager
 
-                # Calculate exponential backoff delay
-                base_delay = getattr(settings, "CLAUDE_QUOTA_RETRY_DELAY", 3600)
-                max_delay = getattr(
-                    settings, "CLAUDE_QUOTA_MAX_DELAY", 14400
-                )  # 4 hours
-                multiplier = getattr(settings, "CLAUDE_QUOTA_BACKOFF_MULTIPLIER", 1.5)
+            auth_manager = AuthStateManager(llm_queue.connection)
+            auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
 
-                # Calculate delay with exponential backoff
-                delay = int(min(base_delay * (multiplier**retry_count), max_delay))
+            logger.error(
+                f"Claude quota exceeded: {e}. " f"Worker will pause job processing."
+            )
+            # Just re-raise - the worker will handle retries
+            raise
 
-                # Update retry count in job metadata
-                current_job.meta["quota_retry_count"] = retry_count + 1
-                current_job.save_meta()
-
-                logger.warning(
-                    f"Claude quota exceeded (attempt {retry_count + 1}). "
-                    f"Retrying in {delay:.0f} seconds ({delay/3600:.1f} hours)"
-                )
-
-                # Schedule retry by enqueuing the job again with delay
-                from app.llm.queue.queues import llm_queue
-
-                # Re-enqueue the job with the calculated delay
-                retry_job = llm_queue.enqueue_in(
-                    timedelta(seconds=int(delay)),
-                    "app.llm.queue.processor.process_llm_job",
-                    job,
-                    provider,
-                    job_id=f"{job.id}_retry_{retry_count + 1}",
-                    meta={"quota_retry_count": retry_count + 1},
-                    result_ttl=settings.REDIS_TTL_SECONDS,
-                    failure_ttl=settings.REDIS_TTL_SECONDS,
-                )
-
-                logger.info(
-                    f"Scheduled retry job {retry_job.id} for {delay:.0f} seconds"
-                )
-
-                # Return a special response indicating retry scheduled
-                return LLMResponse(
-                    text=f"Quota exceeded, retry scheduled in {delay:.0f}s",
-                    model=provider.model_name or "claude",
-                    usage={
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0,
-                    },
-                    raw={"retry_scheduled": True, "retry_delay": delay},
-                )
-            else:
-                # Fallback if no current job context
-                logger.error("Claude quota exceeded but no job context available")
-                raise e
         else:
             # Re-raise other exceptions
-            raise e
+            raise
     finally:
         loop.close()

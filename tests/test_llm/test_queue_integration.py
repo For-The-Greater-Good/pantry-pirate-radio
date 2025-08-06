@@ -148,81 +148,69 @@ class TestQueueTTLConfiguration:
                 assert recorder_call_args[1]["result_ttl"] == default_ttl
                 assert recorder_call_args[1]["failure_ttl"] == default_ttl
 
-    @patch("app.llm.queue.processor.get_current_job")
-    def test_should_use_configured_ttl_for_auth_retry_jobs(
+    def test_should_use_configured_ttl_for_auth_errors(
         self,
-        mock_get_current_job,
         sample_llm_job: LLMJob,
         mock_provider: MagicMock,
         no_content_store,
     ):
-        """Test that auth retry jobs use the configured TTL values."""
+        """Test that auth errors update auth state correctly."""
         # Arrange
-        custom_ttl = 14400  # 4 hours
-
-        # Mock current job for retry logic
-        mock_job = MagicMock()
-        mock_job.meta = {}
-        mock_get_current_job.return_value = mock_job
-
-        # Mock Claude authentication error
         from app.llm.providers.claude import ClaudeNotAuthenticatedException
 
-        async def mock_generate_auth_error(*args, **kwargs):
-            raise ClaudeNotAuthenticatedException("Not authenticated")
+        # Mock Claude authentication error
+        auth_error = ClaudeNotAuthenticatedException(
+            "Not authenticated", retry_after=300
+        )
+        mock_provider.generate.side_effect = auth_error
 
-        mock_provider.generate = mock_generate_auth_error
-
-        with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
+        with patch("app.llm.queue.processor.llm_queue") as mock_queue:
             with patch(
-                "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
-            ):
-                # Act
-                process_llm_job(sample_llm_job, mock_provider)
+                "app.llm.queue.auth_state.AuthStateManager"
+            ) as mock_auth_manager:
+                mock_auth_instance = MagicMock()
+                mock_auth_manager.return_value = mock_auth_instance
 
-                # Assert
-                mock_llm_queue.enqueue_in.assert_called_once()
-                call_args = mock_llm_queue.enqueue_in.call_args
-                assert call_args[1]["result_ttl"] == custom_ttl
-                assert call_args[1]["failure_ttl"] == custom_ttl
+                # Act - Should raise the exception
+                with pytest.raises(ClaudeNotAuthenticatedException):
+                    process_llm_job(sample_llm_job, mock_provider)
 
-    @patch("app.llm.queue.processor.get_current_job")
-    def test_should_use_configured_ttl_for_quota_retry_jobs(
+                # Assert - Verify auth state was updated
+                mock_auth_manager.assert_called_once_with(mock_queue.connection)
+                mock_auth_instance.set_auth_failed.assert_called_once_with(
+                    "Not authenticated", retry_after=300
+                )
+
+    def test_should_use_configured_ttl_for_quota_errors(
         self,
-        mock_get_current_job,
         sample_llm_job: LLMJob,
         mock_provider: MagicMock,
         no_content_store,
     ):
-        """Test that quota retry jobs use the configured TTL values."""
+        """Test that quota errors update auth state correctly."""
         # Arrange
-        custom_ttl = 18000  # 5 hours
-
-        # Mock current job for retry logic
-        mock_job = MagicMock()
-        mock_job.meta = {}
-        mock_get_current_job.return_value = mock_job
-
-        # Mock Claude quota exceeded error
         from app.llm.providers.claude import ClaudeQuotaExceededException
 
-        async def mock_generate_quota_error(*args, **kwargs):
-            raise ClaudeQuotaExceededException("Quota exceeded")
+        # Mock Claude quota exceeded error
+        quota_error = ClaudeQuotaExceededException("Quota exceeded", retry_after=3600)
+        mock_provider.generate.side_effect = quota_error
 
-        mock_provider.generate = mock_generate_quota_error
-
-        with patch("app.llm.queue.queues.llm_queue") as mock_llm_queue:
+        with patch("app.llm.queue.processor.llm_queue") as mock_queue:
             with patch(
-                "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
-            ):
-                # Act
-                process_llm_job(sample_llm_job, mock_provider)
+                "app.llm.queue.auth_state.AuthStateManager"
+            ) as mock_auth_manager:
+                mock_auth_instance = MagicMock()
+                mock_auth_manager.return_value = mock_auth_instance
 
-                # Assert
-                mock_llm_queue.enqueue_in.assert_called_once()
-                call_args = mock_llm_queue.enqueue_in.call_args
-                assert call_args[1]["result_ttl"] == custom_ttl
-                assert call_args[1]["failure_ttl"] == custom_ttl
+                # Act - Should raise the exception
+                with pytest.raises(ClaudeQuotaExceededException):
+                    process_llm_job(sample_llm_job, mock_provider)
+
+                # Assert - Verify quota state was updated
+                mock_auth_manager.assert_called_once_with(mock_queue.connection)
+                mock_auth_instance.set_quota_exceeded.assert_called_once_with(
+                    "Quota exceeded", retry_after=3600
+                )
 
 
 class TestQueueTTLConsistency:
@@ -249,10 +237,13 @@ class TestQueueTTLConsistency:
         with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
             with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
                 with patch(
-                    "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
+                    "app.content_store.config.get_content_store", return_value=None
                 ):
-                    # Act
-                    process_llm_job(sample_llm_job, mock_provider)
+                    with patch(
+                        "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
+                    ):
+                        # Act
+                        process_llm_job(sample_llm_job, mock_provider)
 
                     # Assert
                     # Check reconciler queue

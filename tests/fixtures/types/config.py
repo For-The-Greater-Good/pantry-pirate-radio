@@ -23,7 +23,11 @@ def get_test_settings() -> Settings:
         "TEST_DATABASE_URL",
         "postgresql+psycopg2://postgres:pirate@db:5432/test_pantry_pirate_radio",
     )
-    test_redis_url = os.getenv("TEST_REDIS_URL", "redis://cache:6379/1")
+    # When running tests in dev container, use 'cache' service
+    # When running in test container, TEST_REDIS_URL will override to 'test_cache'
+    test_redis_url = os.getenv(
+        "TEST_REDIS_URL", os.getenv("REDIS_URL", "redis://cache:6379/1")
+    )
 
     # Safety check: ensure we're not using production URLs
     prod_database_url = os.getenv("DATABASE_URL", "")

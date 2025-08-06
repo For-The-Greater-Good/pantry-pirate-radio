@@ -1,36 +1,30 @@
-# GetFull.app Browser Scraper
+# GetFull.app API Scraper
 
-This document provides an overview of the GetFull.app browser scraper implementation for the Pantry Pirate Radio system.
+This document provides an overview of the GetFull.app API scraper implementation for the Pantry Pirate Radio system.
 
 ## Overview
 
-The GetFull.app browser scraper extracts food pantry information from the [GetFull.app](https://getfull.app/food-finder) website. This website provides a map-based interface for finding food pantries across the United States.
+The GetFull.app API scraper extracts food pantry information from the [GetFull.app](https://getfull.app/food-finder) API. GetFull.app provides a comprehensive database of food pantries across the United States.
 
 ## Implementation Details
 
 ### Authentication
 
-The GetFull.app website requires authentication to access its API. The browser scraper uses multiple approaches to obtain an authentication token:
-1. Capturing network requests during page navigation
-2. Extracting tokens from localStorage or sessionStorage
-3. Using CDP (Chrome DevTools Protocol) to monitor network traffic
-4. Falling back to an anonymous token if necessary
+The GetFull.app API uses an anonymous authentication token for public access. The scraper uses a hardcoded anonymous token that allows read-only access to pantry data.
 
-### Data Collection Process (Updated)
+### Data Collection Process
 
-The browser scraper now uses a more efficient geo search API approach:
+The API scraper uses an efficient geo search approach:
 
-1. Initialize a headless browser using Playwright
-2. Navigate to the GetFull.app food finder map page
-3. Extract an authentication token using multiple approaches
-4. Use the Elasticsearch geo search API endpoint (`/es/search/geo/pantries`) to search for pantries
-5. Make targeted API calls to major metropolitan areas and rural regions across the US
-6. For each search result:
+1. Use the anonymous authentication token for API access
+2. Use the Elasticsearch geo search API endpoint (`/es/search/geo/pantries`) to search for pantries
+3. Make targeted API calls to major metropolitan areas and rural regions across the US
+4. For each search result:
    - Extract pantry information from the API response
    - Get additional details using the pantry details API if needed
    - Handle different data formats for hours and services
-7. Transform the pantry data to HSDS format
-8. Submit the data to the processing queue in batches
+5. Transform the pantry data to HSDS format
+6. Submit the data to the processing queue in batches
 
 ### Geo Search API Approach
 
@@ -88,7 +82,7 @@ This parallel approach significantly improves performance while minimizing redun
 
 ### Slug Extraction and API Requests
 
-The browser scraper extracts the pantry slug from the "more info" button or links in the pantry card. It then tries multiple slug formats when making API requests:
+The API scraper generates pantry slugs from the pantry information. It then tries multiple slug formats when making API requests:
 
 1. Extracted slug from the pantry card (if available)
 2. Generated slug from the pantry name (full, truncated, truncated at hyphen)
@@ -139,16 +133,7 @@ To avoid overwhelming the GetFull.app API and potentially being rate-limited, th
 
 1. Processes coordinates in small batches
 2. Adds a delay between requests
-3. Handles HTTP errors gracefully, including 401 (Unauthorized) errors that may indicate an expired token
-
-### Browser Automation
-
-The scraper uses Playwright for browser automation, which allows it to:
-
-1. Navigate to the website
-2. Interact with the search interface
-3. Extract authentication tokens
-4. Monitor network requests
+3. Handles HTTP errors gracefully, including 401 (Unauthorized) errors
 
 ### Error Handling
 
@@ -162,17 +147,16 @@ The scraper includes robust error handling to deal with:
 
 ## Dependencies
 
-- `playwright`: For browser automation
 - `httpx`: For making HTTP requests
 - `asyncio`: For asynchronous operations
 - Standard libraries: `json`, `logging`, `random`, etc.
 
 ## Usage
 
-To run the GetFull.app browser scraper:
+To run the GetFull.app API scraper:
 
 ```bash
-python -m app.scraper getfull_app_browser
+python -m app.scraper getfull_app_api
 ```
 
 ## Limitations
