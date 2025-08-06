@@ -38,7 +38,7 @@ def main():
         worker = ClaudeWorker(
             [queue_name],
             name=worker_name,
-            default_worker_ttl=600,  # 10 minutes
+            default_worker_ttl=-1,  # Never expire (keep worker running)
             job_monitoring_interval=1,  # Check jobs frequently
         )
 

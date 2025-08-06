@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LLMJob(BaseModel):
@@ -11,7 +11,7 @@ class LLMJob(BaseModel):
 
     id: str
     prompt: str
-    format: dict[str, Any] = {}
-    provider_config: dict[str, Any] = {}
-    metadata: dict[str, Any] = {}
+    format: dict[str, Any] = Field(default_factory=dict)
+    provider_config: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime

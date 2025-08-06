@@ -82,5 +82,45 @@ echo ""
 echo "Worker PIDs:"
 printf '%s\n' "${WORKER_PIDS[@]}"
 
-# Wait for all background jobs
-wait
+# Wait for all background jobs with restart on failure
+while true; do
+    # Check if any workers are still running
+    RUNNING_COUNT=0
+    for pid in "${WORKER_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            RUNNING_COUNT=$((RUNNING_COUNT + 1))
+        fi
+    done
+    
+    if [ $RUNNING_COUNT -eq 0 ]; then
+        echo "⚠️  All workers have stopped. Restarting in 10 seconds..."
+        sleep 10
+        
+        # Restart all workers
+        WORKER_PIDS=()
+        for i in $(seq 1 $WORKER_COUNT); do
+            WORKER_NAME="worker-${CONTAINER_ID}-$i"
+            echo "🔄 Restarting worker $i/$WORKER_COUNT (name: $WORKER_NAME)..."
+            
+            # Clean up any stale registrations
+            if command -v redis-cli &> /dev/null; then
+                redis-cli -u "${REDIS_URL:-redis://cache:6379}" del "rq:worker:$WORKER_NAME" &> /dev/null || true
+            fi
+            
+            # Start the worker
+            if [ "$QUEUE_NAME" = "llm" ]; then
+                /usr/local/bin/python /app/scripts/claude_worker.py "$QUEUE_NAME" "$WORKER_NAME" 2>&1 &
+            else
+                /usr/local/bin/python -m rq.cli worker "$QUEUE_NAME" --name "$WORKER_NAME" 2>&1 &
+            fi
+            WORKER_PID=$!
+            WORKER_PIDS+=($WORKER_PID)
+            echo "   Restarted with PID: $WORKER_PID"
+            sleep 0.1
+        done
+        echo "✅ All workers restarted"
+    fi
+    
+    # Sleep before next check
+    sleep 5
+done
