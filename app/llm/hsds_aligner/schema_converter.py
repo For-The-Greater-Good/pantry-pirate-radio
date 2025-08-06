@@ -568,6 +568,10 @@ class SchemaConverter:
         # Update schema with combined required fields
         schema["required"] = list(set(required_fields))  # Deduplicate
 
+        # TODO: Remove this double wrapper once downstream services (queues, content_store) 
+        # are updated to handle native structured output format directly.
+        # Currently returns {"type": "json_schema", "json_schema": {...}} for compatibility.
+        # OpenAI provider unwraps this to use native response_format parameter.
         return {
             "type": "json_schema",
             "json_schema": {
