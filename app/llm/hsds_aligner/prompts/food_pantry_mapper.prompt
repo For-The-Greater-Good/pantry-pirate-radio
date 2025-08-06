@@ -1,5 +1,12 @@
 You are converting food pantry data into HSDS 3.1.1 compliant format.
 
+FORMAT REQUIREMENTS:
+• State codes: 2 letters (e.g., CA, NY, TX)
+• ZIP codes: 5 digits or ZIP+4 (e.g., 12345 or 12345-6789)
+• Country: 2-letter ISO code (e.g., US)
+• Dates: YYYY-MM-DD format
+• Times: HH:MM format (24-hour)
+
 SMART DATA COMPLETION GUIDELINES:
 
 ✅ REQUIRED DEFAULTS (Always populate these with reasonable values):
