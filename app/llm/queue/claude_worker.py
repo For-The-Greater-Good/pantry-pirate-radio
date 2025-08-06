@@ -2,10 +2,10 @@
 
 import asyncio
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from redis import Redis
-from rq import Worker
+from rq import Worker, Queue
 from rq.job import Job
 
 from app.core.logging import get_logger
@@ -32,6 +32,7 @@ class ClaudeWorker(Worker):
         # Track last auth check time
         self.last_auth_check: float = 0
         self.auth_check_interval: int = 30  # seconds
+        self._last_auth_log: float = 0.0  # Track last auth log time
 
         # Provider will be set when first job is executed
         self.claude_provider: Optional[ClaudeProvider] = None
@@ -95,37 +96,48 @@ class ClaudeWorker(Worker):
             logger.error(f"Error during background auth check: {e}")
             # Don't update state on check errors
 
-    def dequeue_job_and_maintain_ttl(self, timeout: Optional[int] = None, max_idle_time: Optional[int] = None) -> Optional[tuple]:
+    def dequeue_job_and_maintain_ttl(
+        self, timeout: Optional[int] = None, max_idle_time: Optional[int] = None
+    ) -> Optional[Tuple[Job, Queue]]:
         """Override dequeue to check auth state before picking up jobs.
-        
+
         Args:
             timeout: Timeout for blocking dequeue
             max_idle_time: Maximum idle time before worker shuts down
-            
+
         Returns:
             Job tuple if auth is healthy and job available, None otherwise
         """
         # Check auth state before attempting to dequeue
         is_healthy, error_details = self.auth_manager.is_healthy()
-        
+
         if not is_healthy:
             # Don't dequeue jobs when auth is unhealthy
             # Sleep for a short time to avoid burning CPU
-            retry_in = error_details.get("retry_in_seconds", 60) if error_details else 60
+            retry_in = (
+                error_details.get("retry_in_seconds", 60) if error_details else 60
+            )
             sleep_time = min(10, retry_in)  # Sleep max 10 seconds at a time
-            
+
             # Log periodically (not every loop)
-            if not hasattr(self, "_last_auth_log") or time.time() - self._last_auth_log > 30:
-                error_type = error_details.get("status", "unknown") if error_details else "unknown"
+            if (
+                not hasattr(self, "_last_auth_log")
+                or time.time() - self._last_auth_log > 30
+            ):
+                error_type = (
+                    error_details.get("status", "unknown")
+                    if error_details
+                    else "unknown"
+                )
                 logger.debug(
                     f"Worker paused due to {error_type}. "
                     f"Will check again in {retry_in} seconds"
                 )
                 self._last_auth_log = time.time()
-            
+
             time.sleep(sleep_time)
             return None
-            
+
         # Auth is healthy, proceed with normal dequeue
         return super().dequeue_job_and_maintain_ttl(timeout, max_idle_time)
 

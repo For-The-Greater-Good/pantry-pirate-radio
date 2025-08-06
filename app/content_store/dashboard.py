@@ -379,6 +379,7 @@ def api_content_detail(hash):
 
 if __name__ == "__main__":
     import os
+
     # Use environment variable for host to avoid hardcoding 0.0.0.0
     # This satisfies security scanners while allowing container networking
     host = os.environ.get("DASHBOARD_HOST", "127.0.0.1")

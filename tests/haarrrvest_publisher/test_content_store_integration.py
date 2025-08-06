@@ -339,12 +339,12 @@ class TestHAARRRvestContentStoreIntegration:
         """Should not create nested content-store/content_store directory."""
         # Setup - mock content store retrieval
         mock_get_content_store.return_value = content_store
-        
+
         # Create some content in content store
         content = '{"test": "no_nesting"}'
         entry = content_store.store_content(content, {"scraper_id": "test"})
         content_store.store_result(entry.hash, '{"result": "data"}', "job-1")
-        
+
         # Create a test output file to trigger sync
         daily_dir = (
             temp_dirs["output"]
@@ -356,30 +356,30 @@ class TestHAARRRvestContentStoreIntegration:
         daily_dir.mkdir(parents=True)
         test_file = daily_dir / "test.json"
         test_file.write_text('{"test": "file"}')
-        
+
         # Mock git operations
         def git_side_effect(cmd, cwd=None):
             if cmd == ["git", "status", "--porcelain"]:
                 return (0, "M README.md", "")
             return (0, "", "")
-        
+
         mock_git_setup.side_effect = git_side_effect
-        
+
         # Act
         publisher.process_once()
-        
+
         # Assert - check that content store was synced correctly
         correct_path = temp_dirs["repo"] / "content_store"
         assert correct_path.exists()
-        
+
         # Should NOT have nested content-store directory
         nested_hyphen = temp_dirs["repo"] / "content-store"
         assert not nested_hyphen.exists()
-        
+
         # Should NOT have double-nested structure
         double_nested = temp_dirs["repo"] / "content_store" / "content_store"
         assert not double_nested.exists()
-        
+
         # Should have correct structure
         assert (correct_path / "index.db").exists()
         assert (correct_path / "content").exists()
@@ -397,28 +397,28 @@ class TestHAARRRvestContentStoreIntegration:
         """Should use content_store (underscore) naming throughout."""
         # Setup
         mock_get_content_store.return_value = content_store
-        
+
         # Verify content store creates underscore path
         assert content_store.content_store_path.name == "content_store"
         assert (temp_dirs["content_store"] / "content_store").exists()
-        
+
         # Create test data
         content = '{"test": "underscore_test"}'
         entry = content_store.store_content(content, {"scraper_id": "test"})
-        
+
         # Create test output file
         daily_dir = temp_dirs["output"] / "daily" / datetime.now().strftime("%Y-%m-%d")
         daily_dir.mkdir(parents=True)
         test_file = daily_dir / "test.json"
         test_file.write_text('{"test": "file"}')
-        
+
         # Act
         publisher.process_once()
-        
+
         # Assert - verify underscore naming in repository
         repo_content_store = temp_dirs["repo"] / "content_store"
         assert repo_content_store.exists()
-        
+
         # Should not have hyphen version
         assert not (temp_dirs["repo"] / "content-store").exists()
 
@@ -435,19 +435,19 @@ class TestHAARRRvestContentStoreIntegration:
         mock_store = Mock()
         mock_store.content_store_path = Path("/nonexistent/path/content_store")
         mock_get_content_store.return_value = mock_store
-        
+
         # Create test output file
         daily_dir = temp_dirs["output"] / "daily" / datetime.now().strftime("%Y-%m-%d")
         daily_dir.mkdir(parents=True)
         test_file = daily_dir / "test.json"
         test_file.write_text('{"test": "file"}')
-        
+
         # Act - should not raise exception
         publisher.process_once()
-        
+
         # Assert - publishing should continue
         assert mock_git_setup.called
-        
+
     @patch("app.content_store.config.get_content_store")
     def test_should_preserve_git_repo_content_store_on_sync(
         self,
@@ -460,7 +460,7 @@ class TestHAARRRvestContentStoreIntegration:
         """Should preserve existing content in repository when syncing."""
         # Setup
         mock_get_content_store.return_value = content_store
-        
+
         # Create existing content in repository
         repo_store = temp_dirs["repo"] / "content_store"
         repo_store.mkdir(parents=True)
@@ -468,23 +468,23 @@ class TestHAARRRvestContentStoreIntegration:
         existing_content.mkdir(parents=True)
         existing_file = existing_content / "abcdef123456.json"
         existing_file.write_text('{"existing": "data"}')
-        
+
         # Create new content in local store
         new_content = '{"new": "data"}'
         entry = content_store.store_content(new_content, {"scraper_id": "test"})
-        
+
         # Create test output file
         daily_dir = temp_dirs["output"] / "daily" / datetime.now().strftime("%Y-%m-%d")
         daily_dir.mkdir(parents=True)
         test_file = daily_dir / "test.json"
         test_file.write_text('{"test": "file"}')
-        
+
         # Act
         publisher.process_once()
-        
+
         # Assert - both old and new content should exist
         assert existing_file.exists()
         assert existing_file.read_text() == '{"existing": "data"}'
-        
+
         # New content should also be synced
         assert (repo_store / "content").exists()
