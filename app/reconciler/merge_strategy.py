@@ -72,11 +72,25 @@ class MergeStrategy(BaseReconciler):
         # SQLAlchemy 1.4+ style with _mapping attribute (Row objects)
         if isinstance(row, Row):
             try:
-                # Use the mapping directly or convert to dict
-                return dict(row)
+                # Try using _mapping attribute first (SQLAlchemy 1.4+)
+                if hasattr(row, '_mapping'):
+                    return dict(row._mapping)
+                # Try _asdict method
+                elif hasattr(row, '_asdict') and callable(row._asdict):
+                    return row._asdict()
+                # Try direct iteration with column names
+                else:
+                    column_names = list(result.keys()) if hasattr(result, 'keys') else []
+                    return dict(zip(column_names, row, strict=False))
             except (TypeError, ValueError) as e:
                 self.logger.error(f"Failed to convert Row to dict: {e}")
-                return {}
+                # Try one more fallback - iterate over row with indices
+                try:
+                    column_names = list(result.keys()) if hasattr(result, 'keys') else []
+                    return {column_names[i]: row[i] for i in range(len(column_names))}
+                except Exception as e2:
+                    self.logger.error(f"Final fallback also failed: {e2}")
+                    return {}
         
         # SQLAlchemy named tuple style with _asdict method
         elif hasattr(row, "_asdict") and callable(row._asdict):
