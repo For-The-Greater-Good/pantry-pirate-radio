@@ -150,7 +150,7 @@ def test_validation_config_custom() -> None:
         retry_threshold=0.7,
         max_retries=5,
         validation_model="google/gemini-2.0-flash-001",
-        load_from_env=False
+        load_from_env=False,
     )
     assert config.min_confidence == 0.9
     assert config.retry_threshold == 0.7

@@ -251,6 +251,7 @@ def get_content_store():
     """Get content store instance."""
     # Use the configured content store instance instead of creating a new one
     from app.content_store.config import get_content_store as get_configured_store
+
     return get_configured_store()
 
 
@@ -271,7 +272,7 @@ def api_stats():
     store = get_content_store()
     if not store:
         return jsonify({"error": "Content store not configured"}), 503
-    
+
     r = get_redis_connection()
 
     # Get basic stats

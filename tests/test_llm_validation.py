@@ -19,7 +19,7 @@ class TestValidationConfig:
             retry_threshold=0.5,
             max_retries=3,
             validation_model="test-model",
-            load_from_env=False
+            load_from_env=False,
         )
         assert config.min_confidence == 0.85
         assert config.retry_threshold == 0.5
@@ -74,10 +74,7 @@ class TestValidationConfig:
     def test_boundary_values(self):
         """Test boundary values are accepted."""
         config = ValidationConfig(
-            min_confidence=0.0,
-            retry_threshold=1.0,
-            max_retries=0,
-            load_from_env=False
+            min_confidence=0.0, retry_threshold=1.0, max_retries=0, load_from_env=False
         )
         assert config.min_confidence == 0.0
         assert config.retry_threshold == 1.0
