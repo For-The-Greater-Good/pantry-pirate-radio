@@ -19,6 +19,7 @@ class TestValidationConfig:
             retry_threshold=0.5,
             max_retries=3,
             validation_model="test-model",
+            load_from_env=False
         )
         assert config.min_confidence == 0.85
         assert config.retry_threshold == 0.5
@@ -27,7 +28,7 @@ class TestValidationConfig:
 
     def test_default_config(self):
         """Test default configuration values."""
-        config = ValidationConfig()
+        config = ValidationConfig(load_from_env=False)
         assert (
             config.min_confidence == 0.82
         )  # Updated to match new HSDS_MIN_CONFIDENCE default
@@ -42,33 +43,33 @@ class TestValidationConfig:
         with pytest.raises(
             ValueError, match="min_confidence must be between 0.0 and 1.0"
         ):
-            ValidationConfig(min_confidence=-0.1)
+            ValidationConfig(min_confidence=-0.1, load_from_env=False)
 
     def test_invalid_min_confidence_high(self):
         """Test validation of min_confidence (too high)."""
         with pytest.raises(
             ValueError, match="min_confidence must be between 0.0 and 1.0"
         ):
-            ValidationConfig(min_confidence=1.1)
+            ValidationConfig(min_confidence=1.1, load_from_env=False)
 
     def test_invalid_retry_threshold_low(self):
         """Test validation of retry_threshold (too low)."""
         with pytest.raises(
             ValueError, match="retry_threshold must be between 0.0 and 1.0"
         ):
-            ValidationConfig(retry_threshold=-0.1)
+            ValidationConfig(retry_threshold=-0.1, load_from_env=False)
 
     def test_invalid_retry_threshold_high(self):
         """Test validation of retry_threshold (too high)."""
         with pytest.raises(
             ValueError, match="retry_threshold must be between 0.0 and 1.0"
         ):
-            ValidationConfig(retry_threshold=1.1)
+            ValidationConfig(retry_threshold=1.1, load_from_env=False)
 
     def test_invalid_max_retries(self):
         """Test validation of max_retries."""
         with pytest.raises(ValueError, match="max_retries must be non-negative"):
-            ValidationConfig(max_retries=-1)
+            ValidationConfig(max_retries=-1, load_from_env=False)
 
     def test_boundary_values(self):
         """Test boundary values are accepted."""
@@ -76,6 +77,7 @@ class TestValidationConfig:
             min_confidence=0.0,
             retry_threshold=1.0,
             max_retries=0,
+            load_from_env=False
         )
         assert config.min_confidence == 0.0
         assert config.retry_threshold == 1.0

@@ -102,8 +102,10 @@ class TestSettingsGeneralBehavior:
             "LOG_LEVEL": "DEBUG",
         }
 
-        # Act
-        with patch.dict(os.environ, env_vars):
+        # Act - clear existing env vars and set new ones
+        with patch.dict(os.environ, env_vars, clear=True):
+            # Re-add required vars that Settings might need
+            os.environ["DATABASE_URL"] = "postgresql://user:password@localhost/db"
             settings = Settings()
 
         # Assert

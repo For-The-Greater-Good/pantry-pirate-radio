@@ -506,13 +506,41 @@ class JobProcessor:
 
             # Add top-level services if present
             if "service" in data:
-                services_to_process.extend(data["service"])
+                # Handle services as either strings or dicts
+                for service_item in data["service"]:
+                    if isinstance(service_item, str):
+                        # Convert string to ServiceDict format
+                        service_dict: ServiceDict = {
+                            "name": service_item,
+                            "description": f"Food service: {service_item}",
+                            "phones": [],
+                            "languages": [],
+                            "schedules": [],
+                        }
+                        services_to_process.append(service_dict)
+                    else:
+                        # Already a dict, use as-is
+                        services_to_process.append(service_item)
 
             # Add services from organizations if present
             if "organization" in data and len(data["organization"]) > 0:
                 for org in data["organization"]:
                     if "services" in org:
-                        services_to_process.extend(org["services"])
+                        # Handle services as either strings or dicts
+                        for service_item in org["services"]:
+                            if isinstance(service_item, str):
+                                # Convert string to ServiceDict format
+                                service_dict: ServiceDict = {
+                                    "name": service_item,
+                                    "description": f"Food service: {service_item}",
+                                    "phones": [],
+                                    "languages": [],
+                                    "schedules": [],
+                                }
+                                services_to_process.append(service_dict)
+                            else:
+                                # Already a dict, use as-is
+                                services_to_process.append(service_item)
 
             # Process all collected services
             for service in services_to_process:
