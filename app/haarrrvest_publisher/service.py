@@ -152,7 +152,13 @@ class HAARRRvestPublisher:
                     f"Directory {self.data_repo_path} exists but is not a git repository, cleaning contents"
                 )
                 # Clean directory contents but not the directory itself (it's a volume mount)
+                # IMPORTANT: Preserve content_store directory if it exists
                 for item in self.data_repo_path.iterdir():
+                    # Skip content_store directory to preserve deduplication data
+                    if item.name == "content_store":
+                        logger.info("Preserving content_store directory during cleanup")
+                        continue
+
                     if item.is_dir():
                         shutil.rmtree(item)
                     else:
@@ -203,11 +209,38 @@ class HAARRRvestPublisher:
                 ["git", "status", "--porcelain"], cwd=self.data_repo_path
             )
             if out.strip():
-                logger.warning("Repository has uncommitted changes, stashing them")
-                self._run_command(
-                    ["git", "stash", "push", "-m", "Publisher auto-stash"],
-                    cwd=self.data_repo_path,
+                logger.warning("Repository has uncommitted changes")
+                # Add and commit content_store changes before stashing
+                # This preserves content_store data that should be kept
+                content_store_path = self.data_repo_path / "content_store"
+                if content_store_path.exists():
+                    logger.info("Adding content_store changes to git before stashing")
+                    self._run_command(
+                        ["git", "add", "content_store"],
+                        cwd=self.data_repo_path,
+                    )
+                    # Check if there are staged changes in content_store
+                    code, out, err = self._run_command(
+                        ["git", "diff", "--cached", "--name-only", "content_store"],
+                        cwd=self.data_repo_path,
+                    )
+                    if out.strip():
+                        logger.info("Committing content_store changes")
+                        self._run_command(
+                            ["git", "commit", "-m", "Update content store"],
+                            cwd=self.data_repo_path,
+                        )
+
+                # Now stash any remaining changes
+                code, out, err = self._run_command(
+                    ["git", "status", "--porcelain"], cwd=self.data_repo_path
                 )
+                if out.strip():
+                    logger.warning("Stashing remaining uncommitted changes")
+                    self._run_command(
+                        ["git", "stash", "push", "-m", "Publisher auto-stash"],
+                        cwd=self.data_repo_path,
+                    )
 
             # Ensure we're on main branch
             code, out, err = self._run_command(

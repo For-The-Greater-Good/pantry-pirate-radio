@@ -1296,12 +1296,12 @@ case "$1" in
                         echo -e "${RED}[$(date +%Y-%m-%d\ %H:%M:%S)] ERROR:${NC} $1" >&2
                     }
                     
-                    # Get list of all scrapers
-                    SCRAPERS=$(python -m app.scraper --list | grep "^  -" | sed "s/^  - //")
+                    # Get list of all scrapers and randomize the order
+                    SCRAPERS=$(python -m app.scraper --list | grep "^  -" | sed "s/^  - //" | shuf)
                     SCRAPER_COUNT=$(echo "$SCRAPERS" | wc -l)
                     
                     log "🎯 Found $SCRAPER_COUNT scrapers to scout"
-                    log "🔍 Dispatching scouts!"
+                    log "🔍 Dispatching scouts in random order!"
                     
                     # Run scrapers in parallel, max concurrent as specified
                     echo "$SCRAPERS" | xargs -P $MAX_CONCURRENT -I {} bash -c '\''

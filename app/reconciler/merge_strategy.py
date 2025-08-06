@@ -40,10 +40,10 @@ class MergeStrategy(BaseReconciler):
         # Handle the case where row is a UUID string (36 chars with dashes)
         if isinstance(row, str):
             # Check if it looks like a UUID
-            if len(row) == 36 and row.count('-') == 4:
+            if len(row) == 36 and row.count("-") == 4:
                 self.logger.debug(f"Row appears to be a UUID string: {row}")
                 # This shouldn't happen in normal operation
-                column_names = list(result.keys()) if hasattr(result, 'keys') else []
+                column_names = list(result.keys()) if hasattr(result, "keys") else []
                 if len(column_names) == 1:
                     return {column_names[0]: row}
                 else:
@@ -52,7 +52,7 @@ class MergeStrategy(BaseReconciler):
                     )
                     return {}
             # Handle other string cases
-            column_names = list(result.keys()) if hasattr(result, 'keys') else []
+            column_names = list(result.keys()) if hasattr(result, "keys") else []
             if len(column_names) == 1:
                 return {column_names[0]: row}
             else:
@@ -60,38 +60,44 @@ class MergeStrategy(BaseReconciler):
                     f"String value row with multiple columns: {row}, columns: {column_names}"
                 )
                 return {}
-        
+
         # If the row is already a mapping or dict-like, use it directly
         if hasattr(row, "items") and callable(row.items):
             try:
                 return dict(row)
             except (TypeError, ValueError) as e:
-                self.logger.error(f"Failed to convert row with items() to dict: {e}, row type: {type(row)}")
+                self.logger.error(
+                    f"Failed to convert row with items() to dict: {e}, row type: {type(row)}"
+                )
                 return {}
-        
+
         # SQLAlchemy 1.4+ style with _mapping attribute (Row objects)
         if isinstance(row, Row):
             try:
                 # Try using _mapping attribute first (SQLAlchemy 1.4+)
-                if hasattr(row, '_mapping'):
+                if hasattr(row, "_mapping"):
                     return dict(row._mapping)
                 # Try _asdict method
-                elif hasattr(row, '_asdict') and callable(row._asdict):
+                elif hasattr(row, "_asdict") and callable(row._asdict):
                     return row._asdict()
                 # Try direct iteration with column names
                 else:
-                    column_names = list(result.keys()) if hasattr(result, 'keys') else []
+                    column_names = (
+                        list(result.keys()) if hasattr(result, "keys") else []
+                    )
                     return dict(zip(column_names, row, strict=False))
             except (TypeError, ValueError) as e:
                 self.logger.error(f"Failed to convert Row to dict: {e}")
                 # Try one more fallback - iterate over row with indices
                 try:
-                    column_names = list(result.keys()) if hasattr(result, 'keys') else []
+                    column_names = (
+                        list(result.keys()) if hasattr(result, "keys") else []
+                    )
                     return {column_names[i]: row[i] for i in range(len(column_names))}
                 except Exception as e2:
                     self.logger.error(f"Final fallback also failed: {e2}")
                     return {}
-        
+
         # SQLAlchemy named tuple style with _asdict method
         elif hasattr(row, "_asdict") and callable(row._asdict):
             try:
@@ -99,10 +105,10 @@ class MergeStrategy(BaseReconciler):
             except (TypeError, ValueError) as e:
                 self.logger.error(f"Failed to convert row with _asdict() to dict: {e}")
                 return {}
-        
+
         # Manual mapping using column names and values
         else:
-            column_names = list(result.keys()) if hasattr(result, 'keys') else []
+            column_names = list(result.keys()) if hasattr(result, "keys") else []
             # Handle case where row might be a single value instead of tuple
             if not hasattr(row, "__iter__"):
                 # Single value result - likely just the ID
@@ -114,11 +120,13 @@ class MergeStrategy(BaseReconciler):
                         f"Single non-iterable value with multiple columns: {row}, columns: {column_names}"
                     )
                     return {}
-            
+
             try:
                 return dict(zip(column_names, row, strict=False))
             except (TypeError, ValueError) as e:
-                self.logger.error(f"Failed to zip columns with row values: {e}, row: {row}, columns: {column_names}")
+                self.logger.error(
+                    f"Failed to zip columns with row values: {e}, row: {row}, columns: {column_names}"
+                )
                 return {}
 
     def merge_location(self, location_id: str) -> None:
@@ -158,7 +166,7 @@ class MergeStrategy(BaseReconciler):
 
             # Filter out any empty records (conversion failures)
             valid_records = [record for record in source_records if record]
-            
+
             # If no valid records after conversion, fall back
             if not valid_records:
                 self.logger.warning(
@@ -325,7 +333,7 @@ class MergeStrategy(BaseReconciler):
 
             # Filter out any empty records (conversion failures)
             valid_records = [record for record in source_records if record]
-            
+
             # If no valid records after conversion, fall back
             if not valid_records:
                 self.logger.warning(
@@ -383,7 +391,7 @@ class MergeStrategy(BaseReconciler):
             )
             return
 
-        # Apply merging strategy to create canonical record  
+        # Apply merging strategy to create canonical record
         merged_data = self._merge_organization_data(valid_records)
 
         # Update canonical record
