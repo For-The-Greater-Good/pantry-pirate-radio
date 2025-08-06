@@ -55,44 +55,58 @@ class TestContentStoreMain:
     def test_main_no_content_store_configured(self, mock_get_store, capsys):
         """Test main when no content store is configured."""
         mock_get_store.return_value = None
-        
+
         with patch("sys.argv", ["__main__.py", "status"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
-        
+
         assert exc_info.value.code == 1
-        
+
         captured = capsys.readouterr()
         assert "Error: Content store not configured" in captured.err
         assert "Set CONTENT_STORE_PATH environment variable" in captured.err
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_status_basic(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_status_basic(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test status command basic functionality."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "status"]):
             main()
-        
+
         mock_monitor_class.assert_called_once_with(mock_content_store)
         mock_monitor.print_summary.assert_called_once()
         mock_monitor.get_recent_activity.assert_not_called()
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_status_detailed(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_status_detailed(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test status command with detailed flag."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "status", "--detailed"]):
             main()
-        
+
         mock_monitor.print_summary.assert_called_once()
         mock_monitor.get_recent_activity.assert_called_once()
-        
+
         captured = capsys.readouterr()
         assert "=== Recent Activity (24h) ===" in captured.out
         assert "Submissions: 150" in captured.out
@@ -100,96 +114,128 @@ class TestContentStoreMain:
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_report_default_output(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_report_default_output(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test report command with default output."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "report"]):
             main()
-        
+
         mock_monitor.export_report.assert_called_once()
         # Check that it was called with a Path object
         call_args = mock_monitor.export_report.call_args[0][0]
         assert isinstance(call_args, Path)
         assert call_args.name == "content_store_report.json"
-        
+
         mock_monitor.print_summary.assert_called_once()
-        
+
         captured = capsys.readouterr()
         assert "Report saved to:" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_report_custom_output(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_report_custom_output(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test report command with custom output file."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
-        with patch("sys.argv", ["__main__.py", "report", "--output", "custom_report.json"]):
+
+        with patch(
+            "sys.argv", ["__main__.py", "report", "--output", "custom_report.json"]
+        ):
             main()
-        
+
         mock_monitor.export_report.assert_called_once()
         call_args = mock_monitor.export_report.call_args[0][0]
         assert isinstance(call_args, Path)
         assert call_args.name == "custom_report.json"
-        
+
         captured = capsys.readouterr()
         assert "custom_report.json" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_report_short_flag(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor):
+    def test_main_report_short_flag(
+        self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor
+    ):
         """Test report command with short output flag."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "report", "-o", "short_report.json"]):
             main()
-        
+
         call_args = mock_monitor.export_report.call_args[0][0]
         assert call_args.name == "short_report.json"
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_duplicates_none_found(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_duplicates_none_found(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test duplicates command when no duplicates found."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
         mock_monitor.find_duplicates.return_value = {}
-        
+
         with patch("sys.argv", ["__main__.py", "duplicates"]):
             main()
-        
+
         mock_monitor.find_duplicates.assert_called_once()
-        
+
         captured = capsys.readouterr()
         assert "No duplicate content found" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_duplicates_found(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_duplicates_found(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test duplicates command when duplicates are found."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         mock_duplicates = {
             "hash123456789abcdef": {
                 "count": 3,
                 "sources": ["scraper1", "scraper2"],
-                "first_seen": "2024-01-01T12:00:00Z"
+                "first_seen": "2024-01-01T12:00:00Z",
             },
             "hash987654321fedcba": {
                 "count": 2,
                 "sources": ["scraper3"],
-                "first_seen": "2024-01-02T10:30:00Z"
-            }
+                "first_seen": "2024-01-02T10:30:00Z",
+            },
         }
         mock_monitor.find_duplicates.return_value = mock_duplicates
-        
+
         with patch("sys.argv", ["__main__.py", "duplicates"]):
             main()
-        
+
         captured = capsys.readouterr()
         assert "=== Duplicate Content (2 found) ===" in captured.out
         assert "Hash: hash123456789abc..." in captured.out
@@ -199,21 +245,32 @@ class TestContentStoreMain:
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_duplicates_with_limit(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_duplicates_with_limit(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test duplicates command with custom limit."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         # Create more duplicates than the limit
         mock_duplicates = {
-            f"hash{i}": {"count": 10-i, "sources": [f"scraper{i}"], "first_seen": f"2024-01-0{i}"}
+            f"hash{i}": {
+                "count": 10 - i,
+                "sources": [f"scraper{i}"],
+                "first_seen": f"2024-01-0{i}",
+            }
             for i in range(1, 6)  # 5 duplicates
         }
         mock_monitor.find_duplicates.return_value = mock_duplicates
-        
+
         with patch("sys.argv", ["__main__.py", "duplicates", "--limit", "2"]):
             main()
-        
+
         captured = capsys.readouterr()
         # Should show the top 2 by count (hash1 with count 9, hash2 with count 8)
         assert captured.out.count("Hash: hash") == 2
@@ -222,16 +279,23 @@ class TestContentStoreMain:
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_efficiency(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_efficiency(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test efficiency command."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "efficiency"]):
             main()
-        
+
         mock_monitor.get_storage_efficiency.assert_called_once()
-        
+
         captured = capsys.readouterr()
         assert "=== Storage Efficiency ===" in captured.out
         assert "Total Submissions: 1,000" in captured.out
@@ -242,17 +306,24 @@ class TestContentStoreMain:
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_stats_default_days(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_stats_default_days(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test stats command with default days."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "stats"]):
             main()
-        
+
         mock_monitor.get_statistics.assert_called_once()
         mock_monitor.get_processing_timeline.assert_called_once_with(days=7)
-        
+
         captured = capsys.readouterr()
         assert "=== Detailed Statistics ===" in captured.out
         assert "Total Content: 850" in captured.out
@@ -260,91 +331,131 @@ class TestContentStoreMain:
         assert "Pending: 50" in captured.out
         assert "Processing Rate: 94.0%" in captured.out
         assert "Store Size: 256.75 MB" in captured.out
-        
+
         assert "=== Processing Timeline (Last 7 days) ===" in captured.out
         assert "2024-01-01: 100 total, 95 processed, 5 pending" in captured.out
         assert "2024-01-02: 120 total, 115 processed, 5 pending" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_stats_custom_days(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_stats_custom_days(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test stats command with custom days."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "stats", "--days", "14"]):
             main()
-        
+
         mock_monitor.get_processing_timeline.assert_called_once_with(days=14)
-        
+
         captured = capsys.readouterr()
         assert "=== Processing Timeline (Last 14 days) ===" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_dashboard_default_settings(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_dashboard_default_settings(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test dashboard command with default settings."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         # Mock the Flask app
         mock_app = Mock()
-        
+
         with patch("sys.argv", ["__main__.py", "dashboard"]):
             with patch("app.content_store.dashboard.app", mock_app):
                 main()
-        
+
         mock_app.run.assert_called_once_with(host="127.0.0.1", port=5050, debug=False)
-        
+
         captured = capsys.readouterr()
-        assert "Starting Content Store Dashboard on http://127.0.0.1:5050" in captured.out
+        assert (
+            "Starting Content Store Dashboard on http://127.0.0.1:5050" in captured.out
+        )
         assert "Access the dashboard at http://localhost:5050" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_dashboard_custom_host_port(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_dashboard_custom_host_port(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test dashboard command with custom host and port."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         mock_app = Mock()
-        
-        with patch("sys.argv", ["__main__.py", "dashboard", "--host", "0.0.0.0", "--port", "8080"]):
+
+        with patch(
+            "sys.argv",
+            ["__main__.py", "dashboard", "--host", "localhost", "--port", "8080"],
+        ):
             with patch("app.content_store.dashboard.app", mock_app):
                 main()
-        
-        mock_app.run.assert_called_once_with(host="0.0.0.0", port=8080, debug=False)
-        
+
+        mock_app.run.assert_called_once_with(host="localhost", port=8080, debug=False)
+
         captured = capsys.readouterr()
-        assert "Starting Content Store Dashboard on http://0.0.0.0:8080" in captured.out
+        assert "Starting Content Store Dashboard on http://localhost:8080" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_no_command(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_no_command(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test main with no command - should show help."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py"]):
             main()
-        
+
         captured = capsys.readouterr()
         assert "usage:" in captured.out
         assert "Content Store Management Tool" in captured.out
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_unknown_command(self, mock_get_store, mock_monitor_class, mock_content_store, mock_monitor, capsys):
+    def test_main_unknown_command(
+        self,
+        mock_get_store,
+        mock_monitor_class,
+        mock_content_store,
+        mock_monitor,
+        capsys,
+    ):
         """Test main with unknown command - should exit with error."""
         mock_get_store.return_value = mock_content_store
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "unknown"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
-        
+
         assert exc_info.value.code == 2  # argparse error exit code
-        
+
         captured = capsys.readouterr()
         assert "invalid choice: 'unknown'" in captured.err
 
@@ -352,13 +463,13 @@ class TestContentStoreMain:
     def test_main_help_message(self, mock_get_store, capsys):
         """Test that help message contains expected commands and examples."""
         mock_get_store.return_value = Mock(spec=ContentStore)
-        
+
         with patch("sys.argv", ["__main__.py", "--help"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
-        
+
         assert exc_info.value.code == 0
-        
+
         captured = capsys.readouterr()
         assert "Content Store Management Tool" in captured.out
         assert "python -m app.content_store status" in captured.out
@@ -371,7 +482,7 @@ class TestContentStoreMain:
         # This tests the parser structure without executing main()
         with patch("app.content_store.__main__.get_content_store") as mock_get_store:
             mock_get_store.return_value = None
-            
+
             # Test that parser handles various command combinations
             test_cases = [
                 ["status"],
@@ -387,11 +498,11 @@ class TestContentStoreMain:
                 ["dashboard"],
                 ["dashboard", "--host", "localhost"],
                 ["dashboard", "--port", "3000"],
-                ["dashboard", "--host", "0.0.0.0", "--port", "8000"],
+                ["dashboard", "--host", "localhost", "--port", "8000"],
             ]
-            
+
             for args in test_cases:
-                with patch("sys.argv", ["__main__.py"] + args):
+                with patch("sys.argv", ["__main__.py", *args]):
                     # Should not raise ArgumentParser errors
                     try:
                         main()
@@ -401,13 +512,15 @@ class TestContentStoreMain:
 
     @patch("app.content_store.__main__.ContentStoreMonitor")
     @patch("app.content_store.__main__.get_content_store")
-    def test_main_error_handling_in_monitor_calls(self, mock_get_store, mock_monitor_class, mock_content_store):
+    def test_main_error_handling_in_monitor_calls(
+        self, mock_get_store, mock_monitor_class, mock_content_store
+    ):
         """Test error handling when monitor methods raise exceptions."""
         mock_get_store.return_value = mock_content_store
         mock_monitor = Mock(spec=ContentStoreMonitor)
         mock_monitor.print_summary.side_effect = Exception("Monitor error")
         mock_monitor_class.return_value = mock_monitor
-        
+
         with patch("sys.argv", ["__main__.py", "status"]):
             # Should propagate the exception (no explicit error handling in main)
             with pytest.raises(Exception, match="Monitor error"):
@@ -422,17 +535,18 @@ class TestMainEntryPoint:
         # Read the module source to verify it has the correct pattern
         import app.content_store.__main__ as main_module
         import inspect
-        
+
         # Check that main function exists
-        assert hasattr(main_module, 'main')
+        assert hasattr(main_module, "main")
         assert callable(main_module.main)
-        
+
         # Check the source contains the if __name__ == "__main__" pattern
         source = inspect.getsource(main_module)
         assert 'if __name__ == "__main__":' in source
-        assert 'main()' in source
+        assert "main()" in source
 
 
 if __name__ == "__main__":
     # Test the module entry point pattern
     pytest.main([__file__])
+
