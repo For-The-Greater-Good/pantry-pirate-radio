@@ -83,6 +83,38 @@ The setup wizard will:
 
 **All development commands must use bouy** - no local Python dependencies are required except Docker.
 
+### Using @agent-test-suite-monitor
+
+**IMPORTANT: Use @agent-test-suite-monitor in the following scenarios:**
+
+1. **After implementing new features or fixing bugs** - to run the full test suite and check for any issues
+2. **When tests are failing unexpectedly** - to diagnose test failures and understand what's broken
+3. **Before committing changes** - to ensure all tests pass and code quality checks succeed
+4. **After making significant code changes** - to verify nothing has been broken
+5. **When investigating CI/CD failures** - to reproduce and debug test failures locally
+
+**Examples of when to use @agent-test-suite-monitor:**
+```bash
+# After implementing a new API endpoint
+@agent-test-suite-monitor "Run full test suite after implementing new user API"
+
+# When tests fail unexpectedly
+@agent-test-suite-monitor "Debug failing authentication tests"
+
+# Before creating a pull request
+@agent-test-suite-monitor "Run all tests and checks before PR"
+
+# After refactoring code
+@agent-test-suite-monitor "Verify all tests pass after refactoring database models"
+```
+
+The test-suite-monitor agent will:
+- Run the appropriate test commands using bouy
+- Analyze test failures and provide detailed diagnostics
+- Track test results across runs to identify regressions
+- Suggest fixes for common test issues
+- Ensure code quality standards are met
+
 ### Test-Driven Development (TDD) Workflow
 
 This project follows Test-Driven Development principles. Always write tests before implementing features:
