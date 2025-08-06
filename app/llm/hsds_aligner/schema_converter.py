@@ -44,52 +44,52 @@ TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
     "longitude": {"type": "number", "minimum": -180, "maximum": 180},
     # Address constraints
     "address.state_province": {
-        "type": "string", 
+        "type": "string",
         "pattern": r"^[A-Z]{2}$",  # US state codes (2 letters)
-        "description": "US state code (2 letters, e.g., CA, NY, TX)"
+        "description": "US state code (2 letters, e.g., CA, NY, TX)",
     },
     "address.postal_code": {
         "type": "string",
         "pattern": r"^\d{5}(-\d{4})?$",  # US ZIP codes (12345 or 12345-6789)
-        "description": "US ZIP code (5 digits or ZIP+4 format)"
+        "description": "US ZIP code (5 digits or ZIP+4 format)",
     },
     "address.country": {
         "type": "string",
         "pattern": r"^[A-Z]{2}$",  # ISO 3166-1 country codes
         "default": "US",
-        "description": "ISO 3166-1 country code (2 letters, e.g., US)"
+        "description": "ISO 3166-1 country code (2 letters, e.g., US)",
     },
     # Phone constraints
     "phone.number": {
         "type": "string",
         "pattern": r"^[\d\s\(\)\-\+\.extA-Z]+$",  # Flexible phone format (includes letters for vanity numbers)
-        "description": "Phone number (various formats accepted, including vanity numbers)"
+        "description": "Phone number (various formats accepted, including vanity numbers)",
     },
     # Schedule constraints
     "schedule.opens_at": {
         "type": "string",
         "pattern": r"^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?(Z|[+-]\d{2}:\d{2})?$",
-        "description": "Opening time in HH:MM format with optional timezone"
+        "description": "Opening time in HH:MM format with optional timezone",
     },
     "schedule.closes_at": {
         "type": "string",
         "pattern": r"^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?(Z|[+-]\d{2}:\d{2})?$",
-        "description": "Closing time in HH:MM format with optional timezone"
+        "description": "Closing time in HH:MM format with optional timezone",
     },
     "schedule.valid_from": {
         "type": "string",
         "pattern": r"^\d{4}-\d{2}-\d{2}$",  # YYYY-MM-DD
-        "description": "Date in ISO 8601 format (YYYY-MM-DD)"
+        "description": "Date in ISO 8601 format (YYYY-MM-DD)",
     },
     "schedule.valid_to": {
         "type": "string",
         "pattern": r"^\d{4}-\d{2}-\d{2}$",  # YYYY-MM-DD
-        "description": "Date in ISO 8601 format (YYYY-MM-DD)"
+        "description": "Date in ISO 8601 format (YYYY-MM-DD)",
     },
     "schedule.dtstart": {
         "type": "string",
         "pattern": r"^\d{4}-\d{2}-\d{2}$",  # YYYY-MM-DD
-        "description": "Start date in ISO 8601 format (YYYY-MM-DD)"
+        "description": "Start date in ISO 8601 format (YYYY-MM-DD)",
     },
     # UTC offsets
     "timezone": {"type": "number", "minimum": -12, "maximum": 14},
