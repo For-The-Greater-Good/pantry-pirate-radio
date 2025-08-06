@@ -1023,6 +1023,40 @@ case "$1" in
             exit 1
         fi
 
+        # Check if we need to use OpenRouter API key from .env
+        OPENROUTER_KEY_FROM_ENV=""
+        ENV_FILE_TO_USE=".env.test"
+        TEST_TEMP_ENV_FILE=""
+        
+        if [ -f .env ]; then
+            # Extract OPENROUTER_API_KEY from .env if it exists and is not a placeholder
+            OPENROUTER_KEY_FROM_ENV=$(grep "^OPENROUTER_API_KEY=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+            if [ -n "$OPENROUTER_KEY_FROM_ENV" ] && [ "$OPENROUTER_KEY_FROM_ENV" != "test_key" ] && [ "$OPENROUTER_KEY_FROM_ENV" != "your_openrouter_api_key_here" ]; then
+                # Check what's in .env.test
+                TEST_OPENROUTER_KEY=$(grep "^OPENROUTER_API_KEY=" .env.test | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+                if [ -z "$TEST_OPENROUTER_KEY" ] || [ "$TEST_OPENROUTER_KEY" = "test_key" ] || [ "$TEST_OPENROUTER_KEY" = "your_openrouter_api_key_here" ]; then
+                    # .env.test doesn't have a valid key, but .env does
+                    # Create a temporary env file that merges both
+                    TEST_TEMP_ENV_FILE=".env.test.tmp.$$"
+                    cp .env.test "$TEST_TEMP_ENV_FILE"
+                    # Update or add the OPENROUTER_API_KEY
+                    if grep -q "^OPENROUTER_API_KEY=" "$TEST_TEMP_ENV_FILE"; then
+                        sed -i.bak "s|^OPENROUTER_API_KEY=.*|OPENROUTER_API_KEY=$OPENROUTER_KEY_FROM_ENV|" "$TEST_TEMP_ENV_FILE"
+                        rm -f "$TEST_TEMP_ENV_FILE.bak"
+                    else
+                        echo "OPENROUTER_API_KEY=$OPENROUTER_KEY_FROM_ENV" >> "$TEST_TEMP_ENV_FILE"
+                    fi
+                    # Add to cleanup list
+                    CLEANUP_TEMP_FILES="$CLEANUP_TEMP_FILES $TEST_TEMP_ENV_FILE"
+                    ENV_FILE_TO_USE="$TEST_TEMP_ENV_FILE"
+                    
+                    if [ $QUIET -eq 0 ] && [ $PROGRAMMATIC_MODE -eq 0 ]; then
+                        output info "Using OpenRouter API key from .env for tests"
+                    fi
+                fi
+            fi
+        fi
+
         # Start test services if not already running
         if [ $QUIET -eq 0 ] && [ $PROGRAMMATIC_MODE -eq 0 ]; then
             output info "Ensuring test services are running..."
@@ -1132,7 +1166,7 @@ case "$1" in
             -v "$(pwd)":/app:cached \
             -w /app \
             --network "$NETWORK_NAME" \
-            --env-file .env.test \
+            --env-file "$ENV_FILE_TO_USE" \
             -e PYTHONUNBUFFERED=1 \
             -e RUNNING_IN_DOCKER=1 \
             "$TEST_IMAGE_TAG" \
@@ -1262,12 +1296,12 @@ case "$1" in
                         echo -e "${RED}[$(date +%Y-%m-%d\ %H:%M:%S)] ERROR:${NC} $1" >&2
                     }
                     
-                    # Get list of all scrapers
-                    SCRAPERS=$(python -m app.scraper --list | grep "^  -" | sed "s/^  - //")
+                    # Get list of all scrapers and randomize the order
+                    SCRAPERS=$(python -m app.scraper --list | grep "^  -" | sed "s/^  - //" | shuf)
                     SCRAPER_COUNT=$(echo "$SCRAPERS" | wc -l)
                     
                     log "🎯 Found $SCRAPER_COUNT scrapers to scout"
-                    log "🔍 Dispatching scouts!"
+                    log "🔍 Dispatching scouts in random order!"
                     
                     # Run scrapers in parallel, max concurrent as specified
                     echo "$SCRAPERS" | xargs -P $MAX_CONCURRENT -I {} bash -c '\''

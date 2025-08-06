@@ -189,12 +189,17 @@ class TestHAARRRvestPublisher:
         # Create a .git directory to simulate existing repository
         (repo_dir / ".git").mkdir()
 
-        # Mock git status showing uncommitted changes
+        # Mock git status showing uncommitted changes (not in content_store)
         mock_run.side_effect = [
             Mock(returncode=0, stdout="", stderr=""),  # config user.email
             Mock(returncode=0, stdout="", stderr=""),  # config user.name
-            Mock(returncode=0, stdout="M file.txt", stderr=""),  # status --porcelain
-            Mock(returncode=0, stdout="", stderr=""),  # stash
+            Mock(
+                returncode=0, stdout="M file.txt", stderr=""
+            ),  # status --porcelain (first check)
+            Mock(
+                returncode=0, stdout="M file.txt", stderr=""
+            ),  # status --porcelain (second check after content_store handling)
+            Mock(returncode=0, stdout="", stderr=""),  # stash push
             Mock(returncode=0, stdout="", stderr=""),  # checkout main
             Mock(returncode=0, stdout="", stderr=""),  # fetch
             Mock(returncode=0, stdout="0", stderr=""),  # rev-list
@@ -202,7 +207,7 @@ class TestHAARRRvestPublisher:
 
         publisher._setup_git_repo()
 
-        # Verify stash was called
+        # Verify stash was called (after content_store handling)
         stash_calls = [call for call in mock_run.call_args_list if "stash" in str(call)]
         assert len(stash_calls) == 1
 

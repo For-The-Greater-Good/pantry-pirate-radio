@@ -27,6 +27,10 @@ class FieldValidator:
         "known_service": 0.20,  # Missing known service field
         "known_location": 0.20,  # Missing known location field
         "known_other": 0.15,  # Missing known other field
+        # Reduced deductions for commonly inferrable fields
+        "inferrable_address": 0.03,  # City, state, zip - often inferrable
+        "inferrable_defaults": 0.02,  # Country, phone type, languages - standard defaults
+        "inferrable_status": 0.02,  # Service status, location type - usually standard
     }
 
     # Required fields by entity type
@@ -207,8 +211,33 @@ class FieldValidator:
                         "schedule_fields", []
                     )
 
+            # Check if field is commonly inferrable
+            is_inferrable_address = any(
+                addr_field in field
+                for addr_field in ["city", "state_province", "postal_code"]
+            )
+            is_inferrable_default = any(
+                default_field in field
+                for default_field in [
+                    "country",
+                    "phone.type",
+                    "languages",
+                    "address_type",
+                ]
+            )
+            is_inferrable_status = any(
+                status_field in field
+                for status_field in ["status", "location_type", "freq", "wkst"]
+            )
+
             # Apply appropriate deduction
-            if field in self.REQUIRED_FIELDS["top_level"]:
+            if is_inferrable_address:
+                deduction = self.DEDUCTIONS["inferrable_address"]
+            elif is_inferrable_default:
+                deduction = self.DEDUCTIONS["inferrable_defaults"]
+            elif is_inferrable_status:
+                deduction = self.DEDUCTIONS["inferrable_status"]
+            elif field in self.REQUIRED_FIELDS["top_level"]:
                 deduction = (
                     self.DEDUCTIONS["known_top_level"]
                     if is_known

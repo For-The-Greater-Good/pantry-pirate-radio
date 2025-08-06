@@ -226,10 +226,11 @@ class ContentStore:
         }
         result_path.write_text(json.dumps(result_data, indent=2))
 
-        # Update index
+        # Update index - use INSERT OR REPLACE to handle missing entries
         db_path = self.content_store_path / "index.db"
         with sqlite3.connect(db_path) as conn:
-            conn.execute(
+            # First try to update existing entry
+            cursor = conn.execute(
                 """
                 UPDATE content_index
                 SET status = ?, result_path = ?, job_id = ?, processed_at = ?
@@ -243,6 +244,32 @@ class ContentStore:
                     content_hash,
                 ),
             )
+
+            # If no rows were updated, insert a new entry
+            if cursor.rowcount == 0:
+                # Entry doesn't exist - this can happen if content was processed
+                # without going through store_content first
+                # Create a placeholder content path based on the hash
+                content_path = self._get_content_path(content_hash)
+                conn.execute(
+                    """
+                    INSERT INTO content_index
+                    (hash, status, content_path, result_path, job_id, created_at, processed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        content_hash,
+                        "completed",
+                        str(
+                            content_path
+                        ),  # Use expected content path even if file doesn't exist
+                        str(result_path),
+                        job_id,
+                        datetime.utcnow(),
+                        datetime.utcnow(),
+                    ),
+                )
+
             conn.commit()
 
     def get_job_id(self, content_hash: str) -> Optional[str]:

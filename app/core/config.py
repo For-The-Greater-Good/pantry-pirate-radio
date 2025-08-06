@@ -72,6 +72,27 @@ class Settings(BaseSettings):
             ]
         return self
 
+    @model_validator(mode="after")
+    def use_test_redis_for_testing(self) -> "Settings":
+        """Use Redis database 1 for tests to ensure isolation."""
+        import os
+
+        if os.getenv("TESTING") == "true":
+            # Use TEST_REDIS_URL if provided, otherwise switch to database 1
+            test_redis_url = os.getenv("TEST_REDIS_URL")
+            if test_redis_url:
+                self.REDIS_URL = test_redis_url
+            elif "/0" in self.REDIS_URL:
+                # Switch from database 0 to database 1 for tests
+                self.REDIS_URL = self.REDIS_URL.replace("/0", "/1")
+            elif not self.REDIS_URL.endswith("/1"):
+                # Add database 1 if no database specified
+                if self.REDIS_URL.endswith("/"):
+                    self.REDIS_URL = self.REDIS_URL + "1"
+                else:
+                    self.REDIS_URL = self.REDIS_URL + "/1"
+        return self
+
 
 # Create settings instance
 settings = Settings()
