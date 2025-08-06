@@ -218,13 +218,18 @@ class FieldValidator:
             )
             is_inferrable_default = any(
                 default_field in field
-                for default_field in ["country", "phone.type", "languages", "address_type"]
+                for default_field in [
+                    "country",
+                    "phone.type",
+                    "languages",
+                    "address_type",
+                ]
             )
             is_inferrable_status = any(
                 status_field in field
                 for status_field in ["status", "location_type", "freq", "wkst"]
             )
-            
+
             # Apply appropriate deduction
             if is_inferrable_address:
                 deduction = self.DEDUCTIONS["inferrable_address"]

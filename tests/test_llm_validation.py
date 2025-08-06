@@ -28,8 +28,12 @@ class TestValidationConfig:
     def test_default_config(self):
         """Test default configuration values."""
         config = ValidationConfig()
-        assert config.min_confidence == 0.85
-        assert config.retry_threshold == 0.5
+        assert (
+            config.min_confidence == 0.82
+        )  # Updated to match new HSDS_MIN_CONFIDENCE default
+        assert (
+            config.retry_threshold == 0.65
+        )  # Updated to match new HSDS_RETRY_THRESHOLD default
         assert config.max_retries == 5
         assert config.validation_model is None
 

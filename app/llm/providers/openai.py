@@ -322,15 +322,15 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
             # The response_format parameter will handle this
             return [{"role": "user", "content": prompt}]
         return cast(list[dict[str, str]], prompt)
-    
+
     def _remove_json_formatting_from_messages(
         self, messages: list[dict[str, str]]
     ) -> list[dict[str, str]]:
         """Remove JSON formatting instructions from messages when using native structured output.
-        
+
         Args:
             messages: List of messages potentially containing JSON formatting instructions
-            
+
         Returns:
             list[dict[str, str]]: Messages with JSON formatting removed
         """
@@ -363,13 +363,16 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         }
         if self.config.max_tokens is not None:
             params["max_tokens"] = self.config.max_tokens
-            
+
         # TODO: Remove schema wrapper unwrapping once downstream services updated
         # Currently schema comes wrapped as {"type": "json_schema", "json_schema": {...}}
         # OpenAI expects just the inner json_schema part for response_format
         if config and config.format:
             schema_format = config.format
-            if isinstance(schema_format, dict) and schema_format.get("type") == "json_schema":
+            if (
+                isinstance(schema_format, dict)
+                and schema_format.get("type") == "json_schema"
+            ):
                 # Extract inner schema for OpenAI response_format
                 json_schema = schema_format.get("json_schema", {})
                 if "schema" in json_schema:
@@ -378,12 +381,12 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
                         "json_schema": {
                             "name": json_schema.get("name", "response"),
                             "schema": json_schema["schema"],
-                            "strict": json_schema.get("strict", True)
-                        }
+                            "strict": json_schema.get("strict", True),
+                        },
                     }
                     # Remove JSON formatting from system message since we're using native structured output
                     messages = self._remove_json_formatting_from_messages(messages)
-                    
+
         return params
 
     def _process_json_content(

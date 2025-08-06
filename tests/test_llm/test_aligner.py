@@ -151,7 +151,7 @@ async def test_aligner_validation_success(
     )
 
     validation_result: Dict[str, Any] = {
-        "confidence": 0.85,  # Match new threshold
+        "confidence": 0.82,  # Match new HSDS_MIN_CONFIDENCE default
         "feedback": None,
         "hallucination_detected": False,
         "missing_required_fields": [],  # Required by schema
@@ -181,7 +181,7 @@ async def test_aligner_validation_success(
     result = await aligner.align(raw_data)
 
     # Verify results
-    assert result["confidence_score"] == 0.85  # Match new threshold
+    assert result["confidence_score"] == 0.82  # Match new HSDS_MIN_CONFIDENCE default
     assert isinstance(result["hsds_data"], dict)
     assert result["hsds_data"]["organization"][0]["name"] == "Test Food Bank"
 
@@ -424,7 +424,7 @@ async def test_aligner_validation_retry_success(
     result = await aligner.align(raw_data)
 
     # Verify results
-    assert result["confidence_score"] == 0.85  # Match new threshold
+    assert result["confidence_score"] == 0.82  # Match new HSDS_MIN_CONFIDENCE default
     assert isinstance(result["hsds_data"], dict)
     assert len(aligner.attempts) == 2  # Should succeed on second try
     assert aligner.attempts[0]["feedback"] == "Missing organization description"

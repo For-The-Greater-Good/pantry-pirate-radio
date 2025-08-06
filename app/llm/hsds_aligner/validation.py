@@ -42,7 +42,7 @@ class ValidationConfig:
             self.retry_threshold = float(os.getenv("HSDS_RETRY_THRESHOLD", "0.65"))
         if self.max_retries is None:
             self.max_retries = int(os.getenv("HSDS_MAX_RETRIES", "5"))
-        
+
         # Validate values
         if not 0.0 <= self.min_confidence <= 1.0:
             raise ValueError("min_confidence must be between 0.0 and 1.0")
