@@ -17,9 +17,6 @@ from app.content_store.dashboard import (
     app,
     get_content_store,
     get_redis_connection,
-    dashboard,
-    api_stats,
-    api_content_detail,
 )
 
 
