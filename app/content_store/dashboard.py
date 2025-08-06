@@ -12,8 +12,6 @@ from flask import Flask, jsonify, render_template_string
 from rq import Queue
 from rq.job import Job
 
-from app.content_store import ContentStore
-
 app = Flask(__name__)
 
 # HTML template for the dashboard
@@ -251,8 +249,9 @@ DASHBOARD_TEMPLATE = """
 
 def get_content_store():
     """Get content store instance."""
-    store_path = Path("/data-repo")
-    return ContentStore(store_path=store_path)
+    # Use the configured content store instance instead of creating a new one
+    from app.content_store.config import get_content_store as get_configured_store
+    return get_configured_store()
 
 
 def get_redis_connection():
@@ -270,13 +269,17 @@ def dashboard():
 def api_stats():
     """API endpoint for dashboard data."""
     store = get_content_store()
+    if not store:
+        return jsonify({"error": "Content store not configured"}), 503
+    
     r = get_redis_connection()
 
     # Get basic stats
     stats = store.get_statistics()
 
     # Get recent entries
-    db_path = Path("/data-repo") / "content_store" / "index.db"
+    # Use the actual content store path instead of hardcoded path
+    db_path = store.content_store_path / "index.db"
     conn = sqlite3.connect(db_path)
 
     cursor = conn.execute(
@@ -345,6 +348,8 @@ def api_stats():
 def api_content_detail(hash):
     """Get details for a specific content hash."""
     store = get_content_store()
+    if not store:
+        return jsonify({"error": "Content store not configured"}), 503
 
     # Validate hash
     try:

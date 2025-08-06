@@ -32,6 +32,10 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
     logger.info(
         f"Starting to process LLM job {job.id} with provider {provider.model_name}"
     )
+    
+    # DEBUG: Check metadata for content_hash
+    print(f"DEBUG: Job {job.id} metadata: {job.metadata}")
+    logger.warning(f"DEBUG: Job {job.id} metadata: {job.metadata}")
 
     # Run async generate in sync context
     loop = asyncio.new_event_loop()
@@ -64,6 +68,25 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
             completed_at=datetime.now(),
             processing_time=0.0,
         )
+
+        # Store result in content store FIRST (before enqueuing other jobs that might fail)
+        from app.content_store.config import get_content_store
+
+        content_store = get_content_store()
+        if content_store:
+            if "content_hash" in job.metadata:
+                content_hash = job.metadata["content_hash"]
+                logger.info(f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})")
+                try:
+                    content_store.store_result(content_hash, llm_result.text, job.id)
+                    logger.info(f"Successfully stored result for hash {content_hash[:8]}...")
+                except Exception as e:
+                    logger.error(f"Failed to store result in content store: {e}")
+                    # Don't fail the job, but log the error
+            else:
+                logger.debug(f"No content_hash in job metadata for job {job.id}")
+        else:
+            logger.debug("Content store not configured")
 
         # Enqueue follow-up jobs for reconciler and recorder
         try:
@@ -102,14 +125,6 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
             logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
             # Re-raise to ensure the LLM job fails and can be retried
             raise ValueError(f"Failed to enqueue recorder job: {e}") from e
-
-        # Store result in content store if available
-        from app.content_store.config import get_content_store
-
-        content_store = get_content_store()
-        if content_store and "content_hash" in job.metadata:
-            content_hash = job.metadata["content_hash"]
-            content_store.store_result(content_hash, llm_result.text, job.id)
 
         return llm_result
     except Exception as e:
