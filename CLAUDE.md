@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Most Common Commands
+
+```bash
+# First time setup
+./bouy setup                 # Interactive setup wizard
+./bouy up --with-init        # Start with database initialization
+
+# Daily development
+./bouy up                    # Start services
+./bouy test --pytest         # Run tests
+./bouy logs app              # Check logs
+./bouy shell app             # Debug in container
+./bouy down                  # Stop services
+
+# Before committing
+./bouy test                  # Run ALL checks (required for PR)
+```
+
 ## Quick Command Reference
 
 **IMPORTANT: All commands use bouy - no local dependencies except Docker required!**
@@ -10,38 +28,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Initial Setup Commands
 ./bouy setup                 # Interactive setup wizard (creates .env file)
 ./bouy --help                # Show help with all commands
-./bouy help                  # Same as --help
+./bouy help                  # Same as --help (alternative syntax)
 ./bouy --version             # Show bouy version (v1.0.0)
-./bouy version               # Same as --version
+./bouy version               # Same as --version (alternative syntax)
 
 # Essential Commands
-./bouy up                    # Start all services
+./bouy up                    # Start all services (development mode by default)
+./bouy up --prod             # Start services in production mode
+./bouy up --test             # Start services in test mode
+./bouy up --with-init        # Start with database initialization
 ./bouy down                  # Stop all services
-./bouy test                  # Run all tests and checks
-./bouy logs app              # View service logs
-./bouy shell app             # Open shell in container
+./bouy test                  # Run all tests and checks (pytest, mypy, black, ruff, bandit)
+./bouy logs                  # View all logs (follows by default)
+./bouy logs app              # View specific service logs
+./bouy shell app             # Open shell in container (bash or sh)
 ./bouy ps                    # List running services
-./bouy clean                 # Stop and remove volumes
+./bouy clean                 # Stop services and remove volumes
 
 # Testing Commands
-./bouy test --pytest         # Run tests only
-./bouy test --mypy          # Type checking only
-./bouy test --black         # Format checking only
-./bouy test --ruff          # Linting only
-./bouy test --bandit        # Security scan only
-./bouy test --coverage       # Tests with coverage check
+./bouy test                  # Run all CI checks
+./bouy test --pytest         # Run pytest with coverage
+./bouy test --mypy           # Type checking only
+./bouy test --black          # Code formatting check (auto-updates files)
+./bouy test --ruff           # Linting only
+./bouy test --bandit         # Security scan only
+./bouy test --coverage       # Analyze existing coverage reports (run after --pytest)
 ./bouy test --vulture        # Dead code detection
 ./bouy test --safety         # Dependency vulnerability scan
 ./bouy test --pip-audit      # Pip audit for vulnerabilities
 ./bouy test --xenon          # Code complexity analysis
 
 # Scraper Commands
-./bouy scraper --list         # List all scrapers
+./bouy scraper --list         # List all available scrapers
 ./bouy scraper --all          # Run all scrapers sequentially
-./bouy scraper NAME           # Run specific scraper
+./bouy scraper NAME           # Run specific scraper by name
 ./bouy scraper scouting-party # Run all scrapers in parallel (default: 5 concurrent)
-./bouy scraper scouting-party 10 # Run with 10 concurrent scrapers
-./bouy scraper-test NAME      # Test scraper (dry run)
+./bouy scraper scouting-party 10 # Run with custom concurrency (10 scrapers)
+./bouy scraper full-broadside # Run all scrapers in parallel (max firepower!)
+./bouy scraper-test NAME      # Test specific scraper (dry run)
 ./bouy scraper-test --all     # Test all scrapers (dry run)
 
 # Service Management
@@ -55,11 +79,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Global Flags (work with all commands)
 ./bouy --help               # Show help
 ./bouy --version            # Show version
-./bouy --programmatic CMD   # Structured output
+./bouy --programmatic CMD   # Structured output for automation
 ./bouy --json CMD           # JSON output (implies --programmatic)
-./bouy --quiet CMD          # Minimal output
-./bouy --verbose CMD        # Debug output
-./bouy --no-color CMD       # No color codes
+./bouy --quiet CMD          # Suppress non-error output
+./bouy --verbose CMD        # Enable verbose/debug output
+./bouy --no-color CMD       # Disable colored output
 ```
 
 ## Initial Setup
@@ -307,7 +331,7 @@ xdg-open htmlcov/index.html  # Linux
 ```bash
 # Start all services (no local dependencies needed)
 ./bouy up                    # Development mode (default)
-./bouy up --prod            # Production mode
+./bouy up --prod            # Production mode (includes Datasette viewer)
 ./bouy up --test            # Test mode
 ./bouy up --with-init       # With database initialization
 ./bouy up --dev --with-init # Combine options
@@ -319,11 +343,11 @@ xdg-open htmlcov/index.html  # Linux
 ./bouy down                 # Stop all services
 ./bouy ps                   # List running services
 ./bouy logs                 # View all logs (follows by default)
-./bouy logs app             # View service logs
+./bouy logs app             # View specific service logs
 ./bouy logs -f worker       # Follow worker logs (explicit follow)
 ./bouy shell app            # Open shell in container (bash or sh)
-./bouy exec app python --version  # Execute command
-./bouy clean                # Stop and remove volumes
+./bouy exec app python --version  # Execute command in container
+./bouy clean                # Stop services and remove volumes
 
 # Build services
 ./bouy build                # Build all services
@@ -343,6 +367,28 @@ xdg-open htmlcov/index.html  # Linux
 - For specific test files: `./bouy test --pytest tests/test_api.py`
 - For specific test functions: `./bouy test --pytest -- tests/test_api.py::TestAPI::test_function`
 - The `./bouy test` command properly handles test environments, coverage, and dependencies
+
+### Common Testing Workflows
+```bash
+# Before committing changes
+./bouy test                  # Run all CI checks
+
+# Quick iteration during development
+./bouy test --pytest tests/test_module.py  # Test specific module
+./bouy test --mypy app/module.py          # Type check specific file
+./bouy test --black app/                  # Format code in directory
+
+# Debugging test failures
+./bouy test --pytest -- -v               # Verbose output
+./bouy test --pytest -- -x               # Stop on first failure
+./bouy test --pytest -- --pdb            # Drop to debugger on failure
+./bouy test --pytest -- -k pattern       # Run tests matching pattern
+
+# Coverage analysis
+./bouy test --pytest                     # Generate coverage
+./bouy test --coverage                   # Analyze coverage reports
+open htmlcov/index.html                  # View HTML report
+```
 
 ## Additional Commands
 
@@ -383,8 +429,8 @@ xdg-open htmlcov/index.html  # Linux
 
 ### Data Reconciliation
 ```bash
-./bouy reconciler            # Run reconciler
-./bouy reconciler --force    # Force processing
+./bouy reconciler            # Run reconciler service
+./bouy reconciler --force    # Force processing (bypass checks)
 ```
 
 ### Data Viewing and Endpoints
@@ -399,15 +445,128 @@ Datasette provides:
 - Read-only access to the SQLite database
 - Data export in various formats (CSV, JSON)
 
+## Troubleshooting Common Issues
+
+### Docker Issues
+```bash
+# Check Docker is running
+docker --version
+docker ps
+
+# Clean up Docker resources
+docker system prune -a       # Remove all unused containers, networks, images
+./bouy clean                 # Remove project volumes and containers
+
+# Rebuild from scratch
+./bouy clean
+./bouy build --no-cache
+./bouy up --with-init
+```
+
+### Test Failures
+```bash
+# Run specific failing test with verbose output
+./bouy test --pytest -- -vsx tests/test_failing.py
+
+# Check for formatting issues
+./bouy test --black          # Auto-fixes formatting
+./bouy test --ruff           # Shows linting issues
+
+# Type checking issues
+./bouy test --mypy -- --show-error-codes
+```
+
+### Database Issues
+```bash
+# Reset database completely
+./bouy down
+./bouy clean
+./bouy up --with-init        # Reinitialize database
+
+# Check database connection
+./bouy shell db
+psql -U postgres -d pantry_pirate_radio -c "SELECT 1;"
+```
+
+### Service Issues
+```bash
+# Check service logs
+./bouy logs app              # Check application logs
+./bouy logs worker           # Check worker logs
+./bouy logs db               # Check database logs
+
+# Restart specific service
+./bouy down app
+./bouy up app
+
+# Check service health
+./bouy ps                    # Shows all service statuses
+```
+
+## Recent Updates and Features
+
+### Geocoding Improvements (Latest)
+- **0,0 Coordinate Detection**: Automatic detection and correction of invalid (0,0) coordinates
+- **Exhaustive Provider Fallback**: System now tries ALL available geocoding providers before accepting failure
+- **Multi-Provider Support**: ArcGIS, Google Maps, Nominatim, and Census geocoding providers
+- **Intelligent Caching**: TTL-based caching with rate limiting for geocoding requests
+
+### Scraper Enhancements
+- **scouting-party mode**: Run scrapers in parallel with configurable concurrency
+- **full-broadside mode**: Maximum parallel execution for all scrapers
+- **Dry run testing**: Test scrapers without processing using scraper-test command
+
+### Docker Image Management
+- **Pull command**: Fetch latest or specific version tags of all container images
+- **Version tagging**: Support for pulling specific release versions (e.g., v1.2.3)
+
 ## Memories
 
 ### Test Command Notes
 - Do not use 2>&1 in bouy test commands, it gets interpreted incorrectly
 - Always use `./bouy test --pytest` for running tests, not `./bouy exec app poetry run pytest`
 - Test commands automatically handle test environments, coverage, and dependencies
+- The --coverage flag analyzes existing coverage reports (must run --pytest first)
+- Black formatting check automatically updates files when run
+
+### Docker and Container Notes
+- All services run with consistent COMPOSE_PROJECT_NAME="pantry-pirate-radio"
+- The shell command automatically detects bash or sh availability
+- Logs follow by default, use -f flag for explicit follow if needed
+- Clean command removes both services and volumes for fresh start
+- Production mode includes Datasette viewer on port 8001
 
 ### Important Instructions
 - NEVER create files unless they're absolutely necessary for achieving your goal
 - ALWAYS prefer editing an existing file to creating a new one
 - NEVER proactively create documentation files (*.md) or README files unless explicitly requested
 - Do what has been asked; nothing more, nothing less
+- Use bouy commands exclusively - no direct poetry or docker compose commands
+- When debugging failures, use --verbose flag for detailed output
+- For CI/CD integration, use --programmatic or --json flags for structured output
+
+## Best Practices for Claude Code
+
+### Command Usage
+1. **Always use bouy** - Never use direct docker, docker-compose, or poetry commands
+2. **Test before committing** - Run `./bouy test` to ensure all checks pass
+3. **Use appropriate flags** - Add --verbose for debugging, --quiet for automation
+4. **Check logs on failure** - Use `./bouy logs [service]` to diagnose issues
+
+### Development Workflow
+1. **Start fresh daily** - `./bouy down` then `./bouy up` to ensure clean state
+2. **Test incrementally** - Use `./bouy test --pytest tests/specific_test.py` during development
+3. **Format code automatically** - Run `./bouy test --black` to fix formatting
+4. **Monitor services** - Use `./bouy ps` to check service health
+
+### Debugging Tips
+1. **Shell access** - Use `./bouy shell app` to debug inside container
+2. **Verbose testing** - Add `-- -v` flag for detailed test output
+3. **Stop on failure** - Use `-- -x` flag to stop tests at first failure
+4. **Check coverage** - Run `./bouy test --coverage` after pytest
+
+### Performance Tips
+1. **Parallel scrapers** - Use `scouting-party` mode for faster scraping
+2. **Selective services** - Start only needed services: `./bouy up app worker`
+3. **Cached builds** - Reuse Docker cache unless changes require `--no-cache`
+4. **JSON output** - Use `--json` flag for machine-readable output in scripts
