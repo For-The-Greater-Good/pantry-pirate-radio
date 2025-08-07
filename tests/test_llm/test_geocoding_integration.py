@@ -356,7 +356,6 @@ class TestEndToEndGeographicValidation:
             usage={"prompt_tokens": 100, "completion_tokens": 200, "total_tokens": 300},
         )
 
-
         job = LLMJob(
             id="test-job-123",
             prompt="Test prompt",
@@ -461,7 +460,6 @@ class TestEndToEndGeographicValidation:
             model="test-model",
             usage={"prompt_tokens": 50, "completion_tokens": 100, "total_tokens": 150},
         )
-
 
         job = LLMJob(
             id="test-job-456",
