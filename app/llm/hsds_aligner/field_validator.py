@@ -1,18 +1,25 @@
 """HSDS field validation utilities.
 
 This module provides functionality for validating required fields and relationships
-in HSDS data structures.
+in HSDS data structures, including geographic coordinate validation.
 """
 
+from typing import Any, Dict, List, Optional
 from app.llm.hsds_aligner.type_defs import (
     HSDSDataDict,
     KnownFieldsDict,
+    LocationDict,
     PhoneDict,
 )
+from app.llm.utils.geocoding_validator import GeocodingValidator
 
 
 class FieldValidator:
     """Validates required fields and relationships in HSDS data."""
+
+    def __init__(self):
+        """Initialize the field validator with geocoding support."""
+        self.geocoding_validator = GeocodingValidator()
 
     # Field deduction amounts
     DEDUCTIONS = {
@@ -318,3 +325,217 @@ class FieldValidator:
                     )
 
         return "\n".join(feedback_parts)
+
+    def validate_location_coordinates(self, location: LocationDict) -> List[str]:
+        """Validate location coordinates.
+
+        Args:
+            location: Location data to validate
+
+        Returns:
+            List of validation errors (empty if valid)
+        """
+        errors = []
+
+        if "latitude" not in location or "longitude" not in location:
+            errors.append("Missing latitude or longitude coordinates")
+            return errors
+
+        lat = location["latitude"]
+        lon = location["longitude"]
+
+        # Check if coordinates are valid lat/long
+        if not self.geocoding_validator.is_valid_lat_long(lat, lon):
+            if self.geocoding_validator.is_projected_coordinate(
+                lat
+            ) or self.geocoding_validator.is_projected_coordinate(lon):
+                errors.append("Coordinates appear to be in projected coordinate system")
+            else:
+                errors.append(f"Invalid coordinates: lat={lat}, lon={lon}")
+
+        # Check against state bounds if address is available
+        if location.get("addresses"):
+            address = location["addresses"][0]
+            if "state_province" in address:
+                state = address["state_province"]
+                if not self.geocoding_validator.is_within_state_bounds(lat, lon, state):
+                    errors.append(f"Coordinates are outside {state} bounds")
+
+        # Check if within US bounds
+        if not self.geocoding_validator.is_within_us_bounds(lat, lon):
+            # Special handling for HI and AK
+            if location.get("addresses"):
+                address = location["addresses"][0]
+                state = address.get("state_province", "")
+                if state not in ["HI", "AK"]:
+                    errors.append("Coordinates are outside US bounds")
+
+        return errors
+
+    def correct_location_coordinates(
+        self, location: LocationDict
+    ) -> Optional[Dict[str, Any]]:
+        """Attempt to correct invalid location coordinates.
+
+        Args:
+            location: Location data with potentially invalid coordinates
+
+        Returns:
+            Corrected location data or None if unable to correct
+        """
+        if "latitude" not in location or "longitude" not in location:
+            return None
+
+        lat = location["latitude"]
+        lon = location["longitude"]
+
+        # Extract address information
+        state = None
+        city = None
+        address_str = None
+
+        if location.get("addresses"):
+            address = location["addresses"][0]
+            state = address.get("state_province")
+            city = address.get("city")
+            address_str = address.get("address_1")
+
+        # Attempt correction
+        corrected_lat, corrected_lon, note = (
+            self.geocoding_validator.validate_and_correct_coordinates(
+                lat, lon, state, city, address_str
+            )
+        )
+
+        # Create corrected location
+        corrected_location = dict(location)
+        corrected_location["latitude"] = corrected_lat
+        corrected_location["longitude"] = corrected_lon
+        corrected_location["coordinate_correction_note"] = note
+
+        return corrected_location
+
+    def validate_geographic_data(self, hsds_data: HSDSDataDict) -> Dict[str, Any]:
+        """Validate all geographic data in HSDS structure.
+
+        Args:
+            hsds_data: Complete HSDS data structure
+
+        Returns:
+            Validation results with location errors
+        """
+        result: Dict[str, Any] = {
+            "location_errors": [],
+            "total_locations": 0,
+            "valid_locations": 0,
+            "correctable_locations": 0,
+        }
+
+        if "location" not in hsds_data:
+            return result
+
+        for location in hsds_data["location"]:
+            result["total_locations"] += 1
+            errors = self.validate_location_coordinates(location)
+
+            if errors:
+                result["location_errors"].append(
+                    {"location_name": location.get("name", "Unknown"), "errors": errors}
+                )
+
+                # Check if correctable
+                corrected = self.correct_location_coordinates(location)
+                if corrected:
+                    # Cast back to LocationDict for validation
+                    corrected_location = LocationDict(**corrected)  # type: ignore
+                    corrected_errors = self.validate_location_coordinates(
+                        corrected_location
+                    )
+                    if not corrected_errors:
+                        result["correctable_locations"] += 1
+            else:
+                result["valid_locations"] += 1
+
+        return result
+
+    def calculate_location_confidence(self, location: LocationDict) -> float:
+        """Calculate confidence score for location data.
+
+        Args:
+            location: Location data to score
+
+        Returns:
+            Confidence score between 0 and 1
+        """
+        confidence = 1.0
+
+        # Check for missing required fields
+        if "name" not in location:
+            confidence -= 0.1
+        if "location_type" not in location:
+            confidence -= 0.05
+        if "addresses" not in location or not location["addresses"]:
+            confidence -= 0.15
+
+        # Validate coordinates
+        errors = self.validate_location_coordinates(location)
+        if errors:
+            # Deduct based on error severity
+            for error in errors:
+                if "projected" in error.lower():
+                    confidence -= 0.2  # Projected coordinates are fixable
+                elif "outside" in error.lower() and "bounds" in error.lower():
+                    confidence -= 0.3  # Wrong location is serious
+                else:
+                    confidence -= 0.25  # Other coordinate errors
+
+        return max(0.0, min(1.0, confidence))
+
+    def generate_geographic_feedback(
+        self, location_errors: List[Dict[str, Any]]
+    ) -> str:
+        """Generate feedback for geographic validation errors.
+
+        Args:
+            location_errors: List of location error dictionaries
+
+        Returns:
+            Formatted feedback message
+        """
+        if not location_errors:
+            return "All location coordinates are valid."
+
+        feedback_parts = ["Geographic validation issues found:"]
+
+        for loc_error in location_errors:
+            name = loc_error["location_name"]
+            errors = loc_error["errors"]
+
+            feedback_parts.append(f"\n{name}:")
+            for error in errors:
+                feedback_parts.append(f"  - {error}")
+
+        feedback_parts.append("\nSuggestions:")
+        feedback_parts.append(
+            "- Check if coordinates are in the correct format (decimal degrees)"
+        )
+        feedback_parts.append("- Verify coordinates match the state in the address")
+        feedback_parts.append(
+            "- Consider re-geocoding addresses with incorrect coordinates"
+        )
+
+        return "\n".join(feedback_parts)
+
+    def correct_location_with_geocoding(self, location: LocationDict) -> LocationDict:
+        """Correct location using geocoding integration.
+
+        Args:
+            location: Location to correct
+
+        Returns:
+            Corrected location
+        """
+        corrected = self.correct_location_coordinates(location)
+        if corrected:
+            return LocationDict(**corrected)  # type: ignore
+        return location
