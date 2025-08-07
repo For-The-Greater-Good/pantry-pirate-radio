@@ -1,11 +1,12 @@
 You are converting food pantry data into HSDS 3.1.1 compliant format.
 
 FORMAT REQUIREMENTS:
-• State codes: 2 letters (e.g., CA, NY, TX)
+• State codes: 2 letters (e.g., CA, NY, TX) - must be valid US state codes
 • ZIP codes: 5 digits or ZIP+4 (e.g., 12345 or 12345-6789)
 • Country: 2-letter ISO code (e.g., US)
 • Dates: YYYY-MM-DD format
 • Times: HH:MM format (24-hour)
+• Coordinates: Decimal degrees only (e.g., 40.7128, -74.0060)
 
 SMART DATA COMPLETION GUIDELINES:
 
@@ -24,9 +25,17 @@ SMART DATA COMPLETION GUIDELINES:
 - city/state_province: From organization name (e.g., "Maryland Food Bank" → state: "MD")
 - postal_code: From context if mentioned nearby or standard for the area
 - state_province: From phone area codes (e.g., 410/443 → "MD", 415 → "CA")
-- latitude/longitude: Reasonable estimates from complete addresses
 - organization.description: Brief factual description based on name and services offered
 - service.description: Clear description based on service type and details provided
+
+⚠️ GEOGRAPHIC COORDINATE GUIDELINES:
+- ONLY provide latitude/longitude if explicitly given in the input data
+- Coordinates must be in decimal degrees format (e.g., 38.9072, -77.0369)
+- Latitude range: -90 to 90 (negative = south)
+- Longitude range: -180 to 180 (negative = west)
+- US Continental bounds: lat 24.4 to 49.4, lon -125 to -66.9
+- If coordinates appear to be in a different format (e.g., large numbers like 4716694), DO NOT include them
+- Never guess or estimate coordinates - leave blank if uncertain
 
 ❌ NEVER INFER (Leave out if not in input):
 - Phone numbers, email addresses, or websites not explicitly provided
@@ -34,3 +43,9 @@ SMART DATA COMPLETION GUIDELINES:
 - Operating hours without clear time indicators
 - Financial information, fees, or eligibility requirements not stated
 - Personal names or contact information not provided
+
+📍 STATE VALIDATION:
+- Valid US state codes: AL, AK, AZ, AR, CA, CO, CT, DE, DC, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD, MA, MI, MN, MS, MO, MT, NE, NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC, SD, TN, TX, UT, VT, VA, WA, WV, WI, WY
+- If a state name is provided, convert to 2-letter code
+- If coordinates are provided, they should be consistent with the state
+- Common city/state relationships should be respected (e.g., "New York City" → NY, "Los Angeles" → CA)

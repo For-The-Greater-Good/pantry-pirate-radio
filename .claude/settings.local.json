@@ -66,7 +66,10 @@
       "Bash(./bouy exec app python3:*)",
       "Bash(mkdir:*)",
       "Bash(./bouy test:*)",
-      "Bash(./bouy exec app poetry run pytest *)"
+      "Bash(./bouy exec app poetry run pytest:*)",
+      "Bash(./bouy exec app sqlite3:*)",
+      "Bash(./bouy exec app poetry run pytest tests/test_llm/ -q)",
+      "Bash(./bouy exec app poetry run pytest tests/test_reconciler/test_geocoding_corrector.py -q)"
     ],
     "deny": []
   }
