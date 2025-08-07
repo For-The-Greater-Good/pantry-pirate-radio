@@ -93,7 +93,7 @@ services:
 
   rq-dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
-    command: rq-dashboard -H cache
+    command: rq-dashboard -u redis://cache:6379
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 9181:rq-dashboard:9181 user@server
     env_file: .env
     environment:
