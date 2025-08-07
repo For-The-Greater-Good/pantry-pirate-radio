@@ -132,7 +132,6 @@ The system consists of the following containerized services:
 - **haarrrvest-publisher**: GitHub repository synchronization
 - **db**: PostgreSQL with PostGIS extensions
 - **cache**: Redis for job queues and caching
-- **db-backup**: Automated database backup service
 
 ```mermaid
 flowchart TB
@@ -517,12 +516,17 @@ export LLM_MODEL_NAME=gpt-4
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **FastAPI API** | http://localhost:8000 | Main API endpoints |
-| **API Documentation** | http://localhost:8000/docs | Interactive API docs |
-| **Health Check** | http://localhost:8080/health | Worker health status (Claude) |
+| **FastAPI API** | http://localhost:8000/api/v1 | Main API endpoints |
+| **API Documentation** | http://localhost:8000/docs | Interactive Swagger UI |
+| **API ReDoc** | http://localhost:8000/redoc | Alternative API documentation |
+| **OpenAPI JSON** | http://localhost:8000/openapi.json | Machine-readable API spec |
+| **Health Check** | http://localhost:8000/api/v1/health | API health status |
+| **Database Health** | http://localhost:8000/api/v1/health/db | PostgreSQL status |
+| **Redis Health** | http://localhost:8000/api/v1/health/redis | Redis cache status |
+| **LLM Health** | http://localhost:8000/api/v1/health/llm | LLM provider status |
 | **RQ Dashboard** | http://localhost:9181 | Job queue monitoring |
-| **Datasette** | http://localhost:8001 | Data exploration |
-| **Prometheus Metrics** | http://localhost:8000/metrics | System metrics |
+| **Datasette** | http://localhost:8001 | Data exploration (prod mode only) |
+| **Prometheus Metrics** | http://localhost:8000/api/v1/metrics | System metrics |
 
 ## Development
 
@@ -589,7 +593,6 @@ docker compose up -d worker                 # LLM workers
 docker compose up -d recorder               # Recorder service
 docker compose up -d reconciler             # Reconciler service
 docker compose up -d haarrrvest-publisher   # HAARRRvest publisher
-docker compose up -d db-backup              # Database backup service
 
 # View logs (use bouy logs instead)
 ./bouy logs app                  # FastAPI logs
@@ -597,7 +600,6 @@ docker compose up -d db-backup              # Database backup service
 ./bouy logs recorder             # Recorder logs
 ./bouy logs reconciler           # Reconciler logs
 ./bouy logs haarrrvest-publisher # Publisher logs
-./bouy logs db-backup            # Database backup logs
 
 # Scale workers
 docker compose -f .docker/compose/base.yml up -d --scale worker=3  # Run 3 worker instances
@@ -685,14 +687,20 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 
 ## 📚 Documentation
 
-See **[Documentation Index](docs/README.md)** for complete navigation through all available documentation.
+### [📖 Documentation Hub - Start Here](docs/INDEX.md)
+Our comprehensive documentation is organized in the **[Documentation Index](docs/INDEX.md)**, which serves as the central hub for all project documentation. This index provides:
+- 🚀 Quick navigation by user level (Beginner, Developer, Advanced)
+- 📂 Complete documentation catalog organized by category
+- 🔍 Documentation relationships and dependencies
+- 📌 Quick links to essential resources
 
-### Quick Links
+### Quick Links to Core Documentation
 - **[Bouy Command Reference](BOUY.md)** - Complete Docker fleet management guide
+- **[API Documentation](API_DOCUMENTATION.md)** - Complete REST API reference with examples
+- **[Interactive API Docs](http://localhost:8000/docs)** - Live Swagger UI (when services are running)
 - **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
-- **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
-- **[API Examples](docs/api-examples.md)** - Practical API usage examples
 - **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[HSDS Specification](docs/hsds_index.md)** - Human Services Data Specification overview
 - **[Test Environment Setup](docs/test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
@@ -716,7 +724,6 @@ LLM_MODEL_NAME=gpt-4
 
 # Optional Configuration
 OUTPUT_DIR=outputs/                   # Job output directory
-BACKUP_KEEP_DAYS=30                  # Database backup retention
 CLAUDE_HEALTH_SERVER=true            # Enable health monitoring
 
 # Content Store Configuration (for deduplication)
@@ -873,7 +880,7 @@ For The Greater Good (FTGG) specializes in making public resources truly accessi
 ## Community and Support
 
 ### Get Help
-- **Documentation**: [Full Documentation](docs/README.md)
+- **Documentation Hub**: [Complete Documentation Index](docs/INDEX.md)
 - **Issues**: [GitHub Issues](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/For-The-Greater-Good/pantry-pirate-radio/discussions)
 
@@ -888,4 +895,4 @@ For The Greater Good (FTGG) specializes in making public resources truly accessi
 
 *Breaking down information barriers in food security through AI-powered data unification and HSDS-compliant APIs.*
 
-[Website](https://forthegg.org) | [HAARRRvest Data Explorer](https://for-the-greater-good.github.io/HAARRRvest/) | [API Documentation](http://localhost:8000/docs)
+[Website](https://forthegg.org) | [HAARRRvest Data Explorer](https://for-the-greater-good.github.io/HAARRRvest/) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](http://localhost:8000/docs)

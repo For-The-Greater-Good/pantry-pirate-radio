@@ -54,11 +54,6 @@ services:
       cache:
         condition: service_started
 
-  db-backup:
-    depends_on:
-      db-init:
-        condition: service_healthy
-  
   haarrrvest-publisher:
     depends_on:
       db-init:

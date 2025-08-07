@@ -2,13 +2,14 @@
 
 ## Overview
 
-The recorder service is a critical component of Pantry Pirate Radio's data processing pipeline, responsible for persisting and archiving job results from the LLM processing system. It works in conjunction with the worker and reconciler services to ensure data durability and traceability.
+The recorder service is a critical component of Pantry Pirate Radio's data processing pipeline, responsible for saving job results from the LLM processing system to organized JSON files. It works as an RQ worker that processes jobs from the "recorder" queue.
 
 Key responsibilities:
-- Monitoring and saving completed LLM job results
-- Creating compressed archives of raw data
-- Maintaining organized output directories
-- Tracking job processing metrics
+- Processing job results from the recorder queue
+- Creating organized date-based directory structures
+- Saving job results as JSON files
+- Maintaining daily summaries
+- Tracking processing metrics
 
 ```plaintext
 ┌─────────────┐
@@ -18,24 +19,20 @@ Key responsibilities:
       ▼
 ┌──────────────────┐
 │  Redis Queue     │
+│   (recorder)     │
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────┐
 │    Recorder      │
-│  ┌────────────┐  │
-│  │ Job Saver  │  │
-│  └────────────┘  │
-│  ┌────────────┐  │
-│  │  Archiver  │  │
-│  └────────────┘  │
+│  RQ Worker       │
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────┐
 │  Output Files    │
 │  - JSON Results  │
-│  - Archives      │
+│  - Daily Summary │
 └──────────────────┘
 ```
 
@@ -43,11 +40,11 @@ Key responsibilities:
 
 ### Core Components
 
-1. **RecorderUtils**
-   - Main utility class handling recorder operations
-   - Manages Redis connections and file system operations
-   - Implements async context management
-   - Handles job polling and processing
+1. **RQ Worker Implementation**
+   - Processes jobs from "recorder" queue
+   - Handles job result serialization
+   - Manages Redis connections
+   - Implements retry logic
 
 2. **File System Organization**
    - **Date-based structure**: `outputs/daily/YYYY-MM-DD/`
@@ -55,145 +52,62 @@ Key responsibilities:
    - **Processed results**: `outputs/daily/YYYY-MM-DD/processed/`
    - **Latest symlink**: `outputs/latest` → points to most recent date directory
    - **Daily summaries**: `outputs/daily/YYYY-MM-DD/summary.json`
-   - **Archives**: `archives/` directory for compressed raw data
    - Automatic directory creation and management
-   - Consistent file naming conventions
+   - Consistent file naming using job IDs
 
 3. **Redis Integration**
-   - Async Redis client configuration
+   - RQ (Redis Queue) for job processing
+   - Connection pooling and retry logic
    - Health check monitoring
-   - Connection retry handling
    - Job status tracking
 
-## Core Features
+## Running the Recorder Service
 
-### Job Result Processing
+### Using Bouy Commands
 
-The recorder continuously monitors Redis for completed jobs:
+```bash
+# Start recorder service
+./bouy recorder
 
-```python
-async def save_completed_jobs(
-    self,
-    scraper_id: str | None = None
-) -> list[Path]:
-    """Save completed job results to JSON files.
+# The recorder will:
+# 1. Start cache (Redis) if not running
+# 2. Verify Redis connectivity
+# 3. Start the RQ worker for the "recorder" queue
+# 4. Process jobs continuously
 
-    Args:
-        scraper_id: Optional scraper ID to filter jobs
+# View recorder logs
+./bouy logs recorder
 
-    Returns:
-        List of paths to saved JSON files
-    """
+# Check recorder status
+./bouy ps | grep recorder
+
+# Stop recorder
+./bouy down recorder
 ```
 
-Key aspects:
-- Polls Redis for newly completed jobs
-- Filters by scraper ID if specified
-- Processes jobs in chronological order
-- Maintains job status metrics
+### Manual Execution (Debug Mode)
 
-### File Management
+```bash
+# Run recorder directly in container
+./bouy exec app python -m app.recorder
 
-Job results are saved as structured JSON files:
-
-```python
-async def _process_job(
-    self,
-    job_id: str,
-    output_dir: Path
-) -> Path | None:
-    """Process a single job and save its result.
-
-    Args:
-        job_id: ID of job to process
-        output_dir: Directory to save result
-
-    Returns:
-        Path to saved file if successful
-    """
+# With custom output directory
+./bouy exec app bash -c "OUTPUT_DIR=/custom/path python -m app.recorder"
 ```
-
-Features:
-- Unique file naming using job IDs
-- Structured JSON output
-- Complete job metadata
-- Processing timestamps
-
-### Archive Creation
-
-Raw data can be archived with metadata:
-
-```python
-async def archive_raw_data(
-    self,
-    content: str,
-    source_url: str,
-    metadata: dict[str, Any],
-) -> Path:
-    """Archive raw content to compressed file.
-
-    Args:
-        content: Raw content to archive
-        source_url: Where the content came from
-        metadata: Additional metadata
-
-    Returns:
-        Path to archive file
-    """
-```
-
-Archive format:
-- Compressed tar.gz files
-- Timestamped filenames
-- Includes raw content and metadata
-- Source URL tracking
-
-### Error Handling
-
-Comprehensive error handling strategy:
-
-1. **Redis Errors**
-   - Connection retry logic
-   - Health check monitoring
-   - Graceful disconnection
-
-2. **File System Errors**
-   - Directory creation validation
-   - Write permission checking
-   - Disk space monitoring
-
-3. **Job Processing Errors**
-   - Invalid job data handling
-   - Parsing error recovery
-   - Metric tracking
-
-### Prometheus Metrics
-
-```python
-# Job processing metrics
-RECORDER_JOBS = Counter(
-    "recorder_jobs_total",
-    "Total number of jobs recorded",
-    ["scraper_id", "status"]
-)
-```
-
-Tracked metrics:
-- Total jobs processed
-- Success/failure rates
-- Processing duration
-- Archive creation stats
 
 ## Configuration
 
 ### Environment Variables
 
-Required configuration:
-- `REDIS_URL`: Redis connection string (required)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REDIS_URL` | Redis connection string | Required |
+| `OUTPUT_DIR` | Directory for JSON output files | `outputs` |
+| `ARCHIVE_DIR` | Directory for archive files | `archives` |
 
 ### Directory Structure
 
-Default directory layout:
+Default directory layout created automatically:
 ```
 outputs/
 ├── daily/
@@ -205,64 +119,32 @@ outputs/
 │       └── processed/
 │           └── {job_id}.json
 └── latest -> daily/YYYY-MM-DD (symlink to most recent date)
-
-archives/
-└── {timestamp}_{scraper_id}.tar.gz
 ```
 
-### Command Line Arguments
+## Job Result Processing
 
-```bash
-python -m app.recorder [options]
+### How Jobs Are Processed
 
-Options:
-  --output-dir PATH    Directory for JSON output files
-  --archive-dir PATH   Directory for archive files
-  --interval SECONDS   How often to check for new jobs
-```
-
-### Redis Configuration
-
-```python
-redis = Redis.from_url(
-    redis_url,
-    encoding="utf-8",
-    decode_responses=False,
-    retry_on_timeout=True,
-    socket_keepalive=True,
-    health_check_interval=30,
-)
-```
-
-## Usage
-
-### Running the Service
-
-Start the recorder service:
-
-```bash
-# Basic usage
-python -m app.recorder
-
-# Custom directories
-python -m app.recorder \
-  --output-dir /path/to/outputs \
-  --archive-dir /path/to/archives
-
-# Custom interval
-python -m app.recorder --interval 30
-```
+1. **Job Submission**: Other services enqueue jobs to the "recorder" queue
+2. **Worker Processing**: RQ worker picks up jobs and calls `record_result()`
+3. **Data Extraction**: Job metadata determines directory structure
+4. **File Creation**: Results saved as JSON with proper formatting
+5. **Summary Update**: Daily summary file updated with job info
+6. **Symlink Update**: Latest symlink points to current date directory
 
 ### Job Result Format
 
-Saved job results include:
+Saved job results include complete job information:
 
 ```json
 {
   "job_id": "unique-job-id",
   "job": {
     "created_at": "2025-02-17T06:46:23Z",
-    ...
+    "metadata": {
+      "scraper_id": "nyc_efap_programs",
+      "source_url": "https://example.com/page"
+    }
   },
   "status": "completed",
   "result": {
@@ -309,64 +191,228 @@ Each day's activities are summarized in `outputs/daily/YYYY-MM-DD/summary.json`:
       "scraper_id": "nyc_efap_programs",
       "timestamp": "2025-07-23T00:15:00Z"
     }
-    // ... more jobs
   ]
 }
 ```
 
-### Archive Format
+## Replay Functionality
 
-Created archives contain:
+The recorder service works in conjunction with the replay utility to restore data:
 
-```plaintext
-archive_20250217_064623_scraper123.tar.gz
-├── content.txt      # Raw scraped content
-└── metadata.json    # Source and processing metadata
+### Replaying Recorded Jobs
+
+```bash
+# Replay from default output directory
+./bouy replay --use-default-output-dir
+
+# Replay specific file
+./bouy replay --file outputs/daily/2025-01-15/scrapers/nyc_efap/job123.json
+
+# Replay entire directory
+./bouy replay --directory outputs/daily/2025-01-15/
+
+# Dry run (preview without executing)
+./bouy replay --dry-run --use-default-output-dir
 ```
 
-## Implementation Details
+### Replay Process
 
-### Job Polling
+1. **File Discovery**: Finds JSON files in specified location
+2. **Data Validation**: Verifies job result structure
+3. **Database Population**: Inserts data into PostgreSQL
+4. **Progress Tracking**: Shows files processed and records created
 
-The recorder implements an efficient polling mechanism:
+## Monitoring and Metrics
 
-1. Tracks last poll timestamp
-2. Queries only new completions
-3. Processes in chronological order
-4. Maintains consistent intervals
+### Prometheus Metrics
 
-### File Naming
+The recorder tracks these metrics:
 
-Consistent naming conventions:
-- Scraper job results: `outputs/daily/YYYY-MM-DD/scrapers/{scraper_id}/{job_id}.json`
-- Processed results: `outputs/daily/YYYY-MM-DD/processed/{job_id}.json`
-- Latest symlink: `outputs/latest` → points to most recent date directory
-- Daily summaries: `outputs/daily/YYYY-MM-DD/summary.json`
-- Archives: `archives/{timestamp}_{scraper_id}.tar.gz`
+```python
+RECORDER_JOBS = Counter(
+    "recorder_jobs_total",
+    "Total number of jobs recorded",
+    ["scraper_id", "status"]
+)
+```
 
-### Error Recovery
+Available metrics:
+- `recorder_jobs_total{scraper_id="...", status="success"}` - Successful recordings
+- `recorder_jobs_total{scraper_id="...", status="failure"}` - Failed recordings
 
-Robust error handling:
-1. Transaction rollback on failure
-2. Automatic file cleanup
-3. Redis reconnection
-4. Metric recording
+### Health Checks
 
-### Recent Improvements
+```bash
+# Check if recorder is running
+./bouy ps | grep recorder
 
-Implemented enhancements:
-1. ✅ Date-based directory organization
-2. ✅ Scraper-specific subdirectories
-3. ✅ Latest symlink pointing to most recent date directory
-4. ✅ Daily summary generation
-5. ✅ Separation of scraper vs processed results
+# Verify Redis connectivity
+./bouy exec cache redis-cli ping
 
-### Future Improvements
+# Check recent job processing
+./bouy exec app ls -la outputs/latest/
 
-Potential enhancements:
-1. Batch processing support for multiple jobs
-2. Configurable compression for older data
-3. S3/cloud storage integration for archives
-4. Data retention policies with automatic cleanup
-5. Real-time dashboard for monitoring job flow
-6. Export utilities for data synchronization
+# View processing metrics
+./bouy exec app python -c "
+from prometheus_client import REGISTRY
+for collector in REGISTRY.collect():
+    if 'recorder' in collector.name:
+        print(collector)
+"
+```
+
+## Error Handling
+
+### Common Issues and Solutions
+
+1. **Redis Connection Errors**
+   ```bash
+   # Ensure Redis is running
+   ./bouy ps | grep cache
+   
+   # Restart Redis if needed
+   ./bouy down cache && ./bouy up cache
+   
+   # Check Redis logs
+   ./bouy logs cache --tail 50
+   ```
+
+2. **Permission Errors**
+   ```bash
+   # Check output directory permissions
+   ./bouy exec app ls -la outputs/
+   
+   # Fix permissions if needed
+   ./bouy exec app chmod -R 755 outputs/
+   ```
+
+3. **Disk Space Issues**
+   ```bash
+   # Check available space
+   ./bouy exec app df -h /app/outputs
+   
+   # Clean old outputs if needed
+   ./bouy exec app find outputs/daily -type d -mtime +30 -exec rm -rf {} +
+   ```
+
+4. **Job Processing Failures**
+   ```bash
+   # Check recorder logs for errors
+   ./bouy logs recorder --tail 100
+   
+   # Inspect failed job queue
+   ./bouy exec app python -c "
+   from redis import Redis
+   from rq import Queue
+   redis = Redis.from_url('redis://cache:6379')
+   q = Queue('recorder', connection=redis)
+   print(f'Failed jobs: {q.failed_job_registry.count}')
+   "
+   ```
+
+## Data Management
+
+### Backup Recorded Data
+
+```bash
+# Create archive of recorded data
+./bouy exec app tar -czf outputs_backup_$(date +%Y%m%d).tar.gz outputs/
+
+# Copy to host system
+docker cp $(docker compose ps -q app):/app/outputs_backup_*.tar.gz ./
+```
+
+### Clean Old Data
+
+```bash
+# Remove data older than 30 days
+./bouy exec app find outputs/daily -type d -mtime +30 -exec rm -rf {} +
+
+# Keep only summaries older than 7 days
+./bouy exec app find outputs/daily -name "*.json" ! -name "summary.json" -mtime +7 -delete
+```
+
+### Data Recovery
+
+```bash
+# If outputs are lost, replay from HAARRRvest
+./bouy replay --use-default-output-dir
+
+# Or restore from SQL dump
+./bouy up --with-init
+```
+
+## Integration with Other Services
+
+### Worker Service
+- Worker enqueues completed LLM jobs to recorder queue
+- Recorder processes and saves results
+
+### Reconciler Service
+- Can read recorded job results for reconciliation
+- Uses outputs for data validation
+
+### HAARRRvest Publisher
+- Publishes recorded data to HAARRRvest repository
+- Creates SQL dumps from recorded data
+
+## Best Practices
+
+1. **Regular Monitoring**: Check recorder logs daily for errors
+2. **Data Retention**: Implement cleanup for old recorded data
+3. **Backup Strategy**: Regular backups of outputs directory
+4. **Error Recovery**: Monitor failed job queue and retry as needed
+5. **Performance**: Keep output directories organized with date-based structure
+6. **Documentation**: Document any custom recording workflows
+
+## Troubleshooting Tips
+
+### Debugging Job Recording
+
+```bash
+# Watch recorder processing in real-time
+./bouy logs -f recorder
+
+# Check job queue status
+./bouy exec app python -c "
+from redis import Redis
+from rq import Queue
+redis = Redis.from_url('redis://cache:6379')
+q = Queue('recorder', connection=redis)
+print(f'Jobs in queue: {len(q)}')
+print(f'Failed jobs: {q.failed_job_registry.count}')
+"
+
+# Manually process a job (for debugging)
+./bouy exec app python -c "
+from app.recorder.utils import record_result
+test_data = {
+    'job_id': 'test-123',
+    'job': {'created_at': '2025-01-15T10:00:00Z', 'metadata': {'scraper_id': 'test'}},
+    'result': {'text': 'test content'},
+    'status': 'completed'
+}
+result = record_result(test_data)
+print(result)
+"
+```
+
+### Performance Optimization
+
+```bash
+# Check I/O performance
+./bouy exec app iostat -x 1
+
+# Monitor file system usage
+./bouy exec app watch -n 1 'df -h /app/outputs; ls -la outputs/latest/ | wc -l'
+
+# Optimize with batch processing (if needed)
+# Consider implementing batch saves for high-volume scenarios
+```
+
+## Related Documentation
+
+- [Database Backup](./database-backup.md) - Backup strategies including recorded data
+- [Test Environment Setup](./test-environment-setup.md) - Testing recorder functionality
+- [Datasette Viewer](./datasette.md) - Viewing recorded data
+- [Architecture](./architecture.md) - System design and data flow

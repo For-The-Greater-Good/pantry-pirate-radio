@@ -162,28 +162,9 @@ services:
     depends_on:
       - haarrrvest-publisher
 
-  db-backup:
-    image: prodrigestivill/postgres-backup-local:15
-    env_file: .env
-    environment:
-      - POSTGRES_HOST=db
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - SCHEDULE=*/15 * * * *
-      - BACKUP_KEEP_DAYS=7
-      - BACKUP_KEEP_WEEKS=4
-      - BACKUP_KEEP_MONTHS=12
-      - HEALTHCHECK_PORT=8080
-    volumes:
-      - postgres_backups:/backups
-    depends_on:
-      - db
-
 volumes:
   postgres_data:
   redis_data:
-  postgres_backups:
   claude_config:  # Shared Claude authentication across worker containers
   haarrrvest_repo:  # HAARRRvest repository managed by publisher service
   app_data:  # Shared application data across all services

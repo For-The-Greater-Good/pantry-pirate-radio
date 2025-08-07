@@ -145,17 +145,19 @@ The setup wizard will:
 ./bouy scraper --all                      # Run all scrapers sequentially
 ./bouy scraper scouting-party             # Run all scrapers in parallel (5 concurrent)
 ./bouy scraper scouting-party 10          # Run with 10 concurrent scrapers
+./bouy scraper full-broadside             # Run all scrapers in parallel (max firepower!)
 ./bouy scraper nyc_efap_programs          # Run specific scraper
 ./bouy --programmatic scraper --list      # Machine-readable list
 ./bouy --quiet scraper food_bank_for_nyc  # Minimal output
 ```
 
-The `scouting-party` mode runs scrapers in parallel for faster data collection:
+The parallel execution modes run scrapers concurrently for faster data collection:
+- **scouting-party**: Runs scrapers in parallel with configurable concurrency (default: 5)
+- **full-broadside**: Alias for scouting-party (max firepower mode!)
 - Randomizes scraper order for better distribution
 - Shows real-time progress with success/failure indicators
-- Configurable concurrency level (default: 5)
-
-Note: The help text may show `full-broadside` but the actual command is `scouting-party`.
+- Uses xargs for efficient parallel execution
+- Creates temporary log files for each scraper
 
 #### `scraper-test` - Test scrapers
 ```bash
@@ -193,11 +195,12 @@ Note: The help text may show `full-broadside` but the actual command is `scoutin
 ./bouy pull latest                        # Explicitly pull latest (same as no argument)
 ```
 
-Pulls all service images from GitHub Container Registry:
-- Unified app image for all services
-- External dependencies (PostgreSQL, Redis, backup tools)
-- Tags images for local docker-compose use
-- Validates tag format for security
+Pulls all service images from GitHub Container Registry (ghcr.io):
+- Pulls images for all services: app, worker, recorder, scraper, reconciler, haarrrvest-publisher, rq-dashboard, db-init, datasette
+- Images are tagged with service name and version (e.g., `app-latest`, `worker-v1.2.3`)
+- Automatically tags pulled images for local docker-compose use
+- Validates tag format for security (alphanumeric, dots, underscores, hyphens only)
+- Shows progress for each service pull
 
 ### Content Store
 
@@ -218,6 +221,27 @@ Pulls all service images from GitHub Container Registry:
 ./bouy haarrrvest logs                    # View logs
 ./bouy haarrrvest status                  # Check status
 ```
+
+### Utility Commands
+
+#### `help` - Show help
+```bash
+./bouy help                               # Show complete usage and command list
+./bouy --help                             # Same as above (global option)
+./bouy -h                                 # Short form (global option)
+```
+
+#### `version` - Show version
+```bash
+./bouy version                            # Show bouy version and description
+./bouy --version                          # Same as above (global option)
+./bouy -v                                 # Short form (global option)
+```
+
+Displays:
+- Bouy version (currently v1.0.0)
+- Project description: "Docker fleet management for Pantry Pirate Radio"
+- Tagline: "Navigate the seas of containers with ease!"
 
 ### Authentication
 
@@ -505,6 +529,9 @@ JSON mode outputs valid JSON to stdout:
 
 # Run with custom concurrency
 ./bouy scraper scouting-party 10
+
+# Run with max firepower (alias for scouting-party)
+./bouy scraper full-broadside
 
 # Monitor scraper logs
 ./bouy logs scraper

@@ -2,24 +2,30 @@
 
 ## Quick Start
 
-1. **Start the containers:**
+1. **Initial setup and start containers:**
    ```bash
-   docker compose up -d
+   ./bouy setup                # Interactive setup wizard (if not done already)
+   ./bouy up                   # Start all services
    ```
 
 2. **Check Claude status:**
    ```bash
    curl http://localhost:8080/health
+   # Or use bouy to check service status
+   ./bouy ps
    ```
 
 3. **If authentication is needed:**
    ```bash
-   docker compose exec worker python -m app.claude_auth_manager setup
+   ./bouy claude-auth setup
+   # Or directly via exec:
+   ./bouy exec worker python -m app.claude_auth_manager setup
    ```
 
 4. **Verify authentication:**
    ```bash
    curl http://localhost:8080/health
+   ./bouy claude-auth status
    ```
 
 ## Scaling Workers with Shared Authentication
@@ -28,7 +34,7 @@ Claude authentication is shared across all worker containers using Docker volume
 
 ```bash
 # Scale to multiple workers - all share the same authentication
-docker compose up -d --scale worker=3
+./bouy up --scale worker=3
 
 # Check health across all workers
 curl http://localhost:8080/health  # Worker 1
@@ -36,11 +42,11 @@ curl http://localhost:8081/health  # Worker 2
 curl http://localhost:8082/health  # Worker 3
 
 # Authenticate once via any worker - applies to all
-docker compose exec worker python -m app.claude_auth_manager setup
+./bouy claude-auth setup
 
 # Or scale first, then authenticate
-docker compose up -d --scale worker=5
-docker compose exec worker python -m app.claude_auth_manager setup
+./bouy up --scale worker=5
+./bouy claude-auth setup
 ```
 
 **Key Benefits:**
@@ -53,20 +59,26 @@ docker compose exec worker python -m app.claude_auth_manager setup
 
 ### Authentication Management
 ```bash
-# Interactive setup
-docker compose exec worker python -m app.claude_auth_manager setup
+# Interactive setup (recommended)
+./bouy claude-auth setup
 
 # Check status
-docker compose exec worker python -m app.claude_auth_manager status
+./bouy claude-auth status
 
 # Test request
-docker compose exec worker python -m app.claude_auth_manager test
+./bouy claude-auth test
 
 # View config files
-docker compose exec worker python -m app.claude_auth_manager config
+./bouy claude-auth config
 
-# Alternative: Direct Claude CLI
-docker compose exec worker claude
+# Alternative: Direct execution
+./bouy exec worker python -m app.claude_auth_manager setup
+./bouy exec worker python -m app.claude_auth_manager status
+./bouy exec worker python -m app.claude_auth_manager test
+./bouy exec worker python -m app.claude_auth_manager config
+
+# Direct Claude CLI access
+./bouy exec worker claude
 ```
 
 ### Health Monitoring
@@ -87,14 +99,21 @@ curl http://localhost:8080/auth
 ### Container Management
 ```bash
 # Watch worker logs (all workers)
-docker compose logs -f worker
+./bouy logs worker
+./bouy logs -f worker        # Follow logs
 
-# Check specific worker
-docker compose ps
-docker compose exec worker bash
+# Check running services
+./bouy ps
+
+# Open shell in worker container
+./bouy shell worker
+
+# Execute commands in container
+./bouy exec worker bash
 
 # Restart workers (preserves authentication)
-docker compose restart worker
+./bouy down
+./bouy up --scale worker=3
 ```
 
 ## What Happens
@@ -120,7 +139,7 @@ docker compose restart worker
 
 ## Docker Volume Configuration
 
-The shared authentication uses a Docker volume:
+The shared authentication uses a Docker volume managed by bouy:
 
 ```yaml
 # In docker-compose.yml
@@ -133,6 +152,11 @@ volumes:
   claude_config:  # Shared Claude authentication across worker containers
 ```
 
+Bouy automatically manages this volume configuration when you use:
+- `./bouy up` - Creates and mounts the volume
+- `./bouy down` - Stops containers but preserves volume
+- `./bouy clean` - Removes containers AND volumes
+
 This means:
 - Authentication persists across container restarts
 - All scaled workers use the same authentication
@@ -144,23 +168,23 @@ This means:
 ### Check Container and Volume Status
 ```bash
 # Check all containers
-docker compose ps
+./bouy ps
 
 # Check worker logs
-docker compose logs worker
+./bouy logs worker
 
 # Inspect the shared volume
 docker volume inspect $(docker compose config --volumes | grep claude)
 
 # Check authentication files in volume
-docker compose exec worker ls -la ~/.config/claude/
+./bouy exec worker ls -la ~/.config/claude/
 ```
 
 ### Check Authentication Across Workers
 ```bash
 # Test authentication on multiple workers
-docker compose exec worker python -m app.claude_auth_manager status
-docker compose scale worker=3
+./bouy claude-auth status
+./bouy up --scale worker=3
 curl http://localhost:8080/health
 curl http://localhost:8081/health
 curl http://localhost:8082/health
@@ -169,19 +193,23 @@ curl http://localhost:8082/health
 ### Reset Authentication (All Workers)
 ```bash
 # Remove shared authentication volume
-docker compose down
+./bouy down
 docker volume rm $(docker compose config --volumes | grep claude)
-docker compose up -d
+./bouy up
 
 # Re-authenticate (applies to all workers)
-docker compose exec worker python -m app.claude_auth_manager setup
+./bouy claude-auth setup
 ```
 
 ### Manual Authentication
 ```bash
 # Interactive setup via any worker
-docker compose exec worker bash
+./bouy shell worker
 claude  # Run interactive Claude CLI setup
+exit
+
+# Or directly:
+./bouy exec worker claude
 
 # Verify it works across all workers
 curl http://localhost:8080/health

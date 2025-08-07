@@ -6,37 +6,56 @@ This document explains the GitHub Actions workflows in this repository and how t
 
 ### 1. CI (Continuous Integration)
 **File**: `.github/workflows/ci.yml`
-**Purpose**: Runs tests, linting, type checking, and security scans on every push and pull request.
+**Purpose**: Comprehensive testing and code quality checks
+**Triggers**: 
+- Push to `main` and `develop` branches
+- Pull requests to `main` branch
 **Fork-friendly**: ✅ Yes - Works automatically in forks
 
 ### 2. CD (Continuous Deployment)
 **File**: `.github/workflows/cd.yml`
 **Purpose**: Builds and pushes Docker images to GitHub Container Registry
-**Fork-friendly**: ✅ Yes - But requires setup (see below)
+**Triggers**:
+- Push to `main` branch
+- Version tags (`v*`)
+- Release publications
+- Successful CI workflow completion on `main`
+**Fork-friendly**: ✅ Yes - Works automatically in forks
 
 ### 3. Claude Code Review
 **File**: `.github/workflows/claude-code-review.yml`
-**Purpose**: AI-powered code review on pull requests
+**Purpose**: AI-powered code review on pull requests using Claude
+**Triggers**: Pull request opened or synchronized to `main` branch
 **Fork-friendly**: ❌ No - Restricted to repository owner only
 
 ### 4. Claude Code
 **File**: `.github/workflows/claude.yml`
-**Purpose**: AI assistant for issues and pull requests
+**Purpose**: Interactive AI assistant for issues and PR comments
+**Triggers**: 
+- Issue comments containing `@claude`
+- PR review comments containing `@claude`
+- New issues containing `@claude`
 **Fork-friendly**: ❌ No - Restricted to repository owner only
 
 ## Setting Up Workflows in Your Fork
 
-### Required Secrets
+### Required Secrets and Variables
 
-To use the workflows in your fork, you'll need to set up the following GitHub secrets:
+To use the workflows in your fork, configure the following:
 
-1. **For LLM Processing (Workers)**:
-   - `OPENROUTER_API_KEY`: Your OpenRouter API key for OpenAI models
-   - OR configure Claude authentication (see Claude setup guide)
+#### Repository Secrets
+1. **For CI Testing (Optional)**:
+   - `OPENROUTER_API_KEY`: Your OpenRouter API key for LLM tests
+   - Tests will run without this but skip LLM-dependent tests
 
-2. **For Claude Workflows** (Not available in forks):
-   - `CLAUDE_CODE_OAUTH_TOKEN`: OAuth token for Claude
-   - These workflows are restricted to the main repository owner due to API costs.
+2. **For Claude Workflows** (Main repository only):
+   - `CLAUDE_CODE_OAUTH_TOKEN`: OAuth token from Claude Code GitHub integration
+   - These workflows are restricted to the main repository owner
+
+#### Environment Configuration
+The CI workflow uses these environments:
+- **`ci` environment**: For running tests (created automatically)
+- **`production` environment**: For CD deployment (manual setup required)
 
 ### Setup Instructions
 
@@ -44,19 +63,29 @@ To use the workflows in your fork, you'll need to set up the following GitHub se
    ```bash
    # Fork via GitHub UI, then clone
    git clone https://github.com/YOUR_USERNAME/pantry-pirate-radio.git
+   cd pantry-pirate-radio
    ```
 
-2. **Set up secrets in your fork**:
+2. **Local Development Setup**:
+   ```bash
+   # Use bouy for initial setup
+   ./bouy setup                 # Interactive setup wizard
+   ./bouy up                    # Start services
+   ./bouy test                  # Run all tests locally
+   ```
+
+3. **Configure GitHub Actions Secrets** (optional):
    - Go to Settings → Secrets and variables → Actions
-   - Add the required secrets listed above
+   - Add `OPENROUTER_API_KEY` if you want full LLM testing in CI
 
-3. **Disable Claude workflows** (if desired):
+4. **Disable Claude workflows** (recommended for forks):
    - The Claude workflows won't run in forks by design
-   - You can delete `.github/workflows/claude*.yml` files if you prefer
+   - Optionally remove `.github/workflows/claude*.yml` files
 
-4. **Configure Docker registry** (for CD workflow):
-   - The CD workflow pushes to GitHub Container Registry
-   - Ensure you have package write permissions in your fork
+5. **Configure Docker registry** (automatic for forks):
+   - The CD workflow automatically pushes to GitHub Container Registry
+   - Images will be published to `ghcr.io/YOUR_USERNAME/pantry-pirate-radio`
+   - No additional configuration needed - uses `GITHUB_TOKEN`
 
 ## Workflow Restrictions
 
@@ -91,40 +120,139 @@ If you want AI-powered workflows in your fork:
 
 ## CI Workflow Details
 
-The CI workflow runs automatically and includes:
+The CI workflow consists of multiple parallel jobs for efficiency:
 
-- **Testing**: Full test suite with coverage reporting
-- **Type Checking**: MyPy static type analysis
-- **Linting**: Ruff for code quality
-- **Security**: Bandit for security issues
-- **Dependencies**: Safety and pip-audit for vulnerable packages
+### Jobs Structure
+1. **setup**: Generates cache keys for dependency caching
+2. **formatting-and-linting**: Black formatting and Ruff linting checks
+3. **mypy**: Type checking with MyPy
+4. **pytest**: Full test suite using bouy in Docker
+5. **vulture**: Dead code detection  
+6. **bandit**: Security vulnerability scanning
+7. **safety**: Dependency vulnerability checks
+8. **pip-audit**: Additional dependency auditing
+9. **xenon**: Code complexity analysis
+10. **bouy-tests**: Tests the bouy CLI tool itself
+
+### Test Execution with Bouy
+The pytest job uses bouy for test execution:
+```bash
+# CI runs tests using bouy's programmatic mode
+./bouy --programmatic test --pytest
+```
+
+This ensures:
+- Consistent test environment between local and CI
+- Proper Docker container management
+- Coverage report generation (XML and JSON formats)
+- Coverage ratcheting to prevent regression
+
+### Coverage Baseline
+- Coverage baselines are cached between runs
+- Main branch updates create new baselines
+- Pull requests compare against main's baseline
+- Prevents coverage from decreasing
 
 No additional setup required for the CI workflow in forks.
 
 ## CD Workflow Details
 
-The CD workflow:
-- Triggers on pushes to `main` branch
-- Builds multi-architecture Docker images
-- Pushes to GitHub Container Registry
+The CD workflow builds and publishes two types of Docker images:
 
-To use in your fork:
-1. Ensure GitHub Packages is enabled
-2. The workflow should work automatically
-3. Images will be published to `ghcr.io/YOUR_USERNAME/pantry-pirate-radio`
+### 1. Unified Application Image
+- **Target**: `unified` stage from Dockerfile
+- **Contains**: All services (API, worker, scrapers, etc.)
+- **Platform**: linux/amd64
+- **Tags**:
+  - `latest` and `main` for main branch
+  - `v*` and `stable` for version tags
+  - Date-based tags (YYYYMMDD)
+  - SHA-based tags for traceability
+
+### 2. Datasette Image
+- **Purpose**: SQLite data viewer for HAARRRvest data
+- **Platform**: linux/amd64
+- **Tags**: 
+  - `datasette-latest` for main branch
+  - `datasette-YYYYMMDD` date-based
+  - `datasette-SHA` for specific commits
+
+### Deployment Triggers
+- Direct pushes to `main` branch
+- Version tags (`v1.0.0`, `v2.1.3`, etc.)
+- GitHub release publications
+- Successful CI workflow completion on `main`
+
+### Image Registry
+- Automatically publishes to GitHub Container Registry
+- Images available at `ghcr.io/YOUR_USERNAME/pantry-pirate-radio`
+- No additional configuration needed for forks
+- Uses `GITHUB_TOKEN` for authentication (provided automatically)
 
 ## Contributing Back
 
 When contributing to the main repository:
 
-1. The CI workflow will run on your pull request
-2. Claude review may run if the repository owner triggers it
-3. Follow the contribution guidelines in CONTRIBUTING.md
-4. Ensure all CI checks pass before requesting review
+1. **CI Checks**: All CI jobs must pass on your pull request
+2. **Test Coverage**: Ensure coverage doesn't decrease
+3. **Code Quality**: Follow black formatting and ruff linting rules
+4. **Type Safety**: Fix any mypy type errors
+5. **Security**: Address any bandit or safety findings
+6. **Claude Review**: May automatically review PRs to main branch
+7. **Manual Review**: Repository maintainers will review your changes
+
+### Using Bouy for Local Testing
+Before pushing changes, run locally:
+```bash
+# Run all CI checks locally
+./bouy test
+
+# Or run specific checks
+./bouy test --pytest         # Tests only
+./bouy test --mypy           # Type checking
+./bouy test --black          # Formatting
+./bouy test --ruff           # Linting
+./bouy test --bandit         # Security
+```
+
+## Workflow Environment Variables
+
+The CI workflow sets these environment variables:
+```yaml
+POSTGRES_USER: postgres
+POSTGRES_PASSWORD: pirate
+POSTGRES_DB: pantry_pirate_radio
+DATABASE_URL: postgresql://postgres:pirate@db:5432/pantry_pirate_radio
+REDIS_URL: redis://cache:6379/0
+LLM_PROVIDER: openai
+LLM_MODEL_NAME: google/gemini-2.0-flash-001
+CI: true  # Skips heavy database initialization
+```
+
+## Permissions Required
+
+### CI Workflow
+- `contents: read` - Read repository code
+- `actions: read` - Read workflow status
+- `checks: write` - Update check status
+- `packages: write` - For pytest job (Docker image caching)
+
+### CD Workflow
+- `contents: read` - Read repository code
+- `packages: write` - Push Docker images
+- `id-token: write` - OIDC token for secure deployments
+
+### Claude Workflows
+- `contents: read` - Read repository code
+- `pull-requests: read/write` - Comment on PRs
+- `issues: read` - Read issue content
+- `actions: read` - Read CI results
 
 ## Questions?
 
 If you have questions about the workflows:
-1. Check the workflow files for inline documentation
-2. Open an issue for clarification
-3. See CONTRIBUTING.md for general contribution guidelines
+1. Check the workflow files for detailed inline documentation
+2. Use `./bouy --help` for local development commands
+3. Open an issue for clarification
+4. See CONTRIBUTING.md for contribution guidelines
+5. Review CLAUDE.md for AI pair programming setup

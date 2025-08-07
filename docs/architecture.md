@@ -1,5 +1,7 @@
 # Pantry Pirate Radio Architecture
 
+> **📚 Documentation Hub**: For complete project documentation including scrapers, API reference, deployment guides, and more, see the **[Documentation Index](INDEX.md)**.
+
 ## Overview
 
 Pantry Pirate Radio is a modular food security data aggregation system built with FastAPI, featuring independently operable searchers aligned with the Human Services Data Specification (HSDS). As part of the FTGG initiative, it connects scattered resources through a single, intuitive interface while adhering to strict ethical principles:
@@ -140,8 +142,8 @@ class ContentStore:
 #### Monitoring
 
 ```bash
-# CLI interface for content store management
-$ python -m app.content_store status
+# Content store management using bouy
+./bouy content-store status
 
 === Content Store Summary ===
 Total Content: 15,234
@@ -153,40 +155,59 @@ Deduplication Rate: 23.4%
 Space Saved: 48.2 MB
 
 # Generate detailed report
-$ python -m app.content_store report --output report.json
+./bouy content-store report
 
 # Find duplicate content
-$ python -m app.content_store duplicates
+./bouy content-store duplicates
 
 # Show storage efficiency
-$ python -m app.content_store efficiency
+./bouy content-store efficiency
 ```
 
 ### 2. Search Orchestration Layer
 
-The search orchestrator manages the execution of scrapers through cron jobs, running them within its container.
+The search orchestrator manages the execution of scrapers through the bouy command interface, running them within unified Docker containers.
 
 #### Scraper Discovery
 
 ```bash
-# List available scrapers
-$ python -m app.scraper --list
+# List available scrapers using bouy
+./bouy scraper --list
 
 Available scrapers:
   - sample
   - the_food_pantries_org
   - vivery_api
+  - nyc_efap_programs
+  - ... (30+ scrapers total)
 ```
 
 #### Scraper Execution
 
+```bash
+# Run specific scraper
+./bouy scraper nyc_efap_programs
+
+# Run all scrapers sequentially
+./bouy scraper --all
+
+# Run scrapers in parallel (scouting party mode)
+./bouy scraper scouting-party      # Default: 5 concurrent
+./bouy scraper scouting-party 10   # Custom concurrency
+
+# Test scraper without processing (dry run)
+./bouy scraper-test nyc_efap_programs
+./bouy scraper-test --all
+```
+
 ```python
 class SearchOrchestrator:
-    """Manages scraper execution through cron jobs"""
+    """Manages scraper execution through unified Docker image"""
 
     async def execute_scraper(self, name: str) -> None:
-        """Execute a specific scraper"""
+        """Execute a specific scraper via unified image"""
         try:
+            # Scrapers run in unified image with scraper command
             process = await asyncio.create_subprocess_exec(
                 "python", "-m", "app.scraper", name,
                 stdout=asyncio.subprocess.PIPE,
@@ -400,13 +421,13 @@ class BaseScraper(ABC):
 
 ### 6. Unified Geocoding Service
 
-The unified geocoding service provides centralized, cached, and rate-limited geocoding functionality across all components, dramatically reducing API usage and improving performance.
+The unified geocoding service provides centralized, cached, and rate-limited geocoding functionality across all components, dramatically reducing API usage and improving performance. Recent improvements include zero-coordinate detection and exhaustive provider fallback.
 
 #### Architecture
 
 ```python
 class UnifiedGeocodingService:
-    """Centralized geocoding with caching and automatic provider fallback"""
+    """Centralized geocoding with caching, zero detection, and automatic provider fallback"""
     
     def __init__(self):
         self.cache = RedisCache(ttl=30*24*3600)  # 30-day TTL
@@ -414,6 +435,8 @@ class UnifiedGeocodingService:
             ArcGISGeocoder(rate_limit=0.5),  # Primary
             NominatimGeocoder(rate_limit=1.1)  # Fallback
         ]
+        self.zero_coordinate_detection = True  # Detect invalid 0,0 coordinates
+        self.exhaustive_fallback = True  # Try all providers before failing
 ```
 
 #### Key Features
@@ -431,6 +454,8 @@ class UnifiedGeocodingService:
    - Provider-specific rate limiting:
      - ArcGIS: 0.5 seconds between requests
      - Nominatim: 1.1 seconds (respects OSM guidelines)
+   - **Zero Coordinate Detection**: Automatically detects and rejects invalid 0,0 coordinates
+   - **Exhaustive Fallback**: Tries all available providers before returning failure
 
 3. **Performance Optimization**
    ```python
@@ -548,39 +573,84 @@ class SearcherConfig(BaseModel):
 
 ## Deployment Models
 
-### 1. Docker Compose Deployment
+### 1. Unified Docker Image Architecture
 
-Core services defined in docker-compose.yml:
-- `app`: FastAPI server for API endpoints
-- `worker`: LLM processing workers
+All services run from a single unified Docker image (`pantry-pirate-radio:latest`) with different entry points:
+
+#### Service Architecture
+- **Unified Image**: Single image built with all dependencies and code
+- **Service Selection**: Entry point script (`docker-entrypoint.sh`) routes to appropriate service
+- **Shared Volumes**: Common data volumes across all services
+- **Configuration**: Environment-based service configuration
+
+#### Core Services (defined in `.docker/compose/base.yml`):
+- `app`: FastAPI server for API endpoints (port 8000)
+- `worker`: LLM processing workers with Claude CLI support
 - `recorder`: Job archival with volume mounts
 - `reconciler`: Data consistency service
-- `haarrrvest-publisher`: Automated data publishing to HAARRRvest repository
-- `db`: PostgreSQL with PostGIS extensions
+- `haarrrvest-publisher`: Automated data publishing to HAARRRvest
+- `scraper`: Data collection service
+- `db`: PostgreSQL 15 with PostGIS 3.3 extensions
 - `cache`: Redis for queue and caching
-- Search orchestrator with cron-based scrapers
+- `db-init`: Database initialization with SQL dumps
+- `datasette`: SQLite data browser (production mode)
 
-### 2. Scaled Deployment
+### 2. Bouy-Managed Deployment
 
-- Scale worker containers:
-  ```bash
-  docker-compose up -d --scale worker=3
-  ```
-- Load balanced API containers
-- Redis cluster configuration
-- PostgreSQL replication
-- Suitable for higher loads
+All Docker operations are managed through the bouy command interface:
+
+```bash
+# Start services (development mode by default)
+./bouy up
+
+# Production mode with all services
+./bouy up --prod
+
+# With database initialization from SQL dumps
+./bouy up --with-init
+
+# Scale worker containers
+./bouy up --scale worker=3
+
+# Test mode for running tests
+./bouy up --test
+```
+
+#### Deployment Modes:
+- **Development** (`--dev` or default): Hot reload, debug logging, volume mounts
+- **Production** (`--prod`): Optimized, includes Datasette, production logging
+- **Test** (`--test`): Isolated test environment
+- **With Init** (`--with-init`): Includes database initialization from SQL dumps
 
 ### 3. Production Deployment
 
-- Container orchestration (Kubernetes/Swarm)
-- Auto-scaling policies
-- Load balancing
-- Persistent volumes for:
-  - PostgreSQL data
-  - Redis data
-  - Archive storage
-- Monitoring and logging
+#### Bouy Production Commands:
+```bash
+# Start production environment
+./bouy up --prod --with-init
+
+# Monitor services
+./bouy ps
+./bouy logs -f app worker
+
+# Health checks
+./bouy exec app curl http://localhost:8000/health
+```
+
+#### Persistent Volumes:
+- `postgres_data`: PostgreSQL database files
+- `redis_data`: Redis persistence
+- `haarrrvest_repo`: HAARRRvest repository clone
+- `app_data`: Shared application data
+- `claude_config`: Claude CLI authentication
+- `outputs`: Processed data outputs
+
+#### Production Features:
+- Unified image reduces deployment complexity
+- Health checks on all critical services
+- Automatic restart policies
+- Resource limits enforced
+- Datasette for data exploration
 
 ## Data Flow
 
@@ -636,6 +706,28 @@ The LLM Layer provides:
 - Retry logic for failed alignments
 
 ## Testing Framework
+
+### Testing with Bouy
+
+```bash
+# Run all tests and checks
+./bouy test
+
+# Run specific test types
+./bouy test --pytest        # Run pytest tests
+./bouy test --mypy          # Type checking
+./bouy test --black         # Code formatting
+./bouy test --ruff          # Linting
+./bouy test --bandit        # Security scanning
+./bouy test --coverage      # Tests with coverage
+
+# Run specific test files
+./bouy test --pytest tests/test_api.py
+./bouy test --pytest tests/test_reconciler/
+
+# Pass additional arguments
+./bouy test --pytest -- -v -x
+```
 
 ### Unit Testing with pytest
 
