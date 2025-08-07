@@ -395,8 +395,6 @@ Visit http://localhost:8000/docs for API documentation
 ./bouy recorder            # Save job results to JSON files
 ./bouy content-store status # Check deduplication system
 ./bouy content-store report # Generate detailed deduplication report
-./bouy datasette            # Export database to SQLite for Datasette
-./bouy datasette schedule   # Start periodic SQLite export scheduler
 ./bouy replay --use-default-output-dir  # Replay recorded JSON files
 ./bouy haarrrvest          # Publish to HAARRRvest repository
 

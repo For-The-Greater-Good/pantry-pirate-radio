@@ -54,11 +54,6 @@ services:
       cache:
         condition: service_started
 
-  datasette-exporter:
-    depends_on:
-      db-init:
-        condition: service_healthy
-
   db-backup:
     depends_on:
       db-init:

@@ -103,7 +103,6 @@ usage() {
     echo "  recorder [ARGS]     Run the recorder service"
     echo "  content-store [CMD] Manage content store"
     echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
-    echo "  datasette [CMD]     Export database to SQLite for Datasette"
     echo "  replay [OPTIONS]    Replay recorded JSON files"
     echo "  pull [TAG]          Pull all container images (default: latest)"
     echo "  clean               Stop services and remove volumes"
@@ -150,12 +149,6 @@ usage() {
     echo "  haarrrvest run          Manually trigger publishing run"
     echo "  haarrrvest logs         Follow publisher logs"
     echo "  haarrrvest status       Check publisher service status"
-    echo ""
-    echo "Datasette options:"
-    echo "  datasette              Export database to SQLite immediately"
-    echo "  datasette export       Export database to SQLite immediately"
-    echo "  datasette schedule     Start periodic export scheduler"
-    echo "  datasette status       Check export status and SQLite file"
     echo ""
     echo "Replay options:"
     echo "  replay                          Show replay help"
@@ -534,7 +527,7 @@ fi
 
 # Check Docker availability for commands that need it
 case "$1" in
-    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|datasette|reconciler|recorder|content-store|haarrrvest|replay|pull)
+    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|reconciler|recorder|content-store|haarrrvest|replay|pull)
         if ! check_docker; then
             exit 1
         fi
@@ -710,12 +703,12 @@ case "$1" in
             echo "Services started! Access points:"
             echo "  - API: http://localhost:8000"
             echo "  - API Docs: http://localhost:8000/docs"
-            echo "  - Datasette: http://localhost:8001"
+            echo "  - Datasette (viewer): http://localhost:8001"
             echo "  - RQ Dashboard: http://localhost:9181"
         else
             # In programmatic mode, output JSON with service URLs
             if [ $JSON_OUTPUT -eq 1 ]; then
-                echo '{"status":"started","endpoints":{"api":"http://localhost:8000","docs":"http://localhost:8000/docs","datasette":"http://localhost:8001","rq_dashboard":"http://localhost:9181"}}'
+                echo '{"status":"started","endpoints":{"api":"http://localhost:8000","docs":"http://localhost:8000/docs","datasette_viewer":"http://localhost:8001","rq_dashboard":"http://localhost:9181"}}'
             fi
         fi
         ;;
@@ -1657,68 +1650,6 @@ case "$1" in
         esac
         ;;
 
-    datasette)
-        shift
-        parse_mode "$@"
-
-        # Ensure database is running for export
-        if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
-            output info "Database service is not running. Starting it..."
-            if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
-                wait_for_database || exit 1
-            else
-                output error "Failed to start database service"
-                exit 1
-            fi
-        fi
-
-        # Check database schema
-        if ! check_database_schema; then
-            output error "Database schema must be initialized before export"
-            exit 1
-        fi
-
-        # Check if datasette-exporter service is running
-        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter 2>/dev/null | grep -q "Up"; then
-            output info "Datasette exporter service is not running. Starting it..."
-            if $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter; then
-                sleep 2  # Give it a moment to start
-            else
-                output error "Failed to start datasette exporter service"
-                exit 1
-            fi
-        fi
-
-        # Parse subcommand
-        case "${1:-export}" in
-            export|"")
-                output info "Exporting database to SQLite for Datasette..."
-                # Run the export directly
-                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
-                ;;
-            schedule)
-                output info "Starting Datasette export scheduler..."
-                output info "Exports will run periodically based on EXPORT_INTERVAL setting"
-                $COMPOSE_CMD $COMPOSE_FILES exec datasette-exporter python -m app.datasette schedule
-                ;;
-            status)
-                output info "Checking Datasette exporter status..."
-                $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter
-                # Check if SQLite file exists
-                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
-                    output success "Latest SQLite export found"
-                else
-                    output warning "No SQLite export found yet"
-                fi
-                ;;
-            *)
-                output error "Unknown datasette subcommand: $1"
-                output error "Use: datasette [export|schedule|status]"
-                exit 1
-                ;;
-        esac
-        ;;
-
     replay)
         shift
         parse_mode "$@"
@@ -1897,7 +1828,7 @@ case "$1" in
         
         # Define all services and their corresponding images
         # Using parallel arrays for bash 3.x compatibility
-        services=("app" "worker" "recorder" "scraper" "reconciler" "haarrrvest-publisher" "rq-dashboard" "db-init" "datasette-exporter" "datasette")
+        services=("app" "worker" "recorder" "scraper" "reconciler" "haarrrvest-publisher" "rq-dashboard" "db-init" "datasette")
         
         # For docker-compose compatibility, use the same image names
         # This matches what docker-compose expects from the build context

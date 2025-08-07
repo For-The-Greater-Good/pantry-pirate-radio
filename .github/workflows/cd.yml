@@ -46,8 +46,6 @@ jobs:
             services: "scraper"
           - target: test
             services: "test"
-          - target: datasette-exporter
-            services: "datasette-exporter"
           - target: simple-worker
             services: "reconciler,rq-dashboard"
           - target: production-base
