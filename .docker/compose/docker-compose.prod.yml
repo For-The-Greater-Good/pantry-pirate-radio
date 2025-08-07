@@ -118,18 +118,24 @@ services:
       - db
       - cache
 
-  datasette-exporter:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-exporter-${DOCKER_TAG:-latest}
+  haarrrvest-publisher:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:haarrrvest-publisher-${DOCKER_TAG:-latest}
     env_file: .env
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - OUTPUT_DIR=/data
-      - EXPORT_INTERVAL=3600  # Seconds between exports (1 hour default)
+      - DATA_REPO_PATH=/data-repo
+      - DATA_REPO_URL=${DATA_REPO_URL}
+      - DATA_REPO_TOKEN=${DATA_REPO_TOKEN}
+      - PUBLISHER_CHECK_INTERVAL=${PUBLISHER_CHECK_INTERVAL:-300}
+      - DAYS_TO_SYNC=${DAYS_TO_SYNC:-7}
+      - PUBLISHER_PUSH_ENABLED=${PUBLISHER_PUSH_ENABLED:-false}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
     depends_on:
       - db
-    volumes:
-      - datasette_data:/data
-      - ../../datasette-metadata.json:/data/metadata.json
+      - cache
 
   datasette:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-${DOCKER_TAG:-latest}
@@ -139,18 +145,18 @@ services:
       "datasette",
       "-p", "8001",
       "-h", "0.0.0.0",
-      "--metadata", "/data/metadata.json",
+      "--metadata", "/data-repo/sqlite/metadata.json",
       "--setting", "sql_time_limit_ms", "10000",
       "--setting", "max_returned_rows", "5000",
       "--setting", "allow_download", "1",
       "--setting", "default_page_size", "50",
       "--setting", "base_url", "/",
-      "/data/latest.sqlite"
+      "/data-repo/sqlite/pantry_pirate_radio.sqlite"
     ]
     volumes:
-      - datasette_data:/data
+      - haarrrvest_repo:/data-repo:ro
     depends_on:
-      - datasette-exporter
+      - haarrrvest-publisher
 
   db-backup:
     image: prodrigestivill/postgres-backup-local:15
@@ -173,9 +179,10 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  datasette_data:
   postgres_backups:
   claude_config:  # Shared Claude authentication across worker containers
+  haarrrvest_repo:  # HAARRRvest repository managed by publisher service
+  app_data:  # Shared application data across all services
 
 networks:
   frontend:
