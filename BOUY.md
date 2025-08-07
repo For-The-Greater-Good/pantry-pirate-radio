@@ -14,6 +14,7 @@ Navigate the seas of containers with ease! Bouy is the official Docker fleet man
 - [Troubleshooting](#troubleshooting)
 
 ## Overview
+<img width="1024" height="1024" alt="ChatGPT Image Aug 7, 2025, 03_40_44 PM" src="https://github.com/user-attachments/assets/321d4df8-b21c-4eab-a96d-3d423122d2f4" />
 
 Bouy (v1.0.0) is a comprehensive bash script that wraps Docker Compose with intelligent defaults, health checks, and developer-friendly features. It's the **only** supported way to interact with the Pantry Pirate Radio Docker environment.
 
