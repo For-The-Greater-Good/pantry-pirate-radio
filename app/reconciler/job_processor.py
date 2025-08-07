@@ -343,12 +343,26 @@ class JobProcessor:
             if "location" in data:
                 for location in data["location"]:
                     # Check that latitude and longitude exist and are not None
+                    # Note: 0,0 coordinates are invalid (ocean off Africa) and should be geocoded
+                    has_valid_coords = False
+
                     if (
                         "latitude" in location
                         and "longitude" in location
                         and location["latitude"] is not None
                         and location["longitude"] is not None
                     ):
+                        # Check if coordinates are invalid (0,0)
+                        lat = float(location["latitude"])
+                        lon = float(location["longitude"])
+                        if lat == 0.0 and lon == 0.0:
+                            logger.warning(
+                                f"Location '{location.get('name', 'Unknown')}' has invalid 0,0 coordinates, will attempt geocoding"
+                            )
+                        else:
+                            has_valid_coords = True
+
+                    if has_valid_coords:
                         # Check for existing location by coordinates
                         match_id = location_creator.find_matching_location(
                             float(location["latitude"]), float(location["longitude"])
@@ -390,9 +404,30 @@ class JobProcessor:
                                     from app.core.geocoding import get_geocoding_service
 
                                     geocoding_service = get_geocoding_service()
+
+                                    # Try primary provider first (usually ArcGIS)
                                     geocoded_coords = geocoding_service.geocode(
                                         address_string
                                     )
+
+                                    # If primary failed and we have fallback, try all providers explicitly
+                                    if not geocoded_coords:
+                                        logger.info(
+                                            f"Primary geocoding failed for '{location_name}', trying all providers"
+                                        )
+
+                                        # Try ArcGIS explicitly
+                                        geocoded_coords = geocoding_service.geocode(
+                                            address_string, force_provider="arcgis"
+                                        )
+
+                                        # If ArcGIS failed, try Nominatim
+                                        if not geocoded_coords:
+                                            geocoded_coords = geocoding_service.geocode(
+                                                address_string,
+                                                force_provider="nominatim",
+                                            )
+
                                     if geocoded_coords:
                                         logger.info(
                                             f"Successfully geocoded '{location_name}' to {geocoded_coords}"
@@ -408,9 +443,16 @@ class JobProcessor:
                                             )
                                         )
                                     else:
-                                        logger.warning(
-                                            f"Failed to geocode address for location '{location_name}'"
+                                        logger.error(
+                                            f"All geocoding providers failed for location '{location_name}' with address: {address_string}"
                                         )
+                                        # Mark this as a critical failure
+                                        raise ValueError(
+                                            f"Unable to geocode location '{location_name}' - all providers failed"
+                                        )
+                                except ValueError:
+                                    # Re-raise ValueError to handle as job failure
+                                    raise
                                 except Exception as e:
                                     logger.error(
                                         f"Error geocoding location '{location_name}': {e}"

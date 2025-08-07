@@ -40,6 +40,27 @@ The scraper lifecycle consists of the following steps:
 
 This lifecycle is managed by the `ScraperJob` base class, which provides the `run()` method that orchestrates the process. Subclasses only need to implement the `scrape()` method to define their specific data collection logic. Content deduplication happens automatically when calling `queue_for_processing()`.
 
+### Development Workflow with Bouy
+
+All scraper development and testing should be done using bouy commands to ensure proper container isolation:
+
+```bash
+# 1. Create your scraper file
+vim app/scraper/my_new_scraper.py
+
+# 2. Test your scraper implementation
+./bouy scraper-test my_new
+
+# 3. Run your scraper
+./bouy scraper my_new
+
+# 4. Check logs for errors
+./bouy logs scraper
+
+# 5. Monitor job processing
+./bouy logs worker
+```
+
 ## Scraper Base Class
 
 All scrapers should inherit from the `ScraperJob` base class, which provides common functionality:
@@ -143,25 +164,26 @@ Benefits:
 
 ### GeocoderUtils
 
-The `GeocoderUtils` class provides utilities for geocoding addresses:
+The `GeocoderUtils` class provides utilities for geocoding addresses. It now uses the unified geocoding service with automatic caching, rate limiting, and provider fallback:
 
 ```python
 from app.scraper.utils import GeocoderUtils
 
 # Create an instance with default settings
+# The unified geocoding service handles caching and rate limiting automatically
 geocoder = GeocoderUtils()
 
-# Create an instance with custom settings
+# Create an instance with custom default coordinates
 geocoder = GeocoderUtils(
-    timeout=15,  # 15 seconds timeout
-    min_delay_seconds=3,  # 3 seconds between requests
-    max_retries=5,  # 5 retries for failed requests
     default_coordinates={
         "US": (39.8283, -98.5795),  # Geographic center of the United States
         "NJ": (40.0583, -74.4057),  # Geographic center of New Jersey
         "Mercer": (40.2206, -74.7597),  # Trenton, NJ (Mercer County seat)
     }
 )
+
+# Note: timeout and max_retries are now configured via environment variables:
+# GEOCODING_TIMEOUT, GEOCODING_MAX_RETRIES
 
 # Geocode an address
 try:
@@ -183,8 +205,15 @@ except ValueError as e:
 
 Key methods:
 
-- `geocode_address(address, county, state)`: Geocode an address to get latitude and longitude
+- `geocode_address(address, county, state)`: Geocode an address to get latitude and longitude with automatic provider fallback
 - `get_default_coordinates(location, with_offset, offset_range)`: Get default coordinates for a location with optional random offset
+
+**Geocoding Features**:
+- **Automatic caching**: Results cached for 30 days by default
+- **Provider fallback**: Automatically tries multiple providers if one fails
+- **Rate limiting**: Respects API rate limits automatically
+- **Zero coordinate detection**: Prevents invalid 0,0 coordinates
+- **Coordinate validation**: Checks against state/US boundaries
 
 ## Implementing a New Scraper
 
@@ -299,46 +328,69 @@ class Example_ScraperScraper(ScraperJob):
         return json.dumps(summary)
 ```
 
-## Running Scrapers
+## Running Scrapers with Bouy
 
-Scrapers can be run using the `app.scraper` module:
+**IMPORTANT**: Always use bouy commands to run scrapers. Do NOT run scrapers directly with Python.
 
 ```bash
 # List available scrapers
-python -m app.scraper --list
+./bouy scraper --list
 
 # Run a specific scraper
-python -m app.scraper my_scraper
+./bouy scraper my_scraper
 
-# Run all available scrapers
-python -m app.scraper --all
+# Run all scrapers sequentially
+./bouy scraper --all
 
-# Run all scrapers in parallel (faster)
-python -m app.scraper --all --parallel --max-workers 4
+# Run all scrapers in parallel (faster) - RECOMMENDED
+./bouy scraper scouting-party      # Default: 5 concurrent scrapers
+./bouy scraper scouting-party 10   # Custom: 10 concurrent scrapers
 ```
 
-The module will:
+### Scouting Party Mode
 
-1. Dynamically load the scraper class(es) based on the name(s)
-2. Instantiate the scraper(s)
-3. Call the `run()` method to execute the scraper(s)
-4. Handle any exceptions that occur during execution
-5. When running in parallel mode, provide a summary of results
+The `scouting-party` command runs all scrapers in parallel for maximum efficiency:
 
-Example output when running in parallel mode:
+```bash
+# Run with default concurrency (5 scrapers)
+./bouy scraper scouting-party
+
+# Run with custom concurrency
+./bouy scraper scouting-party 8
+
+# Monitor progress
+./bouy logs scraper -f
+```
+
+The bouy scraper command will:
+
+1. Start the scraper container if not running
+2. Dynamically load the scraper class(es) based on the name(s)
+3. Instantiate the scraper(s) with proper configuration
+4. Call the `run()` method to execute the scraper(s)
+5. Handle any exceptions that occur during execution
+6. When running in scouting-party mode, provide colored output with progress
+
+Example output when running scouting-party mode:
 
 ```
-Scraper Run Results:
-====================
-nyc_efap_programs: ✅ SUCCESS (5.67s)
-food_helpline_org: ✅ SUCCESS (3.21s)
-sample: ❌ FAILED (0.45s)
-  Error: Failed to connect to API: Connection refused
+🔍 SCOUTING PARTY! Running all scrapers in parallel...
+Dispatching 5 scouts at a time
 
-Summary:
-  Total: 3
-  Successful: 2
-  Failed: 1
+[1/25] ✅ nyc_efap_programs
+[2/25] ✅ food_helpline_org
+[3/25] ❌ sample_scraper (Failed to connect)
+[4/25] ⏳ vivery_api...
+[5/25] ⏳ plentiful...
+
+Scouting Report:
+================
+Successful: 23/25
+Failed: 2/25
+
+Failed Scouts:
+- sample_scraper: Connection refused
+- broken_scraper: Module not found
 ```
 
 ## Best Practices
@@ -356,8 +408,41 @@ Summary:
 - Always provide custom default coordinates for your specific region
 - Handle geocoding failures gracefully with appropriate fallbacks
 - Use random offsets for default coordinates to avoid stacking
-- Consider the rate limits of geocoding services and adjust delay accordingly
-- Add retry logic for temporary failures
+- The unified geocoding service handles rate limiting automatically
+- Provider fallback happens automatically (no need to implement retry logic)
+- Check for 0,0 coordinates which indicate geocoding failure
+- Validate coordinates are within expected state/country bounds
+
+Example of proper geocoding with validation:
+
+```python
+try:
+    lat, lon = self.geocoder.geocode_address(
+        address=location["address"],
+        state=location.get("state", self.state)
+    )
+    
+    # Validate coordinates aren't 0,0
+    if lat == 0 and lon == 0:
+        logger.warning(f"Got null island coordinates for {location['address']}")
+        lat, lon = self.geocoder.get_default_coordinates(
+            location=self.state,
+            with_offset=True
+        )
+    
+    location["latitude"] = lat
+    location["longitude"] = lon
+    
+except ValueError as e:
+    # Geocoding failed completely
+    logger.warning(f"Geocoding failed: {e}")
+    lat, lon = self.geocoder.get_default_coordinates(
+        location=self.state,
+        with_offset=True
+    )
+    location["latitude"] = lat
+    location["longitude"] = lon
+```
 
 ### Data Processing
 
@@ -371,12 +456,25 @@ Summary:
 
 - Submit items to the queue as they are processed, not all at once
 - Include metadata with each submission for tracking
-- Monitor queue size and adjust batch size accordingly
+- Content deduplication happens automatically - no need to check manually
+- Monitor queue size using bouy commands:
+  ```bash
+  # Check queue status
+  ./bouy exec worker rq info
+  
+  # Monitor queue in real-time
+  ./bouy logs worker -f
+  ```
 - Handle queue submission failures gracefully
+- Use the RQ dashboard for visual monitoring:
+  ```bash
+  # Access RQ dashboard at http://localhost:9181
+  ./bouy up rq-dashboard
+  ```
 
-## Testing Scrapers
+## Testing Scrapers with Bouy
 
-The system includes a utility for testing scrapers without submitting jobs to the queue. This is useful for verifying that scrapers can still successfully scrape data from their sources, even as external websites and APIs change over time.
+The system includes utilities for testing scrapers without submitting jobs to the queue. This is essential for verifying that scrapers can still successfully scrape data from their sources, even as external websites and APIs change over time.
 
 ### Test Mode
 
@@ -389,30 +487,35 @@ When running scrapers in test mode:
 
 This allows for regular testing of scrapers to detect if external changes break our functionality, without generating unnecessary processing jobs.
 
-```python
-from tests.test_scraper.utilities.test_utils import test_scraper
+### Running Tests with Bouy
 
-# Test a specific scraper
-results = await test_scraper("nyc_efap_programs")
-print(f"Test {'passed' if results['success'] else 'failed'}")
-```
-
-### Running Tests
-
-Tests can be run using the `tests.test_scraper.utilities.test_scrapers` module:
+Always use bouy commands for testing scrapers:
 
 ```bash
 # Test a specific scraper
-python -m tests.test_scraper.utilities.test_scrapers nyc_efap_programs
+./bouy scraper-test nyc_efap_programs
 
 # Test all available scrapers
-python -m tests.test_scraper.utilities.test_scrapers --all
+./bouy scraper-test --all
 
-# Test all scrapers in parallel (faster)
-python -m tests.test_scraper.utilities.test_scrapers --all --parallel --max-workers 4
+# Monitor test progress
+./bouy logs scraper -f
 
-# Save test results to a file
-python -m tests.test_scraper.utilities.test_scrapers --all --output outputs/scraper_tests.json
+# Check test results
+./bouy exec scraper cat outputs/scraper_tests.json
+```
+
+### Integration with CI/CD
+
+```bash
+# Run scraper tests in CI pipeline
+./bouy --programmatic --quiet scraper-test --all
+
+# Get JSON output for automation
+./bouy --json scraper-test --all > test_results.json
+
+# Check specific scraper health
+./bouy --programmatic scraper-test vivery_api || echo "Vivery scraper needs attention"
 ```
 
 The module will:

@@ -1,6 +1,6 @@
 # Common Scraper Patterns Quick Reference
 
-This guide provides quick reference patterns for implementing scrapers based on common website architectures.
+This guide provides quick reference patterns for implementing scrapers based on common website architectures. All examples use bouy commands for development and testing to ensure proper container isolation and configuration.
 
 ## Table of Contents
 - [Website Analysis](#website-analysis)
@@ -21,16 +21,22 @@ This guide provides quick reference patterns for implementing scrapers based on 
 5. **Look for third-party widgets** - Vivery, Store Locator Plus, etc.
 6. **Test search functionality** - Note parameters and responses
 
-### Quick Detection Commands
+### Quick Detection with Bouy
 ```bash
 # Check if site uses known services
-curl -s "URL" | grep -E "(vivery|pantrynet|accessfood|food-access-widget)"
+./bouy exec scraper curl -s "URL" | grep -E "(vivery|pantrynet|accessfood|food-access-widget)"
 
 # Look for API endpoints
-curl -s "URL" | grep -E "(api\.|/api/|\.json|ajax|xhr)"
+./bouy exec scraper curl -s "URL" | grep -E "(api\.|/api/|\.json|ajax|xhr)"
 
 # Check for store locator plugins
-curl -s "URL" | grep -E "(store-locator|storelocator|wp-store-locator)"
+./bouy exec scraper curl -s "URL" | grep -E "(store-locator|storelocator|wp-store-locator)"
+
+# Analyze response headers
+./bouy exec scraper curl -I "URL"
+
+# Check JavaScript files for API endpoints
+./bouy exec scraper bash -c "curl -s 'URL' | grep -oE 'https?://[^"]+api[^"]*' | sort -u"
 ```
 
 ## HTML Scraping Patterns
@@ -272,9 +278,9 @@ map_data_pattern = r'maps\.google\.com/maps\?.*?!3d([-\d.]+)!4d([-\d.]+)'
 
 ## Geocoding Patterns
 
-### Basic Geocoding with Fallback
+### Basic Geocoding with Validation
 ```python
-# In scraper
+# In scraper - with automatic provider fallback and validation
 for location in locations:
     if location.get("address"):
         try:
@@ -282,10 +288,20 @@ for location in locations:
                 address=location["address"],
                 state=location.get("state", self.state)
             )
+            
+            # Validate coordinates (detect 0,0 null island)
+            if lat == 0 and lon == 0:
+                logger.warning(f"Got null island for {location['name']}")
+                lat, lon = self.geocoder.get_default_coordinates(
+                    location=self.state,
+                    with_offset=True
+                )
+            
             location["latitude"] = lat
             location["longitude"] = lon
+            
         except ValueError as e:
-            logger.warning(f"Geocoding failed: {e}")
+            logger.warning(f"All geocoding providers failed: {e}")
             # Use state default with offset
             lat, lon = self.geocoder.get_default_coordinates(
                 location=self.state,
@@ -295,15 +311,32 @@ for location in locations:
             location["longitude"] = lon
 ```
 
-### Batch Geocoding with Rate Limiting
+### Batch Geocoding (Rate Limiting Handled Automatically)
 ```python
 async def geocode_locations(self, locations: List[Dict[str, Any]]) -> None:
-    for i, location in enumerate(locations):
-        if i > 0 and i % 10 == 0:
-            # Rate limit after every 10 geocodes
-            await asyncio.sleep(2)
-        
-        # Geocode as above...
+    # The unified geocoding service handles rate limiting automatically
+    # No need to add manual delays
+    for location in locations:
+        if location.get("address"):
+            try:
+                lat, lon = self.geocoder.geocode_address(
+                    address=location["address"],
+                    state=location.get("state", self.state)
+                )
+                # Validate and assign as shown above
+                if lat == 0 and lon == 0:
+                    logger.warning(f"Invalid coordinates for {location['name']}")
+                    lat, lon = self.geocoder.get_default_coordinates(
+                        location=self.state, with_offset=True
+                    )
+                location["latitude"] = lat
+                location["longitude"] = lon
+            except ValueError:
+                # Fallback to defaults
+                location["latitude"], location["longitude"] = \
+                    self.geocoder.get_default_coordinates(
+                        location=self.state, with_offset=True
+                    )
 ```
 
 ## Testing Patterns
@@ -375,19 +408,332 @@ async def test_grid_search(scraper):
    - No → Continue to 3
 
 3. **Is it a known service (Vivery, etc.)?**
-   - Yes → Check if already covered
+   - Yes → Check if already covered by existing scrapers:
+     ```bash
+     ./bouy scraper --list | grep -i vivery
+     ```
    - No → Continue to 4
 
 4. **Is data loaded by JavaScript?**
-   - Yes → Try to find API or data source
-   - No → May need browser automation
+   - Yes → Try to find API or data source in:
+     - Network tab XHR/Fetch requests
+     - JavaScript source files
+     - Window/global variables in console
+   - No → May need browser automation (last resort)
 
-## Common Gotchas
+## Development Workflow with Bouy
 
-1. **Rate Limiting** - Always add delays between requests
+### 1. Create New Scraper
+```bash
+# Create scraper file
+vim app/scraper/my_food_bank_scraper.py
+
+# Use existing scraper as template
+cp app/scraper/sample_scraper.py app/scraper/my_food_bank_scraper.py
+```
+
+### 2. Test Scraper Implementation
+```bash
+# Test scraper without processing jobs
+./bouy scraper-test my_food_bank
+
+# Check logs for errors
+./bouy logs scraper --tail 50
+```
+
+### 3. Run Scraper
+```bash
+# Run your scraper
+./bouy scraper my_food_bank
+
+# Monitor job processing
+./bouy logs worker -f
+```
+
+### 4. Debug Issues
+```bash
+# Interactive debugging
+./bouy shell scraper
+python -c "from app.scraper.my_food_bank_scraper import *; scraper = MyFoodBankScraper(); print(scraper.test_connection())"
+
+# Check geocoding
+./bouy exec scraper python -c "from app.scraper.utils import GeocoderUtils; g = GeocoderUtils(); print(g.geocode_address('123 Main St, Boston, MA'))"
+```
+
+### 5. Monitor Performance
+```bash
+# Check scraper metrics
+./bouy exec scraper python -c "from app.scraper.utils import SCRAPER_JOBS; print(SCRAPER_JOBS._metrics)"
+
+# View content store stats
+./bouy content-store status
+```
+
+## Real-World Scraper Examples
+
+### Example 1: API with Grid Search (Vivery Pattern)
+Used by multiple food banks with Vivery/PantryNet integration:
+
+```python
+class ViveryStyleScraper(ScraperJob):
+    def __init__(self):
+        super().__init__(scraper_id="vivery_style")
+        self.api_url = "https://api.example.com/v2/locations"
+        self.search_radius = 50  # miles
+    
+    async def scrape(self) -> str:
+        # Get grid points for coverage area
+        grid_points = self.utils.get_state_grid_points("ca")
+        
+        all_locations = []
+        seen_ids = set()
+        
+        for point in grid_points:
+            # Search around each grid point
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    self.api_url,
+                    params={
+                        "latitude": point.lat,
+                        "longitude": point.lng,
+                        "radius": self.search_radius,
+                        "limit": 1000
+                    },
+                    headers=get_scraper_headers()
+                )
+                
+                data = response.json()
+                
+                # Deduplicate by ID
+                for location in data.get("locations", []):
+                    if location["id"] not in seen_ids:
+                        seen_ids.add(location["id"])
+                        all_locations.append(location)
+            
+            # Be nice to the API
+            await asyncio.sleep(1)
+        
+        # Submit each location for processing
+        for location in all_locations:
+            self.submit_to_queue(json.dumps(location))
+        
+        return json.dumps({"total": len(all_locations)})
+```
+
+### Example 2: WordPress Store Locator Pattern
+Common pattern for WordPress sites with store locator plugins:
+
+```python
+class WordPressLocatorScraper(ScraperJob):
+    def __init__(self):
+        super().__init__(scraper_id="wp_locator")
+        self.ajax_url = "https://example.org/wp-admin/admin-ajax.php"
+    
+    async def scrape(self) -> str:
+        # WordPress AJAX typically uses POST
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.ajax_url,
+                data={
+                    "action": "store_locator",
+                    "lat": "40.7128",
+                    "lng": "-74.0060",
+                    "radius": "100",
+                    "filter": "food_pantry"
+                },
+                headers=get_scraper_headers()
+            )
+            
+            data = response.json()
+            
+            # Process and geocode if needed
+            for location in data.get("stores", []):
+                # Add geocoding if coordinates missing
+                if not location.get("lat"):
+                    try:
+                        lat, lon = self.geocoder.geocode_address(
+                            address=location["address"],
+                            state=location.get("state", "NY")
+                        )
+                        location["lat"] = lat
+                        location["lng"] = lon
+                    except ValueError:
+                        # Use defaults with offset
+                        lat, lon = self.geocoder.get_default_coordinates(
+                            "NY", with_offset=True
+                        )
+                        location["lat"] = lat
+                        location["lng"] = lon
+                
+                self.submit_to_queue(json.dumps(location))
+            
+            return json.dumps({"total": len(data.get("stores", []))})
+```
+
+### Example 3: HTML Table Scraping Pattern
+For static HTML pages with tabular data:
+
+```python
+class TableScraper(ScraperJob):
+    def __init__(self):
+        super().__init__(scraper_id="table_scraper")
+        self.url = "https://example.org/pantries"
+    
+    async def scrape(self) -> str:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                self.url,
+                headers=get_scraper_headers()
+            )
+        
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        locations = []
+        table = soup.find("table", {"class": "pantry-list"})
+        
+        if table:
+            rows = table.find_all("tr")[1:]  # Skip header
+            for row in rows:
+                cells = row.find_all("td")
+                if len(cells) >= 3:
+                    location = {
+                        "name": cells[0].get_text(strip=True),
+                        "address": cells[1].get_text(strip=True),
+                        "phone": cells[2].get_text(strip=True),
+                        "hours": cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                    }
+                    
+                    # Geocode the address
+                    try:
+                        lat, lon = self.geocoder.geocode_address(
+                            address=location["address"]
+                        )
+                        # Validate coordinates
+                        if lat == 0 and lon == 0:
+                            raise ValueError("Invalid coordinates")
+                        location["latitude"] = lat
+                        location["longitude"] = lon
+                    except ValueError:
+                        # Fallback to defaults
+                        lat, lon = self.geocoder.get_default_coordinates(
+                            "US", with_offset=True
+                        )
+                        location["latitude"] = lat
+                        location["longitude"] = lon
+                    
+                    locations.append(location)
+                    self.submit_to_queue(json.dumps(location))
+        
+        return json.dumps({"total": len(locations)})
+```
+
+### Example 4: ArcGIS REST API Pattern
+For organizations using ESRI ArcGIS services:
+
+```python
+class ArcGISScraper(ScraperJob):
+    def __init__(self):
+        super().__init__(scraper_id="arcgis_scraper")
+        self.service_url = "https://services.arcgis.com/xxx/arcgis/rest/services/FoodPantries/FeatureServer/0"
+    
+    async def scrape(self) -> str:
+        # Query all features
+        params = {
+            "where": "1=1",  # Get all records
+            "outFields": "*",  # All fields
+            "f": "json",  # JSON format
+            "resultRecordCount": 1000  # Max records per request
+        }
+        
+        all_features = []
+        offset = 0
+        
+        async with httpx.AsyncClient() as client:
+            while True:
+                params["resultOffset"] = offset
+                
+                response = await client.get(
+                    f"{self.service_url}/query",
+                    params=params,
+                    headers=get_scraper_headers()
+                )
+                
+                data = response.json()
+                features = data.get("features", [])
+                
+                if not features:
+                    break
+                
+                all_features.extend(features)
+                offset += len(features)
+                
+                # Check if more records exist
+                if not data.get("exceededTransferLimit", False):
+                    break
+                
+                await asyncio.sleep(1)  # Rate limiting
+        
+        # Process features
+        for feature in all_features:
+            attrs = feature.get("attributes", {})
+            geom = feature.get("geometry", {})
+            
+            location = {
+                "name": attrs.get("NAME"),
+                "address": attrs.get("ADDRESS"),
+                "city": attrs.get("CITY"),
+                "state": attrs.get("STATE"),
+                "zip": attrs.get("ZIP"),
+                "phone": attrs.get("PHONE"),
+                "latitude": geom.get("y"),
+                "longitude": geom.get("x"),
+                "hours": attrs.get("HOURS"),
+                "services": attrs.get("SERVICES", "").split(";")
+            }
+            
+            self.submit_to_queue(json.dumps(location))
+        
+        return json.dumps({"total": len(all_features)})
+```
+
+## Common Gotchas and Solutions
+
+1. **Rate Limiting** - The unified geocoding service handles this automatically
 2. **Dynamic Class Names** - Look for partial matches or data attributes
 3. **Missing Data** - Always handle None/empty gracefully
 4. **Coordinate Formats** - Some sites use [lng, lat] instead of [lat, lng]
-5. **Time Zones** - Food bank hours may not specify timezone
-6. **Duplicate Locations** - Same location may appear multiple times
-7. **Address Formats** - May need parsing (e.g., "123 Main St, City, ST 12345")
+   ```python
+   # Check and swap if needed
+   if abs(lon) > 90 and abs(lat) <= 180:
+       lat, lon = lon, lat  # Swap if likely reversed
+   ```
+5. **Invalid Coordinates** - Watch for 0,0 (null island) and projected coordinates
+   ```python
+   # The reconciler will automatically detect and correct these:
+   # - Web Mercator coordinates (very large numbers)
+   # - State Plane coordinates
+   # - Zero coordinates
+   ```
+6. **Time Zones** - Food bank hours may not specify timezone
+7. **Duplicate Locations** - Use sets or dict keys for deduplication
+   ```python
+   seen_locations = set()
+   unique_locations = []
+   for loc in locations:
+       key = (loc['name'], loc['address'])
+       if key not in seen_locations:
+           seen_locations.add(key)
+           unique_locations.append(loc)
+   ```
+8. **Address Formats** - May need parsing
+   ```python
+   # Parse combined address
+   parts = address.split(', ')
+   if len(parts) >= 3:
+       street = parts[0]
+       city = parts[1]
+       state_zip = parts[2].split(' ')
+       state = state_zip[0] if state_zip else ''
+       zip_code = state_zip[1] if len(state_zip) > 1 else ''
+   ```

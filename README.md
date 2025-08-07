@@ -9,6 +9,9 @@
 [![Build Status](https://github.com/For-The-Greater-Good/pantry-pirate-radio/workflows/CI/badge.svg)](https://github.com/For-The-Greater-Good/pantry-pirate-radio/actions)
 [![Test Coverage](https://github.com/For-The-Greater-Good/pantry-pirate-radio/workflows/CI/badge.svg?branch=main)](https://github.com/For-The-Greater-Good/pantry-pirate-radio/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/For-The-Greater-Good/pantry-pirate-radio)](https://github.com/For-The-Greater-Good/pantry-pirate-radio/releases)
+[![Docker](https://img.shields.io/badge/docker-required-blue.svg)](https://www.docker.com/get-started)
+[![Bouy](https://img.shields.io/badge/bouy-v1.0.0-green.svg)](BOUY.md)
+[![License](https://img.shields.io/badge/license-sandia--ftgg--nc--os--1.0-yellow.svg)](LICENSE)
 
 ### Quality Metrics
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -31,8 +34,11 @@
 - [🔍 Explore the Data](#-explore-the-data)
 - [📚 Documentation](#-documentation)
 - [Environment Configuration](#environment-configuration)
+- [Testing](#testing)
 - [Contributing](#contributing)
+- [Troubleshooting](#troubleshooting)
 - [License](#license)
+- [Community and Support](#community-and-support)
 
 ## Overview
 
@@ -62,7 +68,10 @@ Our mission is to break down information barriers in food security by making pub
 - Continental US coverage (25°N to 49°N, -125°W to -67°W)
 - Smart grid generation for large area searches
 - PostGIS-optimized spatial queries
-
+- **Unified Geocoding Service**: Multi-provider with intelligent fallback (ArcGIS, Google Maps, Nominatim, Census)
+- **0,0 Coordinate Detection**: Automatic detection and correction of invalid coordinates
+- **Exhaustive Provider Fallback**: Tries all available providers before accepting failure
+- **Intelligent Caching**: TTL-based caching with rate limiting for geocoding requests
 - Automatic request partitioning for extensive areas
 - Coverage tracking and gap analysis
 
@@ -111,9 +120,18 @@ Our mission is to break down information barriers in food security by making pub
 
 ## System Architecture
 
-Pantry Pirate Radio uses a **distributed microservices architecture** built with containerized services and a consolidated multi-stage Dockerfile for efficient builds and consistent deployment.
+Pantry Pirate Radio uses a **distributed microservices architecture** built with containerized services managed through Docker Compose orchestration. All services are defined in `.docker/compose/` with environment-specific configurations.
 
 ### Core Services
+
+The system consists of the following containerized services:
+- **app**: FastAPI server providing HSDS-compliant API endpoints
+- **worker**: LLM processing workers (scalable)
+- **reconciler**: Data reconciliation and deduplication service
+- **recorder**: Job result archival service
+- **haarrrvest-publisher**: GitHub repository synchronization
+- **db**: PostgreSQL with PostGIS extensions
+- **cache**: Redis for job queues and caching
 
 ```mermaid
 flowchart TB
@@ -163,20 +181,22 @@ flowchart TB
 ### Service Components
 
 #### **Scraper System** (`app/scraper/`)
-- **12+ Individual Scrapers**: Each targeting specific food security data sources
+- **35+ Individual Scrapers**: Each targeting specific food security data sources
 - **Base Framework**: `ScraperJob` base class with utilities for geocoding and grid generation
-- **Data Sources**: NYC EFAP, FoodHelpline.org, Plentiful, Care & Share, Freshtrak, and more
+- **Data Sources**: NYC EFAP, FoodHelpline.org, Plentiful, Care & Share, Freshtrak, Feeding America network, state food banks, and more
 - **Testing Framework**: Comprehensive validation system for scraper outputs
 - **Geographic Coverage**: Continental US with intelligent grid generation for large areas
+- **Unified Geocoding**: Integrated with multi-provider geocoding service for accurate location data
 
 #### **LLM Processing System** (`app/llm/`)
 - **HSDS Aligner**: AI-powered schema alignment to HSDS v3.1.1 specification
 - **Multiple Providers**:
-  - **OpenAI/OpenRouter**: HTTP API-based provider
+  - **OpenAI/OpenRouter**: HTTP API-based provider with structured output support
   - **Claude**: CLI-based provider with shared authentication across workers
 - **Queue Processing**: Redis-based job distribution with confidence scoring
 - **Validation Pipeline**: Field coherence validation and hallucination detection
 - **Retry Logic**: Intelligent failsafe system with quota management
+- **Structured Output**: Native support for JSON schema validation
 
 #### **Reconciler Service** (`app/reconciler/`)
 - **Version Tracker**: Maintains complete version history for all records
@@ -184,6 +204,7 @@ flowchart TB
 - **Organization Creator**: Creates and manages organization entities
 - **Service Creator**: Processes service information and relationships
 - **Merge Strategy**: Handles source-specific records with canonical merging
+- **Geocoding Corrector**: Validates and corrects address coordinates with 0,0 detection and multi-provider fallback
 
 #### **Worker Pool** (`app/llm/queue/`)
 - **Scalable Processing**: Horizontally scalable worker instances
@@ -198,11 +219,12 @@ flowchart TB
 - **Summary Files**: Creates daily summary files tracking all processed jobs
 
 #### **Database Layer**
-- **PostgreSQL**: Primary data store with HSDS-compliant schema
-- **PostGIS**: Spatial extensions for geographic queries and indexing
-- **Version Control**: Complete version tracking for all records
-- **Backup System**: Automated backups with retention policies
+- **PostgreSQL 15+**: Primary data store with HSDS-compliant schema
+- **PostGIS 3.3+**: Spatial extensions for geographic queries and indexing
+- **Version Control**: Complete version tracking for all records via `record_version` table
+- **Backup System**: Automated backups with configurable retention policies (default: 30 days)
 - **Spatial Indexing**: Optimized for geographic search and boundary queries
+- **Source-Specific Records**: Maintains original data alongside canonical merged records
 
 #### **API Layer** (`app/api/`)
 - **FastAPI Framework**: High-performance async API server
@@ -220,6 +242,30 @@ flowchart TB
 - **State Tracking**: Remembers processed files to avoid duplicates
 
 ## Quick Start
+
+> **New to Pantry Pirate Radio?** Start with our [interactive setup wizard](#quick-start-in-3-commands)!
+
+### Quick Start in 3 Commands
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
+
+# 2. Run interactive setup wizard (creates .env file)
+./bouy setup
+
+# 3. Start all services with HAARRRvest data (recommended)
+./bouy up --with-init
+
+# That's it! API will be available at http://localhost:8000/docs
+```
+
+The setup wizard will guide you through:
+- Database password configuration
+- LLM provider selection (OpenAI or Claude)
+- API key configuration
+- HAARRRvest repository access setup
 
 ### Platform Considerations
 
@@ -241,7 +287,9 @@ flowchart TB
 - Use Codespaces Secrets for API keys: Settings → Codespaces → Secrets
 - Set secrets: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `DATA_REPO_TOKEN`
 
-### Using DevContainer (Recommended for Linux/Windows/Codespaces)
+### Alternative Setup Methods
+
+#### Using DevContainer (Recommended for Linux/Windows/Codespaces)
 ```bash
 # 1. Clone repository
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
@@ -252,81 +300,50 @@ code .
 
 # 3. When prompted, select "Reopen in Container"
 # DevContainer will handle all setup automatically
+
+# 4. In the DevContainer terminal:
+./bouy setup                 # Run setup wizard
+./bouy up --with-init       # Start with data
 ```
 
-#### DevContainer with Database Initialization
-To start the dev environment with pre-populated data from HAARRRvest:
-```bash
-# Start dev environment with initialization
-./bouy up --dev --with-init
-
-# Monitor initialization progress
-docker compose logs -f db-init
-
-# This will populate ~90 days of historical data from HAARRRvest
-```
-
-### Using Docker Compose (Fastest)
+#### Manual Configuration (Advanced Users)
 ```bash
 # 1. Clone repository
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Quick setup with interactive wizard (NEW USERS START HERE!)
-./bouy setup                 # Interactive setup wizard - creates .env file
-# OR use legacy script:
-./scripts/setup-secrets.sh   # Alternative interactive setup
-# OR manually:
+# 2. Setup environment manually:
 cp .env.example .env
-# Edit .env with your API keys and settings
+# Edit .env with your configuration
 
-# 3. Start all services WITH latest HAARRRvest data (recommended)
-# This will populate the database with ~90 days of food resource data
-./bouy up --with-init
-
-# 4. Monitor initialization (takes 5-15 minutes)
-docker compose logs -f db-init
-docker compose logs -f haarrrvest-publisher
-
-# 5. Access the API at http://localhost:8000/docs
+# 3. Start services
+./bouy up                    # Without data initialization
+# OR
+./bouy up --with-init       # With HAARRRvest data (recommended)
 ```
 
-**Startup Process**:
-1. PostgreSQL and Redis start first
-2. HAARRRvest publisher shallow clones the data repository (depth=1 for efficiency)
-3. Database initializer populates ~90 days of historical data
-4. All services start once the database is ready
+### Understanding the Startup Process
 
-**Note**: The initialization command uses both compose files to ensure proper dependency handling. For subsequent runs, use `docker compose up -d` for faster startup. See [Docker Startup Documentation](docs/docker-startup-sequence.md) for details.
+When you run `./bouy up --with-init`:
 
-### Manual Setup
-```bash
-# 1. Clone repository
-git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
-cd pantry-pirate-radio
+1. **Infrastructure Setup** (1-2 minutes)
+   - PostgreSQL database with PostGIS extension starts
+   - Redis cache for job queuing starts
+   - Network connections are established
 
-# 2. Setup environment (choose one):
-./bouy setup                 # Interactive setup wizard (recommended)
-./scripts/setup-secrets.sh   # Alternative interactive setup
-# OR manually copy and edit:
-cp .env.example .env
-# Edit .env with your configuration (API keys, passwords, etc.)
+2. **Data Initialization** (5-15 minutes)
+   - HAARRRvest repository is shallow cloned (depth=1)
+   - ~90 days of historical food resource data is imported
+   - Database indexes are created and optimized
+   - Spatial indexes for geographic queries are built
 
-# 3. Enable git hooks for security
-git config core.hooksPath .githooks
+3. **Service Startup** (30 seconds)
+   - FastAPI server starts on port 8000
+   - Worker processes for LLM processing start
+   - Reconciler service for data deduplication starts
+   - All health checks pass
 
-# 4. Install dependencies
-# Dependencies are installed automatically in containers via bouy
-
-# 5. Start all services
-docker compose up -d
-
-# FastAPI server will be available at http://localhost:8000
-# Workers will start automatically
-# Search orchestrator will run scrapers on schedule
-```
-
-Visit http://localhost:8000/docs for API documentation
+**Note**: First-time initialization takes longer due to data import. Subsequent runs without `--with-init` start in under a minute.
 
 ## Bouy - Docker Fleet Management
 
@@ -499,12 +516,17 @@ export LLM_MODEL_NAME=gpt-4
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **FastAPI API** | http://localhost:8000 | Main API endpoints |
-| **API Documentation** | http://localhost:8000/docs | Interactive API docs |
-| **Health Check** | http://localhost:8080/health | Worker health status (Claude) |
+| **FastAPI API** | http://localhost:8000/api/v1 | Main API endpoints |
+| **API Documentation** | http://localhost:8000/docs | Interactive Swagger UI |
+| **API ReDoc** | http://localhost:8000/redoc | Alternative API documentation |
+| **OpenAPI JSON** | http://localhost:8000/openapi.json | Machine-readable API spec |
+| **Health Check** | http://localhost:8000/api/v1/health | API health status |
+| **Database Health** | http://localhost:8000/api/v1/health/db | PostgreSQL status |
+| **Redis Health** | http://localhost:8000/api/v1/health/redis | Redis cache status |
+| **LLM Health** | http://localhost:8000/api/v1/health/llm | LLM provider status |
 | **RQ Dashboard** | http://localhost:9181 | Job queue monitoring |
-| **Datasette** | http://localhost:8001 | Data exploration |
-| **Prometheus Metrics** | http://localhost:8000/metrics | System metrics |
+| **Datasette** | http://localhost:8001 | Data exploration (prod mode only) |
+| **Prometheus Metrics** | http://localhost:8000/api/v1/metrics | System metrics |
 
 ## Development
 
@@ -533,20 +555,37 @@ DATA_REPO_TOKEN        # GitHub PAT with repo scope
 - Docker and Docker Compose (v2.0+)
 - For local development without Docker:
   - Python 3.11+
-  - Poetry
-  - PostgreSQL 15+ with PostGIS extension
+  - Poetry (for dependency management)
+  - PostgreSQL 15+ with PostGIS 3.3+ extension
   - Redis 7.0+
 
-**Note**: All dependencies are containerized. Local installations are only needed if running without Docker.
+**Note**: All dependencies are containerized. Local installations are only needed if running without Docker, which is not recommended.
+
+### Testing and Verification
+
+After starting services, verify everything is working:
+
+```bash
+# Run comprehensive test suite
+./bouy test                  # Runs all tests and quality checks
+
+# Check service health
+./bouy ps                    # List running services
+curl http://localhost:8000/health  # API health check
+
+# View API documentation
+open http://localhost:8000/docs    # Interactive API docs
+```
 
 ### Service Management
 
 All service management uses bouy commands as documented in the [Bouy section](#bouy---docker-fleet-management) above.
 
-#### Using Docker Compose Directly
+#### Using Docker Compose Directly (Not Recommended)
 ```bash
+# Note: Use bouy commands instead for proper orchestration
 # Start all services
-docker compose up -d
+docker compose -f .docker/compose/base.yml up -d
 
 # Start specific service
 docker compose up -d app                    # FastAPI server
@@ -554,25 +593,25 @@ docker compose up -d worker                 # LLM workers
 docker compose up -d recorder               # Recorder service
 docker compose up -d reconciler             # Reconciler service
 docker compose up -d haarrrvest-publisher   # HAARRRvest publisher
-docker compose up -d db-backup              # Database backup service
 
-# View logs
-docker compose logs -f app                  # FastAPI logs
-docker compose logs -f worker               # Worker logs
-docker compose logs -f recorder             # Recorder logs
-docker compose logs -f reconciler           # Reconciler logs
-docker compose logs -f haarrrvest-publisher # Publisher logs
-docker compose logs -f db-backup            # Database backup logs
+# View logs (use bouy logs instead)
+./bouy logs app                  # FastAPI logs
+./bouy logs worker               # Worker logs
+./bouy logs recorder             # Recorder logs
+./bouy logs reconciler           # Reconciler logs
+./bouy logs haarrrvest-publisher # Publisher logs
 
 # Scale workers
-docker compose up -d --scale worker=3  # Run 3 worker instances
+docker compose -f .docker/compose/base.yml up -d --scale worker=3  # Run 3 worker instances
+# Or use bouy:
+./bouy up --scale worker=3
 ```
 
 ### Development Commands
 
 All development commands use bouy as documented in the [Bouy section](#bouy---docker-fleet-management) above.
 
-#### **Legacy Poetry Commands** (if running locally without Docker)
+#### **Local Development Commands** (if running without Docker - not recommended)
 ```bash
 # Local testing with poetry (not recommended - use './bouy test' instead)
 poetry run pytest                       # Run all tests with coverage
@@ -593,7 +632,7 @@ poetry run vulture app/                 # Unused code detection
 ```
 
 ### Quality Standards
-- **Test Coverage**: 90% minimum requirement
+- **Test Coverage**: Ratcheting mechanism maintains baseline (currently ~80%) with 2% tolerance
 - **Type Safety**: Strict mypy configuration with comprehensive annotations
 - **Code Style**: Black formatting (88 character line length)
 - **Linting**: Ruff with security checks (bandit integration)
@@ -648,14 +687,20 @@ Explore our harvested food resource data directly in your browser! HAARRRvest pr
 
 ## 📚 Documentation
 
-See **[Documentation Index](docs/README.md)** for complete navigation through all available documentation.
+### [📖 Documentation Hub - Start Here](docs/INDEX.md)
+Our comprehensive documentation is organized in the **[Documentation Index](docs/INDEX.md)**, which serves as the central hub for all project documentation. This index provides:
+- 🚀 Quick navigation by user level (Beginner, Developer, Advanced)
+- 📂 Complete documentation catalog organized by category
+- 🔍 Documentation relationships and dependencies
+- 📌 Quick links to essential resources
 
-### Quick Links
+### Quick Links to Core Documentation
 - **[Bouy Command Reference](BOUY.md)** - Complete Docker fleet management guide
+- **[API Documentation](API_DOCUMENTATION.md)** - Complete REST API reference with examples
+- **[Interactive API Docs](http://localhost:8000/docs)** - Live Swagger UI (when services are running)
 - **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
-- **[Docker Quick Start](docs/docker-quickstart.md)** - Fast setup with Docker
-- **[API Examples](docs/api-examples.md)** - Practical API usage examples
 - **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[HSDS Specification](docs/hsds_index.md)** - Human Services Data Specification overview
 - **[Test Environment Setup](docs/test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
@@ -679,12 +724,25 @@ LLM_MODEL_NAME=gpt-4
 
 # Optional Configuration
 OUTPUT_DIR=outputs/                   # Job output directory
-BACKUP_KEEP_DAYS=30                  # Database backup retention
 CLAUDE_HEALTH_SERVER=true            # Enable health monitoring
 
 # Content Store Configuration (for deduplication)
 CONTENT_STORE_PATH=/path/to/store    # Path to content store directory
 CONTENT_STORE_ENABLED=true           # Enable/disable content store (default: enabled if path set)
+
+# HAARRRvest Publisher Configuration
+DATA_REPO_TOKEN=your_github_pat      # GitHub PAT with repo scope for HAARRRvest
+DATA_REPO_OWNER=For-The-Greater-Good # Repository owner
+DATA_REPO_NAME=HAARRRvest           # Repository name
+
+# Geocoding Configuration
+GEOCODING_PROVIDER=arcgis            # Primary provider (arcgis, google, nominatim, census)
+GEOCODING_CACHE_TTL=2592000          # Cache TTL in seconds (30 days)
+GEOCODING_RATE_LIMIT=0.5             # Requests per second
+GEOCODING_ENABLE_FALLBACK=true       # Enable fallback to other providers
+GEOCODING_EXHAUSTIVE_FALLBACK=true   # Try all providers before accepting failure
+NOMINATIM_USER_AGENT=pantry-pirate-radio  # Required for Nominatim
+GOOGLE_MAPS_API_KEY=your_key_here    # Optional: For Google Maps provider
 ```
 
 ### Key Dependencies
@@ -699,17 +757,142 @@ CONTENT_STORE_ENABLED=true           # Enable/disable content store (default: en
 - **SQLAlchemy**: Database ORM with async support
 - **Prometheus**: Metrics collection and monitoring
 
+## Testing
+
+### Test-Driven Development
+
+This project follows Test-Driven Development (TDD) principles:
+
+1. **Write Tests First**: Define expected behavior before implementation
+2. **Run Tests**: Use `./bouy test --pytest` to run tests
+3. **Implement**: Write minimal code to pass tests
+4. **Refactor**: Improve code while keeping tests green
+5. **Full Suite**: Run `./bouy test` before committing
+
+### Running Tests
+
+```bash
+# Run complete test suite (recommended before commits)
+./bouy test
+
+# Run specific test types
+./bouy test --pytest         # Unit and integration tests
+./bouy test --mypy          # Type checking
+./bouy test --black         # Code formatting
+./bouy test --ruff          # Linting
+./bouy test --bandit        # Security scanning
+./bouy test --coverage      # Coverage analysis
+
+# Run specific test files
+./bouy test --pytest tests/test_api.py
+./bouy test --pytest -- -k "test_geocoding"
+
+# Debug failing tests
+./bouy test --pytest -- -vsx --pdb
+```
+
+### Code Quality Standards
+
+- **Test Coverage**: Minimum 80% with ratcheting mechanism
+- **Type Safety**: Strict mypy checking with no Any types
+- **Code Style**: Black formatting (88 char lines)
+- **Security**: Bandit scanning for vulnerabilities
+- **Documentation**: Docstrings for all public functions
+
 ## Contributing
+
 We welcome contributions! Please read our [contribution guidelines](CONTRIBUTING.md) before submitting pull requests.
 
+### Development Workflow
+
+1. **Fork and Clone**: Fork the repository and clone locally
+2. **Setup Environment**: Run `./bouy setup` to configure
+3. **Create Branch**: Use descriptive names like `feat/new-scraper`
+4. **Write Tests**: Follow TDD - write tests before code
+5. **Implement**: Write code to pass tests
+6. **Run Tests**: Ensure `./bouy test` passes
+7. **Commit**: Use conventional commits (feat:, fix:, docs:, etc.)
+8. **Push and PR**: Submit pull request with clear description
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### Services Won't Start
+```bash
+# Check Docker is running
+docker version
+
+# Clean and restart
+./bouy clean
+./bouy up
+
+# Check logs for errors
+./bouy logs
+```
+
+#### Database Connection Errors
+```bash
+# Verify database is running
+./bouy ps | grep db
+
+# Check database logs
+./bouy logs db
+
+# Test connection
+./bouy exec db pg_isready
+```
+
+#### LLM Authentication Issues
+```bash
+# For Claude provider
+./bouy claude-auth status
+./bouy claude-auth setup
+
+# Check environment variables
+./bouy exec worker env | grep -E "(ANTHROPIC|OPENROUTER|LLM)"
+```
+
+#### Test Failures
+```bash
+# Run with verbose output
+./bouy test --pytest -- -v
+
+# Debug specific test
+./bouy test --pytest -- tests/test_file.py::test_function -vvs --pdb
+```
+
+For more solutions, see [Troubleshooting Guide](docs/troubleshooting.md).
+
 ## License
-This software is released into the public domain. See [LICENSE](LICENSE) for details.
+
+This software is released under the sandia-ftgg-nc-os-1.0 license. See [LICENSE](LICENSE) for full details.
+
+**Key License Terms**:
+- Free for non-commercial use
+- Attribution required
+- No warranty provided
+- Commercial use requires permission
 
 ## About FTGG
 For The Greater Good (FTGG) specializes in making public resources truly accessible through intelligent aggregation. Learn more at [forthegg.org](https://forthegg.org).
+
+## Community and Support
+
+### Get Help
+- **Documentation Hub**: [Complete Documentation Index](docs/INDEX.md)
+- **Issues**: [GitHub Issues](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/For-The-Greater-Good/pantry-pirate-radio/discussions)
+
+### Project Status
+- **Active Development**: Regular updates and improvements
+- **Production Ready**: Used in production environments
+- **Community Driven**: Open to contributions and feedback
 
 ---
 
 **For The Greater Good (FTGG)** | *Making public resources truly accessible through intelligent aggregation*
 
 *Breaking down information barriers in food security through AI-powered data unification and HSDS-compliant APIs.*
+
+[Website](https://forthegg.org) | [HAARRRvest Data Explorer](https://for-the-greater-good.github.io/HAARRRvest/) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](http://localhost:8000/docs)

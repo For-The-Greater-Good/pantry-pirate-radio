@@ -12,9 +12,10 @@ HAARRRvest is the public data repository that makes food resource data accessibl
 
 ## Prerequisites
 
+- Docker and Docker Compose installed
 - GitHub account with repository creation permissions
-- Git configured with SSH keys
-- Personal Access Token for GitHub Actions
+- Personal Access Token for GitHub (with `repo` scope)
+- Git configured locally
 
 ## Step 1: Create the HAARRRvest Repository
 
@@ -23,31 +24,42 @@ HAARRRvest is the public data repository that makes food resource data accessibl
 3. Set it as **Public** (for GitHub Pages)
 4. Don't initialize with README (our script will do this)
 
-## Step 2: Clone and Setup HAARRRvest
+## Step 2: Setup Pantry Pirate Radio Environment
 
 ```bash
-# Clone the HAARRRvest repository
-git clone https://github.com/For-The-Greater-Good/HAARRRvest.git
-cd HAARRRvest
+# Clone Pantry Pirate Radio (the main project)
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
 
-# The repository structure will be automatically created by the publisher service:
-# - daily/ (historical data by date)
-# - latest/ (most recent data)
-# - sqlite/ (SQLite database exports)
-# - data/ (map visualization data)
+# Run the interactive setup wizard to configure your environment
+./bouy setup
+
+# The setup wizard will:
+# - Create .env file from template
+# - Configure database passwords
+# - Set up LLM provider (OpenAI via OpenRouter or Claude/Anthropic)
+# - Configure HAARRRvest repository tokens
+# - Create timestamped backups of existing .env files
 ```
 
-## Step 3: Configure Publisher Service
+## Step 3: Configure HAARRRvest Publisher
 
-The HAARRRvest Publisher service now handles all data publishing automatically:
+The setup wizard will help configure these settings, or you can manually edit `.env`:
 
 ```bash
-# In your pantry-pirate-radio .env file, add:
+# HAARRRvest Repository Configuration
 DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
-DATA_REPO_TOKEN=your_github_personal_access_token
-PUBLISHER_CHECK_INTERVAL=300  # Check every 5 minutes
-DAYS_TO_SYNC=7  # Sync last 7 days of data
+DATA_REPO_TOKEN=your_github_personal_access_token  # Required for push access
+
+# Publisher Service Settings
+PUBLISHER_CHECK_INTERVAL=300  # Check every 5 minutes (in seconds)
+DAYS_TO_SYNC=7                # Sync last 7 days of data
+
+# CRITICAL: Enable push only for production deployments
+PUBLISHER_PUSH_ENABLED=false  # Set to 'true' ONLY for production
 ```
+
+**⚠️ Important**: Keep `PUBLISHER_PUSH_ENABLED=false` for development to prevent accidental pushes to the public repository.
 
 ## Step 4: Enable GitHub Pages
 
@@ -59,43 +71,62 @@ DAYS_TO_SYNC=7  # Sync last 7 days of data
 
 Wait 5-10 minutes for the initial deployment.
 
-## Step 5: Start the Publisher Service
+## Step 5: Start Services with Bouy
 
 ```bash
-# Start all services including the publisher
-docker-compose up -d
+# Start all services (development mode by default)
+./bouy up
 
-# Monitor publisher logs
-docker-compose logs -f haarrrvest-publisher
+# Or start with database initialization
+./bouy up --with-init
+
+# Monitor HAARRRvest publisher logs
+./bouy haarrrvest logs
+
+# Check publisher service status
+./bouy haarrrvest status
 
 # The publisher will:
 # - Monitor recorder outputs every 5 minutes
-# - Create date-based branches for safety
-# - Export PostgreSQL to SQLite
+# - Create date-based branches for safety (e.g., data-update-2025-01-27)
+# - Export PostgreSQL to SQLite for Datasette
 # - Generate map visualization data
-# - Push updates to HAARRRvest repository
+# - Push updates to HAARRRvest repository (if PUBLISHER_PUSH_ENABLED=true)
 ```
 
 ## Step 6: Test the Pipeline
 
 ```bash
-# Manually trigger publishing by restarting the service
-docker-compose restart haarrrvest-publisher
+# Manually trigger publishing run
+./bouy haarrrvest run
 
 # Watch the logs to see it process files
-docker-compose logs -f haarrrvest-publisher
+./bouy haarrrvest logs
+
+# Run tests to ensure everything works
+./bouy test --pytest
 
 # Check the HAARRRvest repository for updates
 # Visit: https://github.com/For-The-Greater-Good/HAARRRvest
 ```
 
-## Step 7: Run a Scraper to Generate Data
+## Step 7: Run Scrapers to Generate Data
 
 ```bash
-# Run a scraper to generate some data
-docker-compose exec scraper python -m app.scraper nyc_efap_programs
+# List all available scrapers
+./bouy scraper --list
 
-# The data will flow through:
+# Run a specific scraper
+./bouy scraper nyc_efap_programs
+
+# Or run all scrapers sequentially
+./bouy scraper --all
+
+# Or run scrapers in parallel (scouting-party mode)
+./bouy scraper scouting-party  # Default: 5 concurrent scrapers
+./bouy scraper scouting-party 10  # Custom concurrency
+
+# The data flows through this pipeline:
 # 1. Scraper → Redis Queue
 # 2. Worker → LLM Processing
 # 3. Reconciler → Database
@@ -103,19 +134,41 @@ docker-compose exec scraper python -m app.scraper nyc_efap_programs
 # 5. Publisher → HAARRRvest Repository
 
 # Monitor each stage:
-docker-compose logs -f worker
-docker-compose logs -f recorder
-docker-compose logs -f haarrrvest-publisher
+./bouy logs worker
+./bouy logs recorder
+./bouy haarrrvest logs
 ```
 
 ## Step 8: Access Your Data
 
 After the pipeline completes and GitHub Pages deploys:
 
+### Via GitHub Pages (Public Access)
 1. Visit: `https://for-the-greater-good.github.io/HAARRRvest/`
-2. Explore data with SQL queries
-3. Download SQLite database
-4. Share with your community!
+2. Use Datasette-Lite to explore data with SQL queries
+3. Download SQLite database for offline use
+4. Share the link with your community!
+
+### Via Local API (Development)
+```bash
+# API endpoints are available at:
+# - REST API: http://localhost:8000/api/v1
+# - Interactive Docs: http://localhost:8000/docs
+# - ReDoc: http://localhost:8000/redoc
+# - OpenAPI Schema: http://localhost:8000/openapi.json
+
+# Example: Search for food services
+curl "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5"
+```
+
+### Via Datasette (Production Mode)
+```bash
+# Start services in production mode
+./bouy up --prod
+
+# Access Datasette UI at:
+# http://localhost:8001
+```
 
 ## Automation
 
@@ -131,17 +184,19 @@ No GitHub Actions needed - everything runs locally in your infrastructure!
 ## Troubleshooting
 
 ### Pages Not Loading
-- Check GitHub Pages is enabled
-- Verify index.html exists in repository
-- Wait 10-15 minutes for deployment
-- Check Actions tab for errors
+- Check GitHub Pages is enabled in repository Settings → Pages
+- Verify index.html exists in HAARRRvest repository root
+- Wait 10-15 minutes for initial deployment
+- Check Actions tab for deployment errors
+- Ensure repository is public (required for free GitHub Pages)
 
 ### Publisher Service Issues
-- Verify DATABASE_URL is set correctly
-- Check DATA_REPO_TOKEN has write permissions
-- Review logs: `docker-compose logs haarrrvest-publisher`
-- Ensure outputs directory has data: `ls outputs/daily/`
-- Check git authentication: Token needs `repo` scope
+- Verify DATABASE_URL is set correctly in `.env`
+- Check DATA_REPO_TOKEN has write permissions (needs `repo` scope)
+- Review logs: `./bouy haarrrvest logs`
+- Ensure outputs directory has data: `./bouy exec app ls outputs/daily/`
+- Check push permission: `PUBLISHER_PUSH_ENABLED` must be `true` for production
+- Verify git authentication: Token needs full `repo` scope for private repos
 
 ### SQLite Not Loading
 - Check file size (should be under 100MB)

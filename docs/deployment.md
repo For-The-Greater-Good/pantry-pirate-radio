@@ -21,18 +21,17 @@ This guide covers deploying Pantry Pirate Radio in production environments.
 
 ### System Requirements
 
-- **Operating System**: Linux (Ubuntu 20.04+ recommended)
-- **Docker**: 20.10+
-- **Docker Compose**: 2.0+
+- **Operating System**: Linux (Ubuntu 20.04+ recommended), macOS, or Windows with WSL2
+- **Docker**: 20.10+ (Docker Desktop for Mac/Windows, Docker Engine for Linux)
 - **Memory**: 8GB minimum, 16GB recommended
 - **Storage**: 50GB minimum, 200GB+ recommended for production
 - **Network**: Internet access for data scraping and LLM services
 
 ### External Services
 
-- **Database**: PostgreSQL 14+ with PostGIS extension
-- **Cache**: Redis 7.0+
-- **LLM Provider**: OpenAI API key
+- **LLM Provider**: Claude (Anthropic) or OpenAI API key
+- **Geocoding** (optional): ArcGIS API key for higher limits
+- **HAARRRvest** (optional): GitHub Personal Access Token for publishing
 - **Monitoring**: Prometheus and Grafana (optional)
 
 ## Environment Setup
@@ -41,42 +40,57 @@ This guide covers deploying Pantry Pirate Radio in production environments.
 
 ```bash
 # Clone the repository
-git clone https://github.com/***REMOVED_USER***/pantry-pirate-radio.git
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# Create environment configuration
+# Run interactive setup wizard (recommended)
+./bouy setup
+
+# Or manually create environment configuration
 cp .env.example .env
 ```
 
 ### 2. Environment Variables
 
-Edit `.env` with your production settings:
+The setup wizard will guide you through configuration, or edit `.env` manually:
 
 ```bash
-# Database Configuration
-DATABASE_URL=postgresql://user:password@localhost:5432/pantry_pirate_radio
+# Database Configuration (managed by Docker)
+DATABASE_URL=postgresql://postgres:your_secure_password@db:5432/pantry_pirate_radio
+DATABASE_URL_SYNC=postgresql+psycopg2://postgres:your_secure_password@db:5432/pantry_pirate_radio
 POSTGRES_DB=pantry_pirate_radio
-POSTGRES_USER=pantry_pirate_radio
+POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 
-# Redis Configuration
-REDIS_URL=redis://localhost:6379/0
+# Redis Configuration (managed by Docker)
+REDIS_URL=redis://cache:6379/0
 
 # API Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
 
-# LLM Configuration
+# LLM Configuration (choose one provider)
+## Option 1: Claude
+LLM_PROVIDER=claude
+ANTHROPIC_API_KEY=your_anthropic_key  # Optional, can use CLI auth
+
+## Option 2: OpenAI
+LLM_PROVIDER=openai
 OPENROUTER_API_KEY=your_openrouter_api_key
-LLM_MODEL_NAME=anthropic/claude-3-sonnet
+LLM_MODEL_NAME=gpt-4
+
+# Geocoding Configuration
+GEOCODING_PROVIDER=arcgis
+ARCGIS_API_KEY=your_arcgis_key  # Optional for higher limits
+GEOCODING_ENABLE_FALLBACK=true
+GEOCODING_CACHE_TTL=2592000  # 30 days
 
 # Content Store Configuration
-CONTENT_STORE_PATH=/path/to/content/store
+CONTENT_STORE_PATH=/app/data/content_store
 CONTENT_STORE_ENABLED=true
 
 # Output Configuration
-OUTPUT_DIR=./outputs
-BACKUP_KEEP_DAYS=30
+OUTPUT_DIR=/app/outputs
 
 # Security
 SECRET_KEY=your_secret_key_here
@@ -91,201 +105,89 @@ DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
 DATA_REPO_TOKEN=your_github_personal_access_token
 PUBLISHER_CHECK_INTERVAL=300
 DAYS_TO_SYNC=7
+PUBLISHER_PUSH_ENABLED=true  # Enable pushing to remote
 
 # Monitoring
 PROMETHEUS_MULTIPROC_DIR=./metrics
 ```
 
-## Docker Deployment
+## Docker Deployment with Bouy
 
-### Production Docker Compose
+### Using Bouy for Production
 
-Create a `docker-compose.prod.yml` file:
+The bouy command handles all Docker operations with proper configuration:
+
+```bash
+# Production deployment uses the unified Docker image
+# All services are defined in .docker/compose/base.yml
+# Production overrides in .docker/compose/docker-compose.prod.yml
+
+# Key production features:
+# - Unified image for all services (pantry-pirate-radio:latest)
+# - Health checks on critical services
+# - Automatic restart policies
+# - Resource limits enforced
+# - Datasette for data exploration
+# - Optimized logging
+
+# Service configuration is managed through bouy
+./bouy up --prod  # Starts all services with production settings
+```
+
+### Unified Docker Architecture
+
+All services use the same base image with different entry points:
 
 ```yaml
-version: '3.8'
-
+# Example service definition from .docker/compose/base.yml
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: app
+    image: pantry-pirate-radio:latest
+    command: ["app"]  # Service type
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - REDIS_URL=redis://redis:6379/0
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    depends_on:
-      - db
-      - redis
+    env_file: ../../.env
     volumes:
-      - ./outputs:/app/outputs
-      - ./logs:/app/logs
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: worker
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - REDIS_URL=redis://redis:6379/0
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./outputs:/app/outputs
-      - ./logs:/app/logs
-    restart: unless-stopped
-    deploy:
-      replicas: 3
-
-  recorder:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: recorder
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./outputs:/app/outputs
-      - ./archives:/app/archives
-    restart: unless-stopped
-
-  reconciler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: reconciler
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - db
-      - redis
-    restart: unless-stopped
-
-  haarrrvest-publisher:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production-base
-    command: python -m app.haarrrvest_publisher.service
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - REDIS_URL=redis://redis:6379/0
-      - DATA_REPO_URL=${DATA_REPO_URL}
-      - DATA_REPO_TOKEN=${DATA_REPO_TOKEN}
-      - PUBLISHER_CHECK_INTERVAL=${PUBLISHER_CHECK_INTERVAL:-300}
-      - DAYS_TO_SYNC=${DAYS_TO_SYNC:-7}
-    depends_on:
-      - db
-      - redis
-      - recorder
-    volumes:
-      - ./outputs:/app/outputs
-      - haarrrvest_repo:/data-repo
-      - ./scripts:/app/scripts:ro
-    restart: unless-stopped
-
-  scraper:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: scraper
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./outputs:/app/outputs
-    restart: unless-stopped
-
-  db:
-    image: postgis/postgis:14-3.2
-    environment:
-      - POSTGRES_DB=pantry_pirate_radio
-      - POSTGRES_USER=pantry_pirate_radio
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pantry_pirate_radio"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  db-backup:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: db-backup
-    environment:
-      - DATABASE_URL=postgresql://pantry_pirate_radio:${POSTGRES_PASSWORD}@db:5432/pantry_pirate_radio
-      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS}
-    depends_on:
-      - db
-    volumes:
-      - ./backups:/app/backups
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./ssl:/etc/nginx/ssl
-    depends_on:
-      - app
-    restart: unless-stopped
+    image: pantry-pirate-radio:latest
+    command: ["worker"]  # Different entry point, same image
+    # ... configuration continues
 
 volumes:
   postgres_data:
   redis_data:
   haarrrvest_repo:
+  app_data:
+  claude_config:
 ```
 
-### Deploy with Docker Compose
+### Deploy with Bouy
 
 ```bash
-# Build and start services
-docker-compose -f docker-compose.prod.yml up -d
+# Start production environment with database initialization
+./bouy up --prod --with-init
 
 # Check service status
-docker-compose -f docker-compose.prod.yml ps
+./bouy ps
 
 # View logs
-docker-compose -f docker-compose.prod.yml logs -f app
+./bouy logs -f app
+
+# Scale workers for production load
+./bouy up --prod --scale worker=3
+
+# Run health checks
+./bouy exec app curl -f http://localhost:8000/health
 ```
 
 ## Kubernetes Deployment
@@ -420,10 +322,10 @@ CONTENT_STORE_ENABLED=true              # Enable deduplication (default: true if
 5. **Monitoring**:
    ```bash
    # Check content store status
-   docker-compose exec worker python -m app.content_store status
+   ./bouy content-store status
 
    # Generate report
-   docker-compose exec worker python -m app.content_store report -o /tmp/report.json
+   ./bouy content-store report
    ```
 
 ### Secrets Management
@@ -452,23 +354,36 @@ kubectl rollout restart deployment/pantry-pirate-radio-app -n pantry-pirate-radi
 ### Initial Database Setup
 
 ```bash
-# Create database user and schema
-psql -h your-db-host -U postgres -c "CREATE USER pantry_pirate_radio WITH PASSWORD 'your_password';"
-psql -h your-db-host -U postgres -c "CREATE DATABASE pantry_pirate_radio OWNER pantry_pirate_radio;"
-psql -h your-db-host -U postgres -d pantry_pirate_radio -c "CREATE EXTENSION postgis;"
+# Database is automatically initialized with bouy
+# Option 1: Start with pre-populated data from SQL dumps
+./bouy up --prod --with-init
 
-# Run migrations
-docker-compose exec app python -m alembic upgrade head
+# Option 2: Start with empty database
+./bouy up --prod
+
+# Verify database is ready
+./bouy exec db pg_isready -U postgres
+
+# Check database contents
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
 ```
 
 ### Database Maintenance
 
 ```bash
-# Backup database
-pg_dump -h your-db-host -U pantry_pirate_radio pantry_pirate_radio | gzip > backup_$(date +%Y%m%d).sql.gz
+# Create SQL dump for backup/distribution
+./bouy exec app bash /app/scripts/create-sql-dump.sh
 
-# Restore database
-gunzip -c backup_20240101.sql.gz | psql -h your-db-host -U pantry_pirate_radio pantry_pirate_radio
+# Backup database manually
+./bouy exec db pg_dump -U postgres pantry_pirate_radio | gzip > backup_$(date +%Y%m%d).sql.gz
+
+# Restore database from SQL dump
+./bouy down
+./bouy clean  # WARNING: Removes all data
+./bouy up --prod --with-init
+
+# Or restore manually
+gunzip -c backup_20240101.sql.gz | ./bouy exec -T db psql -U postgres pantry_pirate_radio
 ```
 
 ## Monitoring and Logging
@@ -505,6 +420,19 @@ systemctl restart rsyslog
 ```
 
 ## Security Considerations
+
+### Environment Security
+
+```bash
+# Use bouy setup for secure configuration
+./bouy setup  # Creates secure passwords automatically
+
+# For production, ensure:
+# - Strong database passwords
+# - API keys are kept secret
+# - PUBLISHER_PUSH_ENABLED=true only with valid token
+# - Use HTTPS for all external access
+```
 
 ### Network Security
 
@@ -551,39 +479,35 @@ add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
 
 ## Backup and Recovery
 
-### Automated Backups
+### SQL Dump Backups
 
 ```bash
-#!/bin/bash
-# backup-script.sh
+# Create SQL dump (automatically pushed to HAARRRvest)
+./bouy exec app bash /app/scripts/create-sql-dump.sh
 
-DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="/backups"
+# Manual database backup
+./bouy exec db pg_dump -U postgres pantry_pirate_radio > backup_$(date +%Y%m%d).sql
 
-# Database backup
-pg_dump -h db -U pantry_pirate_radio pantry_pirate_radio | gzip > "$BACKUP_DIR/db_backup_$DATE.sql.gz"
-
-# File system backup
-tar -czf "$BACKUP_DIR/files_backup_$DATE.tar.gz" outputs/ archives/
-
-# Clean old backups
-find "$BACKUP_DIR" -name "*.gz" -mtime +30 -delete
+# Backup outputs directory
+tar -czf outputs_backup_$(date +%Y%m%d).tar.gz outputs/
 ```
 
 ### Disaster Recovery
 
 ```bash
-# Stop services
-docker-compose down
+# Option 1: Quick recovery from SQL dumps
+./bouy down
+./bouy clean  # Remove corrupted data
+./bouy up --prod --with-init  # Restore from SQL dumps
 
-# Restore database
-gunzip -c /backups/db_backup_latest.sql.gz | psql -h db -U pantry_pirate_radio pantry_pirate_radio
+# Option 2: Manual restore from backup
+./bouy down
+gunzip -c backup_latest.sql.gz | ./bouy exec -T db psql -U postgres pantry_pirate_radio
+tar -xzf outputs_backup_latest.tar.gz
+./bouy up --prod
 
-# Restore files
-tar -xzf /backups/files_backup_latest.tar.gz
-
-# Restart services
-docker-compose up -d
+# Option 3: Replay from HAARRRvest data
+./bouy replay --use-default-output-dir
 ```
 
 ## Scaling
@@ -591,10 +515,13 @@ docker-compose up -d
 ### Horizontal Scaling
 
 ```bash
-# Scale worker services
-docker-compose up -d --scale worker=6
+# Scale worker services with bouy
+./bouy up --prod --scale worker=6
 
-# Scale Kubernetes deployment
+# Scale specific service
+./bouy scale worker=10
+
+# For Kubernetes deployment
 kubectl scale deployment pantry-pirate-radio-app --replicas=5 -n pantry-pirate-radio
 ```
 
@@ -616,32 +543,42 @@ resources:
 ### Regular Maintenance Tasks
 
 ```bash
-# Update Docker images
-docker-compose pull
-docker-compose up -d
+# Update to latest version
+git pull
+./bouy build --no-cache
+./bouy up --prod
 
 # Clean up unused resources
 docker system prune -f
 
 # Database maintenance
-docker-compose exec db psql -U pantry_pirate_radio -c "VACUUM ANALYZE;"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "VACUUM ANALYZE;"
 
 # Check disk space
 df -h
 du -sh outputs/ archives/
+
+# Run scrapers to update data
+./bouy scraper --all
 ```
 
 ### Health Checks
 
 ```bash
 # Application health
-curl -f http://localhost:8000/health
+./bouy exec app curl -f http://localhost:8000/health
 
 # Database health
-docker-compose exec db pg_isready -U pantry_pirate_radio
+./bouy exec db pg_isready -U postgres
 
 # Redis health
-docker-compose exec redis redis-cli ping
+./bouy exec cache redis-cli ping
+
+# Check all services
+./bouy ps
+
+# View service logs
+./bouy logs --tail 50 app worker reconciler
 ```
 
 ## Troubleshooting
@@ -652,23 +589,29 @@ docker-compose exec redis redis-cli ping
 
 ```bash
 # Check logs
-docker-compose logs -f app
+./bouy logs -f app
 
-# Check configuration
-docker-compose config
+# Check service status
+./bouy ps
 
 # Verify environment variables
-docker-compose exec app printenv
+./bouy exec app printenv | grep -E "DATABASE_URL|REDIS_URL"
+
+# Restart service
+./bouy restart app
 ```
 
 #### Database Connection Issues
 
 ```bash
 # Test database connectivity
-docker-compose exec app python -c "from app.core.database import engine; print(engine.connect())"
+./bouy exec db pg_isready -U postgres
 
 # Check database logs
-docker-compose logs -f db
+./bouy logs -f db
+
+# Test from app container
+./bouy exec app python -c "from app.core.database import engine; print('Connected!' if engine else 'Failed')"
 ```
 
 #### Performance Issues
@@ -678,29 +621,40 @@ docker-compose logs -f db
 docker stats
 
 # Check Redis queue status
-docker-compose exec redis redis-cli monitor
+./bouy exec cache redis-cli --stat
+
+# Monitor queue lengths
+./bouy exec cache redis-cli llen llm
 
 # Analyze slow queries
-docker-compose exec db psql -U pantry_pirate_radio -c "SELECT * FROM pg_stat_activity WHERE state = 'active';"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT * FROM pg_stat_activity WHERE state = 'active';"
 ```
 
 #### Worker Issues
 
 ```bash
-# Check worker status
-docker-compose exec worker python -m rq worker --help
+# Check worker logs
+./bouy logs -f worker
 
 # Monitor job queue
-docker-compose exec redis redis-cli llen queue:default
+./bouy exec cache redis-cli llen llm
+./bouy exec cache redis-cli llen recorder
+
+# Check worker health (Claude workers)
+curl http://localhost:8080/health
+
+# Scale workers if needed
+./bouy up --scale worker=3
 ```
 
 ### Support
 
 For additional support:
-- Check the [Issues](https://github.com/***REMOVED_USER***/pantry-pirate-radio/issues) page
+- Check the [Issues](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues) page
 - Review the [API documentation](api.md)
 - Consult the [Architecture documentation](architecture.md)
+- Run `./bouy --help` for command reference
 
 ---
 
-*This deployment guide is maintained by the Pantry Pirate Radio team. For the latest updates, visit our [GitHub repository](https://github.com/***REMOVED_USER***/pantry-pirate-radio).*
+*This deployment guide is maintained by the Pantry Pirate Radio team. For the latest updates, visit our [GitHub repository](https://github.com/For-The-Greater-Good/pantry-pirate-radio).*

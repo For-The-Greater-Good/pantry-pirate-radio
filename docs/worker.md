@@ -2,61 +2,69 @@
 
 ## Overview
 
-The worker system is a critical component of Pantry Pirate Radio's job processing infrastructure, responsible for executing asynchronous tasks, particularly LLM-based HSDS data alignment operations. Built on Redis for reliable job queuing and state management, the worker system ensures robust, scalable processing of resource-intensive operations.
+The worker system in Pantry Pirate Radio uses RQ (Redis Queue) for asynchronous job processing, particularly for LLM-based HSDS data alignment operations. The system manages multiple worker types, each handling specific job queues with automatic retry logic, health monitoring, and integration with the content deduplication store.
 
 ## Architecture
 
-### Components
+### RQ (Redis Queue) Components
 
-1. Job Queue
-   - Redis-backed priority queue
-   - Support for job dependencies
-   - Batch processing capabilities
-   - Dead letter queue for failed jobs
+1. **Queue System** (`app/llm/queue/`)
+   - Redis-backed job queues with connection pooling
+   - Separate queues for different job types: `llm`, `reconciler`, `recorder`
+   - Job result TTL management (default: 30 days)
+   - Connection pool with 50 max connections for concurrency
 
-2. Worker Process
-   - Asynchronous job execution
-   - Resource management
-   - Health monitoring
-   - Graceful shutdown handling
+2. **Worker Types**
+   - **LLM Worker**: Processes LLM alignment jobs with Claude/OpenAI
+   - **Reconciler Worker**: Handles data reconciliation after LLM processing
+   - **Recorder Worker**: Records job results to JSON files
+   - **Simple Worker**: Generic RQ worker for other queues
 
-3. Job Types
-   - LLM Processing
-   - HSDS Alignment
-   - Data Validation
-   - Bulk Operations
+3. **Job Processing Pipeline**
+   ```
+   Scraper → LLM Queue → LLM Worker → Reconciler Queue → Reconciler Worker
+                                    ↓
+                              Recorder Queue → Recorder Worker
+   ```
 
 ## Configuration
 
+### Environment Variables
+
+```bash
+# Redis Configuration
+REDIS_URL=redis://cache:6379/0           # Redis connection URL
+REDIS_POOL_SIZE=10                       # Connection pool size
+REDIS_TTL_SECONDS=2592000                # Job result TTL (30 days)
+
+# Worker Configuration
+WORKER_COUNT=1                           # Number of workers (1-20)
+LLM_WORKER_COUNT=2                       # Number of LLM workers
+LLM_QUEUE_KEY=llm:jobs                   # LLM job queue key
+LLM_CONSUMER_GROUP=llm-workers           # LLM consumer group
+
+# Claude Configuration (for LLM workers)
+CLAUDE_QUOTA_RETRY_DELAY=3600           # Initial retry delay (1 hour)
+CLAUDE_QUOTA_MAX_DELAY=14400            # Max retry delay (4 hours)
+CLAUDE_QUOTA_BACKOFF_MULTIPLIER=1.5     # Exponential backoff multiplier
+```
+
+### Queue Configuration (`app/llm/queue/queues.py`)
+
 ```python
-class WorkerConfig(BaseModel):
-    """Worker configuration settings"""
-    redis_url: str = Field(..., description="Redis connection URL")
-    worker_count: int = Field(
-        default=1,
-        ge=1,
-        description="Number of worker processes"
-    )
-    batch_size: int = Field(
-        default=10,
-        ge=1,
-        description="Maximum batch size for processing"
-    )
-    max_retries: int = Field(
-        default=3,
-        ge=0,
-        description="Maximum retry attempts"
-    )
-    shutdown_timeout: float = Field(
-        default=30.0,
-        ge=0,
-        description="Graceful shutdown timeout in seconds"
-    )
-    health_check_interval: int = Field(
-        default=60,
-        ge=10,
-        description="Health check interval in seconds"
-    )
+# Redis connection with pooling
+redis_pool = redis.ConnectionPool.from_url(
+    REDIS_URL,
+    max_connections=50,
+    socket_timeout=5,
+    socket_connect_timeout=5,
+    socket_keepalive=True
+)
+
+# Queue definitions
+llm_queue = Queue("llm", connection=redis.Redis(connection_pool=redis_pool))
+reconciler_queue = Queue("reconciler", connection=redis.Redis(connection_pool=redis_pool))
+recorder_queue = Queue("recorder", connection=redis.Redis(connection_pool=redis_pool))
 ```
 
 ## Content Store Integration
@@ -109,196 +117,196 @@ async def store_llm_result(self, job: Job, result: LLMResponse) -> None:
 
 ## Job Processing
 
-### Job Lifecycle
-
-1. Submission
-   ```python
-   async def submit_job(
-       self,
-       job_type: str,
-       payload: Dict[str, Any],
-       priority: int = 0
-   ) -> str:
-       """Submit a new job to the queue"""
-       job_id = generate_job_id()
-       await self.redis.set(
-           f"job:{job_id}:status",
-           JobStatus.PENDING.value
-       )
-       return job_id
-   ```
-
-2. Processing
-   ```python
-   async def process_job(self, job: Job) -> None:
-       """Process a single job"""
-       try:
-           result = await self.execute_job(job)
-           await self.store_result(job.id, result)
-           await self.update_status(
-               job.id,
-               JobStatus.COMPLETED
-           )
-       except Exception as e:
-           await self.handle_job_error(job, e)
-   ```
-
-3. Completion/Error
-   ```python
-   async def handle_job_completion(self, job: Job, result: Any) -> None:
-       """Handle successful job completion"""
-       # Store result in content store if applicable
-       content_store = get_content_store()
-       if content_store and "content_hash" in job.metadata:
-           content_store.store_result(
-               job.metadata["content_hash"],
-               result.text,
-               job.id
-           )
-
-       # Update job status
-       await self.update_status(job.id, JobStatus.COMPLETED)
-
-   async def handle_job_error(
-       self,
-       job: Job,
-       error: Exception
-   ) -> None:
-       """Handle job processing errors"""
-       if job.retry_count < self.config.max_retries:
-           await self.retry_job(job)
-       else:
-           await self.move_to_dead_letter(job)
-   ```
-
-### Batch Processing
+### RQ Job Processing (`app/llm/queue/processor.py`)
 
 ```python
-async def process_batch(
-    self,
-    batch: List[Job]
-) -> None:
-    """Process a batch of jobs concurrently"""
-    tasks = [
-        self.process_job(job)
-        for job in batch
-    ]
-    await asyncio.gather(*tasks)
+def process_llm_job(job: LLMJob, provider: BaseLLMProvider) -> LLMResponse:
+    """Process an LLM job with RQ."""
+    # 1. Process with LLM provider
+    result = provider.generate(
+        prompt=job.prompt,
+        format=job.format,
+        config=None
+    )
+    
+    # 2. Store in content store (if configured)
+    content_store = get_content_store()
+    if content_store and "content_hash" in job.metadata:
+        content_store.store_result(
+            job.metadata["content_hash"],
+            result.text,
+            job.id
+        )
+    
+    # 3. Enqueue follow-up jobs
+    reconciler_queue.enqueue_call(
+        func="app.reconciler.job_processor.process_job_result",
+        args=(job_result,),
+        result_ttl=settings.REDIS_TTL_SECONDS
+    )
+    
+    recorder_queue.enqueue_call(
+        func="app.recorder.utils.record_result",
+        args=(job_data,),
+        result_ttl=settings.REDIS_TTL_SECONDS
+    )
+    
+    return result
+```
+
+### Job Submission Example
+
+```python
+from app.llm.queue.queues import llm_queue
+from app.llm.queue.models import LLMJob
+
+# Create job
+job = LLMJob(
+    id="job_123",
+    prompt="Align this pantry data to HSDS format...",
+    format="json_schema",
+    metadata={"content_hash": "abc123", "source": "scraper_x"}
+)
+
+# Enqueue job
+rq_job = llm_queue.enqueue_call(
+    func="app.llm.queue.processor.process_llm_job",
+    args=(job, provider),
+    result_ttl=2592000,  # 30 days
+    failure_ttl=2592000
+)
 ```
 
 ## Error Handling
 
-### Retry Strategy
+### Claude-Specific Error Handling
 
 ```python
-class RetryStrategy(BaseModel):
-    """Job retry configuration"""
-    max_retries: int
-    backoff_factor: float
-    jitter: bool = True
+# Authentication errors - retry every 5 minutes
+if isinstance(e, ClaudeNotAuthenticatedException):
+    auth_manager = AuthStateManager(llm_queue.connection)
+    auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
+    # Jobs automatically retry until authentication succeeds
 
-    def calculate_delay(self, attempt: int) -> float:
-        """Calculate delay before next retry"""
-        delay = self.backoff_factor * (2 ** attempt)
-        if self.jitter:
-            delay *= random.uniform(0.5, 1.5)
-        return delay
+# Quota exceeded - exponential backoff
+elif isinstance(e, ClaudeQuotaExceededException):
+    auth_manager = AuthStateManager(llm_queue.connection)
+    auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
+    # Retry with exponential backoff: 1h → 1.5h → 2.25h → 4h max
 ```
 
-### Dead Letter Queue
+### RQ Retry Configuration
 
 ```python
-async def move_to_dead_letter(self, job: Job) -> None:
-    """Move failed job to dead letter queue"""
-    await self.redis.lpush(
-        "dead_letter_queue",
-        json.dumps({
-            "job_id": job.id,
-            "error": str(job.last_error),
-            "timestamp": datetime.utcnow().isoformat()
-        })
-    )
-```
+from rq import Retry
 
-## Monitoring
-
-### Health Checks
-
-```python
-async def health_check(self) -> Dict[str, Any]:
-    """Perform worker health check"""
-    return {
-        "status": "healthy",
-        "worker_id": self.worker_id,
-        "processed_jobs": self.processed_count,
-        "failed_jobs": self.failed_count,
-        "current_memory": self.get_memory_usage(),
-        "uptime": self.get_uptime()
-    }
-```
-
-### Metrics
-
-```python
-# Prometheus metrics
-JOBS_PROCESSED = Counter(
-    'worker_jobs_processed_total',
-    'Total number of jobs processed',
-    ['status']
-)
-
-JOB_PROCESSING_TIME = Histogram(
-    'worker_job_processing_seconds',
-    'Time spent processing jobs',
-    ['job_type']
-)
-
-QUEUE_SIZE = Gauge(
-    'worker_queue_size',
-    'Current size of the job queue'
+# Enqueue job with retry configuration
+llm_queue.enqueue_call(
+    func="app.llm.queue.processor.process_llm_job",
+    args=(job, provider),
+    retry=Retry(max=3, interval=[60, 300, 900]),  # 1min, 5min, 15min
+    result_ttl=2592000,
+    failure_ttl=2592000
 )
 ```
 
-## Resource Management
+## Monitoring and Management
 
-### Memory Management
+### RQ Dashboard
 
-```python
-class MemoryManager:
-    """Manage worker memory usage"""
+Access the RQ dashboard for real-time monitoring:
 
-    def __init__(self, max_memory_mb: int = 1024):
-        self.max_memory = max_memory_mb * 1024 * 1024
+```bash
+# Start services with dashboard
+./bouy up
 
-    async def check_memory(self) -> bool:
-        """Check if memory usage is within limits"""
-        current = self.get_memory_usage()
-        return current < self.max_memory
+# Access dashboard at http://localhost:9181
+# Shows:
+# - Queue sizes and job counts
+# - Worker status and activity
+# - Failed jobs and retry status
+# - Job details and results
+```
 
-    async def cleanup(self) -> None:
-        """Perform memory cleanup if needed"""
-        if not await self.check_memory():
-            gc.collect()
+### Worker Health Monitoring
+
+```bash
+# Check worker status
+./bouy ps
+
+# View worker logs
+./bouy logs worker
+./bouy logs worker -f  # Follow logs
+
+# Check specific worker health (Claude workers)
+curl http://localhost:8080/health
+
+# Response example:
+{
+  "provider": "claude",
+  "status": "healthy",
+  "authenticated": true,
+  "model": "claude-sonnet-4",
+  "message": "Ready to process requests"
+}
+```
+
+### Queue Management with Bouy
+
+```bash
+# Monitor queue sizes
+./bouy exec worker rq info
+
+# List failed jobs
+./bouy exec worker rq info --failed
+
+# Requeue failed jobs
+./bouy exec worker rq requeue --all
+
+# Clear specific queue
+./bouy exec worker rq empty llm
+```
+
+## Worker Scaling and Management
+
+### Starting Workers
+
+```bash
+# Start single worker
+./bouy up worker
+
+# Scale workers (Docker Compose)
+./bouy up --scale worker=3
+
+# Workers with different configurations
+WORKER_COUNT=5 ./bouy up worker
+```
+
+### Worker Types and Commands
+
+```bash
+# LLM Worker (with Claude authentication)
+./bouy up worker  # Default, includes Claude setup
+
+# Simple RQ workers for other queues
+./bouy exec worker rq worker reconciler
+./bouy exec worker rq worker recorder
+
+# Multiple workers in one container
+WORKER_COUNT=3 ./bouy up worker
 ```
 
 ### Graceful Shutdown
 
-```python
-async def shutdown(self) -> None:
-    """Gracefully shutdown worker"""
-    self.running = False
+```bash
+# Stop workers gracefully
+./bouy down worker
 
-    # Wait for current jobs to complete
-    try:
-        await asyncio.wait_for(
-            self.wait_for_jobs(),
-            timeout=self.config.shutdown_timeout
-        )
-    except asyncio.TimeoutError:
-        logger.warning("Shutdown timeout reached")
-
-    # Cleanup resources
-    await self.cleanup_resources()
+# Workers will:
+# 1. Stop accepting new jobs
+# 2. Complete current jobs
+# 3. Register death with RQ
+# 4. Clean up resources
 ```
 
 ## Structured Output Handling
@@ -517,122 +525,194 @@ async def handle_structured_output_error(
         await self.handle_job_error(job, error)
 ```
 
-## Testing
+## Debugging and Troubleshooting
 
-### Unit Tests
+### Common Issues and Solutions
 
-```python
-@pytest.mark.asyncio
-async def test_job_processing():
-    """Test basic job processing"""
-    worker = Worker(test_config)
-    job = create_test_job()
+#### 1. Worker Not Processing Jobs
 
-    result = await worker.process_job(job)
-    assert result.status == JobStatus.COMPLETED
+```bash
+# Check worker is running
+./bouy ps | grep worker
+
+# Check Redis connection
+./bouy exec worker redis-cli -h cache ping
+
+# Check queue status
+./bouy exec worker rq info
+
+# View worker logs for errors
+./bouy logs worker --tail 100
 ```
 
-### Structured Output Tests
+#### 2. Claude Authentication Issues
 
-```python
-@pytest.mark.asyncio
-async def test_structured_output_processing():
-    """Test processing with structured output"""
-    worker = Worker(test_config)
+```bash
+# Check authentication status
+./bouy claude-auth status
 
-    # Create job with structured output format
-    job = await worker.prepare_hsds_alignment_job(
-        raw_data=test_pantry_data,
-        known_fields={"organization_fields": ["name", "website"]}
-    )
+# Re-authenticate if needed
+./bouy claude-auth setup
 
-    result = await worker.process_job(job)
-
-    # Verify structured output
-    assert result.status == JobStatus.COMPLETED
-    assert "organization" in result.data
-    assert "service" in result.data
-    assert "location" in result.data
-
-    # Validate against schema
-    validation = await worker.validate_structured_response(
-        result.response,
-        job.payload["config"]["format"]["schema"]
-    )
-    assert validation.valid
-
-@pytest.mark.asyncio
-async def test_structured_output_error_handling():
-    """Test error handling for invalid structured output"""
-    worker = Worker(test_config)
-
-    # Create job that will produce invalid output
-    job = create_test_job_with_invalid_schema()
-
-    result = await worker.process_job(job)
-
-    # Should retry with feedback
-    assert result.retry_count > 0
-    assert "feedback" in result.metadata
+# Check worker health
+curl http://localhost:8080/health
 ```
 
-### Integration Tests
+#### 3. Jobs Stuck in Queue
 
-```python
-@pytest.mark.integration
-async def test_worker_lifecycle():
-    """Test complete worker lifecycle"""
-    worker = Worker(test_config)
-    await worker.start()
+```bash
+# Check for failed jobs
+./bouy exec worker rq info --failed
 
-    # Submit test jobs
-    job_ids = []
-    for i in range(5):
-        job_id = await worker.submit_job(
-            "test",
-            {"data": f"test_{i}"}
-        )
-        job_ids.append(job_id)
+# Requeue failed jobs
+./bouy exec worker rq requeue --all
 
-    # Wait for completion
-    results = await worker.wait_for_jobs(job_ids)
-
-    # Verify results
-    for result in results:
-        assert result.status == JobStatus.COMPLETED
-
-    await worker.shutdown()
+# Check worker registration
+./bouy exec worker rq info --workers
 ```
 
-## Implementation Guidelines
+#### 4. Memory Issues
 
-1. Error Handling
-   - Implement comprehensive error handling
-   - Use appropriate retry strategies
-   - Maintain error context for debugging
-   - Log errors with sufficient detail
+```bash
+# Check worker memory usage
+./bouy exec worker ps aux | grep rq
 
-2. Resource Management
-   - Monitor memory usage
-   - Implement graceful shutdown
-   - Clean up resources properly
-   - Handle connection failures
+# Restart workers to free memory
+./bouy down worker && ./bouy up worker
 
-3. Testing
-   - Write comprehensive unit tests
-   - Include integration tests
-   - Test error scenarios
-   - Verify resource cleanup
+# Scale down if needed
+./bouy up --scale worker=1
+```
 
-4. Monitoring
-   - Implement health checks
-   - Add Prometheus metrics
-   - Monitor resource usage
-   - Track job statistics
+### Testing Workers
+
+```bash
+# Run worker tests
+./bouy test --pytest tests/test_llm/test_queue/
+
+# Test specific worker functionality
+./bouy test --pytest tests/test_llm/test_queue/test_worker.py
+
+# Test job processing
+./bouy test --pytest tests/test_llm/test_queue/test_processor.py
+
+# Integration test with Redis
+./bouy test --pytest tests/test_llm/test_queue/ -k integration
+```
+
+### Manual Testing
+
+```bash
+# Submit test job via shell
+./bouy shell worker
+python -c "
+import json
+from app.llm.queue.queues import llm_queue
+from app.llm.queue.models import LLMJob
+
+job = LLMJob(
+    id='test_job_1',
+    prompt='Test prompt',
+    format='json'
+)
+
+rq_job = llm_queue.enqueue_call(
+    func='app.llm.queue.processor.process_llm_job',
+    args=(job, None)
+)
+print(f'Enqueued job: {rq_job.id}')
+"
+
+# Check job status
+./bouy exec worker rq info --jobs
+```
+
+## Best Practices
+
+### 1. Job Design
+- Keep jobs small and focused
+- Include metadata for tracking and debugging
+- Use content hashes for deduplication
+- Set appropriate TTL values
+
+### 2. Error Handling
+- Let RQ handle retries for transient failures
+- Use specific exception types for different error scenarios
+- Log errors with context for debugging
+- Monitor failed job queue regularly
+
+### 3. Performance
+- Use connection pooling for Redis
+- Scale workers based on queue size
+- Monitor memory usage and restart if needed
+- Use content store to avoid duplicate processing
+
+### 4. Monitoring
+- Use RQ dashboard for real-time monitoring
+- Set up alerts for queue size thresholds
+- Monitor worker health endpoints
+- Track job processing times
+
+### 5. Development
+- Test with `./bouy test` before deploying
+- Use `./bouy logs` to debug issues
+- Keep worker logic simple and testable
+- Document custom job processors
+
+## Worker and LLM Integration
+
+### How Workers and LLM Processing Work Together
+
+The worker system and LLM module are tightly integrated to provide efficient, scalable HSDS data alignment:
+
+#### Processing Pipeline
+
+```
+1. Scraper generates raw data
+   ↓
+2. LLM job enqueued to 'llm' queue with content hash
+   ↓
+3. LLM Worker picks up job:
+   - Checks content store for cached result
+   - If not cached, processes with LLM provider
+   - Stores result in content store
+   - Enqueues follow-up jobs
+   ↓
+4. Reconciler Worker processes HSDS data:
+   - Validates structure
+   - Geocodes addresses
+   - Updates database
+   ↓
+5. Recorder Worker saves results:
+   - Writes JSON to outputs/
+   - Maintains audit trail
+```
+
+#### Key Integration Points
+
+1. **Content Deduplication**: Workers check content store before LLM processing
+2. **Job Chaining**: LLM workers automatically trigger reconciler and recorder jobs
+3. **Error Propagation**: Failed LLM jobs prevent downstream processing
+4. **Shared Configuration**: Workers and LLM use same Redis connection pool
+5. **Health Monitoring**: Unified health checks across all worker types
+
+#### Configuration Coordination
+
+```bash
+# Shared Redis configuration
+REDIS_URL=redis://cache:6379/0
+
+# LLM-specific worker settings
+LLM_PROVIDER=openai
+LLM_WORKER_COUNT=2
+
+# Worker scaling
+WORKER_COUNT=3  # Total workers in container
+```
 
 ## References
 
 - Architecture Overview: [docs/architecture.md](architecture.md)
-- Implementation Plan: [docs/implementation-plan.python.md](implementation-plan.python.md)
-- Queue System: [docs/queue.md](queue.md)
 - LLM Integration: [docs/llm.md](llm.md)
+- API Documentation: [docs/api.md](api.md)
+- Getting Started: [docs/getting-started-locally.md](getting-started-locally.md)
