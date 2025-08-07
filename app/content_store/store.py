@@ -344,24 +344,35 @@ class ContentStore:
         """
         db_path = self.content_store_path / "index.db"
 
+        # Use a single transaction to get all counts atomically
         with sqlite3.connect(db_path) as conn:
-            # Total content
-            total = conn.execute("SELECT COUNT(*) FROM content_index").fetchone()[0]
+            # Enable WAL mode for better concurrent access
+            conn.execute("PRAGMA journal_mode=WAL")
 
-            # Processed content
-            processed = conn.execute(
-                "SELECT COUNT(*) FROM content_index WHERE status = 'completed'"
-            ).fetchone()[0]
+            # Get all statistics in a single query to ensure consistency
+            cursor = conn.execute(
+                """
+                SELECT
+                    COUNT(*) as total_content,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as processed_content,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_content
+                FROM content_index
+            """
+            )
 
-            # Pending content
-            pending = conn.execute(
-                "SELECT COUNT(*) FROM content_index WHERE status = 'pending'"
-            ).fetchone()[0]
+            row = cursor.fetchone()
+            total = row[0] or 0
+            processed = row[1] or 0
+            pending = row[2] or 0
 
-        # Calculate store size
-        store_size = sum(
-            f.stat().st_size for f in self.content_store_path.rglob("*.json")
-        )
+        # Calculate store size (this is less critical and can be approximate)
+        try:
+            store_size = sum(
+                f.stat().st_size for f in self.content_store_path.rglob("*.json")
+            )
+        except Exception:
+            # If file system access fails, provide a reasonable default
+            store_size = 0
 
         return {
             "total_content": total,

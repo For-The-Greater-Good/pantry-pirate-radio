@@ -308,81 +308,126 @@ def dashboard():
 
 @app.route("/api/stats")
 def api_stats():
-    """API endpoint for dashboard data."""
+    """API endpoint for dashboard data with improved error handling."""
     store = get_content_store()
     if not store:
         return jsonify({"error": "Content store not configured"}), 503
 
-    r = get_redis_connection()
-
-    # Get basic stats
-    stats = store.get_statistics()
-
-    # Get recent entries
-    # Use the actual content store path instead of hardcoded path
-    db_path = store.content_store_path / "index.db"
-    conn = sqlite3.connect(db_path)
-
-    cursor = conn.execute(
-        """
-        SELECT hash, status, job_id, created_at
-        FROM content_index
-        ORDER BY created_at DESC
-        LIMIT 20
-    """
-    )
-
-    recent_entries = []
-    for row in cursor:
-        hash_val, status, job_id, created_at = row
-
-        # Check job status if exists
-        job_status = None
-        if job_id:
+    try:
+        # Get basic stats with retry logic
+        max_retries = 3
+        stats = None
+        for attempt in range(max_retries):
             try:
-                job = Job.fetch(job_id, connection=r)
-                job_status = job.get_status()
-            except Exception:
-                job_status = "expired"
+                stats = store.get_statistics()
+                break
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                    # Brief delay before retry for database lock
+                    import time
 
-        # Try to get scraper ID from content
-        scraper_id = None
-        content_path = store._get_content_path(hash_val)
-        if content_path.exists():
-            try:
-                content_data = json.loads(content_path.read_text())
-                scraper_id = content_data.get("metadata", {}).get("scraper_id", None)
-            except Exception:
-                # Unable to read content file or parse JSON
-                scraper_id = None
+                    time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                    continue
+                raise
 
-        recent_entries.append(
+        if stats is None:
+            return jsonify({"error": "Content store temporarily unavailable"}), 503
+
+        r = get_redis_connection()
+
+        # Get recent entries with error handling
+        recent_entries = []
+        try:
+            db_path = store.content_store_path / "index.db"
+            with sqlite3.connect(db_path) as conn:
+                # Enable WAL mode for better concurrent access
+                conn.execute("PRAGMA journal_mode=WAL")
+
+                cursor = conn.execute(
+                    """
+                    SELECT hash, status, job_id, created_at
+                    FROM content_index
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """
+                )
+
+                for row in cursor:
+                    hash_val, status, job_id, created_at = row
+
+                    # Check job status if exists
+                    job_status = None
+                    if job_id:
+                        try:
+                            job = Job.fetch(job_id, connection=r)
+                            job_status = job.get_status()
+                        except Exception:
+                            job_status = "expired"
+
+                    # Try to get scraper ID from content
+                    scraper_id = None
+                    try:
+                        content_path = store._get_content_path(hash_val)
+                        if content_path.exists():
+                            content_data = json.loads(content_path.read_text())
+                            scraper_id = content_data.get("metadata", {}).get(
+                                "scraper_id", None
+                            )
+                    except Exception as e:
+                        # Unable to read content file or parse JSON, continue with None
+                        print(
+                            f"Warning: Could not read content metadata for {hash_val}: {e}"
+                        )
+
+                    recent_entries.append(
+                        {
+                            "hash_short": hash_val[:8],
+                            "hash_full": hash_val,
+                            "status": status,
+                            "scraper_id": scraper_id,
+                            "created_at": created_at,
+                            "job_status": job_status,
+                        }
+                    )
+        except Exception as e:
+            # If recent entries fail, continue with empty list but log the error
+            print(f"Warning: Could not fetch recent entries: {e}")
+
+        # Estimate cache hits (completed entries that have been queried)
+        # This is a rough estimate - in production we'd track actual hits
+        cache_hits = (
+            stats["processed_content"] * 2
+        )  # Assume each completed entry saved 2 LLM calls
+
+        return jsonify(
             {
-                "hash_short": hash_val[:8],
-                "hash_full": hash_val,
-                "status": status,
-                "scraper_id": scraper_id,
-                "created_at": created_at,
-                "job_status": job_status,
+                "stats": stats,
+                "recent_entries": recent_entries,
+                "cache_hits": cache_hits,
+                "timestamp": datetime.now().isoformat(),
             }
         )
 
-    # Estimate cache hits (completed entries that have been queried)
-    # This is a rough estimate - in production we'd track actual hits
-    cache_hits = (
-        stats["processed_content"] * 2
-    )  # Assume each completed entry saved 2 LLM calls
-
-    conn.close()
-
-    return jsonify(
-        {
-            "stats": stats,
-            "recent_entries": recent_entries,
-            "cache_hits": cache_hits,
-            "timestamp": datetime.now().isoformat(),
-        }
-    )
+    except Exception as e:
+        # Return error response but with some diagnostic info
+        error_message = f"Content store error: {str(e)}"
+        return (
+            jsonify(
+                {
+                    "error": error_message,
+                    "timestamp": datetime.now().isoformat(),
+                    "stats": {
+                        "total_content": "unknown",
+                        "processed_content": "unknown",
+                        "pending_content": "unknown",
+                        "store_size_bytes": "unknown",
+                    },
+                    "recent_entries": [],
+                    "cache_hits": "unknown",
+                }
+            ),
+            500,
+        )
 
 
 @app.route("/api/content/<hash>")

@@ -434,6 +434,13 @@ class TestHAARRRvestContentStoreIntegration:
         # Setup - mock content store with non-existent path
         mock_store = Mock()
         mock_store.content_store_path = Path("/nonexistent/path/content_store")
+        # Mock get_statistics to return a proper dict instead of a Mock
+        mock_store.get_statistics.return_value = {
+            "total_content": 0,
+            "processed_content": 0,
+            "pending_content": 0,
+            "store_size_bytes": 0,
+        }
         mock_get_content_store.return_value = mock_store
 
         # Create test output file

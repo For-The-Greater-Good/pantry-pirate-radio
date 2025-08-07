@@ -150,6 +150,12 @@ class TestDashboardRoutes:
         # Mock SQLite connection and cursor
         mock_conn = Mock()
         mock_cursor = Mock()
+
+        # Mock the fetchone() for the atomic statistics query
+        # This returns (total_content, processed_content, pending_content)
+        mock_cursor.fetchone.return_value = (100, 75, 25)
+
+        # Mock the __iter__ for recent entries query
         mock_cursor.__iter__ = Mock(
             return_value=iter(
                 [
@@ -158,6 +164,10 @@ class TestDashboardRoutes:
                 ]
             )
         )
+
+        # Mock the __enter__ and __exit__ for context manager
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=None)
         mock_conn.execute.return_value = mock_cursor
         mock_connect.return_value = mock_conn
 
@@ -230,6 +240,11 @@ class TestDashboardRoutes:
         # Mock SQLite with job that will fail to fetch
         mock_conn = Mock()
         mock_cursor = Mock()
+
+        # Mock the __enter__ and __exit__ for context manager
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=None)
+
         mock_cursor.__iter__ = Mock(
             return_value=iter(
                 [("hash123", "pending", "invalid_job_id", "2023-12-01 10:00:00")]
@@ -281,6 +296,11 @@ class TestDashboardRoutes:
         # Mock SQLite
         mock_conn = Mock()
         mock_cursor = Mock()
+
+        # Mock the __enter__ and __exit__ for context manager
+        mock_conn.__enter__ = Mock(return_value=mock_conn)
+        mock_conn.__exit__ = Mock(return_value=None)
+
         mock_cursor.__iter__ = Mock(
             return_value=iter([("hash123", "completed", None, "2023-12-01 10:00:00")])
         )
