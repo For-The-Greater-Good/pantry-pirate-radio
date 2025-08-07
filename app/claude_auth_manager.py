@@ -44,7 +44,7 @@ logger = get_logger().bind(module="claude_auth_manager")
 class ClaudeAuthManager:
     """Manages Claude authentication within the container."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.config: Optional["ClaudeConfig"] = None
         self.provider: Optional["ClaudeProvider"] = None
 

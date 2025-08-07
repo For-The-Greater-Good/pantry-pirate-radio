@@ -374,7 +374,7 @@ class FieldValidator:
 
     def correct_location_coordinates(
         self, location: LocationDict
-    ) -> Optional[LocationDict]:
+    ) -> Optional[Dict[str, Any]]:
         """Attempt to correct invalid location coordinates.
 
         Args:
@@ -424,7 +424,7 @@ class FieldValidator:
         Returns:
             Validation results with location errors
         """
-        result = {
+        result: Dict[str, Any] = {
             "location_errors": [],
             "total_locations": 0,
             "valid_locations": 0,
@@ -446,7 +446,11 @@ class FieldValidator:
                 # Check if correctable
                 corrected = self.correct_location_coordinates(location)
                 if corrected:
-                    corrected_errors = self.validate_location_coordinates(corrected)
+                    # Cast back to LocationDict for validation
+                    corrected_location = LocationDict(**corrected)  # type: ignore
+                    corrected_errors = self.validate_location_coordinates(
+                        corrected_location
+                    )
                     if not corrected_errors:
                         result["correctable_locations"] += 1
             else:
@@ -531,4 +535,7 @@ class FieldValidator:
         Returns:
             Corrected location
         """
-        return self.correct_location_coordinates(location) or location
+        corrected = self.correct_location_coordinates(location)
+        if corrected:
+            return LocationDict(**corrected)  # type: ignore
+        return location
