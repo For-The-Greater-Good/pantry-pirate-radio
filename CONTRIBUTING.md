@@ -2,15 +2,17 @@
 
 We welcome contributions to Pantry Pirate Radio! This guide will help you get started with contributing to our AI-powered food security data aggregation system while maintaining our high security and code quality standards.
 
+> **📚 Documentation**: For comprehensive project documentation including architecture, API reference, scrapers, and deployment guides, visit our **[Documentation Hub](docs/INDEX.md)**.
+
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
-- [Security Requirements](#security-requirements)
 - [Development Setup](#development-setup)
+- [Security Requirements](#security-requirements)
 - [Making Changes](#making-changes)
-- [Code Style Guidelines](#code-style-guidelines)
 - [Testing](#testing)
+- [Code Style Guidelines](#code-style-guidelines)
 - [Submitting Changes](#submitting-changes)
 - [Types of Contributions](#types-of-contributions)
 - [Architecture Overview](#architecture-overview)
@@ -18,103 +20,124 @@ We welcome contributions to Pantry Pirate Radio! This guide will help you get st
 
 ## Code of Conduct
 
-This project is committed to fostering a welcoming and inclusive environment. Please be respectful and constructive in all interactions.
+This project is committed to fostering a welcoming and inclusive environment. Please be respectful and constructive in all interactions. We welcome contributors from all backgrounds and experience levels.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.11+
-- Poetry
-- Docker and Docker Compose
-- PostgreSQL with PostGIS (handled by Docker)
-- Redis 7.0+ (handled by Docker)
+**IMPORTANT**: You only need Docker installed. All other dependencies are managed within containers.
 
-### Development Setup
+- Docker and Docker Compose (required)
+- Git (required)
+- No local Python installation needed
+- No local PostgreSQL or Redis needed
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/***REMOVED_USER***/pantry-pirate-radio.git
-   cd pantry-pirate-radio
-   ```
+### Quick Start
 
-2. **Install dependencies and set up security**:
-   ```bash
-   # Install dependencies
-   poetry install
+```bash
+# Clone the repository
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
 
-   # Set up environment variables
-   cp .env.example .env
-   # Edit .env with your configuration
+# Run interactive setup wizard
+./bouy setup
 
-   # Enable git hooks for security
-   git config core.hooksPath .githooks
-   ```
+# Start services
+./bouy up
 
-3. **Start all services**:
-   ```bash
-   docker-compose up -d
-   ```
+# Run tests to verify setup
+./bouy test
+```
 
-4. **Verify setup**:
-   - FastAPI server: http://localhost:8000
-   - API docs: http://localhost:8000/docs
-   - RQ Dashboard: http://localhost:9181
+## Development Setup
+
+### 1. Fork and Clone
+
+```bash
+# Fork via GitHub UI, then:
+git clone https://github.com/YOUR_USERNAME/pantry-pirate-radio.git
+cd pantry-pirate-radio
+```
+
+### 2. Initial Configuration
+
+```bash
+# Run the interactive setup wizard
+./bouy setup
+
+# This will:
+# - Create .env from template
+# - Configure database passwords
+# - Set up LLM provider (OpenAI/Claude)
+# - Configure API keys
+# - Create backups of existing .env files
+```
+
+### 3. Start Development Environment
+
+```bash
+# Start all services in development mode
+./bouy up
+
+# Or start with database initialization
+./bouy up --with-init
+
+# Check service status
+./bouy ps
+```
+
+### 4. Verify Setup
+
+Once services are running:
+- **API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+- **RQ Dashboard**: http://localhost:9181
+- **Datasette** (production mode): http://localhost:8001
 
 ## Security Requirements
 
-**Security is a top priority for this project.** Before contributing, please familiarize yourself with our security guidelines:
+**Security is our top priority.** Please follow these guidelines:
 
-### 1. **Never Commit Secrets**
-- Never commit API keys, passwords, or other sensitive information
-- Use environment variables for all secrets
-- The pre-commit hook will prevent most accidental commits
+### Never Commit Secrets
 
-### 2. **Test Data Guidelines**
-When adding test data, always use anonymized information:
+1. **Use bouy setup**: Run `./bouy setup` to configure secrets safely
+2. **Environment variables**: All secrets must use environment variables
+3. **Check before commit**: Review all changes for hardcoded credentials
+4. **Use .env files**: Never commit `.env` files to version control
+
+### Test Data Security
+
+When adding test data, **always use fictional information**:
+
 - **Phone Numbers**: Use `555-xxx-xxxx` format only
 - **Email Addresses**: Use `example.com`, `test.com`, or `localhost` domains
-- **Addresses**: Use obviously fake addresses like `123 Test Street, Example City, ST 12345`
-- **Names**: Use placeholder names like `John Doe`, `Jane Smith`, or `Test Organization`
+- **Addresses**: Use clearly fake addresses like `123 Test Street, Example City, ST 12345`
+- **Names**: Use placeholder names like `John Doe`, `Jane Smith`, `Test Organization`
+- **URLs**: Use `example.com` or `localhost` for test URLs
 
-### 3. **Data File Security**
-- Never commit real personal information (PII)
-- Review all CSV, JSON, and other data files for real data
-- Use minimal test datasets
-- Document the source and purpose of any data files
+### Security Testing
 
-### 4. **Code Security**
-- Use environment variables for configuration
-- Validate all user inputs
-- Follow secure coding practices
+```bash
+# Run security checks
+./bouy test --bandit         # Security linting
+./bouy test --safety         # Dependency vulnerabilities
+./bouy test --pip-audit      # Package auditing
 
-### 5. **GitHub Workflows**
-- The Claude AI workflows are restricted to the repository owner only
-- These workflows use expensive API calls and will not run on forks
-- See [GitHub Workflows Guide](docs/GITHUB_WORKFLOWS.md) for details on setting up workflows in your fork
-- Use type hints for better code safety
+# Run all security and quality checks
+./bouy test                  # Comprehensive test suite
+```
 
-### Pre-commit Hooks
-
-Our pre-commit hooks automatically check for:
-- Secrets and API keys
-- Personal identifiable information (PII)
-- Hardcoded credentials
-- Sensitive file patterns
-- Real phone numbers and email addresses
-
-If the hook fails, review the output and fix the issues before committing.
-
-### Security Incident Response
+### Reporting Security Issues
 
 If you discover a security vulnerability:
 
 1. **DO NOT** create a public GitHub issue
-2. Report privately to maintainers via GitHub private message
+2. Use GitHub Security Advisories (private)
 3. Include:
    - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
+   - Steps to reproduce using bouy commands
+   - Potential impact assessment
    - Suggested fix (if known)
 
 ## Making Changes
@@ -124,110 +147,134 @@ If you discover a security vulnerability:
 1. **Create a feature branch**:
    ```bash
    git checkout -b feature/your-feature-name
+   # Or for fixes:
+   git checkout -b fix/issue-description
    ```
 
-2. **Make your changes** following our code style guidelines and security requirements
-
-3. **Run comprehensive quality checks**:
+2. **Make your changes** following TDD principles:
    ```bash
-   # Run all tests
-   poetry run pytest
+   # Write tests first
+   ./bouy shell app
+   # Create/edit test files
+   
+   # Run tests (should fail)
+   ./bouy test --pytest tests/test_your_feature.py
+   
+   # Implement feature
+   # Edit source files
+   
+   # Run tests again (should pass)
+   ./bouy test --pytest tests/test_your_feature.py
+   ```
 
-   # Run type checking
-   poetry run mypy .
-
-   # Run security scanning
-   poetry run bandit -r app/
-
-   # Run code formatting
-   poetry run black .
-   poetry run ruff .
+3. **Run quality checks**:
+   ```bash
+   # Run all tests and checks
+   ./bouy test
+   
+   # Or run specific checks:
+   ./bouy test --pytest         # Unit tests
+   ./bouy test --mypy           # Type checking
+   ./bouy test --black          # Formatting
+   ./bouy test --ruff           # Linting
+   ./bouy test --bandit         # Security
    ```
 
 4. **Commit your changes**:
    ```bash
    git add .
    git commit -m "feat: add your feature description"
+   # Use conventional commits:
+   # feat: new feature
+   # fix: bug fix
+   # docs: documentation
+   # test: testing
+   # refactor: code refactoring
    ```
-   The pre-commit hook will automatically run security checks.
-
-## Code Style Guidelines
-
-### Python Code Style
-
-- **Formatting**: Black with 88 character line length
-- **Linting**: Ruff with security checks
-- **Type Checking**: mypy with strict configuration
-- **Documentation**: Docstrings required for all public functions
-- **Import Organization**: isort for consistent imports
-
-### Code Quality Standards
-
-- **Test Coverage**: Minimum 90% coverage required
-- **Type Safety**: All functions must have type annotations
-- **Security**: Bandit security scanning must pass
-- **Documentation**: Clear docstrings and inline comments
-
-### Running Quality Checks
-
-```bash
-# Format code
-poetry run black .
-
-# Check linting
-poetry run ruff .
-
-# Type checking
-poetry run mypy .
-
-# Security scan
-poetry run bandit -r app/
-
-# Check unused code
-poetry run vulture app/
-
-# All quality checks
-poetry run pytest --cov
-```
 
 ## Testing
+
+### Test-Driven Development (TDD)
+
+This project follows TDD principles:
+
+1. **Red**: Write a failing test that defines desired behavior
+2. **Green**: Write minimal code to make the test pass
+3. **Refactor**: Improve code while keeping tests passing
 
 ### Running Tests
 
 ```bash
-# Run all tests
-poetry run pytest
+# Run all tests with coverage
+./bouy test
 
-# Run with coverage
-poetry run pytest --cov
+# Run specific test categories
+./bouy test --pytest         # Python tests with coverage
+./bouy test --mypy           # Type checking
+./bouy test --black          # Code formatting
+./bouy test --ruff           # Linting
+./bouy test --bandit         # Security analysis
+./bouy test --coverage       # Coverage threshold check
 
-# Run specific test file
-poetry run pytest tests/test_filename.py
+# Run specific test files
+./bouy test --pytest tests/test_api.py
+./bouy test --pytest tests/test_scraper/
 
-# Run integration tests
-poetry run pytest -m integration
-
-# Run async tests
-poetry run pytest -m asyncio
-
-# Test scrapers
-python -m app.scraper.test_scrapers --all
+# Run with additional pytest options
+./bouy test --pytest -- -v                    # Verbose
+./bouy test --pytest -- -x                    # Stop on first failure
+./bouy test --pytest -- -k test_name          # Run specific test
+./bouy test --pytest -- --pdb                 # Debug on failure
 ```
 
-### Test Categories
+### Using @agent-test-suite-monitor
 
-- **Unit Tests**: Test individual components
-- **Integration Tests**: Test service interactions
-- **Property-based Tests**: Using Hypothesis for edge cases
-- **Scraper Tests**: Validation of data collection
+For comprehensive test monitoring, use the dedicated test agent:
 
-### Writing Tests
+```bash
+# Examples of when to use the test monitor agent:
+@agent-test-suite-monitor "Run full test suite after implementing new API endpoint"
+@agent-test-suite-monitor "Debug failing geocoding tests"
+@agent-test-suite-monitor "Check test coverage after refactoring"
+```
 
-- Place tests in the `tests/` directory
-- Use descriptive test names
-- Include both positive and negative test cases
-- Mock external dependencies
-- Use pytest fixtures for common setup
+### Coverage Requirements
+
+- Minimum coverage: 90%
+- View coverage report: `open htmlcov/index.html`
+- Check coverage: `./bouy test --coverage`
+
+## Code Style Guidelines
+
+### Python Standards
+
+- **Formatting**: Black (88 character line length)
+- **Linting**: Ruff with security rules
+- **Type Hints**: Required for all functions
+- **Docstrings**: Required for public functions
+- **Imports**: Organized with isort
+
+### Running Code Quality Checks
+
+```bash
+# Auto-format code
+./bouy test --black
+
+# Check types
+./bouy test --mypy
+
+# Lint code
+./bouy test --ruff
+
+# Security scan
+./bouy test --bandit
+
+# Find dead code
+./bouy test --vulture
+
+# Check complexity
+./bouy test --xenon
+```
 
 ## Submitting Changes
 
@@ -235,201 +282,227 @@ python -m app.scraper.test_scrapers --all
 
 1. **Ensure all tests pass**:
    ```bash
-   poetry run pytest --cov
+   ./bouy test
    ```
 
-2. **Verify code quality and security**:
-   ```bash
-   poetry run mypy .
-   poetry run ruff .
-   poetry run black . --check
-   poetry run bandit -r app/
-   ```
+2. **Update documentation** if needed:
+   - API documentation (docstrings)
+   - README files
+   - Configuration examples
+   - See [Documentation Hub](docs/INDEX.md) for documentation structure
 
 3. **Push your branch**:
    ```bash
    git push origin feature/your-feature-name
    ```
 
-4. **Create a pull request** using our template
+4. **Create Pull Request** via GitHub UI
 
-### Pull Request Guidelines
+### Pull Request Template
 
-#### Required Checks
-- [ ] All tests pass
-- [ ] Type checking passes
-- [ ] Security scanning passes
-- [ ] Code formatting is correct
-- [ ] No secrets or PII in code/data
-- [ ] Documentation is updated
-
-#### Pull Request Template
 ```markdown
 ## Description
 Brief description of changes
 
 ## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
+- [ ] Bug fix (non-breaking change)
+- [ ] New feature (non-breaking change)
+- [ ] Breaking change (fix or feature with breaking changes)
 - [ ] Documentation update
-
-## Security Checklist
-- [ ] No secrets committed
-- [ ] Test data is anonymized
-- [ ] Security scanning passes
-- [ ] PII detection passes
 
 ## Testing
 - [ ] Tests added/updated
-- [ ] All tests pass
+- [ ] All tests pass: `./bouy test`
+- [ ] Coverage maintained above 90%
 - [ ] Manual testing completed
 
+## Security Checklist
+- [ ] No secrets or credentials in code
+- [ ] Test data uses fictional information only
+- [ ] Security scan passes: `./bouy test --bandit`
+- [ ] No PII in test files
+
 ## Documentation
-- [ ] Code comments added
-- [ ] Documentation updated
-- [ ] API documentation updated (if applicable)
+- [ ] Code includes docstrings
+- [ ] README updated (if needed)
+- [ ] API docs updated (if applicable)
 ```
 
-### Pull Request Best Practices
+### Branch Protection
 
-- Keep changes focused and atomic
-- Include tests for new functionality
-- Update documentation as needed
-- Maintain backwards compatibility
-- Follow semantic commit messages
+Pull requests to `main` require:
+- All CI checks passing
+- Code review approval
+- No merge conflicts
+- Up-to-date with main branch
 
 ## Types of Contributions
 
 ### Bug Fixes
 
-- Include reproduction steps
-- Add regression tests
-- Reference issue numbers
-- Ensure security implications are considered
+1. Create issue describing the bug
+2. Write test that reproduces the bug
+3. Fix the bug
+4. Ensure test passes
+5. Submit PR with fix and test
 
 ### New Features
 
-- Discuss major features in an issue first
-- Include comprehensive tests
-- Update documentation
-- Consider impact on existing functionality
-- Follow security guidelines
+1. Discuss in issue first (for major features)
+2. Write comprehensive tests using TDD
+3. Implement feature
+4. Update documentation
+5. Submit PR with tests and docs
+
+### New Scrapers
+
+```bash
+# Test existing scraper
+./bouy scraper-test NAME
+
+# Run scraper
+./bouy scraper NAME
+
+# Run all scrapers
+./bouy scraper --all
+
+# Parallel execution
+./bouy scraper scouting-party
+```
+
+When adding a scraper:
+1. Inherit from `ScraperJob` base class
+2. Implement rate limiting
+3. Add error handling
+4. Write tests with mock data
+5. Document in `docs/scrapers/`
 
 ### Documentation
 
 - Use clear, concise language
 - Include code examples
-- Update API documentation
-- Check for broken links
-
-### Scrapers
-
-- Inherit from `ScraperJob` base class
-- Include comprehensive error handling
-- Follow rate limiting best practices
-- Add tests in `test_scrapers.py`
-- Use anonymized test data only
+- Test all code snippets
+- Update relevant README files
 
 ## Architecture Overview
 
 ### Core Services
 
-- **FastAPI App**: API server with HSDS-compliant endpoints
-- **Worker Pool**: LLM-based data processing
-- **Reconciler**: Data consistency and versioning
-- **Recorder**: Job result archival
-- **Scrapers**: Data collection from various sources
+Managed via bouy commands:
 
-### Key Components
+- **API Server**: FastAPI with HSDS endpoints
+- **Worker Pool**: LLM data processing queue
+- **Reconciler**: Data deduplication and versioning
+- **Scrapers**: Public data collection
+- **Content Store**: Deduplicated storage
 
-- **HSDS Models**: Pydantic models for data validation
-- **LLM Integration**: AI-powered data normalization
-- **Geographic Data**: PostGIS spatial queries
-- **Queue System**: Redis-based job processing
+### Key Technologies
 
-### Security Architecture
-
-- **Input Validation**: All user inputs are validated
-- **Environment Variables**: Secrets stored in environment
-- **Audit Logging**: Comprehensive logging with correlation IDs
-- **Access Control**: No authentication required (public data only)
+- **FastAPI**: REST API framework
+- **Pydantic**: Data validation
+- **SQLAlchemy**: Database ORM
+- **PostgreSQL/PostGIS**: Spatial database
+- **Redis**: Job queue and caching
+- **Docker**: Containerization
 
 ## Common Development Tasks
 
-### Adding a New Scraper
+### Working with Services
 
-1. Create `your_scraper_name_scraper.py` in `app/scraper/`
-2. Inherit from `ScraperJob` base class
-3. Implement `scrape()` method
-4. Add comprehensive error handling
-5. Include tests in `test_scrapers.py`
-6. Add documentation in `your_scraper_name_scraper.md`
-7. Use only anonymized test data
+```bash
+# View logs
+./bouy logs app              # Single service
+./bouy logs                  # All services
 
-### Modifying HSDS Models
+# Access shell
+./bouy shell app             # Bash/sh in container
+./bouy exec app python       # Run Python
 
-1. Update Pydantic models in `app/models/hsds/`
-2. Run database migrations if needed
-3. Update API endpoints
-4. Add validation tests
-5. Update documentation
-6. Consider security implications
+# Restart services
+./bouy down && ./bouy up
+```
 
-### Adding LLM Provider
+### Database Operations
 
-1. Implement `BaseLLMProvider` in `app/llm/providers/`
-2. Add provider configuration
-3. Include caching and retry logic
-4. Write integration tests
-5. Ensure API keys are stored securely
+```bash
+# Initialize database
+./bouy up --with-init
 
-### Database Schema Changes
+# Access database
+./bouy shell db
+psql -U postgres -d pantry_pirate_radio
 
-1. Create migration scripts in `init-scripts/`
-2. Update SQLAlchemy models if needed
-3. Update reconciler logic for new fields
-4. Add validation tests
-5. Update API responses
-6. Consider backward compatibility
+# Run migrations
+./bouy exec app python -m app.database
+```
+
+### Scraper Development
+
+```bash
+# List available scrapers
+./bouy scraper --list
+
+# Test scraper (dry run)
+./bouy scraper-test freshtrak
+
+# Run single scraper
+./bouy scraper freshtrak
+
+# Run all scrapers
+./bouy scraper --all
+```
+
+### LLM Configuration
+
+```bash
+# Configure via setup
+./bouy setup
+
+# Or set in .env:
+# LLM_PROVIDER=openai
+# OPENROUTER_API_KEY=your-key
+# LLM_MODEL_NAME=model-name
+```
 
 ## Environment Variables
 
-### Required
-- `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_URL`: Redis connection string
+### Essential Configuration
 
-### Optional
-- `OPENROUTER_API_KEY`: For OpenAI/OpenRouter providers
-- `LLM_MODEL_NAME`: Default LLM model
-- `OUTPUT_DIR`: Directory for output files
-- `BACKUP_KEEP_DAYS`: Database backup retention days
+Set via `./bouy setup` or `.env` file:
 
-## Service URLs (Development)
-- FastAPI API: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
-- RQ Dashboard: http://localhost:9181
-- Datasette: http://localhost:8001
-- Prometheus Metrics: http://localhost:8000/metrics
+```bash
+# Database (default provided)
+DATABASE_URL=postgresql://postgres:pirate@db:5432/pantry_pirate_radio
+REDIS_URL=redis://cache:6379/0
+
+# LLM Configuration
+LLM_PROVIDER=openai
+OPENROUTER_API_KEY=sk-or-...
+LLM_MODEL_NAME=google/gemini-flash-1.5-8b
+
+# Optional
+OUTPUT_DIR=/app/outputs
+HAARRRVEST_REPO_TOKEN=token_or_skip
+```
 
 ## Getting Help
 
-- **Issues**: Report bugs or request features
-- **Discussions**: Ask questions about development
-- **Documentation**: Check the `docs/` directory and `CLAUDE.md`
+- **Documentation**: Check `/docs` directory and CLAUDE.md
+- **Issues**: Report bugs or request features on GitHub
+- **Discussions**: Ask questions in GitHub Discussions
 - **Code Review**: All PRs receive thorough review
-- **Security**: Follow security reporting guidelines for vulnerabilities
+- **Real-time Help**: Use @agent mentions in issues/PRs
 
-## Key Dependencies
+## CI/CD Pipeline
 
-- FastAPI for API framework
-- Pydantic for data validation
-- SQLAlchemy for database ORM
-- Redis for job queues
-- PostGIS for geographic data
-- OpenAI for LLM processing
-- Prometheus for metrics
-- Docker/Docker Compose for containerization
+Our CI pipeline automatically runs on all PRs:
+
+1. **Formatting and Linting**: Black, Ruff
+2. **Type Checking**: Mypy
+3. **Security Scanning**: Bandit, Safety, Pip-audit
+4. **Testing**: Pytest with coverage
+5. **Code Quality**: Vulture, Xenon
+6. **Docker Build**: Validates container builds
 
 ## License
 
@@ -437,4 +510,4 @@ By contributing to Pantry Pirate Radio, you agree that your contributions will b
 
 ---
 
-Thank you for contributing to Pantry Pirate Radio! Your efforts help make food security resources more accessible to everyone while maintaining the highest standards of security and code quality.
+Thank you for contributing to Pantry Pirate Radio! Your efforts help make food security resources more accessible to everyone. Remember to use bouy commands for all development tasks - it ensures consistency and handles all Docker complexity for you.

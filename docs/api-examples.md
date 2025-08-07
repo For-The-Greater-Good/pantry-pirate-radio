@@ -2,16 +2,28 @@
 
 This document provides comprehensive examples of how to use the Pantry Pirate Radio API. The API follows the OpenReferral Human Services Data Specification (HSDS) and provides RESTful endpoints for accessing food security data.
 
-## Base URL
+## Getting Started
 
-```
-https://api.pantrypirate.org/v1
+### Start the API Service
+
+```bash
+# Start all services with bouy
+./bouy up
+
+# Check API health
+curl http://localhost:8000/api/v1/health
 ```
 
-For local development:
-```
-http://localhost:8000/api/v1
-```
+### Base URLs
+
+**Local Development:**
+- API: `http://localhost:8000/api/v1`
+- Interactive Docs: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- OpenAPI Schema: `http://localhost:8000/openapi.json`
+
+**Production (when deployed):**
+- Replace `localhost:8000` with your production domain
 
 ## Authentication
 
@@ -41,125 +53,85 @@ X-RateLimit-Reset: 1640995200
 X-Request-ID: req-12345678-abcd-efgh-ijkl-123456789012
 ```
 
-## Search Services
+## Search Locations
 
 ### Geographic Search by Point and Radius
 
-Search for food services within a specific radius of a point.
+Search for food service locations within a specific radius of a point.
 
 ```http
-GET /services?latitude=40.7128&longitude=-74.0060&radius=5
+GET /locations?latitude=40.7128&longitude=-74.0060&radius=5
 ```
+
+**Note**: The current implementation uses the `/locations` endpoint for geographic searches.
 
 **Example Response:**
 ```json
 {
-  "search_query": {
-    "latitude": 40.7128,
-    "longitude": -74.0060,
-    "radius": 5
-  },
-  "services": [
+  "locations": [
     {
-      "id": "svc-example-001",
-      "organization": {
-        "id": "org-example-001",
-        "name": "Example Community Food Bank",
-        "description": "A full-service food bank serving the Example County area...",
-        "email": "info@examplefoodbank.org",
-        "url": "https://www.examplefoodbank.org"
-      },
-      "service": {
-        "id": "svc-example-001",
-        "name": "Emergency Food Pantry",
-        "description": "Free groceries and emergency food assistance...",
-        "status": "active",
-        "eligibility_description": "Open to all residents of Example County experiencing food insecurity"
-      },
-      "location": {
-        "id": "loc-example-001",
-        "name": "Example Community Food Bank - Main Warehouse",
-        "latitude": 40.7128,
-        "longitude": -74.0060,
-        "distance_miles": 0.1,
-        "address": {
-          "address_1": "123 Main Street",
-          "city": "Example City",
-          "state_province": "NY",
-          "postal_code": "10001",
-          "country": "US"
-        }
-      },
-      "schedules": [
-        {
-          "opens_at": "09:00",
-          "closes_at": "17:00",
-          "byday": "MO,TU,WE,TH,FR",
-          "description": "Food pantry open Monday through Friday, 9 AM to 5 PM"
-        }
-      ],
-      "contacts": [
-        {
-          "name": "Sarah Johnson",
-          "title": "Food Pantry Manager",
-          "email": "sarah.johnson@examplefoodbank.org"
-        }
-      ],
-      "phones": [
-        {
-          "number": "555-123-4567",
-          "type": "voice",
-          "description": "Main food pantry hotline"
-        }
-      ]
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "organization_id": "550e8400-e29b-41d4-a716-446655440001",
+      "name": "Example Community Food Bank - Main Location",
+      "description": "Main distribution center for emergency food assistance",
+      "latitude": 40.7128,
+      "longitude": -74.0060,
+      "address_1": "123 Main Street",
+      "address_2": null,
+      "city": "New York",
+      "state_province": "NY",
+      "postal_code": "10001",
+      "country": "US",
+      "location_type": "physical",
+      "transportation": "Near subway station, bus stops, street parking available",
+      "created_at": "2024-01-15T10:00:00Z",
+      "updated_at": "2024-01-15T10:00:00Z"
     }
   ],
-  "pagination": {
-    "page": 1,
-    "per_page": 20,
-    "total": 1,
-    "total_pages": 1
-  },
-  "metadata": {
-    "timestamp": "2024-01-15T15:30:00Z",
-    "query_time": 0.089,
-    "total_results": 1
-  }
+  "total": 15,
+  "limit": 20,
+  "offset": 0
 }
 ```
 
-### Geographic Search with Filters
+### Search with Pagination
 
-Add filters to narrow down your search results.
+Use limit and offset parameters for pagination:
 
 ```http
-GET /services?latitude=40.7128&longitude=-74.0060&radius=10&status=active&service_type=food_pantry
+GET /locations?latitude=40.7128&longitude=-74.0060&radius=10&limit=10&offset=0
 ```
 
-**Query Parameters:**
+```bash
+# Get first page (10 results)
+curl "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5&limit=10&offset=0"
+
+# Get second page (next 10 results)
+curl "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5&limit=10&offset=10"
+```
+
+**Query Parameters for Location Search:**
 - `latitude` (required): Latitude coordinate (25.0 to 49.0)
 - `longitude` (required): Longitude coordinate (-125.0 to -67.0)
 - `radius` (required): Search radius in miles (max 80)
-- `status`: Service status filter (`active`, `inactive`, `defunct`, `temporarily closed`)
-- `service_type`: Type of service (`food_pantry`, `hot_meals`, `mobile_pantry`, etc.)
-- `languages`: Language support filter (comma-separated language codes)
-- `accessibility`: Accessibility features filter
-- `page`: Page number for pagination (default: 1)
-- `per_page`: Results per page (default: 20, max: 100)
+- `limit`: Maximum results to return (default: 20, max: 100)
+- `offset`: Number of results to skip for pagination (default: 0)
 
-### Bounding Box Search
+### Example with cURL
 
-Search within a geographic bounding box.
-
-```http
-GET /services?bounds[north]=40.8&bounds[south]=40.7&bounds[east]=-73.9&bounds[west]=-74.1
-```
-
-**Example cURL:**
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?bounds[north]=40.8&bounds[south]=40.7&bounds[east]=-73.9&bounds[west]=-74.1" \
+# Basic location search
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5" \
+  -H "Accept: application/json"
+
+# With pagination
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5&limit=10&offset=0" \
+  -H "Accept: application/json"
+
+# Using request correlation ID for tracking
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5" \
   -H "Accept: application/json" \
-  -H "User-Agent: MyApp/1.0"
+  -H "X-Request-ID: my-request-123"
 ```
 
 ## Individual Resource Endpoints
@@ -172,7 +144,7 @@ GET /organizations/{id}
 
 **Example:**
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/organizations/org-example-001" \
+curl -X GET "http://localhost:8000/api/v1/organizations/550e8400-e29b-41d4-a716-446655440001" \
   -H "Accept: application/json"
 ```
 
@@ -201,11 +173,9 @@ GET /services/{id}
 
 **Example:**
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services/svc-example-001" \
+curl -X GET "http://localhost:8000/api/v1/services/550e8400-e29b-41d4-a716-446655440002" \
   -H "Accept: application/json"
 ```
-
-See [service_detail.json](../examples/api_responses/service_detail.json) for a complete example response.
 
 ### Get Location Details
 
@@ -215,7 +185,7 @@ GET /locations/{id}
 
 **Example:**
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/locations/loc-example-001" \
+curl -X GET "http://localhost:8000/api/v1/locations/550e8400-e29b-41d4-a716-446655440000" \
   -H "Accept: application/json"
 ```
 
@@ -235,7 +205,7 @@ GET /organizations
 
 **Example:**
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/organizations?page=1&per_page=10&sort=name&order=asc" \
+curl -X GET "http://localhost:8000/api/v1/organizations?limit=10&offset=0" \
   -H "Accept: application/json"
 ```
 
@@ -253,7 +223,7 @@ GET /services
 
 **Example:**
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?status=active&page=1&per_page=20" \
+curl -X GET "http://localhost:8000/api/v1/services?limit=20&offset=0" \
   -H "Accept: application/json"
 ```
 
@@ -271,29 +241,64 @@ GET /locations
 
 ## Health and Status Endpoints
 
-### Health Check
+### Health Checks
 
+#### Main Health Check
 ```http
-GET /health
+GET /api/v1/health
 ```
 
-**Example Response:**
+**Example:**
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+**Response:**
 ```json
 {
   "status": "healthy",
   "version": "1.0.0",
-  "uptime": 86400,
-  "timestamp": "2024-01-15T15:30:00Z"
+  "correlation_id": "req-12345678-abcd-efgh-ijkl-123456789012"
+}
+```
+
+#### LLM Health Check
+```http
+GET /api/v1/health/llm
+```
+
+**Example:**
+```bash
+curl http://localhost:8000/api/v1/health/llm
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "provider": "openai",
+  "model": "gpt-4",
+  "correlation_id": "req-12345678-abcd-efgh-ijkl-123456789012"
 }
 ```
 
 ### System Metrics
 
 ```http
-GET /metrics
+GET /api/v1/metrics
 ```
 
-Returns Prometheus-formatted metrics for monitoring.
+**Example:**
+```bash
+curl http://localhost:8000/api/v1/metrics
+```
+
+Returns Prometheus-formatted metrics for monitoring:
+```
+# HELP http_requests_total Total HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",endpoint="/api/v1/locations",status="200"} 1234
+```
 
 ## Error Handling
 
@@ -327,73 +332,134 @@ See [error_responses.json](../examples/api_responses/error_responses.json) for c
 
 ## Pagination
 
-All list endpoints support pagination:
+All list endpoints support pagination using limit and offset:
 
 ```json
 {
-  "pagination": {
-    "page": 1,
-    "per_page": 20,
-    "total": 150,
-    "total_pages": 8
-  }
+  "locations": [...],
+  "total": 150,
+  "limit": 20,
+  "offset": 0
 }
 ```
 
 **Navigation:**
-- Use `page` parameter to navigate between pages
-- Check `total_pages` to determine the last page
-- Use `per_page` to control page size (max 100)
+- Use `limit` to control page size (max 100)
+- Use `offset` to skip results for pagination
+- Calculate pages: `page = (offset / limit) + 1`
+- Get next page: `offset = offset + limit`
 
-## Response Metadata
+## Response Headers
 
-All responses include metadata:
+All responses include useful headers:
 
-```json
-{
-  "metadata": {
-    "timestamp": "2024-01-15T15:30:00Z",
-    "query_time": 0.089,
-    "api_version": "v1",
-    "total_results": 42
+```http
+Content-Type: application/json
+X-Request-ID: req-12345678-abcd-efgh-ijkl-123456789012
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 99
+X-RateLimit-Reset: 1640995200
+```
+
+## Code Examples
+
+### Python Example
+
+```python
+import requests
+
+# Search for locations
+response = requests.get(
+    "http://localhost:8000/api/v1/locations",
+    params={
+        "latitude": 40.7128,
+        "longitude": -74.0060,
+        "radius": 5,
+        "limit": 20
+    }
+)
+
+if response.status_code == 200:
+    data = response.json()
+    print(f"Found {data['total']} locations")
+    
+    for location in data['locations']:
+        print(f"- {location['name']}")
+        print(f"  {location['address_1']}, {location['city']}, {location['state_province']}")
+else:
+    print(f"Error: {response.status_code}")
+```
+
+### JavaScript Example
+
+```javascript
+// Search for locations using fetch
+async function searchLocations(latitude, longitude, radius) {
+  const params = new URLSearchParams({
+    latitude,
+    longitude,
+    radius,
+    limit: 20
+  });
+  
+  try {
+    const response = await fetch(
+      `http://localhost:8000/api/v1/locations?${params}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log(`Found ${data.total} locations`);
+    return data.locations;
+  } catch (error) {
+    console.error('Error:', error);
+    return [];
   }
 }
+
+// Usage
+searchLocations(40.7128, -74.0060, 5)
+  .then(locations => {
+    locations.forEach(location => {
+      console.log(`- ${location.name}`);
+    });
+  });
 ```
 
 ## Common Use Cases
 
-### Find Food Pantries Near a Location
+### Find Food Service Locations Near Me
 
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=2&service_type=food_pantry&status=active" \
+# Search within 5 miles of a location
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5" \
   -H "Accept: application/json"
 ```
 
-### Find Services Open Right Now
+### Get All Organizations
 
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=5&open_now=true" \
+# List organizations with pagination
+curl -X GET "http://localhost:8000/api/v1/organizations?limit=20&offset=0" \
   -H "Accept: application/json"
 ```
 
-### Find Mobile Food Pantries
+### Get All Services
 
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=10&service_type=mobile_pantry" \
+# List services with pagination
+curl -X GET "http://localhost:8000/api/v1/services?limit=20&offset=0" \
   -H "Accept: application/json"
 ```
 
-### Find Services with Spanish Support
+### Get Service-at-Location Relationships
 
 ```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=5&languages=es" \
-  -H "Accept: application/json"
-```
-
-### Get All Services for an Organization
-
-```bash
-curl -X GET "https://api.pantrypirate.org/v1/services?organization_id=org-example-001" \
+# List service-at-location mappings
+curl -X GET "http://localhost:8000/api/v1/service-at-location?limit=20&offset=0" \
   -H "Accept: application/json"
 ```
 
@@ -412,15 +478,32 @@ curl -X GET "https://api.pantrypirate.org/v1/services?organization_id=org-exampl
 4. **Filter Early**: Apply filters to reduce response size
 5. **Request Only Needed Fields**: Use field selection when available
 
+## Testing with Bouy
+
+```bash
+# Run API tests
+./bouy test --pytest tests/test_api_integration_simple.py
+
+# Check API logs
+./bouy logs app
+
+# Access API shell for debugging
+./bouy shell app
+
+# Test endpoints from within container
+./bouy exec app curl http://localhost:8000/api/v1/health
+```
+
 ## Support
 
-For API support, please:
-1. Check the [troubleshooting guide](../TROUBLESHOOTING.md)
-2. Review the [API documentation](./api.md)
-3. Submit issues to the [GitHub repository](https://github.com/example/pantry-pirate-radio/issues)
+For API support:
+1. Check the [API documentation](./api.md)
+2. Review the [HAARRRvest Quick Start](./haarrvest-quickstart.md)
+3. Submit issues to the [GitHub repository](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)
 
 ## Next Steps
 
-- [Quick Start Guide](./quickstart.md) - Get started with the API
-- [Integration Examples](../examples/integrations/) - See language-specific examples
-- [Sample Data](../examples/sample_data/) - Explore example HSDS data
+1. **Explore Interactive Documentation**: Visit `http://localhost:8000/docs` for Swagger UI
+2. **Generate Data**: Run scrapers with `./bouy scraper --list` and `./bouy scraper [name]`
+3. **Access Published Data**: View data at GitHub Pages after HAARRRvest publishes
+4. **Monitor API**: Check metrics at `http://localhost:8000/api/v1/metrics`

@@ -1,6 +1,6 @@
 # GitHub Security Settings for Public Repository
 
-This document outlines the critical security settings that must be configured in GitHub's UI before making this repository public.
+This document outlines the critical security settings that must be configured in GitHub's UI before making this repository public. These settings work in conjunction with the GitHub Actions workflows defined in `.github/workflows/`.
 
 ## 1. Repository Settings
 
@@ -35,12 +35,16 @@ Navigate to Settings → Branches → Add rule for `main`:
 ### Status checks
 - [ ] **Require status checks to pass before merging**
   - [ ] Require branches to be up to date before merging
-  - Required status checks:
+  - Required status checks (from CI workflow):
     - `formatting-and-linting`
     - `mypy`
     - `pytest`
     - `bandit`
     - `safety`
+    - `pip-audit`
+    - `vulture`
+    - `xenon`
+    - `bouy-tests`
 
 ### Conversation resolution
 - [ ] **Require conversation resolution before merging**
@@ -62,8 +66,8 @@ Navigate to Settings → Actions → General:
     ```
     actions/*
     docker/*
-    anthropics/claude-code-action@*
-    softprops/action-gh-release@*
+    anthropics/claude-code-action@beta
+    softprops/action-gh-release@v1
     ```
 
 ### Workflow permissions
@@ -79,8 +83,8 @@ Navigate to Settings → Secrets and variables → Actions:
 
 ### Repository Secrets
 Create these secrets:
-- [ ] `CLAUDE_CODE_OAUTH_TOKEN` - For Claude AI workflows
-- [ ] `OPENROUTER_API_KEY` - For LLM operations (if needed)
+- [ ] `CLAUDE_CODE_OAUTH_TOKEN` - For Claude AI workflows (obtained from Claude Code GitHub integration)
+- [ ] `OPENROUTER_API_KEY` - For LLM operations in CI tests (optional)
 
 ### Environments
 Create these environments with protection rules:
@@ -88,14 +92,16 @@ Create these environments with protection rules:
 #### `production` environment
 - **Required reviewers**: For-The-Greater-Good
 - **Deployment branches**: Only selected branches → main
+- **Used by**: CD workflow for Docker image deployment
 - Secrets:
-  - `CLAUDE_CODE_OAUTH_TOKEN`
-  - `OPENROUTER_API_KEY`
+  - `CLAUDE_CODE_OAUTH_TOKEN` (for Claude workflows)
+  - Any production deployment secrets
 
 #### `ci` environment
 - **Deployment branches**: All branches
+- **Used by**: CI workflow pytest job
 - Secrets:
-  - `OPENROUTER_API_KEY` (if needed for tests)
+  - `OPENROUTER_API_KEY` (optional for LLM tests)
 
 ## 5. Security Features
 
@@ -127,13 +133,34 @@ Navigate to Settings → Deploy keys:
 - Remove unused keys
 - Ensure keys have appropriate read/write permissions
 
-## 8. Additional Recommendations
+## 8. Integration with Bouy
+
+### Local Testing Before Deployment
+Use bouy commands to verify your setup:
+```bash
+# Test all CI checks locally
+./bouy test
+
+# Individual test categories
+./bouy test --pytest    # Run tests
+./bouy test --mypy      # Type checking
+./bouy test --black     # Formatting
+./bouy test --ruff      # Linting
+./bouy test --bandit    # Security
+./bouy test --vulture   # Dead code
+./bouy test --safety    # Dependencies
+./bouy test --pip-audit # Vulnerability scan
+./bouy test --xenon     # Complexity
+```
+
+## 9. Additional Recommendations
 
 ### Before Going Public
-1. **Audit commit history**: Ensure no secrets in history (you mentioned using BFG)
+1. **Audit commit history**: Ensure no secrets in history
 2. **Review all branches**: Delete unnecessary branches
 3. **Check releases**: Remove any pre-release versions with issues
 4. **Review GitHub Apps**: Remove unnecessary integrations
+5. **Test workflows**: Run `./bouy test` locally to ensure CI will pass
 
 ### After Going Public
 1. **Monitor security alerts**: Check weekly
@@ -155,9 +182,13 @@ After applying all settings, verify:
 1. [ ] Try to push directly to main (should fail)
 2. [ ] Create a PR without CI passing (should not allow merge)
 3. [ ] Try to modify workflows as external contributor (should require approval)
-4. [ ] Attempt to trigger Claude workflows from fork (should fail)
+4. [ ] Attempt to trigger Claude workflows from fork (should fail due to owner restrictions)
 5. [ ] Check that secrets are not exposed in logs
 6. [ ] Verify CODEOWNERS is enforced
+7. [ ] Run `./bouy test` locally to ensure CI checks work
+8. [ ] Verify CD workflow triggers on main branch push
+9. [ ] Check Docker images are published to `ghcr.io`
+10. [ ] Confirm environments (`ci` and `production`) are properly configured
 
 ## Emergency Response
 

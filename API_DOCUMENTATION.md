@@ -1,8 +1,56 @@
 # Pantry Pirate Radio API Documentation
 
+> **📖 Note**: This is the complete API reference. For the full project documentation including architecture, scrapers, deployment, and more, see the **[Documentation Hub](docs/INDEX.md)**.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Getting Started](#getting-started)
+- [Base URL](#base-url)
+- [Authentication](#authentication)
+- [Rate Limiting](#rate-limiting)
+- [Response Format](#response-format)
+- [Geographic Search Features](#geographic-search-features)
+- [Endpoints](#endpoints)
+  - [Organizations](#organizations)
+  - [Locations](#locations)
+  - [Services](#services)
+  - [Service-at-Location](#service-at-location)
+- [Common Use Cases](#common-use-cases)
+- [Error Handling](#error-handling)
+- [Data Standards](#data-standards)
+- [Geographic Coverage](#geographic-coverage)
+- [Performance Considerations](#performance-considerations)
+- [CORS Configuration](#cors-configuration)
+- [Security Headers](#security-headers)
+- [Request Tracking](#request-tracking)
+- [Health Check Endpoints](#health-check-endpoints)
+- [Metrics Endpoint](#metrics-endpoint)
+- [OpenAPI Documentation](#openapi-documentation)
+- [Support](#support)
+
 ## Overview
 
 The Pantry Pirate Radio API provides **read-only access** to food security resources using the Human Services Data Specification (HSDS) v3.1.1. This API serves pantry locations, services, and organizations across the continental United States with safe, non-destructive data exploration capabilities.
+
+## Getting Started
+
+### Starting the API Server
+
+Use the bouy command to start the API and all required services:
+
+```bash
+# Start all services (development mode)
+./bouy up
+
+# Start in production mode
+./bouy up --prod
+
+# Check service status
+./bouy ps
+```
+
+Once started, the API will be available at `http://localhost:8000/api/v1`.
 
 ## Base URL
 
@@ -245,7 +293,7 @@ GET /api/v1/services/active
 - `per_page` (int): Items per page (default: 25, max: 100)
 - `include_locations` (bool): Include location details in response
 
-**Note:** This is a convenience endpoint that internally calls the list services endpoint with `status=active`.
+**Note:** This is a convenience endpoint that internally calls the list services endpoint with `status=active`. This endpoint must be defined before the `/{service_id}` endpoint to avoid route conflicts.
 
 #### Search Services
 ```
@@ -452,8 +500,10 @@ The application includes a unified geocoding service for address resolution:
 - Geographic searches are optimized with PostGIS spatial indexes
 - Pagination is enforced with a maximum of 100 items per page
 - Distance calculations use efficient PostGIS ST_Distance functions
-- Database queries use connection pooling with configurable limits
+- Database queries use async SQLAlchemy for non-blocking operations
+- Connection pooling with configurable limits for database efficiency
 - All endpoints include correlation IDs for request tracing
+- Query optimization with selective eager loading of relationships
 
 ## CORS Configuration
 
@@ -482,8 +532,10 @@ Every API request is assigned a unique correlation ID that:
 
 For API support, please:
 1. Check this documentation
-2. Review the OpenAPI specification at `/docs`
-3. Report issues on GitHub
+2. Review the interactive OpenAPI specification at `http://localhost:8000/docs`
+3. Test endpoints directly using the Swagger UI
+4. Report issues on [GitHub](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)
+5. Consult the [Bouy Command Reference](BOUY.md) for Docker fleet management
 
 ## Health Check Endpoints
 
@@ -567,6 +619,20 @@ Exposes Prometheus metrics for monitoring. Returns metrics in Prometheus text fo
 ## OpenAPI Documentation
 
 Interactive API documentation is available at:
-- Swagger UI: `/docs`
-- ReDoc: `/redoc`
-- OpenAPI JSON: `/openapi.json`
+- **Swagger UI**: `http://localhost:8000/docs` - Interactive API exploration with try-it-out features
+- **ReDoc**: `http://localhost:8000/redoc` - Alternative documentation interface with better readability
+- **OpenAPI JSON**: `http://localhost:8000/openapi.json` - Machine-readable API specification
+
+The Swagger UI provides an interactive interface where you can:
+- Browse all available endpoints
+- View request/response schemas
+- Test endpoints directly from the browser
+- Download the OpenAPI specification
+
+## Related Documentation
+
+- **[Documentation Hub](docs/INDEX.md)** - Complete project documentation index
+- **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[API Examples](docs/api-examples.md)** - Practical usage examples
+- **[HSDS Specification](docs/hsds_index.md)** - Human Services Data Specification details
+- **[Bouy Commands](BOUY.md)** - Docker fleet management for running the API

@@ -4,38 +4,44 @@ This guide covers setting up and using the Docker-based development environment 
 
 ## Overview
 
-The development environment uses Docker Compose with multiple configuration files:
-- `docker-compose.yml` - Base services configuration
+The development environment uses a unified Docker image architecture with intelligent service routing. Configuration is managed through Docker Compose files located in `.docker/compose/`:
+- `base.yml` - Core services configuration (all modes)
 - `docker-compose.dev.yml` - Development-specific overrides
-- `docker-compose.with-init.yml` - Database initialization configuration
+- `docker-compose.prod.yml` - Production configuration
+- `docker-compose.test.yml` - Test environment settings
+- `docker-compose.with-init.yml` - Database initialization with data
 
 ## Quick Start
 
-### Using bouy Helper (Recommended)
+### Using bouy Commands (Recommended)
 
 ```bash
-# Start development services (empty database)
-./bouy up --dev
+# Initial setup wizard (first time only)
+./bouy setup                 # Interactive configuration
 
-# Start with pre-populated data from HAARRRvest
-./bouy up --dev --with-init
+# Start development services
+./bouy up                    # Default dev mode, empty database
+./bouy up --dev             # Explicit dev mode
+./bouy up --with-init       # Dev mode with populated database
 
-# View logs
-./bouy logs app
-
-# Stop services
-./bouy down
+# Service management
+./bouy logs app             # View specific service logs
+./bouy ps                   # Check service status
+./bouy down                 # Stop all services
+./bouy clean                # Stop and remove all volumes
 ```
 
-### Alternative: Understanding the Underlying Commands
+### Understanding Bouy's Architecture
 
-While bouy is the recommended approach, it's helpful to understand what it does behind the scenes:
+The bouy script provides intelligent orchestration:
 
-- `./bouy up` runs the appropriate docker compose configuration
-- `./bouy logs` follows service logs
-- `./bouy down` stops all services
+1. **Automatic Image Building**: Checks if unified image exists, builds if needed
+2. **Compose File Management**: Selects appropriate compose files based on mode
+3. **Environment Loading**: Automatically exports `.env` variables
+4. **Output Modes**: Supports normal, programmatic, quiet, and JSON output
+5. **Safety Checks**: Validates Docker availability and configuration
 
-Always use bouy for consistency and additional safety checks.
+Bouy translates high-level commands into proper Docker Compose operations with the correct file combinations and environment settings.
 
 ### Development with Pre-populated Data
 
@@ -48,10 +54,7 @@ To start with ~90 days of historical data from HAARRRvest:
 # Monitor initialization progress
 ./bouy logs db-init
 
-# The bouy command handles all the complexity for you
-# It automatically uses the correct compose files and profiles
-
-# Monitor initialization progress (takes 5-15 minutes)
+# Monitor initialization progress (now <5 minutes with SQL dumps)
 ./bouy logs db-init
 
 # Check service status
@@ -76,29 +79,84 @@ The recommended development approach uses VSCode DevContainers:
 
 ## Service Architecture
 
-### Unified Docker Image
+### Unified Docker Image Architecture
 
-Pantry Pirate Radio now uses a **single unified Docker image** for all application services. This architecture:
-- Reduces build time and complexity
-- Improves cache efficiency
-- Simplifies CI/CD pipelines
-- Uses `SERVICE_TYPE` environment variable to select service behavior
+Pantry Pirate Radio uses a **single unified Docker image** (`pantry-pirate-radio:latest`) for all Python services:
+
+**Benefits**:
+- **Build Efficiency**: Single 5-minute build vs 35+ minutes for separate images
+- **Cache Optimization**: 80% reduction in disk usage through shared layers
+- **Simplified CI/CD**: One build artifact for all services
+- **Consistent Dependencies**: Identical Python environment across services
+- **Easy Updates**: All services updated with one image rebuild
+
+**Service Selection**:
+The `docker-entrypoint.sh` script routes to the appropriate service based on:
+1. Command argument (e.g., `["app"]`, `["worker"]`)
+2. `SERVICE_TYPE` environment variable
+3. Direct command execution for unrecognized services
 
 ### Core Services
 
-- **app**: FastAPI application (development mode with hot reload)
-- **worker**: LLM processing workers (same image as app, SERVICE_TYPE=worker)
-- **recorder**: Job archival service (same image as app, SERVICE_TYPE=recorder)
-- **reconciler**: Data consistency service (same image as app, SERVICE_TYPE=reconciler)
-- **haarrrvest-publisher**: Data publishing service (same image as app, SERVICE_TYPE=haarrrvest-publisher)
-- **db**: PostgreSQL with PostGIS extensions
-- **cache**: Redis for job queuing
-- **db-backup**: Automated database backups
+#### Application Services (Unified Image)
+- **app**: FastAPI application
+  - Port: 8000
+  - Command: `["app"]` → Uvicorn server
+  - Dev mode: Hot reload enabled via volume mount
+  
+- **worker**: LLM processing workers
+  - Ports: 8080-8089 (health endpoints)
+  - Command: `["worker"]` → RQ worker(s)
+  - Scaling: `WORKER_COUNT` for vertical, Docker scale for horizontal
+  - Claude integration for LLM queue
+  
+- **recorder**: Job archival service
+  - Command: `["recorder"]` → RQ worker on recorder queue
+  - Volumes: Includes `/app/archives` for backups
+  
+- **reconciler**: Data consistency service
+  - Command: `["reconciler"]` → RQ worker on reconciler queue
+  
+- **scraper**: Data collection service
+  - Command: `["scraper"]`
+  - Features: Playwright/Chromium for web scraping
+  
+- **haarrrvest-publisher**: Data publishing service
+  - Command: `["publisher"]`
+  - Manages Git repository and SQLite generation
 
-### Optional Services (with --profile with-init)
+#### Infrastructure Services
+- **db**: PostgreSQL 15 with PostGIS 3.3
+  - Port: 5432
+  - Health check: `pg_isready`
+  
+- **cache**: Redis 7 Alpine
+  - Port: 6379
+  - Persistence: `redis_data` volume
+  
 
-- **db-init**: Populates database from HAARRRvest data
-- **datasette**: Interactive data viewer (separate specialized image)
+### Optional Services
+
+#### Database Initialization (--with-init flag)
+- **db-init**: Populates database from SQL dumps
+  - Profile: `with-init` (only runs when specified)
+  - Process: Restores latest SQL dump from HAARRRvest
+  - Duration: <5 minutes for full database
+  - Fallback: Empty database if no dumps available
+
+#### Data Visualization
+- **datasette**: Interactive SQLite browser
+  - Port: 8001
+  - Specialized image with Datasette installed
+  - Waits for HAARRRvest publisher to generate SQLite
+  
+- **rq-dashboard**: Job queue monitor
+  - Port: 9181
+  - Uses unified image with `["rq-dashboard"]` command
+  
+- **content-store-dashboard**: Content management UI
+  - Port: 5050
+  - Uses unified image with `["dashboard"]` command
 
 ## Development Workflow
 
@@ -108,11 +166,20 @@ Pantry Pirate Radio now uses a **single unified Docker image** for all applicati
 # Connect to database
 ./bouy exec db psql -U postgres -d pantry_pirate_radio
 
-# Run migrations
+# Run migrations (if needed)
 ./bouy exec app alembic upgrade head
 
-# Create backup
-./bouy exec db-backup /backup.sh
+# Check database status
+./bouy exec db pg_isready
+
+# View table counts
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
+
+# Manual backup
+./bouy exec db pg_dump -U postgres pantry_pirate_radio > backup.sql
+
+# Restore from backup
+./bouy exec db psql -U postgres -d pantry_pirate_radio < backup.sql
 ```
 
 ### 2. Running Tests
@@ -126,38 +193,63 @@ Pantry Pirate Radio now uses a **single unified Docker image** for all applicati
 ./bouy test --ruff            # Run linter
 ./bouy test --bandit          # Security scan
 
-# Run specific test files directly
+# Run specific test files
 ./bouy test --pytest tests/test_api.py
 ./bouy test --pytest tests/test_api.py::TestAPI::test_get_organizations
-./bouy test --pytest -- --cov
+
+# Pass additional arguments
+./bouy test --pytest -- -v              # Verbose output
+./bouy test --pytest -- -x              # Stop on first failure
+./bouy test --pytest -- --pdb           # Drop to debugger on failure
+./bouy test --pytest -- -k test_name    # Run tests matching pattern
 ```
 
 ### 3. Code Quality
 
 ```bash
-# Using bouy (updates local files)
-./bouy test --black           # Format code
-./bouy test --ruff            # Run linter
-./bouy test --mypy            # Type checking
+# Code formatting (modifies files)
+./bouy test --black           # Auto-format all code
+./bouy test --black app/      # Format specific directory
 
-# These commands automatically update your local files
-# The test container has your code mounted, so changes are reflected locally
+# Linting and analysis
+./bouy test --ruff            # Fast Python linter
+./bouy test --mypy            # Static type checking
+./bouy test --bandit          # Security vulnerability scan
+./bouy test --vulture         # Find dead code
+./bouy test --xenon           # Check code complexity
+
+# Dependency security
+./bouy test --safety          # Check for known vulnerabilities
+./bouy test --pip-audit       # Audit pip packages
+
+# Coverage analysis
+./bouy test --pytest          # Generates coverage reports
+./bouy test --coverage        # Analyze existing coverage
+open htmlcov/index.html       # View HTML coverage report
 ```
 
 ### 4. Debugging
 
 ```bash
-# Using bouy
-./bouy logs app               # View service logs
-./bouy logs worker           # View worker logs
-./bouy shell app             # Shell access
+# View logs
+./bouy logs                   # All services
+./bouy logs app              # Specific service
+./bouy logs app worker       # Multiple services
+./bouy logs -f db-init       # Follow logs (real-time)
+
+# Interactive debugging
+./bouy shell app             # Bash shell in container
 ./bouy exec app python       # Python REPL
+./bouy exec app ipython      # IPython if installed
 
-# Follow logs for multiple services
-./bouy logs app worker
+# Debug service startup
+./bouy --verbose up          # Verbose output
+./bouy ps                    # Check service health
 
-# Get Python REPL in app container
-./bouy exec app python
+# Inspect container
+./bouy exec app env          # View environment variables
+./bouy exec app ls -la /app  # Check file structure
+./bouy exec app pip list     # View installed packages
 ```
 
 ### 5. Running Scrapers
@@ -180,50 +272,76 @@ Pantry Pirate Radio now uses a **single unified Docker image** for all applicati
 ### 6. Claude Authentication
 
 ```bash
-# Authenticate Claude (interactive)
-./bouy claude-auth
+# Interactive authentication
+./bouy claude-auth           # Full interactive flow
+./bouy claude-auth setup     # Setup authentication
+./bouy claude-auth status    # Check current status
+./bouy claude-auth test      # Test Claude API
+./bouy claude-auth config    # Show configuration
 
-# Check status and manage auth
-./bouy exec worker python -m app.claude_auth_manager status
+# Manual authentication in container
 ./bouy exec worker python -m app.claude_auth_manager setup
+./bouy exec worker python -m app.claude_auth_manager status
 ./bouy exec worker python -m app.claude_auth_manager test
 
-# Health check endpoint
-curl http://localhost:8080/health
+# Health monitoring
+curl http://localhost:8080/health  # Worker health endpoint
+
+# View Claude logs
+./bouy logs worker | grep -i claude
 ```
 
 ## Environment Configuration
 
-### Development Defaults
+### Development Environment Variables
 
-The dev environment uses these defaults (override in `.env`):
+The development environment configuration (from `.docker/compose/docker-compose.dev.yml`):
 
 ```bash
-# Database
-POSTGRES_PASSWORD=defaultpassword
+# Database (defaults from .env or inline)
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pirate}
 POSTGRES_DB=pantry_pirate_radio
-DATABASE_URL=postgresql+asyncpg://postgres:defaultpassword@db:5432/pantry_pirate_radio
+DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-pirate}@db:5432/pantry_pirate_radio
 
 # Redis
-REDIS_URL=redis://cache:6379/0
+REDIS_URL=${REDIS_URL:-redis://cache:6379/0}
 
-# Development
+# Development flags
 DEBUG=1
-PYTHONPATH=/workspace
+PYTHONPATH=/app
+
+# Compose project name (for consistent networking)
+COMPOSE_PROJECT_NAME=pantry-pirate-radio
 ```
 
 ### Custom Configuration
 
-Create a `.env` file for custom settings:
+Use `./bouy setup` for interactive configuration or create `.env` manually:
 
 ```bash
+# Database
+POSTGRES_PASSWORD=pirate
+POSTGRES_USER=postgres
+POSTGRES_DB=pantry_pirate_radio
+
 # LLM Provider
-LLM_PROVIDER=claude
-ANTHROPIC_API_KEY=your_key_here
+LLM_PROVIDER=claude              # or 'openai'
+ANTHROPIC_API_KEY=your_key       # For Claude API
+OPENROUTER_API_KEY=your_key      # For OpenAI
 
 # HAARRRvest Repository
 DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
-DATA_REPO_TOKEN=your_github_token
+DATA_REPO_TOKEN=your_token       # Or 'skip' for read-only
+PUBLISHER_PUSH_ENABLED=false    # Set 'true' only in production
+
+# Worker Configuration
+WORKER_COUNT=2                   # Workers per container
+QUEUE_NAME=llm                  # Queue to process
+CLAUDE_HEALTH_SERVER=true       # Enable health checks
+
+# Development
+DEBUG=1
+PYTHONPATH=/app
 ```
 
 ## Common Tasks
@@ -260,17 +378,36 @@ DATA_REPO_TOKEN=your_github_token
 ### Updating Dependencies
 
 ```bash
-# Update dependencies in container
-./bouy exec app poetry update
-./bouy exec app poetry lock
+# Update dependencies
+./bouy exec app poetry update           # Update all packages
+./bouy exec app poetry add package      # Add new package
+./bouy exec app poetry remove package   # Remove package
+./bouy exec app poetry lock             # Update lock file
 
-# Rebuild unified image (rebuilds all Python services)
-./bouy build                  # Rebuild all services
-./bouy build app             # Rebuild unified image
-./bouy build --no-cache app  # Force rebuild without cache
+# Export updated dependencies to host
+./bouy exec app cat poetry.lock > poetry.lock
+./bouy exec app cat pyproject.toml > pyproject.toml
 
-# Note: Building 'app' rebuilds the unified image used by:
-# app, worker, recorder, reconciler, and haarrrvest-publisher
+# Rebuild services
+./bouy build                  # Build all services
+./bouy build app             # Build unified image only
+
+# Force rebuild without cache
+docker compose -f .docker/compose/base.yml build --no-cache app
+
+# The unified image is used by these services:
+# - app (FastAPI server)
+# - worker (LLM processing)
+# - recorder (job archival)
+# - reconciler (data consistency)
+# - scraper (data collection)
+# - haarrrvest-publisher (data publishing)
+# - rq-dashboard (monitoring)
+# - content-store-dashboard (content UI)
+# - db-init (database initialization)
+
+# Verify image
+docker images | grep pantry-pirate-radio
 ```
 
 ## CI/CD Integration
@@ -318,132 +455,367 @@ deploy:
 
 ## Troubleshooting
 
-### Container won't start
+### Container Won't Start
 
 ```bash
-# Check logs
-./bouy logs app
-
-# Check all service status
+# Check service status and health
 ./bouy ps
+./bouy ps | grep -E "(unhealthy|restarting)"
 
-# Verbose mode for debugging
+# View detailed logs
+./bouy logs app              # Specific service
+./bouy logs | tail -100      # Last 100 lines of all logs
+
+# Verbose startup for debugging
 ./bouy --verbose up
+
+# Check Docker resources
+docker system df             # Disk usage
+docker system prune -a       # Clean up (careful!)
+
+# Rebuild if image is corrupted
+./bouy build app
 ```
 
-### Database connection issues
+### Database Connection Issues
 
 ```bash
-# Verify database is running
+# Verify database is running and healthy
 ./bouy ps | grep db
 
-# Check database logs
-./bouy logs db
+# Check database logs for errors
+./bouy logs db | grep -E "(ERROR|FATAL)"
 
 # Test connection
-./bouy exec db pg_isready
+./bouy exec db pg_isready -U postgres -d pantry_pirate_radio
+
+# Check environment variables
+./bouy exec app env | grep -E "(POSTGRES|DATABASE_URL)"
+
+# Test connection from app container
+./bouy exec app python -c "from app.database import get_db_session; print('Connected!')"
+
+# Common fixes
+./bouy down              # Stop services
+./bouy up db cache       # Start just database and cache
+./bouy logs -f db        # Watch for startup completion
+./bouy up                # Start remaining services
 ```
 
-### Slow initialization
+### Slow Initialization
 
-The db-init process can take 5-30 minutes depending on:
-- Amount of historical data
-- System performance
-- Network speed for cloning HAARRRvest
+Modern initialization is much faster:
+- **SQL Dump Restore**: <5 minutes (default when available)
+- **Empty Database**: Instant (fallback if no dumps)
 
 Monitor progress:
 ```bash
-# Watch initialization logs
+# Watch initialization
 ./bouy logs -f db-init
 
-# Check database record count
-./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
+# Check HAARRRvest repository status
+./bouy logs haarrrvest-publisher | grep -E "(Cloning|Pulling|Ready)"
+
+# Verify SQL dumps exist
+./bouy exec haarrrvest-publisher ls -la /data-repo/sql_dumps/
+
+# Check database population
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "
+  SELECT 
+    schemaname,
+    tablename,
+    n_live_tup as row_count 
+  FROM pg_stat_user_tables 
+  ORDER BY n_live_tup DESC;"
+```
+
+### Claude Authentication Issues
+
+```bash
+# Check authentication status
+./bouy claude-auth status
+
+# View detailed Claude logs
+./bouy logs worker | grep -i claude
+
+# Manual authentication
+./bouy exec worker python -m app.claude_auth_manager setup
+
+# Verify Claude CLI installation
+./bouy exec worker which claude
+./bouy exec worker claude --version
+
+# Check environment
+./bouy exec worker env | grep -E "(LLM_PROVIDER|ANTHROPIC)"
 ```
 
 ## Unified Image Architecture
 
 ### How Service Selection Works
 
-The unified image uses an entrypoint script (`/scripts/docker-entrypoint.sh`) that:
-1. Reads the `SERVICE_TYPE` environment variable
-2. Launches the appropriate service command
-3. Handles graceful shutdown and signal forwarding
+The unified image's entrypoint (`/scripts/docker-entrypoint.sh`) routes services:
 
 ```bash
-# Example SERVICE_TYPE values:
-SERVICE_TYPE=api          # Runs FastAPI server
-SERVICE_TYPE=worker       # Runs LLM worker
-SERVICE_TYPE=recorder     # Runs job recorder
-SERVICE_TYPE=reconciler   # Runs data reconciler
-SERVICE_TYPE=haarrrvest-publisher  # Runs HAARRRvest publisher
+# Command-based routing (preferred)
+docker run pantry-pirate-radio:latest app         # FastAPI server
+docker run pantry-pirate-radio:latest worker      # RQ worker
+docker run pantry-pirate-radio:latest publisher   # HAARRRvest
+
+# SERVICE_TYPE environment variable (alternative)
+SERVICE_TYPE=app docker run pantry-pirate-radio:latest
+
+# Direct command execution (fallback)
+docker run pantry-pirate-radio:latest python script.py
 ```
+
+**Service Routing Map**:
+| Command | Service | Process |
+|---------|---------|----------|
+| `app`, `api`, `fastapi` | FastAPI | Uvicorn on port 8000 |
+| `worker`, `llm-worker` | LLM Worker | Claude-aware RQ worker |
+| `simple-worker` | Basic Worker | Standard RQ worker |
+| `recorder` | Recorder | RQ worker on recorder queue |
+| `reconciler` | Reconciler | RQ worker on reconciler queue |
+| `scraper` | Scraper | Python scraper module |
+| `publisher` | HAARRRvest | Publisher service |
+| `dashboard` | Content Store | Dashboard on port 5050 |
+| `rq-dashboard` | RQ Monitor | Dashboard on port 9181 |
+| `db-init` | DB Initialize | Init database script |
+| `test` | Test Runner | Pytest execution |
+| `shell`, `bash` | Interactive | Bash shell |
+| Other | Direct Exec | Executes command as-is |
 
 ### Benefits of Unified Image
 
-1. **Build Efficiency**: Single build for all Python services (~5 minutes vs ~35 minutes)
-2. **Cache Optimization**: Shared layers reduce disk usage by ~80%
-3. **Simplified CI/CD**: One build step instead of multiple
-4. **Consistent Dependencies**: All services use identical Python environment
-5. **Easy Updates**: Update all services with one image rebuild
+1. **Build Performance**: 
+   - Single 5-minute build vs 35+ minutes for separate images
+   - Parallel layer caching during build
+   - Incremental rebuilds with layer reuse
+
+2. **Storage Efficiency**:
+   - 80% reduction in disk usage
+   - Single base layer shared across all services
+   - Deduplication at Docker layer level
+
+3. **Operational Simplicity**:
+   - One image to build, test, and deploy
+   - Consistent Python environment everywhere
+   - Single dependency update point
+
+4. **Development Experience**:
+   - Faster container starts (image already cached)
+   - Consistent debugging environment
+   - Same tools available in all containers
+
+5. **CI/CD Benefits**:
+   - Single build artifact
+   - Faster pipeline execution
+   - Simplified versioning and tagging
 
 ## Performance Optimization
 
-### Resource Limits
+### Resource Management
 
-The dev environment sets resource limits to prevent system overload:
+```bash
+# Monitor resource usage
+docker stats --no-stream
 
-```yaml
-# worker service limits
-deploy:
-  resources:
-    limits:
-      memory: 2G
-      cpus: '2.0'
+# Check specific service
+docker stats pantry-pirate-radio_worker_1
+
+# Set resource limits (add to docker-compose override)
 ```
 
-Adjust in `docker-compose.dev.yml` if needed.
+```yaml
+# Example: .docker/compose/docker-compose.dev.yml
+services:
+  worker:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+```
 
 ### Volume Performance
 
-On macOS, use the `cached` consistency mode for better performance:
-
+#### macOS Optimization
 ```yaml
+# Use cached or delegated consistency
 volumes:
-  - .:/workspace:cached
+  - .:/app:cached           # Host changes may have delay
+  - .:/app:delegated       # Container performance priority
 ```
 
-## Fast SQL-based Initialization
+#### Linux Performance
+```yaml
+# Native performance, no special flags needed
+volumes:
+  - .:/app
+```
 
-The system now supports fast database initialization using SQL dumps:
-
-### How It Works
-
-1. **Automatic SQL Dumps**: HAARRRvest publisher creates daily compressed dumps
-2. **Smart Detection**: db-init checks for SQL dumps before falling back to JSON
-3. **Fast Restore**: <5 minutes vs 30+ minutes for JSON replay
-4. **Compression**: Dumps are ~10% of original database size
-
-### Manual SQL Dump Creation
-
+#### Windows (WSL2)
 ```bash
-# Create a SQL dump from current database
-./bouy exec app bash /app/scripts/create-sql-dump.sh
+# Store code in WSL2 filesystem for best performance
+# Avoid mounting from Windows filesystem
+cd ~/projects/pantry-pirate-radio
+./bouy up
+```
 
-# Dumps are saved to HAARRRvest/sql_dumps/
-# Latest dump is symlinked as latest.sql.gz
+## Database Initialization Methods
+
+### Fast SQL-based Initialization (Default)
+
+The system uses compressed SQL dumps for rapid database population:
+
+#### Automatic Process
+1. **Daily Dumps**: HAARRRvest publisher creates compressed SQL dumps
+2. **Smart Detection**: db-init checks `/data-repo/sql_dumps/` for dumps
+3. **Fast Restore**: <5 minutes for complete database
+4. **Compression**: Dumps use gzip (~90% size reduction)
+
+#### Manual Operations
+```bash
+# Create SQL dump manually
+./bouy exec db pg_dump -U postgres pantry_pirate_radio | gzip > dump.sql.gz
+
+# Restore from dump
+gunzip -c dump.sql.gz | ./bouy exec db psql -U postgres -d pantry_pirate_radio
+
+# View available dumps
+./bouy exec haarrrvest-publisher ls -lh /data-repo/sql_dumps/
 ```
 
 ### Performance Comparison
 
-| Method | Time | Use Case |
-|--------|------|----------|
-| SQL Dump | <5 minutes | Default when dumps available |
-| Empty Database | Instant | When no dumps available |
+| Method | Time | Storage | Use Case |
+|--------|------|---------|----------|
+| SQL Dump Restore | <5 min | ~50MB compressed | Production, development |
+| Empty Database | Instant | 0 | Testing, CI/CD |
+| JSON Replay | Removed | - | Use replay tool if needed |
 
-**Note**: JSON replay functionality has been removed from db-init for consistency. To populate from JSON files, use the replay tool directly.
+### Controlling Initialization
+
+```bash
+# Skip initialization entirely
+SKIP_DB_INIT=true ./bouy up --with-init
+
+# CI/CD mode (auto-skips)
+CI=true ./bouy up --with-init
+
+# Force empty database
+rm -rf volumes/haarrrvest_repo/sql_dumps/
+./bouy up --with-init
+```
+
+## Docker Networking
+
+### Service Discovery
+
+Services communicate using container names on the internal network:
+
+```python
+# Example: Connecting from app to database
+DATABASE_URL = "postgresql://postgres:password@db:5432/pantry_pirate_radio"
+REDIS_URL = "redis://cache:6379/0"
+```
+
+### Port Mappings
+
+| Service | Internal | External | Purpose |
+|---------|----------|----------|----------|
+| app | 8000 | 8000 | FastAPI application |
+| db | 5432 | 5432 | PostgreSQL database |
+| cache | 6379 | 6379 | Redis cache |
+| worker | 8080 | 8080-8089 | Health endpoints |
+| rq-dashboard | 9181 | 9181 | Queue monitoring |
+| datasette | 8001 | 8001 | Data viewer |
+| content-store-dashboard | 5050 | 5050 | Content UI |
+
+### Custom Networks
+
+```yaml
+# Create isolated network for services
+networks:
+  backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+```
+
+## Security Considerations
+
+### Development Security
+
+```bash
+# Use .env for sensitive data
+echo '.env' >> .gitignore
+
+# Rotate credentials regularly
+./bouy setup  # Generate new passwords
+
+# Limit port exposure in production
+# Edit .docker/compose/docker-compose.prod.yml
+```
+
+### Production Hardening
+
+1. **Database Security**:
+   - Change default passwords
+   - Use SSL/TLS connections
+   - Limit network exposure
+
+2. **API Security**:
+   - Enable CORS properly
+   - Use HTTPS in production
+   - Implement rate limiting
+
+3. **Container Security**:
+   - Run as non-root user
+   - Use read-only filesystems where possible
+   - Scan images for vulnerabilities
+
+## Advanced Topics
+
+### Custom Service Development
+
+1. **Add new service to unified image**:
+   ```python
+   # Edit docker-entrypoint.sh
+   case "$SERVICE" in
+       my-service)
+           echo "Starting my service..."
+           exec python -m app.my_service
+           ;;
+   ```
+
+2. **Create compose overlay**:
+   ```yaml
+   # .docker/compose/docker-compose.my-service.yml
+   services:
+     my-service:
+       image: pantry-pirate-radio:latest
+       command: ["my-service"]
+       depends_on:
+         db:
+           condition: service_healthy
+   ```
+
+3. **Update bouy script**:
+   ```bash
+   # Add to bouy command handling
+   my-service)
+       ./bouy up my-service
+       ;;
+   ```
 
 ## Next Steps
 
-- See [Docker Quick Start](docker-quickstart.md) for production setup
-- Read [Multi-Worker Support](multi-worker-support.md) for scaling
-- Check [Troubleshooting](troubleshooting.md) for common issues
+- [Docker Startup Sequence](docker-startup-sequence.md) - Detailed startup flow
+- [Multi-Worker Support](multi-worker-support.md) - Scaling workers
+- [Codespaces Setup](codespaces-setup.md) - Cloud development
+- [Architecture](architecture.md) - System design
