@@ -1,6 +1,7 @@
 
 services:
   app:
+    image: pantry-pirate-radio:latest
     build:
       context: ../..
       dockerfile: .docker/images/app/Dockerfile
@@ -23,10 +24,7 @@ services:
         condition: service_started
 
   worker:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
@@ -48,10 +46,7 @@ services:
 
 
   recorder:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["recorder"]
     env_file: ../../.env
     environment:
@@ -72,10 +67,7 @@ services:
       - claude_config:/root/.config/claude
 
   scraper:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["scraper"]
     env_file: ../../.env
     # All environment variables are loaded from .env file
@@ -92,10 +84,7 @@ services:
       - claude_config:/root/.config/claude
 
   reconciler:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["reconciler"]
     env_file: ../../.env
     # All environment variables are loaded from .env file
@@ -111,10 +100,7 @@ services:
         condition: service_started
 
   haarrrvest-publisher:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["publisher"]
     env_file: ../../.env
     environment:
@@ -157,10 +143,7 @@ services:
       retries: 5
 
   db-init:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["db-init"]
     env_file: ../../.env
     environment:
@@ -200,10 +183,7 @@ services:
       - redis_data:/data
 
   rq-dashboard:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["rq-dashboard"]
     ports:
       - "9181:9181"
@@ -213,10 +193,7 @@ services:
       - cache
 
   content-store-dashboard:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: unified
+    image: pantry-pirate-radio:latest
     command: ["dashboard"]
     ports:
       - "5050:5050"

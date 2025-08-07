@@ -659,6 +659,17 @@ case "$1" in
             esac
         done
 
+        # Build the unified image first if app service needs building
+        if [ -z "$services" ] || echo "$services" | grep -q "app"; then
+            output info "Building unified Docker image..."
+            if $COMPOSE_CMD $COMPOSE_FILES build app >/dev/null 2>&1; then
+                output success "Image built successfully"
+            else
+                output error "Failed to build image"
+                exit 1
+            fi
+        fi
+
         output info "Starting services..."
         # Check if --with-init was used
         if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
@@ -746,7 +757,14 @@ case "$1" in
                     ;;
             esac
         done
-        output info "Building services..."
+        # For unified image, we only need to build the app service
+        # Other services will use the same image
+        if [ -z "$services" ]; then
+            services="app"
+            output info "Building unified Docker image..."
+        else
+            output info "Building service: $services"
+        fi
         if $COMPOSE_CMD $COMPOSE_FILES build $services; then
             output success "Build complete"
         else
