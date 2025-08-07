@@ -102,13 +102,13 @@ async def test_pattern_enforcement_in_structured_output():
 
     # Prompt that should result in properly formatted data
     prompt = """Extract the following information from this text and ensure all formats are correct:
-    
+
     The Maryland Food Bank is located at 2200 Halethorpe Farms Road, Baltimore, Maryland 21227.
     Phone: (410) 737-8282
     Open Monday through Friday from 9am to 5pm.
     Today's date is January 15, 2024.
-    
-    Important: 
+
+    Important:
     - State must be 2-letter code (Maryland = MD)
     - ZIP code must be 5 digits
     - Country should be US
@@ -212,7 +212,7 @@ async def test_pattern_rejection_of_invalid_formats():
 
     # Prompt with full state name that should be converted to code
     prompt = """Convert this state to a 2-letter code: California
-    
+
     Remember: State codes must be exactly 2 uppercase letters (e.g., CA for California)"""
 
     response = await provider.generate(prompt, config=config)

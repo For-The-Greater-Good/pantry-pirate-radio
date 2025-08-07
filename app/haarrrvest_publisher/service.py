@@ -776,13 +776,20 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 # We have a previous high water mark
                 threshold = int(max_known_count * allow_percentage)
                 if current_count < threshold and not allow_empty_dump:
-                    logger.error(f"Database has only {current_count} records")
-                    logger.error(
-                        f"This is below {allow_percentage*100}% of maximum known count ({max_known_count})"
+                    self._safe_log(
+                        "error", f"Database has only {current_count} records"
                     )
-                    logger.error(f"Threshold: {threshold} records")
-                    logger.error("Refusing to create SQL dump to prevent data loss")
-                    logger.error("To override, set ALLOW_EMPTY_SQL_DUMP=true")
+                    self._safe_log(
+                        "error",
+                        f"This is below {allow_percentage*100}% of maximum known count ({max_known_count})",
+                    )
+                    self._safe_log("error", f"Threshold: {threshold} records")
+                    self._safe_log(
+                        "error", "Refusing to create SQL dump to prevent data loss"
+                    )
+                    self._safe_log(
+                        "error", "To override, set ALLOW_EMPTY_SQL_DUMP=true"
+                    )
                     raise Exception(
                         f"Database record count {current_count} below ratchet threshold {threshold} (90% of {max_known_count})"
                     )
@@ -795,18 +802,24 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                         sql_dumps_dir.glob("pantry_pirate_radio_*.sql")
                     )
                     if existing_dumps:
-                        logger.error(
-                            f"Database has only {current_count} records (minimum: {min_record_threshold})"
+                        self._safe_log(
+                            "error",
+                            f"Database has only {current_count} records (minimum: {min_record_threshold})",
                         )
-                        logger.error("Refusing to create SQL dump to prevent data loss")
-                        logger.error("To override, set ALLOW_EMPTY_SQL_DUMP=true")
+                        self._safe_log(
+                            "error", "Refusing to create SQL dump to prevent data loss"
+                        )
+                        self._safe_log(
+                            "error", "To override, set ALLOW_EMPTY_SQL_DUMP=true"
+                        )
                         raise Exception(
                             f"Database record count {current_count} below minimum threshold {min_record_threshold}"
                         )
                     else:
                         # First dump ever, allow it
-                        logger.warning(
-                            f"Creating initial dump with {current_count} records"
+                        self._safe_log(
+                            "warning",
+                            f"Creating initial dump with {current_count} records",
                         )
 
             # Update ratchet if current count is higher
@@ -874,13 +887,13 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 self._cleanup_old_dumps(sql_dumps_dir, keep_hours=24)
 
             else:
-                logger.error(f"pg_dump failed: {result.stderr}")
+                self._safe_log("error", f"pg_dump failed: {result.stderr}")
                 raise Exception(f"Failed to create SQL dump: {result.stderr}")
 
         except Exception as e:
-            logger.error(f"SQL dump export error: {e}")
+            self._safe_log("error", f"SQL dump export error: {e}")
             # Don't fail the entire pipeline if SQL dump fails
-            logger.warning("Continuing without SQL dump")
+            self._safe_log("warning", "Continuing without SQL dump")
 
     def _cleanup_old_dumps(self, sql_dumps_dir: Path, keep_hours: int = 24):
         """Remove SQL dumps older than keep_hours."""
@@ -903,8 +916,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                         logger.info(f"Removing old SQL dump: {dump_file.name}")
                         dump_file.unlink()
                 except ValueError:
-                    logger.warning(
-                        f"Could not parse timestamp from filename: {dump_file.name}"
+                    self._safe_log(
+                        "warning",
+                        f"Could not parse timestamp from filename: {dump_file.name}",
                     )
 
     def _sync_database_from_haarrrvest(self):
