@@ -202,7 +202,7 @@ services:
       context: ../..
       dockerfile: .docker/images/app/Dockerfile
       target: simple-worker
-    command: rq-dashboard -H cache
+    command: rq-dashboard -u redis://cache:6379
     ports:
       - "9181:9181"
     env_file: ../../.env
