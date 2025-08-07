@@ -1,20 +1,23 @@
 # FreshTrak/PantryTrak API Scraper
 
-This scraper pulls food pantry and agency data from the FreshTrak/PantryTrak public API using comprehensive search methods.
+## Overview
+
+This scraper pulls food pantry and agency data from the FreshTrak/PantryTrak public API using comprehensive search methods including both zip code and coordinate-based searches.
 
 ## Data Source
 
-- **Source**: FreshTrak/PantryTrak API
-- **URL**: https://pantry-finder-api.freshtrak.com
-- **API Endpoint**: `/api/agencies`
-- **Documentation**: Ruby on Jets API serving food pantry locations
+- **Organization**: FreshTrak/PantryTrak (Mid-Ohio Food Collective)
+- **Website**: https://freshtrak.com/
+- **API Type**: REST API (Ruby on Jets)
+- **API Endpoint(s)**: 
+  - Primary: `https://pantry-finder-api.freshtrak.com/api/agencies`
+- **Documentation**: No official documentation (public API)
 
-## Coverage
+## Coverage Area
 
-The scraper provides comprehensive coverage of Ohio using two search methods:
-
-### Method 1: Zip Code Search
-- **280+ Ohio zip codes** covering all major metropolitan areas:
+Geographic regions covered by this scraper:
+- **States**: Ohio (OH) - primary focus
+- **Counties/Regions**: All Ohio counties with emphasis on:
   - Columbus Metropolitan Area (32+ zip codes)
   - Cleveland Metropolitan Area (49+ zip codes)
   - Cincinnati Metropolitan Area (100+ zip codes)
@@ -23,85 +26,180 @@ The scraper provides comprehensive coverage of Ohio using two search methods:
   - Akron Area (25+ zip codes)
   - Youngstown Area (16+ zip codes)
   - Canton Area (20+ zip codes)
+- **Search Method**: Dual approach - Zip code search (280+ codes) and Grid coordinate search
+- **Search Parameters**: 50-mile radius for coordinate searches
 
-### Method 2: Grid Coordinate Search
-- **Systematic grid search** across Ohio state boundaries
-- Uses the same grid generation system as other comprehensive scrapers
-- 50-mile search radius for each coordinate point
-- Overlapping coverage ensures no areas are missed
+## Technical Implementation
 
-## API Parameters
+### Scraper Class
+- **Class Name**: `FreshtrakScraper`
+- **Base Class**: `ScraperJob`
+- **Module Path**: `app.scraper.freshtrak_scraper`
 
-The scraper uses the following API parameters:
+### Key Configuration
+```python
+# Configuration parameters
+search_radius = 50  # Search radius in miles for coordinate searches
+zip_codes = 280+  # Ohio zip codes for comprehensive coverage
+```
 
-### Zip Code Search
+### Dependencies
+- **Required Libraries**: httpx, asyncio, json
+- **External Services**: FreshTrak API
+- **Rate Limiting**: Sequential processing with error handling
+
+
+## Data Structure
+
+### Input Parameters
+The API accepts two types of searches:
+
+**Zip Code Search:**
 - `zip_code`: Zip code to search for agencies
 
-### Coordinate Search
+**Coordinate Search:**
 - `lat`: Latitude coordinate
 - `long`: Longitude coordinate
 - `distance`: Search radius in miles (set to 50)
 
-## Data Structure
-
+### Output Format
 Each agency record includes:
 
-### Agency Information
-- `id`: Unique agency identifier
-- `name`: Full agency name
-- `nickname`: Display name
-- `address`: Street address
-- `city`: City name
-- `state`: State abbreviation
-- `zip`: ZIP code
-- `phone`: Contact phone number
-- `latitude`/`longitude`: Geographic coordinates
-- `estimated_distance`: Distance from search center
+```json
+{
+  "id": "Unique agency identifier",
+  "name": "Full agency name",
+  "nickname": "Display name",
+  "address": "Street address",
+  "city": "City name",
+  "state": "State abbreviation",
+  "zip": "ZIP code",
+  "phone": "Contact phone number",
+  "latitude": "Geographic latitude",
+  "longitude": "Geographic longitude",
+  "estimated_distance": "Distance from search center",
+  "events": [
+    {
+      "id": "Event identifier",
+      "name": "Event name (e.g., Pantry)",
+      "address": "Event location",
+      "city": "Event city",
+      "state": "Event state",
+      "zip": "Event ZIP",
+      "latitude": "Event latitude",
+      "longitude": "Event longitude",
+      "event_details": "Description",
+      "event_dates": "Array of scheduled dates",
+      "service_category": "Service type"
+    }
+  ]
+}
+```
 
-### Event Information
-Each agency can have multiple events (food distribution events):
-- `id`: Event identifier
-- `name`: Event name (e.g., "Pantry")
-- `address`: Event location (may differ from agency)
-- `city`/`state`/`zip`: Event location
-- `latitude`/`longitude`: Event coordinates
-- `event_details`: Description of the event
-- `event_dates`: Array of scheduled dates with times
-- `service_category`: Type of service provided
+### Key Fields Extracted
+- **id**: Unique agency identifier
+- **name**: Full agency name
+- **nickname**: Display/short name
+- **address**: Street address
+- **city**: City name
+- **state**: State abbreviation
+- **zip**: ZIP code
+- **phone**: Contact phone number
+- **latitude**: Geographic latitude
+- **longitude**: Geographic longitude
+- **events**: Array of distribution events with schedules
 
 ## Usage
 
-```bash
-# Run the FreshTrak scraper
-python -m app.scraper freshtrak
+### Running the Scraper
 
-# Test the scraper
-python -m app.scraper.test_scrapers freshtrak
+```bash
+# Run the scraper using bouy
+./bouy scraper freshtrak
+
+# Test mode (limited data)
+./bouy scraper-test freshtrak
+
+# Run with verbose output
+./bouy --verbose scraper freshtrak
 ```
 
-## Rate Limiting
+### Testing
 
-The scraper respects API rate limits by:
-- Processing zip codes sequentially
-- Using standard scraper headers
-- Implementing error handling for failed requests
+```bash
+# Run specific tests for this scraper
+./bouy test --pytest tests/test_scraper/test_freshtrak_scraper.py
+
+# Run with coverage
+./bouy test --coverage -- tests/test_scraper/test_freshtrak_scraper.py
+```
+
 
 ## Error Handling
 
-- Continues processing other zip codes if one fails
-- Logs errors for debugging
-- Returns empty results gracefully for zip codes with no data
+- **Network Errors**: Continues processing other zip codes if one fails
+- **Rate Limiting**: Sequential processing to avoid overwhelming API
+- **Invalid Data**: Returns empty results gracefully for zip codes with no data
+- **Retry Logic**: No automatic retry; logs errors and continues
 
-## Data Quality
+## Performance Considerations
 
-- Strips whitespace from text fields
-- Converts coordinates to float values
-- Handles missing or null values gracefully
-- Preserves original API structure while cleaning data
+- **Average Runtime**: 5-10 minutes for full Ohio coverage
+- **Data Volume**: 500-1000 agencies with events
+- **Memory Usage**: Minimal - processes results sequentially
+- **Optimization**: 
+  - Dual search methods for comprehensive coverage
+  - Efficient deduplication based on agency ID
+  - Grid search fills gaps from zip code coverage
 
-## Notes
+## Troubleshooting
 
-- The API appears to be primarily focused on Ohio food pantries
-- Each agency can have multiple events with different locations
-- Event dates include capacity, times, and registration options
-- The API supports distance-based searches but the scraper uses zip code searches for comprehensive coverage
+### Common Issues
+
+1. **No Results for Zip Code**
+   - **Symptoms**: Empty results for valid zip codes
+   - **Cause**: No agencies within search radius
+   - **Solution**: Grid search provides overlapping coverage
+
+2. **API Connection Errors**
+   - **Symptoms**: HTTP errors or timeouts
+   - **Cause**: API server issues or network problems
+   - **Solution**: Check API status; scraper continues with remaining searches
+
+3. **Duplicate Agencies**
+   - **Symptoms**: Same agency appearing multiple times
+   - **Cause**: Agency found in multiple search areas
+   - **Solution**: Built-in deduplication by agency ID
+
+### Debug Commands
+
+```bash
+# Run with debug logging
+./bouy --verbose scraper freshtrak
+
+# Check scraper logs
+./bouy logs app | grep freshtrak
+
+# Test API connection
+./bouy exec app python -c "import httpx; resp = httpx.get('https://pantry-finder-api.freshtrak.com/api/agencies?zip_code=43215'); print(resp.status_code)"
+```
+
+## Maintenance Notes
+
+- **Last Updated**: 2025-08-07
+- **Update Frequency**: Verify API availability quarterly
+- **Known Limitations**: 
+  - API primarily focused on Ohio agencies
+  - Event dates may include past dates
+  - Some agencies may not have events
+- **Future Improvements**: 
+  - Add support for other states if API expands
+  - Implement parallel processing for zip codes
+  - Cache results to avoid duplicate API calls
+
+## Related Documentation
+
+- [FreshTrak Website](https://freshtrak.com/)
+- [Mid-Ohio Food Collective](https://mofc.org/)
+- [ScraperJob Base Class](../utilities/scraper_job.md)
+- [Grid Generation Utilities](../utilities/grid_utils.md)

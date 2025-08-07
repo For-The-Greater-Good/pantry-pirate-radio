@@ -1,6 +1,6 @@
 # Reconciler Service
 
-The reconciler service is responsible for processing HSDS data from LLM outputs and integrating it into the database while maintaining data consistency and versioning. This document describes how the reconciler works and its key components.
+The reconciler service is responsible for processing HSDS data from LLM outputs and integrating it into the database while maintaining data consistency and versioning. It features advanced geocoding with multi-provider fallback, automatic coordinate validation, and exhaustive correction attempts. This document describes how the reconciler works and its key components.
 
 ## Overview
 
@@ -18,11 +18,12 @@ The reconciler is built on a hierarchical component structure:
 
 2. **Core Components**
    - `JobProcessor`: Handles job queue processing and HSDS data extraction
-   - `LocationCreator`: Manages location creation and matching
+   - `LocationCreator`: Manages location creation and matching with geocoding validation
    - `OrganizationCreator`: Handles organization and identifier creation
    - `ServiceCreator`: Manages services, phones, languages, and schedules
    - `VersionTracker`: Maintains record version history
    - `MergeStrategy`: Implements strategies for merging source-specific records
+   - `GeocodingCorrector`: Validates and corrects geographic coordinates
    - `ReconcilerUtils`: High-level utility wrapper
 
 ## Data Flow
@@ -35,13 +36,20 @@ The reconciler is built on a hierarchical component structure:
    - Creates service-to-location links with schedules
    - Handles phone numbers and languages for all entity types
 
-2. **Location Matching**
+2. **Location Matching and Geocoding**
    - Uses coordinate-based matching with 4-decimal precision (~11m radius)
+   - **Geocoding Quality Improvements**:
+     * Detects invalid 0,0 coordinates (null island)
+     * Validates coordinates against state boundaries
+     * Exhaustive provider fallback (tries all providers before giving up)
+     * Automatic conversion of projected coordinates to WGS84
+     * Pre-creation validation to catch issues early
    - When match found:
      * Creates or updates source-specific record for the current scraper
      * Merges all source records to update the canonical record
      * Creates new version to track changes
    - When no match found:
+     * Validates coordinates before creation
      * Creates new canonical location with UUID
      * Creates source-specific record for the current scraper
      * Creates addresses with validation
@@ -363,6 +371,10 @@ The reconciler can be configured through environment variables:
 - `REDIS_URL`: Queue connection string (required)
 - `DATABASE_URL`: PostgreSQL connection string
 - `LOCATION_MATCH_TOLERANCE`: Coordinate matching precision (default: 0.0001)
+- `GEOCODING_PROVIDER`: Primary geocoding provider (nominatim, google, mapbox)
+- `GEOCODING_RATE_LIMIT`: Requests per second (default: 1.0)
+- `GEOCODING_CACHE_TTL`: Cache TTL in seconds (default: 2592000 - 30 days)
+- `GEOCODING_FALLBACK_ENABLED`: Enable automatic provider fallback (default: true)
 
 Redis client configuration:
 ```python
@@ -376,16 +388,41 @@ redis = Redis.from_url(
 )
 ```
 
-## Usage
+## Usage with Bouy
 
-The reconciler can be run as a standalone service:
+The reconciler should be managed using bouy commands:
 
 ```bash
 # Start the reconciler service
-python -m app.reconciler
+./bouy reconciler
 
-# With custom interval
-python -m app.reconciler --interval 30
+# Run reconciler with specific options
+./bouy reconciler --force    # Force processing
+
+# View reconciler logs
+./bouy logs reconciler
+
+# Check reconciler status
+./bouy ps reconciler
+
+# Run geocoding correction batch
+./bouy exec reconciler python -m app.reconciler.geocoding_corrector
+
+# Validate all location coordinates
+./bouy exec reconciler python -c "from app.reconciler.geocoding_corrector import GeocodingCorrector; from app.database import get_db; gc = GeocodingCorrector(next(get_db())); print(gc.validate_all_locations())"
+```
+
+### Monitoring and Debugging
+
+```bash
+# Monitor reconciler metrics
+./bouy exec reconciler python -c "from app.reconciler.metrics import get_metrics; print(get_metrics())"
+
+# Check for invalid coordinates
+./bouy exec reconciler python -c "from app.reconciler.geocoding_corrector import GeocodingCorrector; from app.database import get_db; gc = GeocodingCorrector(next(get_db())); invalid = gc.find_invalid_locations(); print(f'Found {len(invalid)} invalid locations')"
+
+# Run batch correction with limit
+./bouy exec reconciler python -c "from app.reconciler.geocoding_corrector import GeocodingCorrector; from app.database import get_db; gc = GeocodingCorrector(next(get_db())); results = gc.batch_correct_locations(limit=10); print(results)"
 ```
 
 ## Migration
@@ -424,6 +461,47 @@ To implement the source-specific reconciler:
    python scripts/migrate_to_source_records.py
    ```
 
+## Geocoding and Coordinate Validation
+
+The reconciler includes sophisticated geocoding correction capabilities:
+
+### Automatic Detection and Correction
+
+1. **Invalid Coordinate Detection**:
+   - Zero coordinates (0,0 - null island)
+   - Projected coordinates (Web Mercator, State Plane)
+   - Out-of-bounds coordinates (outside US/state boundaries)
+   - Swapped latitude/longitude values
+
+2. **Multi-Provider Fallback**:
+   ```python
+   # The system automatically tries providers in order:
+   # 1. Primary provider (configured)
+   # 2. Secondary providers (fallback)
+   # 3. Default coordinates with offset (last resort)
+   ```
+
+3. **Validation Process**:
+   - Pre-creation validation catches issues early
+   - Post-creation batch correction fixes existing data
+   - Continuous monitoring tracks geocoding quality
+
+### Using the Geocoding Corrector
+
+```bash
+# Find all locations with invalid coordinates
+./bouy exec reconciler python -m app.reconciler.geocoding_corrector find
+
+# Correct invalid locations (with limit)
+./bouy exec reconciler python -m app.reconciler.geocoding_corrector correct --limit 100
+
+# Validate specific location
+./bouy exec reconciler python -m app.reconciler.geocoding_corrector validate --location-id <UUID>
+
+# Get correction statistics
+./bouy exec reconciler python -m app.reconciler.geocoding_corrector stats
+```
+
 ## Future Improvements
 
 Potential enhancements to consider:
@@ -433,6 +511,7 @@ Potential enhancements to consider:
    - Service similarity detection
    - Organization deduplication
    - Address normalization
+   - Machine learning-based duplicate detection
 
 2. **Performance**
    - Batch processing of jobs
