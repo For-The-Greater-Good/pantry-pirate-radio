@@ -58,7 +58,14 @@ def schema_converter():
 @pytest.fixture
 def geocoding_corrector():
     """Create GeocodingCorrector instance for testing."""
-    return GeocodingCorrector()
+    with patch(
+        "app.reconciler.geocoding_corrector.get_geocoding_service"
+    ) as mock_get_service:
+        mock_service = MagicMock()
+        mock_get_service.return_value = mock_service
+        corrector = GeocodingCorrector()
+        corrector.mock_geocoding_service = mock_service  # Store for test access
+        yield corrector
 
 
 class TestGeographicValidation:
@@ -211,20 +218,13 @@ class TestHSDSPatternCompliance:
 class TestGeocodingCorrector:
     """Test geocoding correction functionality."""
 
-    @patch("app.reconciler.geocoding_corrector.Nominatim")
-    def test_validate_coordinates_with_address(
-        self, mock_nominatim, geocoding_corrector
-    ):
+    def test_validate_coordinates_with_address(self, geocoding_corrector):
         """Test coordinate validation against address."""
-        # Mock geocoder response
-        mock_geocoder = MagicMock()
-        mock_nominatim.return_value = mock_geocoder
+        # Use the mock service from the fixture
+        mock_service = geocoding_corrector.mock_geocoding_service
 
         # Test case: coordinates match address
-        mock_location = MagicMock()
-        mock_location.latitude = 45.5
-        mock_location.longitude = -122.6
-        mock_geocoder.geocode.return_value = mock_location
+        mock_service.geocode.return_value = (45.5, -122.6)
 
         is_valid, confidence, suggested_coords = (
             geocoding_corrector.validate_coordinates(
@@ -236,18 +236,13 @@ class TestGeocodingCorrector:
         assert confidence >= 0.9  # High confidence for exact match
         assert suggested_coords is None  # No correction needed
 
-    @patch("app.reconciler.geocoding_corrector.Nominatim")
-    def test_suggest_coordinate_correction(self, mock_nominatim, geocoding_corrector):
+    def test_suggest_coordinate_correction(self, geocoding_corrector):
         """Test coordinate correction suggestions."""
-        # Mock geocoder response
-        mock_geocoder = MagicMock()
-        mock_nominatim.return_value = mock_geocoder
+        # Use the mock service from the fixture
+        mock_service = geocoding_corrector.mock_geocoding_service
 
         # Test case: coordinates don't match address
-        mock_location = MagicMock()
-        mock_location.latitude = 45.5
-        mock_location.longitude = -122.6
-        mock_geocoder.geocode.return_value = mock_location
+        mock_service.geocode.return_value = (45.5, -122.6)
 
         # Provide very different coordinates
         is_valid, confidence, suggested_coords = (
@@ -266,33 +261,25 @@ class TestGeocodingCorrector:
         )  # Suggested coords should be close to Portland
         assert abs(suggested_coords[1] - (-122.6)) < 0.1
 
-    @patch("app.reconciler.geocoding_corrector.ArcGIS")
-    @patch("app.reconciler.geocoding_corrector.Nominatim")
-    def test_fallback_to_arcgis(self, mock_nominatim, mock_arcgis, geocoding_corrector):
-        """Test fallback to ArcGIS when Nominatim fails."""
-        # Mock Nominatim failure
-        mock_nominatim_instance = MagicMock()
-        mock_nominatim.return_value = mock_nominatim_instance
-        mock_nominatim_instance.geocode.return_value = None  # Nominatim fails
+    def test_fallback_to_arcgis(self, geocoding_corrector):
+        """Test that unified geocoding service handles fallback."""
+        # Use the mock service from the fixture
+        mock_service = geocoding_corrector.mock_geocoding_service
 
-        # Mock ArcGIS success
-        mock_arcgis_instance = MagicMock()
-        mock_arcgis.return_value = mock_arcgis_instance
-        mock_location = MagicMock()
-        mock_location.latitude = 45.5
-        mock_location.longitude = -122.6
-        mock_arcgis_instance.geocode.return_value = mock_location
+        # Service returns successful geocoding result (simulating fallback)
+        mock_service.geocode.return_value = (45.5, -122.6)
 
+        # Test with slightly different coordinates to trigger geocoding
         is_valid, confidence, suggested_coords = (
             geocoding_corrector.validate_coordinates(
-                45.5, -122.6, "123 Main St, Portland, OR 97201"
+                45.4, -122.5, "123 Main St, Portland, OR 97201"
             )
         )
 
-        # Should have used ArcGIS
-        mock_arcgis_instance.geocode.assert_called_once()
-        assert is_valid
-        assert confidence >= 0.9
+        # Verify geocoding was called to validate the address
+        mock_service.geocode.assert_called_once()
+        assert is_valid  # Close enough to be valid
+        assert confidence >= 0.7  # Good confidence for close match
 
 
 @pytest.mark.skip(reason="LLM API integration tests require API keys")

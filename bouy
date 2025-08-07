@@ -659,6 +659,23 @@ case "$1" in
             esac
         done
 
+        # Build the unified image first if app service needs building
+        # Use only base compose file for building to avoid overlay issues
+        if [ -z "$services" ] || echo "$services" | grep -q "app"; then
+            # Check if image already exists
+            if docker images --format "{{.Repository}}:{{.Tag}}" | grep -q "^pantry-pirate-radio:latest$"; then
+                output info "Using existing unified Docker image"
+            else
+                output info "Building unified Docker image..."
+                if docker compose -f .docker/compose/base.yml build app >/dev/null 2>&1; then
+                    output success "Image built successfully"
+                else
+                    output error "Failed to build image"
+                    exit 1
+                fi
+            fi
+        fi
+
         output info "Starting services..."
         # Check if --with-init was used
         if [[ "$COMPOSE_FILES" == *"with-init"* ]]; then
@@ -746,8 +763,16 @@ case "$1" in
                     ;;
             esac
         done
-        output info "Building services..."
-        if $COMPOSE_CMD $COMPOSE_FILES build $services; then
+        # For unified image, we only need to build the app service
+        # Other services will use the same image
+        if [ -z "$services" ]; then
+            services="app"
+            output info "Building unified Docker image..."
+        else
+            output info "Building service: $services"
+        fi
+        # Always use base.yml for building to avoid overlay conflicts
+        if docker compose -f .docker/compose/base.yml build $services; then
             output success "Build complete"
         else
             output error "Build failed"

@@ -85,35 +85,59 @@ The setup wizard will:
 
 ### Using @agent-test-suite-monitor
 
-**IMPORTANT: Use @agent-test-suite-monitor in the following scenarios:**
+**CRITICAL: Use @agent-test-suite-monitor for ALL testing needs. This agent is your dedicated test execution and monitoring system.**
 
-1. **After implementing new features or fixing bugs** - to run the full test suite and check for any issues
-2. **When tests are failing unexpectedly** - to diagnose test failures and understand what's broken
-3. **Before committing changes** - to ensure all tests pass and code quality checks succeed
+#### When to Use @agent-test-suite-monitor
+
+**Always use @agent-test-suite-monitor in these scenarios:**
+
+1. **After implementing new features or fixing bugs** - to verify your changes work correctly
+2. **When tests are failing unexpectedly** - to get detailed failure analysis and diagnostics
+3. **Before committing changes** - to ensure all tests pass and code quality standards are met
 4. **After making significant code changes** - to verify nothing has been broken
 5. **When investigating CI/CD failures** - to reproduce and debug test failures locally
+6. **For regular test health checks** - to monitor test suite performance and coverage
+7. **When you need to run specific test categories** - the agent runs tests individually for better control
 
-**Examples of when to use @agent-test-suite-monitor:**
+**Examples of using @agent-test-suite-monitor:**
 ```bash
-# After implementing a new API endpoint
-@agent-test-suite-monitor "Run full test suite after implementing new user API"
+# After implementing a new feature
+@agent-test-suite-monitor "Run full test suite after implementing new user API endpoint"
 
 # When tests fail unexpectedly
-@agent-test-suite-monitor "Debug failing authentication tests"
+@agent-test-suite-monitor "Debug failing authentication tests and provide detailed analysis"
 
 # Before creating a pull request
-@agent-test-suite-monitor "Run all tests and checks before PR"
+@agent-test-suite-monitor "Run all test categories individually before PR"
 
 # After refactoring code
 @agent-test-suite-monitor "Verify all tests pass after refactoring database models"
+
+# For specific test investigation
+@agent-test-suite-monitor "Run only pytest tests for the API module"
+
+# When monitoring test performance
+@agent-test-suite-monitor "Check test execution times and identify slow tests"
 ```
 
-The test-suite-monitor agent will:
-- Run the appropriate test commands using bouy
-- Analyze test failures and provide detailed diagnostics
-- Track test results across runs to identify regressions
-- Suggest fixes for common test issues
-- Ensure code quality standards are met
+#### What @agent-test-suite-monitor Does
+
+The test-suite-monitor agent:
+- **Runs tests individually by category** (pytest, black, ruff, mypy, bandit) for better control
+- **Analyzes test failures** with detailed error reporting and likely causes
+- **Tracks changes between test runs** to identify regressions
+- **Monitors test performance** and execution times
+- **Provides coverage analysis** to identify untested code
+- **Suggests specific debugging commands** when tests fail
+- **Uses proper output management** (--programmatic, --quiet, --json) for clean results
+
+#### Important Notes
+
+- The agent will NEVER use `./bouy test` without specifying a test type
+- It runs each test category separately for clearer results and better failure isolation
+- It provides structured failure reports with actionable recommendations
+- It tracks test results within the session to identify patterns
+- It never modifies code - only reports and analyzes test results
 
 ### Test-Driven Development (TDD) Workflow
 
@@ -303,9 +327,15 @@ open htmlcov/index.html
 ./bouy --programmatic exec app python -c "print('test')"
 ```
 
-[rest of the existing file content remains the same...]
+## Testing Guidelines
 
-## TDD Memories
+### IMPORTANT: Always Use ./bouy test Commands
+- **ALWAYS use `./bouy test --pytest` for running tests** - do NOT use `./bouy exec app poetry run pytest`
+- For specific test files: `./bouy test --pytest tests/test_api.py`
+- For specific test functions: `./bouy test --pytest -- tests/test_api.py::TestAPI::test_function`
+- The `./bouy test` command properly handles test environments, coverage, and dependencies
 
-### Testing Specific Commands
-- Use `./bouy exec app poetry run pytest` for running single test files or single tests.
+## Memories
+
+### Test Command Notes
+- Do not use 2>&1 in bouy test commands, it gets interpreted incorrectly

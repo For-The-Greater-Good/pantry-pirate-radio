@@ -158,6 +158,23 @@ FROM production-base AS test
 CMD ["poetry", "run", "pytest"]
 
 # =============================================================================
-# DEFAULT STAGE - FastAPI Application
+# UNIFIED PRODUCTION IMAGE - Single image for all services
+# =============================================================================
+FROM production-base AS unified
+
+# Make entrypoint script executable
+RUN chmod +x /app/scripts/docker-entrypoint.sh
+
+# Expose common ports (services can override in docker-compose)
+EXPOSE 8000 8080 9181 5050 8001
+
+# Use the unified entrypoint that selects service based on SERVICE_TYPE or args
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
+
+# Default to running the FastAPI app if no service specified
+CMD ["app"]
+
+# =============================================================================
+# DEFAULT STAGE - FastAPI Application (kept for backward compatibility)
 # =============================================================================
 FROM app AS default

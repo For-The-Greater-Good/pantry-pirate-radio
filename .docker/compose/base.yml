@@ -1,10 +1,12 @@
 
 services:
   app:
+    image: pantry-pirate-radio:latest
     build:
       context: ../..
       dockerfile: .docker/images/app/Dockerfile
-      target: app
+      target: unified
+    command: ["app"]
     ports:
       - "8000:8000"
     env_file: ../../.env
@@ -22,11 +24,8 @@ services:
         condition: service_started
 
   worker:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: worker
-    command: rq worker llm
+    image: pantry-pirate-radio:latest
+    command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
     env_file: ../../.env
@@ -47,10 +46,8 @@ services:
 
 
   recorder:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: recorder
+    image: pantry-pirate-radio:latest
+    command: ["recorder"]
     env_file: ../../.env
     environment:
       # Recorder-specific paths
@@ -70,11 +67,8 @@ services:
       - claude_config:/root/.config/claude
 
   scraper:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: scraper
-    command: tail -f /dev/null  # Keep container running
+    image: pantry-pirate-radio:latest
+    command: ["scraper"]
     env_file: ../../.env
     # All environment variables are loaded from .env file
     depends_on:
@@ -90,11 +84,8 @@ services:
       - claude_config:/root/.config/claude
 
   reconciler:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: simple-worker
-    command: rq worker reconciler
+    image: pantry-pirate-radio:latest
+    command: ["reconciler"]
     env_file: ../../.env
     # All environment variables are loaded from .env file
     volumes:
@@ -109,11 +100,8 @@ services:
         condition: service_started
 
   haarrrvest-publisher:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: production-base
-    command: python -m app.haarrrvest_publisher.service
+    image: pantry-pirate-radio:latest
+    command: ["publisher"]
     env_file: ../../.env
     environment:
       # Publisher-specific paths and defaults
@@ -155,11 +143,8 @@ services:
       retries: 5
 
   db-init:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: production-base
-    command: /app/scripts/init-database.sh
+    image: pantry-pirate-radio:latest
+    command: ["db-init"]
     env_file: ../../.env
     environment:
       # Database connection overrides for init
@@ -198,11 +183,8 @@ services:
       - redis_data:/data
 
   rq-dashboard:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: simple-worker
-    command: rq-dashboard -u redis://cache:6379
+    image: pantry-pirate-radio:latest
+    command: ["rq-dashboard"]
     ports:
       - "9181:9181"
     env_file: ../../.env
@@ -211,11 +193,8 @@ services:
       - cache
 
   content-store-dashboard:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: production-base
-    command: python -m app.content_store.dashboard
+    image: pantry-pirate-radio:latest
+    command: ["dashboard"]
     ports:
       - "5050:5050"
     env_file: ../../.env

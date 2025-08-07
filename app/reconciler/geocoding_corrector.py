@@ -8,9 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from geopy.geocoders import Nominatim, ArcGIS
-from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-
+from app.core.geocoding import get_geocoding_service
 from app.llm.utils.geocoding_validator import GeocodingValidator
 
 logger = logging.getLogger(__name__)
@@ -27,8 +25,7 @@ class GeocodingCorrector:
         """
         self.db = db
         self.validator = GeocodingValidator()
-        self.nominatim = None
-        self.arcgis = None
+        self.geocoding_service = get_geocoding_service()
 
     def find_invalid_locations(self) -> List[Dict[str, Any]]:
         """Find all locations with invalid coordinates.
@@ -38,7 +35,7 @@ class GeocodingCorrector:
         """
         query = text(
             """
-            SELECT 
+            SELECT
                 l.id,
                 l.name,
                 l.latitude,
@@ -48,7 +45,7 @@ class GeocodingCorrector:
                 a.address_1
             FROM location l
             LEFT JOIN address a ON l.id = a.location_id
-            WHERE l.latitude IS NOT NULL 
+            WHERE l.latitude IS NOT NULL
             AND l.longitude IS NOT NULL
         """
         )
@@ -132,7 +129,7 @@ class GeocodingCorrector:
             # Update location in database
             update_query = text(
                 """
-                UPDATE location 
+                UPDATE location
                 SET latitude = :lat,
                     longitude = :lon
                 WHERE id = :id
@@ -212,7 +209,7 @@ class GeocodingCorrector:
         """
         query = text(
             """
-            SELECT 
+            SELECT
                 l.id,
                 l.name,
                 l.latitude,
@@ -221,7 +218,7 @@ class GeocodingCorrector:
                 a.city
             FROM location l
             LEFT JOIN address a ON l.id = a.location_id
-            WHERE l.latitude IS NOT NULL 
+            WHERE l.latitude IS NOT NULL
             AND l.longitude IS NOT NULL
         """
         )
@@ -276,8 +273,8 @@ class GeocodingCorrector:
                     'location',
                     jsonb_build_object('coordinate_correction', :note)
                 )
-                ON CONFLICT (resource_id, resource_type) 
-                DO UPDATE SET 
+                ON CONFLICT (resource_id, resource_type)
+                DO UPDATE SET
                     metadata = metadata.metadata || jsonb_build_object('coordinate_correction', :note)
             """
             )
@@ -298,7 +295,7 @@ class GeocodingCorrector:
             # This is a simplified query - adjust based on your actual schema
             query = text(
                 """
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     COUNT(CASE WHEN metadata @> '{"coordinate_correction": ""}' THEN 1 END) as corrected,
                     COUNT(CASE WHEN metadata @> '{"correction_failed": true}' THEN 1 END) as failed
@@ -382,29 +379,18 @@ class GeocodingCorrector:
         Returns:
             Tuple of (latitude, longitude) or None if geocoding fails
         """
-        # Try Nominatim first
-        try:
-            if not self.nominatim:
-                self.nominatim = Nominatim(user_agent="pantry-pirate-radio")
-
-            location = self.nominatim.geocode(address)
-            if location:
-                return (location.latitude, location.longitude)
-        except (GeocoderTimedOut, GeocoderServiceError) as e:
-            logger.warning(f"Nominatim geocoding failed: {e}")
-
-        # Fallback to ArcGIS
-        try:
-            if not self.arcgis:
-                self.arcgis = ArcGIS()
-
-            location = self.arcgis.geocode(address)
-            if location:
-                return (location.latitude, location.longitude)
-        except (GeocoderTimedOut, GeocoderServiceError) as e:
-            logger.warning(f"ArcGIS geocoding failed: {e}")
-
-        return None
+        # Use the unified geocoding service which handles:
+        # - Caching to avoid duplicate API calls
+        # - Rate limiting to respect API quotas
+        # - Fallback between providers
+        # - Proper error handling
+        result = self.geocoding_service.geocode(address)
+        if result:
+            logger.info(f"Successfully geocoded address: {address[:50]}...")
+            return result
+        else:
+            logger.warning(f"Failed to geocode address: {address[:50]}...")
+            return None
 
     def _calculate_distance(
         self, lat1: float, lon1: float, lat2: float, lon2: float

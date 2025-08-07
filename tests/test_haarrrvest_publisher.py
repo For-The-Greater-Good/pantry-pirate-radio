@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import Mock, patch, MagicMock
 import json
 import signal
 
@@ -320,10 +320,14 @@ class TestHAARRRvestPublisher:
                 MagicMock(returncode=1, stderr="Connection failed"),
             ]
 
-            # Should not raise exception, but log error
-            with patch("app.haarrrvest_publisher.service.logger.error") as mock_error:
+            # Should not raise exception, but log error via _safe_log
+            with patch.object(publisher, "_safe_log") as mock_safe_log:
                 publisher._export_to_sql_dump()
-                mock_error.assert_called()
+                # Check that error was logged
+                error_calls = [
+                    c for c in mock_safe_log.call_args_list if c[0][0] == "error"
+                ]
+                assert len(error_calls) > 0, "Expected error logs via _safe_log"
 
     def test_pipeline_continues_on_sql_dump_failure(self, publisher, temp_dirs):
         """Test that database operations continue even if SQL dump fails."""

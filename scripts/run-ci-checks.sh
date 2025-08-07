@@ -3,10 +3,41 @@
 # CI checks script - runs checks using local poetry installation
 # For Docker-based checks, use: ./scripts/run-ci-checks-docker.sh
 # Or simply: ./bouy test
+#
+# Options:
+#   --no-fix    Disable auto-fixing (check only mode)
+#   --help      Show this help message
+
+# Parse command line arguments
+AUTO_FIX=1
+for arg in "$@"; do
+    case $arg in
+        --no-fix)
+            AUTO_FIX=0
+            echo "Auto-fix disabled - running in check-only mode"
+            ;;
+        --help)
+            echo "CI checks script - runs checks using local poetry installation"
+            echo ""
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --no-fix    Disable auto-fixing (check only mode)"
+            echo "  --help      Show this help message"
+            echo ""
+            echo "By default, this script will auto-fix:"
+            echo "  - Trailing whitespace"
+            echo "  - Black formatting issues"
+            echo "  - Ruff safe fixes (imports, unused variables, etc.)"
+            exit 0
+            ;;
+    esac
+done
 
 # Initialize error tracking
 errors=0
 error_list=""
+auto_fixed_list=""
 
 # Function to run a check and track its status
 run_check() {
@@ -51,37 +82,97 @@ if find . -name "*.toml" | grep -v -E "(\.git|\.pytest_cache|\.mypy_cache|__pyca
     fi
 fi
 
-# Check for large files (>500KB)
+# Check for large files (>500KB) - only for files tracked by git, excluding submodules
 echo "=== Running Large Files Check ==="
-large_files=$(find . -type f -size +500k -not -path "./.git/*" -not -path "./.*" 2>/dev/null | head -10)
+# Use git ls-files to only check tracked files, then filter by size
+# This automatically excludes submodules, untracked files, and ignored files
+large_files=""
+for file in $(git ls-files); do
+    if [ -f "$file" ] && [ $(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null) -gt 512000 ]; then
+        large_files="$large_files$file\n"
+    fi
+done
 if [ -n "$large_files" ]; then
     echo "Large files found: $large_files"
     errors=$((errors + 1))
     error_list="$error_list\n- Large Files Check failed"
 fi
 
-# Check for trailing whitespace
-echo "=== Running Trailing Whitespace ==="
+# Check for trailing whitespace - with auto-fix option
+echo "=== Running Trailing Whitespace Check ==="
 files_with_trailing=$(find . -name "*.py" -exec grep -l "[[:space:]]$" {} \; 2>/dev/null | head -10)
 if [ -n "$files_with_trailing" ]; then
-    echo "Files with trailing whitespace: $files_with_trailing"
-    errors=$((errors + 1))
-    error_list="$error_list\n- Trailing Whitespace Check failed"
+    if [ $AUTO_FIX -eq 1 ]; then
+        echo "Files with trailing whitespace found. Auto-fixing..."
+        # Auto-fix trailing whitespace
+        for file in $files_with_trailing; do
+            sed -i.bak 's/[[:space:]]*$//' "$file" && rm "${file}.bak"
+        done
+        echo "✅ AUTO-FIXED: Removed trailing whitespace from $(echo "$files_with_trailing" | wc -w) files"
+        auto_fixed_list="$auto_fixed_list\n- Trailing whitespace removed"
+    else
+        echo "Files with trailing whitespace: $files_with_trailing"
+        errors=$((errors + 1))
+        error_list="$error_list\n- Trailing Whitespace Check failed"
+    fi
+else
+    echo "No trailing whitespace found"
 fi
 
 # Code Formatting and Linting
 echo -e "\n=== Running Code Formatting and Linting ==="
-run_check "Black (formatter)" poetry run black --check app tests
-run_check "Ruff (linter)" poetry run ruff check app tests
+
+# Black formatter - with auto-fix
+echo "=== Running Black (formatter) ==="
+if ! poetry run black --check app tests 2>/dev/null; then
+    if [ $AUTO_FIX -eq 1 ]; then
+        echo "Black found formatting issues. Auto-fixing..."
+        poetry run black app tests
+        echo "✅ AUTO-FIXED: Black reformatted files"
+        auto_fixed_list="$auto_fixed_list\n- Black code formatting applied"
+    else
+        echo "Black formatting issues found (run without --no-fix to auto-format)"
+        errors=$((errors + 1))
+        error_list="$error_list\n- Black (formatter) failed"
+    fi
+else
+    echo "Black check passed - no formatting needed"
+fi
+
+# Ruff linter - with auto-fix for safe fixes
+echo "=== Running Ruff (linter) ==="
+if ! poetry run ruff check app tests 2>/dev/null; then
+    if [ $AUTO_FIX -eq 1 ]; then
+        echo "Ruff found issues. Attempting auto-fix for safe fixes..."
+        poetry run ruff check --fix app tests
+        echo "✅ AUTO-FIXED: Ruff applied safe fixes (imports, unused variables, etc.)"
+        auto_fixed_list="$auto_fixed_list\n- Ruff safe fixes applied"
+        # Check if there are still issues that couldn't be auto-fixed
+        if ! poetry run ruff check app tests 2>/dev/null; then
+            errors=$((errors + 1))
+            error_list="$error_list\n- Ruff (linter) - some issues require manual fixing"
+        fi
+    else
+        echo "Ruff linting issues found (run without --no-fix to apply safe fixes)"
+        errors=$((errors + 1))
+        error_list="$error_list\n- Ruff (linter) failed"
+    fi
+else
+    echo "Ruff check passed - no linting issues"
+fi
 
 # Type Checking
 run_check "MyPy (type checker)" poetry run mypy app tests
 
-# Tests with Coverage
-run_check "Pytest with Coverage" poetry run pytest --ignore=docs --ignore=tests/test_integration --cov=app --cov-report=term-missing --cov-report=xml --cov-report=json --cov-branch
-
-# Coverage Check with Ratcheting
-run_check "Coverage Ratcheting" bash scripts/coverage-check.sh
+# Tests with Coverage and Ratcheting
+# Note: coverage-check.sh runs pytest with coverage in quiet mode and checks ratcheting
+echo "=== Running Pytest with Coverage ==="
+if bash scripts/coverage-check.sh; then
+    echo "✅ Tests and coverage check passed"
+else
+    errors=$((errors + 1))
+    error_list="$error_list\n- Pytest/Coverage failed"
+fi
 
 # Dead Code Check
 run_check "Vulture (dead code)" poetry run vulture app tests .vulture_whitelist --min-confidence 80
@@ -99,6 +190,24 @@ run_check "Xenon (complexity)" poetry run xenon --max-absolute F --max-modules F
 # These are tested separately in the CI pipeline
 
 echo -e "\nCI checks completed!"
+
+# Report auto-fixes prominently
+if [ -n "$auto_fixed_list" ]; then
+    echo -e "\n" 
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║                    🔧 AUTO-FIXES APPLIED 🔧                    ║"
+    echo "╠════════════════════════════════════════════════════════════════╣"
+    echo "║ The following issues were automatically fixed:                 ║"
+    echo -e "$auto_fixed_list" | while IFS= read -r line; do
+        if [ -n "$line" ] && [ "$line" != "" ]; then
+            printf "║ %-63s ║\n" "$line"
+        fi
+    done
+    echo "╠════════════════════════════════════════════════════════════════╣"
+    echo "║ ⚠️  IMPORTANT: Files have been modified!                       ║"
+    echo "║ Please review and commit these changes if appropriate.         ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+fi
 
 # Report results
 if [ $errors -gt 0 ]; then
