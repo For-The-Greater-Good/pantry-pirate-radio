@@ -1472,14 +1472,3 @@ class APIError(BaseModel):
    - Error rates
    - Performance trends
 
-## Implementation Guidelines
-
-- Write tests first (pytest)
-- Validate all data against HSDS schema
-- Use type hints consistently
-- Document with docstrings and inline comments
-- Follow PEP 8 style guide
-- Implement proper error handling
-- Add logging at appropriate levels
-- Include Prometheus metrics
-- Regular security updates
