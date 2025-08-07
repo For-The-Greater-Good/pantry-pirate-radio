@@ -71,7 +71,8 @@
       "Bash(./bouy exec app poetry run pytest tests/test_llm/ -q)",
       "Bash(./bouy exec app poetry run pytest tests/test_reconciler/test_geocoding_corrector.py -q)",
       "WebFetch(domain:geopy.readthedocs.io)",
-      "Bash(./bouy:*)"
+      "Bash(./bouy:*)",
+      "Bash(git tag:*)"
     ],
     "deny": []
   }

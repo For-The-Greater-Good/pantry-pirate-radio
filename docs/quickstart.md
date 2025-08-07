@@ -1,59 +1,149 @@
 # Quick Start Guide
 
-This guide will help you get started with the Pantry Pirate Radio API in just a few minutes. You'll learn how to make your first API call, understand the response format, and build a simple food finder application.
+Get Pantry Pirate Radio running on your machine in under 10 minutes! This guide provides a complete path from zero to a fully functional system with real food resource data.
 
 ## What is Pantry Pirate Radio?
 
-Pantry Pirate Radio is a food security data aggregation system that provides access to information about food pantries, soup kitchens, mobile food programs, and other food assistance resources. The API follows the OpenReferral Human Services Data Specification (HSDS) and serves publicly available data to help people find food assistance in their area.
+Pantry Pirate Radio is a food security data aggregation system that:
+- Collects food resource data from 30+ sources across the US
+- Normalizes data using AI to the OpenReferral HSDS standard
+- Provides a unified API for accessing food assistance information
+- Maintains a complete, searchable database of food pantries, soup kitchens, and mobile food programs
 
 ## Prerequisites
 
-- Basic understanding of REST APIs
-- Ability to make HTTP requests (using cURL, Postman, or programming languages)
-- No API key required - the API is public and free to use
+### Required Software
+- **Docker Desktop** (Mac/Windows) or **Docker Engine** (Linux) - [Install Docker](https://docs.docker.com/get-docker/)
+- **Git** - [Install Git](https://git-scm.com/downloads)
+- **4GB+ RAM available** for Docker
+- **10GB+ disk space** for containers and data
 
-## Making Your First API Call
+### Optional (for full functionality)
+- **GitHub Personal Access Token** - For publishing data to HAARRRvest repository
+- **LLM API Key** - Either Claude (Anthropic) or OpenAI key for AI processing
 
-### Step 1: Check API Health
+## 🚀 Quick Setup (5 Minutes)
 
-First, let's verify that the API is running:
-
-```bash
-curl -H "Accept: application/json" https://api.pantrypirate.org/v1/health
-```
-
-You should see a response like:
-
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "uptime": 86400,
-  "timestamp": "2024-01-15T15:30:00Z"
-}
-```
-
-### Step 2: Search for Food Services
-
-Now let's search for food services near a specific location. We'll search for services within 5 miles of Manhattan (latitude: 40.7128, longitude: -74.0060):
+### Step 1: Clone the Repository
 
 ```bash
+# Clone the repository
+git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+cd pantry-pirate-radio
+```
+
+✅ **Success Indicator**: You should now be in the `pantry-pirate-radio` directory.
+
+### Step 2: Run the Setup Wizard
+
+```bash
+# Run the interactive setup wizard
+./bouy setup
+```
+
+The setup wizard will:
+1. Check for Docker installation
+2. Create your `.env` configuration file
+3. Guide you through setting up:
+   - Database passwords (secure defaults provided)
+   - LLM provider selection (Claude or OpenAI)
+   - Optional API keys
+   - HAARRRvest repository configuration
+
+**💡 Tip**: Press Enter to accept defaults for a quick setup. You can always reconfigure later.
+
+✅ **Success Indicator**: You'll see "✅ Setup complete!" when finished.
+
+### Step 3: Start the System with Data
+
+```bash
+# Start all services WITH pre-populated food resource data
+./bouy up --with-init
+```
+
+This command:
+- Downloads ~90 days of food resource data from HAARRRvest
+- Starts all required services (database, API, workers)
+- Initializes the database with real food pantry data
+- Takes 5-15 minutes on first run
+
+**Monitor initialization progress:**
+```bash
+# In a new terminal, watch the initialization
+./bouy logs -f db-init
+```
+
+✅ **Success Indicators**:
+- You'll see "Database initialization complete" in the logs
+- All services show as "running" when you run `./bouy ps`
+
+### Step 4: Verify Everything Works
+
+```bash
+# Check service status
+./bouy ps
+
+# Test the API
+curl http://localhost:8000/health
+
+# Open the interactive API documentation
+open http://localhost:8000/docs  # Mac
+# OR
+xdg-open http://localhost:8000/docs  # Linux
+# OR just navigate to http://localhost:8000/docs in your browser
+```
+
+✅ **Success Indicators**:
+- All services show "Up" status
+- API returns `{"status":"healthy"}`
+- API documentation page loads successfully
+
+### Step 5: Make Your First API Call
+
+```bash
+# Search for food pantries in Manhattan
 curl -H "Accept: application/json" \
-  "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=5&status=active"
+  "http://localhost:8000/v1/services?latitude=40.7128&longitude=-74.0060&radius=5&status=active"
 ```
 
-This will return a list of active food services within 5 miles of the specified coordinates.
+You should see JSON data with food services in the area!
 
-### Step 3: Search for Food Pantries Only
+✅ **Success Indicator**: API returns a JSON response with `services` array containing food resource data.
 
-Let's narrow down the search to find only food pantries:
+## 🎯 Common Setup Issues & Solutions
 
+### Docker Not Running
 ```bash
-curl -H "Accept: application/json" \
-  "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=5&status=active&service_type=food_pantry"
+# Check Docker status
+docker --version
+
+# If not installed, visit: https://docs.docker.com/get-docker/
+# Start Docker Desktop (Mac/Windows) or Docker service (Linux)
 ```
 
-## Understanding the Response Format
+### Port Conflicts
+```bash
+# Check if ports are in use
+lsof -i :8000  # API port
+lsof -i :5432  # Database port
+lsof -i :6379  # Redis port
+
+# Solution: Stop conflicting services or change ports in .env
+```
+
+### Slow Initialization
+- First run downloads ~500MB of data from HAARRRvest
+- Subsequent runs use cached data (much faster)
+- Use `./bouy up` (without --with-init) for faster startup with empty database
+
+### Memory Issues
+```bash
+# Increase Docker memory in Docker Desktop settings (Mac/Windows)
+# OR reduce worker count:
+./bouy up --scale worker=1
+```
+
+## 📊 Understanding the System
 
 The API response includes several key sections:
 
@@ -144,37 +234,118 @@ The API response includes several key sections:
 - **pagination**: Information about result pagination
 - **metadata**: Additional information about the response
 
-## Common Search Scenarios
+## 🔧 Essential Commands
+
+Once your system is running, here are the most important commands:
+
+### Service Management
+```bash
+./bouy up                   # Start all services
+./bouy down                 # Stop all services
+./bouy ps                   # Check service status
+./bouy logs app            # View API logs
+./bouy logs -f worker      # Follow worker logs (real-time)
+./bouy clean               # Stop services and remove data
+```
+
+### Running Tests
+```bash
+./bouy test                # Run all tests and checks
+./bouy test --pytest       # Run tests only
+./bouy test --black        # Check code formatting
+./bouy test --mypy         # Type checking
+```
+
+### Data Collection
+```bash
+./bouy scraper --list      # List available scrapers
+./bouy scraper nyc_efap_programs  # Run specific scraper
+./bouy scraper --all       # Run all scrapers (30+ sources)
+```
+
+### Getting Help
+```bash
+./bouy --help              # Show all available commands
+./bouy scraper --help      # Help for specific command
+```
+
+## 🔍 Common API Queries
+
+Once your system is running, try these API calls:
+
+### Find Food Pantries Near You
+```bash
+# Search within 5 miles of a location
+curl -H "Accept: application/json" \
+  "http://localhost:8000/v1/services?latitude=40.7128&longitude=-74.0060&radius=5&status=active"
+```
 
 ### Find Services with Spanish Support
-
 ```bash
 curl -H "Accept: application/json" \
-  "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=10&languages=es&status=active"
+  "http://localhost:8000/v1/services?latitude=40.7128&longitude=-74.0060&radius=10&languages=es&status=active"
 ```
 
 ### Find Mobile Food Pantries
-
 ```bash
 curl -H "Accept: application/json" \
-  "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=15&service_type=mobile_pantry&status=active"
-```
-
-### Find Hot Meals Programs
-
-```bash
-curl -H "Accept: application/json" \
-  "https://api.pantrypirate.org/v1/services?latitude=40.7128&longitude=-74.0060&radius=8&service_type=hot_meals&status=active"
+  "http://localhost:8000/v1/services?latitude=40.7128&longitude=-74.0060&radius=15&service_type=mobile_pantry&status=active"
 ```
 
 ### Search Within a Bounding Box
-
 ```bash
 curl -H "Accept: application/json" \
-  "https://api.pantrypirate.org/v1/services?bounds[north]=40.8&bounds[south]=40.7&bounds[east]=-73.9&bounds[west]=-74.1&status=active"
+  "http://localhost:8000/v1/services?bounds[north]=40.8&bounds[south]=40.7&bounds[east]=-73.9&bounds[west]=-74.1&status=active"
 ```
 
-## Building a Simple Food Finder App
+## 🌐 Service URLs
+
+Once running, access these services:
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **API Documentation** | http://localhost:8000/docs | Interactive API explorer (Swagger UI) |
+| **API Endpoints** | http://localhost:8000/v1/ | REST API base URL |
+| **Health Check** | http://localhost:8000/health | System health status |
+| **Worker Health** | http://localhost:8080/health | LLM worker status (Claude only) |
+| **Queue Monitor** | http://localhost:9181 | RQ Dashboard for job monitoring |
+| **Metrics** | http://localhost:8000/metrics | Prometheus metrics |
+
+## 🚦 Understanding the Response Format
+
+The API returns HSDS-compliant JSON with these key sections:
+
+```json
+{
+  "search_query": {         // Your search parameters
+    "latitude": 40.7128,
+    "longitude": -74.0060,
+    "radius": 5
+  },
+  "services": [            // Array of matching services
+    {
+      "organization": {    // Organization providing the service
+        "name": "Community Food Bank",
+        "email": "info@foodbank.org"
+      },
+      "service": {         // Service details
+        "name": "Emergency Food Pantry",
+        "description": "Free groceries..."
+      },
+      "location": {        // Physical location
+        "address": {...},
+        "distance_miles": 0.5
+      },
+      "schedules": [...],  // Operating hours
+      "phones": [...]      // Contact information
+    }
+  ],
+  "pagination": {...},     // Pagination info
+  "metadata": {...}        // Response metadata
+}
+```
+
+## 📝 Building a Simple Food Finder App
 
 Let's create a simple HTML page that uses the API to find nearby food pantries:
 
@@ -305,7 +476,7 @@ Let's create a simple HTML page that uses the API to find nearby food pantries:
 </html>
 ```
 
-## Working with Different Programming Languages
+## 💻 Working with Different Programming Languages
 
 ### Python Example
 
@@ -380,25 +551,70 @@ async function findFoodPantries(latitude, longitude, radius = 5) {
 findFoodPantries(40.7128, -74.0060, 5);
 ```
 
-## API Limits and Best Practices
+## ⚙️ Configuration Options
+
+### LLM Provider Setup (Optional)
+
+To enable AI-powered data processing, configure an LLM provider:
+
+#### Option 1: Claude (Recommended)
+```bash
+# Add to .env file
+LLM_PROVIDER=claude
+ANTHROPIC_API_KEY=your_api_key_here  # Optional - can use CLI auth
+
+# Or use interactive authentication
+./bouy claude-auth
+```
+
+#### Option 2: OpenAI
+```bash
+# Add to .env file
+LLM_PROVIDER=openai
+OPENROUTER_API_KEY=your_api_key_here
+LLM_MODEL_NAME=gpt-4
+```
+
+### HAARRRvest Publisher (Optional)
+
+To publish collected data to the HAARRRvest repository:
+
+```bash
+# Add to .env file
+DATA_REPO_TOKEN=your_github_pat  # GitHub Personal Access Token
+DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
+```
+
+### Geocoding Service (Optional)
+
+Configure geocoding for accurate location data:
+
+```bash
+# Add to .env file
+GEOCODING_PROVIDER=arcgis  # Free tier available
+ARCGIS_API_KEY=your_key    # Optional for higher limits
+GEOCODING_ENABLE_FALLBACK=true
+```
+
+## 📈 API Limits and Best Practices
 
 ### Rate Limiting
 - **Limit**: 100 requests per minute per IP address
-- **Headers**: Check `X-RateLimit-Remaining` to see remaining requests
-- **Retry**: Wait for the time specified in `Retry-After` header if rate limited
+- **Headers**: Check `X-RateLimit-Remaining` header
+- **Retry**: Wait for `Retry-After` header value if rate limited
 
 ### Geographic Constraints
-- **Latitude**: Must be between 25.0 and 49.0 (Continental US)
-- **Longitude**: Must be between -125.0 and -67.0 (Continental US)
-- **Radius**: Maximum 80 miles for point-based searches
+- **Coverage**: Continental US (25°N-49°N, -125°W to -67°W)
+- **Radius**: Maximum 80 miles for point searches
+- **Bounding Box**: No size limit but may paginate results
 
 ### Performance Tips
-1. Use the smallest radius that meets your needs
-2. Apply filters to reduce response size
-3. Use pagination for large result sets
-4. Cache responses when possible
+1. Start with smaller radius searches
+2. Use filters to reduce response size
+3. Implement pagination for large datasets
+4. Cache responses when appropriate
 
-## Common Use Cases
+## 🎯 Common Use Cases
 
 ### 1. Food Pantry Locator
 Search for food pantries within a specific radius of a user's location.
@@ -415,100 +631,110 @@ Quick lookup of immediate food assistance options.
 ### 5. Community Resource Mapping
 Display food resources on a map for community planning.
 
-## Next Steps
+## 🚀 Next Steps
 
-Now that you've learned the basics, explore these advanced topics:
+### For API Users
+1. **[API Examples](./api-examples.md)** - Comprehensive API usage examples
+2. **[API Documentation](./api.md)** - Complete API reference
+3. **Interactive API Explorer** - Visit http://localhost:8000/docs
 
-1. **[API Examples](./api-examples.md)** - Comprehensive API documentation with examples
-2. **[Integration Examples](../examples/integrations/)** - Complete code examples in multiple languages
-3. **[Sample Data](../examples/sample_data/)** - Explore the HSDS data structure
-4. **[Error Handling](../examples/api_responses/error_responses.json)** - Learn how to handle API errors
+### For Developers
+1. **[Docker Development Guide](./docker-development.md)** - Advanced Docker setup
+2. **[Architecture Overview](./architecture.md)** - System design details
+3. **[Scraper Development](./scrapers.md)** - Add new data sources
+4. **[LLM Configuration](./llm.md)** - AI provider setup
 
-## Getting Help
+### For Contributors
+1. **[CLAUDE.md](../CLAUDE.md)** - Development guidelines
+2. **[Contributing Guide](../CONTRIBUTING.md)** - How to contribute
+3. **[Test Environment Setup](./test-environment-setup.md)** - Testing best practices
 
-- **Documentation**: Visit the [API documentation](./api.md) for detailed information
-- **Examples**: Check the [examples directory](../examples/) for code samples
-- **Issues**: Report bugs or request features on [GitHub](https://github.com/example/pantry-pirate-radio/issues)
-- **Community**: Join discussions about food security data and the OpenReferral specification
+## 🆘 Getting Help
 
-## Understanding the Data Pipeline (For Contributors)
-
-### Data Flow Overview
-The system processes food resource data through several stages:
-
-1. **Scrapers** collect data from various sources
-2. **Workers** process the data using LLM providers
-3. **Reconciler** ensures data consistency and HSDS compliance
-4. **Recorder** archives all processed data
-5. **HAARRRvest Publisher** publishes data to the public repository
-6. **API** serves the processed data
-
-### Running the Full System Locally
-
+### Quick Troubleshooting
 ```bash
-# 1. Clone and setup
-git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
+# Check system status
+./bouy ps
+
+# View recent logs
+./bouy logs app --tail 50
+
+# Restart a service
+./bouy down && ./bouy up
+
+# Clean everything and start fresh
+./bouy clean
+./bouy setup
+./bouy up --with-init
+```
+
+### Resources
+- **[Troubleshooting Guide](./troubleshooting.md)** - Common issues and solutions
+- **[GitHub Issues](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)** - Report bugs or request features
+- **[Documentation Index](./README.md)** - Complete documentation navigation
+- **[HAARRRvest Data Explorer](https://for-the-greater-good.github.io/HAARRRvest/)** - Browse collected data
+
+## 🏗️ System Architecture Overview
+
+### Data Flow
+```
+Scrapers → Content Store → LLM Workers → Database → API
+                ↓                           ↓
+           Deduplication              HAARRRvest Publisher
+```
+
+### Key Components
+- **30+ Scrapers**: Collect data from food resource websites
+- **Content Store**: Deduplicates data to avoid reprocessing
+- **LLM Workers**: AI-powered HSDS normalization
+- **Reconciler**: Merges and deduplicates location data
+- **Recorder**: Archives all processed data as JSON
+- **API**: Serves HSDS-compliant data via REST endpoints
+- **HAARRRvest Publisher**: Backs up data to GitHub repository
+
+### Database
+- **PostgreSQL 15+** with PostGIS for geographic queries
+- **Redis** for job queues and caching
+- **HSDS v3.1.1** compliant schema
+- **Version tracking** for all records
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how to get involved:
+
+### Quick Contribution Setup
+```bash
+# Fork and clone the repository
+git clone https://github.com/YOUR_USERNAME/pantry-pirate-radio.git
 cd pantry-pirate-radio
-cp .env.example .env
 
-# 2. Configure essential services in .env
+# Create a feature branch
+git checkout -b feat/your-feature
 
-## HAARRRvest Publisher Configuration
-DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
-DATA_REPO_TOKEN=your_github_token
+# Run tests before committing
+./bouy test
 
-## Geocoding Service Configuration (Optional but Recommended)
-# The system uses a unified geocoding service with caching and fallback
-GEOCODING_PROVIDER=arcgis  # Primary provider (free tier available)
-GEOCODING_CACHE_TTL=2592000  # Cache for 30 days to reduce API calls
-GEOCODING_RATE_LIMIT=0.5  # Respects provider rate limits
+# Make your changes and commit
+git add .
+git commit -m "feat: your feature description"
 
-# Optional: Get free ArcGIS API key for higher limits (1M/month vs 20K/month)
-# Create account at: https://developers.arcgis.com
-ARCGIS_API_KEY=your_api_key_here  # Optional, provides 50x more geocoding capacity
-
-# The system automatically falls back to Nominatim if ArcGIS fails
-GEOCODING_ENABLE_FALLBACK=true  # Automatic provider fallback
-NOMINATIM_USER_AGENT=pantry-pirate-radio  # Required for Nominatim
-
-# 3. Start all services
-docker-compose up -d
-
-# 4. Run a scraper to generate data
-./bouy scraper nyc_efap_programs
-
-# 5. Monitor processing
-./bouy logs worker
-./bouy logs recorder
-./bouy logs haarrrvest-publisher
-
-# Follow logs continuously
-./bouy logs -f worker
-
-# 6. Check published data
-# Visit https://github.com/For-The-Greater-Good/HAARRRvest
+# Push and create a pull request
+git push origin feat/your-feature
 ```
 
-### HAARRRvest Publisher
-The publisher service automatically:
-- Monitors for new recorder outputs every 5 minutes
-- Creates date-based branches for safety
-- Exports PostgreSQL data to SQLite for visualization
-- Pushes updates to the HAARRRvest repository
-- Maintains a complete audit trail
+### Ways to Contribute
+- **Report Bugs**: [Create an issue](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)
+- **Add Scrapers**: Contribute new data sources
+- **Improve Documentation**: Help others get started
+- **Fix Issues**: Check our [good first issues](https://github.com/For-The-Greater-Good/pantry-pirate-radio/labels/good%20first%20issue)
+- **Enhance Tests**: Improve test coverage
 
-To manually trigger publishing:
-```bash
-docker-compose restart haarrrvest-publisher
-```
+## 📄 License
 
-## Contributing
+This project is released under a custom license. See [LICENSE](../LICENSE) for details.
 
-The Pantry Pirate Radio project is open source. You can contribute by:
-- Reporting bugs or suggesting features
-- Improving documentation
-- Adding new scrapers for additional data sources
-- Helping with translations
-- Enhancing the data processing pipeline
+---
 
-Visit our [GitHub repository](https://github.com/For-The-Greater-Good/pantry-pirate-radio) to get started!
+**Congratulations!** 🎉 You now have Pantry Pirate Radio running with real food resource data. The system is actively collecting, processing, and serving food security information to help people find assistance in their communities.
+
+*For The Greater Good (FTGG)* | Making public resources truly accessible through intelligent aggregation

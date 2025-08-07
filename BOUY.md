@@ -25,6 +25,8 @@ Bouy (v1.0.0) is a comprehensive bash script that wraps Docker Compose with inte
 - 🔐 Built-in authentication management for LLM providers
 - 📝 Structured logging with multiple output formats
 - 🛡️ Comprehensive error handling and recovery
+- 🚢 Interactive setup wizard for configuration
+- 🏴‍☠️ Parallel scraper execution with scouting-party mode
 
 ## Installation
 
@@ -50,6 +52,7 @@ These options can be used with any bouy command:
 | `--quiet` | Suppress non-error output | `./bouy --quiet test` |
 | `--no-color` | Disable colored output | `./bouy --no-color logs` |
 | `--version`, `-v` | Show version information | `./bouy --version` |
+| `--help`, `-h` | Show usage and all commands | `./bouy --help` |
 
 ### Combining Global Options
 ```bash
@@ -59,6 +62,21 @@ These options can be used with any bouy command:
 ```
 
 ## Commands Reference
+
+### Setup and Configuration
+
+#### `setup` - Interactive setup wizard
+```bash
+./bouy setup                   # Interactive .env configuration wizard
+```
+
+The setup wizard will:
+- Create `.env` file from template
+- Configure database passwords
+- Set up LLM provider (OpenAI/Claude)
+- Configure Claude authentication method
+- Set up HAARRRvest repository tokens
+- Backup existing `.env` files automatically
 
 ### Service Management
 
@@ -124,11 +142,20 @@ These options can be used with any bouy command:
 #### `scraper` - Run scrapers
 ```bash
 ./bouy scraper --list                     # List available scrapers
-./bouy scraper --all                      # Run all scrapers
+./bouy scraper --all                      # Run all scrapers sequentially
+./bouy scraper scouting-party             # Run all scrapers in parallel (5 concurrent)
+./bouy scraper scouting-party 10          # Run with 10 concurrent scrapers
 ./bouy scraper nyc_efap_programs          # Run specific scraper
 ./bouy --programmatic scraper --list      # Machine-readable list
 ./bouy --quiet scraper food_bank_for_nyc  # Minimal output
 ```
+
+The `scouting-party` mode runs scrapers in parallel for faster data collection:
+- Randomizes scraper order for better distribution
+- Shows real-time progress with success/failure indicators
+- Configurable concurrency level (default: 5)
+
+Note: The help text may show `full-broadside` but the actual command is `scouting-party`.
 
 #### `scraper-test` - Test scrapers
 ```bash
@@ -158,6 +185,19 @@ These options can be used with any bouy command:
 ./bouy replay --use-default-output-dir    # Use outputs directory
 ./bouy replay --dry-run                   # Preview without executing
 ```
+
+#### `pull` - Pull container images
+```bash
+./bouy pull                               # Pull all latest images from registry
+./bouy pull v1.2.3                        # Pull specific version tag
+./bouy pull latest                        # Explicitly pull latest (same as no argument)
+```
+
+Pulls all service images from GitHub Container Registry:
+- Unified app image for all services
+- External dependencies (PostgreSQL, Redis, backup tools)
+- Tags images for local docker-compose use
+- Validates tag format for security
 
 ### Content Store
 
@@ -213,7 +253,11 @@ This runs the complete test suite including:
 ./bouy test --black                       # Code formatting check
 ./bouy test --ruff                        # Linting only
 ./bouy test --bandit                      # Security scan only
-./bouy test --coverage                    # Tests with coverage threshold
+./bouy test --coverage                    # Analyze existing coverage reports
+./bouy test --vulture                     # Dead code detection
+./bouy test --safety                      # Dependency vulnerability scan
+./bouy test --pip-audit                   # Pip audit for vulnerabilities
+./bouy test --xenon                       # Code complexity analysis
 ```
 
 ### Running Specific Test Files
@@ -371,6 +415,22 @@ JSON mode outputs valid JSON to stdout:
 
 ## Common Workflows
 
+### Initial Setup for New Users
+
+```bash
+# Run interactive setup wizard
+./bouy setup
+
+# Start services
+./bouy up
+
+# Verify everything works
+./bouy test
+
+# If using Claude, authenticate
+./bouy claude-auth
+```
+
 ### Starting Fresh Development Environment
 
 ```bash
@@ -434,8 +494,17 @@ JSON mode outputs valid JSON to stdout:
 # Test a scraper without processing
 ./bouy scraper-test food_bank_for_nyc
 
-# Run the scraper
+# Run a single scraper
 ./bouy scraper food_bank_for_nyc
+
+# Run all scrapers sequentially
+./bouy scraper --all
+
+# Run all scrapers in parallel (faster!)
+./bouy scraper scouting-party
+
+# Run with custom concurrency
+./bouy scraper scouting-party 10
 
 # Monitor scraper logs
 ./bouy logs scraper
@@ -569,6 +638,37 @@ workflows:
       - test
 ```
 
+## Architecture
+
+### Docker Compose Files
+
+Bouy uses a layered Docker Compose configuration:
+- `.docker/compose/base.yml` - Base service definitions
+- `.docker/compose/docker-compose.dev.yml` - Development overrides
+- `.docker/compose/docker-compose.prod.yml` - Production configuration
+- `.docker/compose/docker-compose.test.yml` - Test environment
+- `.docker/compose/docker-compose.with-init.yml` - Database initialization
+
+### Service Dependencies
+
+```
+app (API) ─────┬─> db (PostgreSQL)
+               └─> cache (Redis)
+               
+worker ─────────┬─> db
+               ├─> cache
+               └─> Claude/OpenAI API
+
+scraper ────────┬─> cache (job queue)
+               └─> content-store (dedup)
+               
+reconciler ─────┬─> db
+               └─> cache
+               
+haarrrvest ─────┬─> db
+               └─> git (HAARRRvest repo)
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -677,13 +777,36 @@ To manually run health checks:
 
 Bouy respects these environment variables:
 - `COMPOSE_PROJECT_NAME` - Override project name (default: pantry-pirate-radio)
-- `POSTGRES_PASSWORD` - Database password (default: pirate)
-- `BOUY_TEST_MODE` - Enable test mode
+- `POSTGRES_PASSWORD` - Database password (configured via setup)
+- `POSTGRES_USER` - Database user (default: postgres)
+- `POSTGRES_DB` - Database name (default: pantry_pirate_radio)
+- `DATABASE_URL` - Full database connection string
+- `TEST_DATABASE_URL` - Test database connection string
+- `LLM_PROVIDER` - LLM provider choice (openai/claude)
+- `ANTHROPIC_API_KEY` - Claude API key (if using API)
+- `OPENROUTER_API_KEY` - OpenRouter API key (if using OpenAI)
+- `CONTENT_STORE_ENABLED` - Enable content deduplication
+- `PUBLISHER_PUSH_ENABLED` - Enable HAARRRvest publishing
+- `DATA_REPO_TOKEN` - GitHub token for HAARRRvest
+- `BOUY_TEST_MODE` - Enable test mode (for testing bouy itself)
 - `BOUY_TEST_COMPOSE_CMD` - Override compose command in test mode
+
+## Security Notes
+
+- All user inputs are validated to prevent shell injection
+- Database passwords are handled securely via environment files
+- API keys are never logged or displayed
+- Temporary files are cleaned up automatically
+- Docker build cache is managed to prevent disk space issues
 
 ## Version History
 
 - **v1.0.0** - Initial release with comprehensive Docker fleet management
+  - Interactive setup wizard
+  - Parallel scraper execution
+  - Advanced testing capabilities
+  - HAARRRvest integration
+  - Content store deduplication
 
 ## Bouy-API: Advanced Programmatic Interface
 
@@ -734,6 +857,30 @@ For advanced automation and CI/CD integration, `bouy-api` provides additional fe
 ./bouy-api --json ps
 ```
 
+## Bouy-Functions: Shared Utilities
+
+The `bouy-functions.sh` file provides shared utilities used by both bouy and bouy-api:
+- Color output formatting
+- Service health checks
+- Database schema management
+- Redis connectivity checks
+- Git configuration
+- Directory permission validation
+
+## Testing Bouy Itself
+
+Bouy includes comprehensive self-tests:
+```bash
+# Run bouy unit tests
+./bouy test --pytest tests/test_bouy_unit.py
+
+# Run bouy integration tests
+./bouy test --pytest tests/test_bouy_integration.py
+
+# Test with mock Docker commands
+BOUY_TEST_MODE=1 BOUY_TEST_COMPOSE_CMD="./tests/mock_compose.sh" ./bouy up
+```
+
 ## Contributing
 
 When adding new features to bouy:
@@ -742,6 +889,8 @@ When adding new features to bouy:
 3. Update mock_compose.sh for new Docker commands
 4. Ensure programmatic mode support
 5. Consider if the feature should also be in bouy-api
+6. Test with both interactive and programmatic modes
+7. Verify JSON output format when applicable
 
 ---
 

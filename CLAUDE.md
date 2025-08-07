@@ -10,7 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Initial Setup Commands
 ./bouy setup                 # Interactive setup wizard (creates .env file)
 ./bouy --help                # Show help with all commands
-./bouy --version             # Show bouy version
+./bouy help                  # Same as --help
+./bouy --version             # Show bouy version (v1.0.0)
+./bouy version               # Same as --version
 
 # Essential Commands
 ./bouy up                    # Start all services
@@ -35,14 +37,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Scraper Commands
 ./bouy scraper --list         # List all scrapers
-./bouy scraper --all          # Run all scrapers
+./bouy scraper --all          # Run all scrapers sequentially
 ./bouy scraper NAME           # Run specific scraper
-./bouy scraper scouting-party # Run all scrapers in parallel
+./bouy scraper scouting-party # Run all scrapers in parallel (default: 5 concurrent)
+./bouy scraper scouting-party 10 # Run with 10 concurrent scrapers
 ./bouy scraper-test NAME      # Test scraper (dry run)
+./bouy scraper-test --all     # Test all scrapers (dry run)
 
 # Service Management
 ./bouy build                # Build all services
 ./bouy build app            # Build specific service
+./bouy build --prod worker  # Build for production
 ./bouy exec app CMD         # Execute command in container
 ./bouy pull                 # Pull all latest container images
 ./bouy pull v1.2.3          # Pull specific version tags
@@ -65,17 +70,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./bouy setup                # Interactive setup wizard - creates .env configuration
-./bouy up                   # Start services
-./bouy test                 # Verify everything works
+./bouy up                   # Start services (development mode by default)
+./bouy test                 # Verify everything works (runs all CI checks)
 ```
 
 The setup wizard will:
 - Create `.env` file from template with interactive prompts
-- Configure database passwords
-- Set up LLM provider selection (OpenAI vs Claude)
-- Handle Claude authentication options (API key vs CLI)
-- Configure HAARRRvest repository tokens
-- Create backups of existing `.env` files
+- Configure database passwords (default: 'pirate')
+- Set up LLM provider selection (OpenAI via OpenRouter vs Claude/Anthropic)
+- Handle Claude authentication options (API key vs Claude Code CLI)
+- Configure HAARRRvest repository tokens (or 'skip' for read-only mode)
+- Create timestamped backups of existing `.env` files
 
 ## Development Commands
 
@@ -256,8 +261,9 @@ Use `--` to pass arguments to the underlying test command:
 # - coverage.xml (XML report for CI)
 # - coverage.json (JSON report for automation)
 
-# View coverage report in browser
-open htmlcov/index.html
+# View coverage report in browser (macOS/Linux)
+open htmlcov/index.html  # macOS
+xdg-open htmlcov/index.html  # Linux
 ```
 
 ### Type Checking Specific Files
@@ -302,7 +308,9 @@ open htmlcov/index.html
 # Start all services (no local dependencies needed)
 ./bouy up                    # Development mode (default)
 ./bouy up --prod            # Production mode
+./bouy up --test            # Test mode
 ./bouy up --with-init       # With database initialization
+./bouy up --dev --with-init # Combine options
 
 # Start specific services
 ./bouy up app worker        # Start only app and worker
@@ -310,9 +318,10 @@ open htmlcov/index.html
 # Service management
 ./bouy down                 # Stop all services
 ./bouy ps                   # List running services
+./bouy logs                 # View all logs (follows by default)
 ./bouy logs app             # View service logs
-./bouy logs -f worker       # Follow worker logs
-./bouy shell app            # Open shell in container
+./bouy logs -f worker       # Follow worker logs (explicit follow)
+./bouy shell app            # Open shell in container (bash or sh)
 ./bouy exec app python --version  # Execute command
 ./bouy clean                # Stop and remove volumes
 
@@ -335,7 +344,70 @@ open htmlcov/index.html
 - For specific test functions: `./bouy test --pytest -- tests/test_api.py::TestAPI::test_function`
 - The `./bouy test` command properly handles test environments, coverage, and dependencies
 
+## Additional Commands
+
+### HAARRRvest Publisher
+```bash
+./bouy haarrrvest             # Manually trigger publishing run
+./bouy haarrrvest run         # Same as above
+./bouy haarrrvest logs        # Follow publisher logs
+./bouy haarrrvest status      # Check publisher service status
+```
+
+### Content Store Management
+```bash
+./bouy content-store status      # Show content store status
+./bouy content-store report      # Generate detailed report
+./bouy content-store duplicates  # Find duplicate content
+./bouy content-store efficiency  # Analyze storage efficiency
+```
+
+### Data Recording and Replay
+```bash
+./bouy recorder                          # Save job results to JSON
+./bouy recorder --output-dir /custom/path # Custom output directory
+./bouy replay --file FILE                # Replay single JSON file
+./bouy replay --directory DIR            # Replay all files in directory
+./bouy replay --use-default-output-dir   # Use default outputs directory
+./bouy replay --dry-run                  # Preview without executing
+```
+
+### Claude Authentication
+```bash
+./bouy claude-auth           # Interactive Claude authentication
+./bouy claude-auth setup     # Setup Claude authentication
+./bouy claude-auth status    # Check authentication status
+./bouy claude-auth test      # Test Claude connection
+./bouy claude-auth config    # Show Claude configuration
+```
+
+### Data Reconciliation
+```bash
+./bouy reconciler            # Run reconciler
+./bouy reconciler --force    # Force processing
+```
+
+### Data Viewing and Endpoints
+When services are running, the following endpoints are available:
+- **API**: http://localhost:8000 (REST API)
+- **API Docs**: http://localhost:8000/docs (Interactive Swagger UI)
+- **Datasette Viewer**: http://localhost:8001 (in production mode only)
+- **RQ Dashboard**: http://localhost:9181 (job queue monitoring)
+
+Datasette provides:
+- SQL interface to explore published HAARRRvest data
+- Read-only access to the SQLite database
+- Data export in various formats (CSV, JSON)
+
 ## Memories
 
 ### Test Command Notes
 - Do not use 2>&1 in bouy test commands, it gets interpreted incorrectly
+- Always use `./bouy test --pytest` for running tests, not `./bouy exec app poetry run pytest`
+- Test commands automatically handle test environments, coverage, and dependencies
+
+### Important Instructions
+- NEVER create files unless they're absolutely necessary for achieving your goal
+- ALWAYS prefer editing an existing file to creating a new one
+- NEVER proactively create documentation files (*.md) or README files unless explicitly requested
+- Do what has been asked; nothing more, nothing less
