@@ -451,9 +451,25 @@ git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 cp .env.example .env
 
-# 2. Configure HAARRRvest publisher in .env
+# 2. Configure essential services in .env
+
+## HAARRRvest Publisher Configuration
 DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
 DATA_REPO_TOKEN=your_github_token
+
+## Geocoding Service Configuration (Optional but Recommended)
+# The system uses a unified geocoding service with caching and fallback
+GEOCODING_PROVIDER=arcgis  # Primary provider (free tier available)
+GEOCODING_CACHE_TTL=2592000  # Cache for 30 days to reduce API calls
+GEOCODING_RATE_LIMIT=0.5  # Respects provider rate limits
+
+# Optional: Get free ArcGIS API key for higher limits (1M/month vs 20K/month)
+# Create account at: https://developers.arcgis.com
+ARCGIS_API_KEY=your_api_key_here  # Optional, provides 50x more geocoding capacity
+
+# The system automatically falls back to Nominatim if ArcGIS fails
+GEOCODING_ENABLE_FALLBACK=true  # Automatic provider fallback
+NOMINATIM_USER_AGENT=pantry-pirate-radio  # Required for Nominatim
 
 # 3. Start all services
 docker-compose up -d
