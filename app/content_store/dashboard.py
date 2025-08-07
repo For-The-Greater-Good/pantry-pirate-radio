@@ -135,6 +135,39 @@ DASHBOARD_TEMPLATE = """
             background-color: #10b981;
             transition: width 0.3s ease;
         }
+        nav {
+            background-color: #1f2937;
+            padding: 10px 0;
+            margin: -20px -20px 20px -20px;
+        }
+        nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        nav li {
+            display: inline;
+        }
+        nav a {
+            color: #9ca3af;
+            text-decoration: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        nav a:hover {
+            color: white;
+            background-color: #374151;
+        }
+        nav a.active {
+            color: white;
+            background-color: #2563eb;
+        }
     </style>
     <script>
         function refreshData() {
@@ -180,6 +213,13 @@ DASHBOARD_TEMPLATE = """
     </script>
 </head>
 <body>
+    <nav>
+        <ul>
+            <li><a href="#" class="active">Content Store</a></li>
+            <li><a href="http://localhost:9181" target="_blank">RQ Dashboard</a></li>
+            <li><a href="http://localhost:8000/docs" target="_blank">API Docs</a></li>
+        </ul>
+    </nav>
     <div class="container">
         <h1>Content Store Dashboard</h1>
 
