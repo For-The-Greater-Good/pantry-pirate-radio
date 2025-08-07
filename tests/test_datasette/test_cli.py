@@ -87,7 +87,6 @@ class TestDatasetteCLI:
     def test_should_run_cli_when_executed_directly(self):
         """Test CLI execution when module is run directly."""
         # Test that the module can be imported and has the expected attributes
-        import app.datasette.cli
 
         assert hasattr(app.datasette.cli, "cli")
         assert hasattr(app.datasette.cli, "export")
