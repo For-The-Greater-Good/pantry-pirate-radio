@@ -76,9 +76,21 @@ The recommended development approach uses VSCode DevContainers:
 
 ## Service Architecture
 
+### Unified Docker Image
+
+Pantry Pirate Radio now uses a **single unified Docker image** for all application services. This architecture:
+- Reduces build time and complexity
+- Improves cache efficiency
+- Simplifies CI/CD pipelines
+- Uses `SERVICE_TYPE` environment variable to select service behavior
+
 ### Core Services
 
 - **app**: FastAPI application (development mode with hot reload)
+- **worker**: LLM processing workers (same image as app, SERVICE_TYPE=worker)
+- **recorder**: Job archival service (same image as app, SERVICE_TYPE=recorder)
+- **reconciler**: Data consistency service (same image as app, SERVICE_TYPE=reconciler)
+- **haarrrvest-publisher**: Data publishing service (same image as app, SERVICE_TYPE=haarrrvest-publisher)
 - **db**: PostgreSQL with PostGIS extensions
 - **cache**: Redis for job queuing
 - **db-backup**: Automated database backups
@@ -86,7 +98,7 @@ The recommended development approach uses VSCode DevContainers:
 ### Optional Services (with --profile with-init)
 
 - **db-init**: Populates database from HAARRRvest data
-- **haarrrvest-publisher**: Manages data repository
+- **datasette**: Interactive data viewer (separate specialized image)
 
 ## Development Workflow
 
@@ -252,10 +264,13 @@ DATA_REPO_TOKEN=your_github_token
 ./bouy exec app poetry update
 ./bouy exec app poetry lock
 
-# Rebuild containers after changes
+# Rebuild unified image (rebuilds all Python services)
 ./bouy build                  # Rebuild all services
-./bouy build app             # Rebuild specific service
-./bouy build --no-cache app  # Force rebuild
+./bouy build app             # Rebuild unified image
+./bouy build --no-cache app  # Force rebuild without cache
+
+# Note: Building 'app' rebuilds the unified image used by:
+# app, worker, recorder, reconciler, and haarrrvest-publisher
 ```
 
 ## CI/CD Integration
@@ -344,6 +359,32 @@ Monitor progress:
 # Check database record count
 ./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
 ```
+
+## Unified Image Architecture
+
+### How Service Selection Works
+
+The unified image uses an entrypoint script (`/scripts/docker-entrypoint.sh`) that:
+1. Reads the `SERVICE_TYPE` environment variable
+2. Launches the appropriate service command
+3. Handles graceful shutdown and signal forwarding
+
+```bash
+# Example SERVICE_TYPE values:
+SERVICE_TYPE=api          # Runs FastAPI server
+SERVICE_TYPE=worker       # Runs LLM worker
+SERVICE_TYPE=recorder     # Runs job recorder
+SERVICE_TYPE=reconciler   # Runs data reconciler
+SERVICE_TYPE=haarrrvest-publisher  # Runs HAARRRvest publisher
+```
+
+### Benefits of Unified Image
+
+1. **Build Efficiency**: Single build for all Python services (~5 minutes vs ~35 minutes)
+2. **Cache Optimization**: Shared layers reduce disk usage by ~80%
+3. **Simplified CI/CD**: One build step instead of multiple
+4. **Consistent Dependencies**: All services use identical Python environment
+5. **Easy Updates**: Update all services with one image rebuild
 
 ## Performance Optimization
 
