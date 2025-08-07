@@ -6,9 +6,6 @@ import re
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
-from geopy.exc import GeocoderServiceError, GeocoderTimedOut, GeocoderUnavailable
-from geopy.extra.rate_limiter import RateLimiter
-from geopy.geocoders import ArcGIS, Nominatim
 from prometheus_client import Counter
 from redis import Redis
 
@@ -312,48 +309,49 @@ class ScraperUtils:
 
 
 class GeocoderUtils:
-    """Utilities for geocoding addresses."""
+    """Utilities for geocoding addresses.
+
+    This class is now a thin wrapper around the unified GeocodingService
+    to maintain backward compatibility with existing scrapers.
+    """
 
     def __init__(
         self,
         timeout: int = 10,
-        min_delay_seconds: int = 2,
         max_retries: int = 3,
         default_coordinates: dict[str, tuple[float, float]] | None = None,
     ):
         """Initialize geocoder utilities.
 
         Args:
-            timeout: Timeout for geocoding requests in seconds
-            min_delay_seconds: Minimum delay between geocoding requests
-            max_retries: Maximum number of retries for geocoding requests
+            timeout: Timeout for geocoding requests in seconds (ignored, uses env config)
+            max_retries: Maximum number of retries for geocoding requests (ignored, uses env config)
             default_coordinates: Optional dictionary of default coordinates by location name
+
+        Note:
+            The min_delay_seconds parameter has been removed as rate limiting is now
+            configured via environment variables (GEOCODING_RATE_LIMIT, NOMINATIM_RATE_LIMIT)
         """
-        # Initialize multiple geocoders with rate limiting
-        self.nominatim = Nominatim(user_agent="pantry-pirate-radio", timeout=timeout)
-        self.nominatim_geocode = RateLimiter(
-            self.nominatim.geocode,
-            min_delay_seconds=min_delay_seconds,
-            max_retries=max_retries,
-        )
+        # Import here to avoid circular dependency
+        from app.core.geocoding import get_geocoding_service
 
-        self.arcgis = ArcGIS(timeout=timeout)
-        self.arcgis_geocode = RateLimiter(
-            self.arcgis.geocode,
-            min_delay_seconds=min_delay_seconds,
-            max_retries=max_retries,
-        )
+        # Use the unified geocoding service - it's a singleton
+        self.geocoding_service = get_geocoding_service()
 
-        # Default coordinates - can be overridden by the caller
-        self.default_coordinates = default_coordinates or {
-            # Geographic center of the United States
-            "US": (39.8283, -98.5795),
-        }
+        # Store custom default coordinates if provided
+        if default_coordinates:
+            # Merge with service's defaults
+            self.default_coordinates = default_coordinates
+        else:
+            self.default_coordinates = None
 
     def geocode_address(
         self, address: str, county: str | None = None, state: str | None = None
     ) -> tuple[float, float]:
-        """Geocode address to get latitude and longitude using multiple geocoders.
+        """Geocode address to get latitude and longitude.
+
+        This method delegates to the unified geocoding service which handles
+        caching, rate limiting, and fallback between providers.
 
         Args:
             address: Address to geocode
@@ -366,67 +364,8 @@ class GeocoderUtils:
         Raises:
             ValueError: If all geocoding attempts fail
         """
-        # Prepare address variations to try
-        address_variations = []
-
-        # Full address with county and state
-        if (
-            county
-            and state
-            and county.lower() not in address.lower()
-            and state.lower() not in address.lower()
-        ):
-            address_variations.append(f"{address}, {county} County, {state}")
-
-        # Address with just state
-        if state and state.lower() not in address.lower():
-            address_variations.append(f"{address}, {state}")
-
-        # Original address as fallback
-        address_variations.append(address)
-
-        # Add specific variations for addresses with landmarks or special formats
-        if "parking lot" in address.lower() or "across from" in address.lower():
-            # Extract street address if it contains a street number
-            street_match = re.search(
-                r"\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd)",
-                address,
-            )
-            if street_match:
-                street_address = street_match.group(0)
-                if county and state:
-                    address_variations.append(
-                        f"{street_address}, {county} County, {state}"
-                    )
-                if state:
-                    address_variations.append(f"{street_address}, {state}")
-
-        # Try each geocoder with each address variation
-        errors = []
-
-        # 1. Try Nominatim first
-        for addr in address_variations:
-            try:
-                location = self.nominatim_geocode(addr)
-                if location:
-                    return location.latitude, location.longitude
-            except (GeocoderTimedOut, GeocoderUnavailable, GeocoderServiceError) as e:
-                errors.append(f"Nominatim error for '{addr}': {e!s}")
-                continue
-
-        # 2. Try ArcGIS next
-        for addr in address_variations:
-            try:
-                location = self.arcgis_geocode(addr)
-                if location:
-                    return location.latitude, location.longitude
-            except (GeocoderTimedOut, GeocoderUnavailable, GeocoderServiceError) as e:
-                errors.append(f"ArcGIS error for '{addr}': {e!s}")
-                continue
-
-        # If we get here, all geocoding attempts failed
-        error_msg = "; ".join(errors) if errors else "Unknown geocoding error"
-        raise ValueError(f"Could not geocode address: {address}. Errors: {error_msg}")
+        # Delegate to the geocoding service's backward compatibility method
+        return self.geocoding_service.geocode_address(address, county, state)
 
     def get_default_coordinates(
         self, location: str = "US", with_offset: bool = True, offset_range: float = 0.01
@@ -441,21 +380,23 @@ class GeocoderUtils:
         Returns:
             Tuple of (latitude, longitude)
         """
-        # Get base coordinates
-        if location in self.default_coordinates:
+        # Check custom coordinates first
+        if self.default_coordinates and location in self.default_coordinates:
             lat, lon = self.default_coordinates[location]
-        else:
-            # Default to US if location not found
-            lat, lon = self.default_coordinates["US"]
 
-        # Add random offset if requested
-        if with_offset:
-            lat_offset = random.uniform(-offset_range, offset_range)  # nosec B311
-            lon_offset = random.uniform(-offset_range, offset_range)  # nosec B311
-            lat += lat_offset
-            lon += lon_offset
+            # Add random offset if requested
+            if with_offset:
+                lat_offset = random.uniform(-offset_range, offset_range)  # nosec B311
+                lon_offset = random.uniform(-offset_range, offset_range)  # nosec B311
+                lat += lat_offset
+                lon += lon_offset
 
-        return lat, lon
+            return lat, lon
+
+        # Fall back to the service's method
+        return self.geocoding_service.get_default_coordinates(
+            location, with_offset, offset_range
+        )
 
 
 class ScraperJob:

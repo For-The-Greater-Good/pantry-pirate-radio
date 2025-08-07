@@ -342,32 +342,118 @@ class JobProcessor:
             # Process locations
             if "location" in data:
                 for location in data["location"]:
-                    if "latitude" in location and "longitude" in location:
+                    # Check that latitude and longitude exist and are not None
+                    if (
+                        "latitude" in location
+                        and "longitude" in location
+                        and location["latitude"] is not None
+                        and location["longitude"] is not None
+                    ):
                         # Check for existing location by coordinates
                         match_id = location_creator.find_matching_location(
                             float(location["latitude"]), float(location["longitude"])
                         )
+                    else:
+                        # Try to geocode if we have address information
+                        location_name = location.get("name", "Unknown")
+                        geocoded_coords = None
 
-                        location_id = None
-                        if match_id:
-                            # Update existing location
-                            LOCATION_MATCHES.labels(match_type="exact").inc()
-                            # Convert string ID to UUID
-                            location_id = uuid.UUID(match_id)
+                        # Check if we have address information
+                        if location.get("addresss"):
+                            # Build address string from first address (HSDS uses "addresss" with 3 s's)
+                            address_data = (
+                                location["addresss"][0]
+                                if isinstance(location["addresss"], list)
+                                else location["addresss"]
+                            )
+                            address_parts = []
 
-                            # Update location record
-                            # Ensure description is never null
-                            update_description = location.get("description")
-                            if update_description is None or update_description == "":
-                                update_description = (
-                                    f"Food service location: {location['name']}"
+                            if address_data.get("address_1"):
+                                address_parts.append(address_data["address_1"])
+                            if address_data.get("city"):
+                                address_parts.append(address_data["city"])
+                            if address_data.get("state_province"):
+                                address_parts.append(address_data["state_province"])
+                            if address_data.get("postal_code"):
+                                address_parts.append(address_data["postal_code"])
+                            if address_data.get("country"):
+                                address_parts.append(address_data["country"])
+
+                            if address_parts:
+                                address_string = ", ".join(address_parts)
+                                logger.info(
+                                    f"Attempting to geocode location '{location_name}' with address: {address_string}"
                                 )
-                                logger.warning(
-                                    f"Missing description for location update {location['name']}, using generated description"
-                                )
 
-                            query = text(
-                                """
+                                try:
+                                    # Use the geocoding service directly
+                                    from app.core.geocoding import get_geocoding_service
+
+                                    geocoding_service = get_geocoding_service()
+                                    geocoded_coords = geocoding_service.geocode(
+                                        address_string
+                                    )
+                                    if geocoded_coords:
+                                        logger.info(
+                                            f"Successfully geocoded '{location_name}' to {geocoded_coords}"
+                                        )
+                                        # Update the location data with geocoded coordinates
+                                        location["latitude"] = geocoded_coords[0]
+                                        location["longitude"] = geocoded_coords[1]
+                                        # Continue processing with the new coordinates
+                                        match_id = (
+                                            location_creator.find_matching_location(
+                                                float(location["latitude"]),
+                                                float(location["longitude"]),
+                                            )
+                                        )
+                                    else:
+                                        logger.warning(
+                                            f"Failed to geocode address for location '{location_name}'"
+                                        )
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error geocoding location '{location_name}': {e}"
+                                    )
+
+                        # If geocoding failed or no address available, skip location
+                        if not geocoded_coords:
+                            missing_fields = []
+                            if (
+                                "latitude" not in location
+                                or location.get("latitude") is None
+                            ):
+                                missing_fields.append("latitude")
+                            if (
+                                "longitude" not in location
+                                or location.get("longitude") is None
+                            ):
+                                missing_fields.append("longitude")
+                            logger.warning(
+                                f"Skipping location '{location_name}' - unable to geocode and missing coordinates: {', '.join(missing_fields)}"
+                            )
+                            continue
+
+                    location_id = None
+                    if match_id:
+                        # Update existing location
+                        LOCATION_MATCHES.labels(match_type="exact").inc()
+                        # Convert string ID to UUID
+                        location_id = uuid.UUID(match_id)
+
+                        # Update location record
+                        # Ensure description is never null
+                        update_description = location.get("description")
+                        if update_description is None or update_description == "":
+                            update_description = (
+                                f"Food service location: {location['name']}"
+                            )
+                            logger.warning(
+                                f"Missing description for location update {location['name']}, using generated description"
+                            )
+
+                        query = text(
+                            """
                             UPDATE location
                             SET name=:name,
                                 description=:description,
@@ -376,59 +462,60 @@ class JobProcessor:
                                 organization_id=:organization_id
                             WHERE id=:id
                             """
+                        )
+
+                        self.db.execute(
+                            query,
+                            {
+                                "id": str(location_id),
+                                "name": location["name"],
+                                "description": update_description,
+                                "latitude": float(location["latitude"]),
+                                "longitude": float(location["longitude"]),
+                                "organization_id": str(org_id) if org_id else None,
+                            },
+                        )
+                        self.db.commit()
+
+                        # Create version for update
+                        version_tracker = VersionTracker(self.db)
+                        version_tracker.create_version(
+                            str(location_id),
+                            "location",
+                            {
+                                "name": location["name"],
+                                "description": update_description,  # Use the same description as the update
+                                "latitude": float(location["latitude"]),
+                                "longitude": float(location["longitude"]),
+                                "organization_id": str(org_id) if org_id else None,
+                                **job_result.job.metadata,
+                            },
+                            "reconciler",
+                            commit=True,
+                        )
+
+                    else:
+                        # Create new location with all fields
+                        # Ensure description is never null
+                        loc_description = location.get("description")
+                        if loc_description is None or loc_description == "":
+                            loc_description = (
+                                f"Food service location: {location['name']}"
+                            )
+                            logger.warning(
+                                f"Missing description for location {location['name']}, using generated description"
                             )
 
-                            self.db.execute(
-                                query,
-                                {
-                                    "id": str(location_id),
-                                    "name": location["name"],
-                                    "description": update_description,
-                                    "latitude": float(location["latitude"]),
-                                    "longitude": float(location["longitude"]),
-                                    "organization_id": str(org_id) if org_id else None,
-                                },
-                            )
-                            self.db.commit()
-
-                            # Create version for update
-                            version_tracker = VersionTracker(self.db)
-                            version_tracker.create_version(
-                                str(location_id),
-                                "location",
-                                {
-                                    "name": location["name"],
-                                    "description": update_description,  # Use the same description as the update
-                                    "latitude": float(location["latitude"]),
-                                    "longitude": float(location["longitude"]),
-                                    **job_result.job.metadata,
-                                },
-                                "reconciler",
-                                commit=True,
-                            )
-
-                        else:
-                            # Create new location with all fields
-                            # Ensure description is never null
-                            loc_description = location.get("description")
-                            if loc_description is None or loc_description == "":
-                                loc_description = (
-                                    f"Food service location: {location['name']}"
-                                )
-                                logger.warning(
-                                    f"Missing description for location {location['name']}, using generated description"
-                                )
-
-                            # Create location returns a string ID, convert to UUID
-                            location_id_str = location_creator.create_location(
-                                location["name"],
-                                loc_description,
-                                float(location["latitude"]),
-                                float(location["longitude"]),
-                                job_result.job.metadata,
-                                str(org_id) if org_id else None,
-                            )
-                            location_id = uuid.UUID(location_id_str)
+                        # Create location returns a string ID, convert to UUID
+                        location_id_str = location_creator.create_location(
+                            location["name"],
+                            loc_description,
+                            float(location["latitude"]),
+                            float(location["longitude"]),
+                            job_result.job.metadata,
+                            str(org_id) if org_id else None,
+                        )
+                        location_id = uuid.UUID(location_id_str)
 
                         # Create location addresses for both new and existing locations (HSDS spec uses "addresss" with 3 s's)
                         if "addresss" in location and location_id:
