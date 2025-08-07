@@ -1,10 +1,12 @@
 # Production docker-compose using ghcr.io images
 # Usage: docker-compose -f docker-compose.prod.yml up -d
 # Set DOCKER_REGISTRY in .env file, e.g.: DOCKER_REGISTRY=ghcr.io/for-the-greater-good/pantry-pirate-radio
+# All services now use a single unified image with different commands
 
 services:
   app:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:app-${DOCKER_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["app"]
     ports:
       - "8000:8000"
     env_file: .env
@@ -17,8 +19,8 @@ services:
     restart: unless-stopped
 
   worker:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
-    command: rq worker llm
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
     env_file: .env
@@ -48,7 +50,8 @@ services:
       - cache
 
   recorder:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:recorder-${DOCKER_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["recorder"]
     env_file: .env
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -62,8 +65,8 @@ services:
       - ../../archives:/app/archives
 
   reconciler:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
-    command: rq worker reconciler
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["reconciler"]
     env_file: .env
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -92,8 +95,8 @@ services:
       - redis_data:/data
 
   rq-dashboard:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:worker-${DOCKER_TAG:-latest}
-    command: rq-dashboard -u redis://cache:6379
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["rq-dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 9181:rq-dashboard:9181 user@server
     env_file: .env
     environment:
@@ -102,8 +105,8 @@ services:
       - cache
 
   content-store-dashboard:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:app-${DOCKER_TAG:-latest}
-    command: python -m app.content_store.dashboard
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 5050:content-store-dashboard:5050 user@server
     env_file: .env
     environment:
@@ -119,7 +122,8 @@ services:
       - cache
 
   haarrrvest-publisher:
-    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:haarrrvest-publisher-${DOCKER_TAG:-latest}
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["publisher"]
     env_file: .env
     environment:
       - DATABASE_URL=${DATABASE_URL}
