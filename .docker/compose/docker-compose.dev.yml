@@ -15,4 +15,3 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME:-pantry-pirate-radio}_vscode-server
   postgres_data:
   redis_data:
-  postgres_backups:

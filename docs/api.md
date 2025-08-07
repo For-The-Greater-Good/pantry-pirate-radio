@@ -19,46 +19,58 @@ The API adheres to HSDS v3.0.0, providing:
 - Rich metadata and provenance tracking
 - Complete data validation
 
-## Deployment Modes
+## Getting Started
 
-The API supports three operational modes:
+### Start the API Service
 
-1. Centralized Hub: All searchers integrated through a single FastAPI endpoint
-2. Distributed Searchers: Independent Python services with direct API access
-3. Hybrid Approach: Core services centralized with standalone performance-critical searchers
+```bash
+# Start all services including the API
+./bouy up
+
+# The API will be available at:
+# - http://localhost:8000/api/v1  (REST API)
+# - http://localhost:8000/docs    (Interactive Swagger UI)
+# - http://localhost:8000/redoc   (ReDoc documentation)
+# - http://localhost:8000/openapi.json (OpenAPI schema)
+
+# Check API health
+curl http://localhost:8000/api/v1/health
+```
 
 ## Base URLs
 
-- Centralized Mode: `/api/v1`
-- Distributed Searchers:
-  - Default port range: 8001-8099
-  - Example: `http://localhost:8001` (Plentiful searcher)
-  - Health check: `http://<host>:<port>/health`
-  - Metrics: `http://<host>:<port>/metrics`
-  - OpenAPI docs: `http://<host>:<port>/docs`
+### Local Development
+- API Base: `http://localhost:8000/api/v1`
+- Documentation: `http://localhost:8000/docs`
+- Health Check: `http://localhost:8000/api/v1/health`
+- Metrics: `http://localhost:8000/api/v1/metrics`
+
+### Production (when deployed)
+- API Base: `https://api.yourdomain.com/api/v1`
+- Use HTTPS for all production requests
 
 ## Core Endpoints
 
-### Search Food Services
+### Search Locations by Geographic Coordinates
 
-`GET /api/v1/search`
+`GET /api/v1/locations`
 
-Search for food services using either point-based or bounding box coordinates.
+Search for food service locations using geographic coordinates and radius.
+
+**Note**: The current implementation uses the `/locations` endpoint for geographic searches.
 
 #### Query Parameters
 
-Point-based search:
-```json
-{
-  "lat": "number (25.0 to 49.0)",
-  "lng": "number (-125.0 to -67.0)",
-  "radius": "number (miles)",
-  "filters": {
-    "services": ["string"],
-    "languages": ["string"],
-    "days_open": ["string"]
-  }
-}
+Geographic search parameters:
+- `latitude`: number (25.0 to 49.0) - Search center latitude
+- `longitude`: number (-125.0 to -67.0) - Search center longitude  
+- `radius`: number - Search radius in miles (max 80)
+- `limit`: number - Maximum results to return (default 20, max 100)
+- `offset`: number - Pagination offset
+
+**Example**:
+```
+GET /api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=5&limit=20
 ```
 
 Bounding box search:
@@ -276,106 +288,86 @@ Common error codes:
 - `RATE_LIMIT_EXCEEDED`: Too many requests
 - `SERVICE_UNAVAILABLE`: Temporary system issue
 
-### Service Discovery
+### Health Check Endpoints
 
-`GET /api/v1/searchers`
+#### Main Health Check
+`GET /api/v1/health`
 
-List all available searcher services and their status.
+Returns the overall health status of the API:
 
 ```json
 {
-  "searchers": [
-    {
-      "id": "string",
-      "name": "string",
-      "status": "healthy | degraded | unhealthy",
-      "mode": "integrated | standalone",
-      "endpoint": "string",
-      "capabilities": {
-        "supports_point_search": "boolean",
-        "supports_bounds_search": "boolean",
-        "max_radius": "number",
-        "supported_filters": ["string"]
-      },
-      "metrics": {
-        "requests_total": "number",
-        "success_rate": "number",
-        "average_latency": "number"
-      }
-    }
-  ]
+  "status": "healthy",
+  "version": "1.0.0",
+  "correlation_id": "req-12345678-abcd-efgh-ijkl-123456789012"
 }
 ```
 
-### Health Checks
+#### LLM Health Check  
+`GET /api/v1/health/llm`
 
-`GET /health`
+Checks the LLM provider connection:
 
 ```json
 {
-  "status": "healthy | degraded | unhealthy",
-  "version": "string",
-  "uptime": "number",
-  "searchers": {
-    "total": "number",
-    "healthy": "number",
-    "degraded": "number",
-    "unhealthy": "number"
-  },
-  "database": {
-    "status": "up | down",
-    "latency": "number"
-  },
-  "cache": {
-    "status": "up | down",
-    "hit_rate": "number"
-  }
+  "status": "healthy",
+  "provider": "openai",
+  "model": "gpt-4",
+  "correlation_id": "req-12345678-abcd-efgh-ijkl-123456789012"
 }
 ```
 
-### Metrics
+### Prometheus Metrics
 
-`GET /metrics`
+`GET /api/v1/metrics`
 
-Prometheus-formatted metrics including:
-- Request counts and latencies
-- Search result counts
-- Cache hit rates
-- Error rates
-- Resource utilization
+Returns Prometheus-formatted metrics for monitoring:
 
-### Data Export
+```
+# HELP http_requests_total Total HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",endpoint="/api/v1/locations",status="200"} 1234
 
-`GET /api/v1/export`
+# HELP http_request_duration_seconds HTTP request latency
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{le="0.1"} 950
+http_request_duration_seconds_bucket{le="0.5"} 1200
+```
 
-Export data in various formats:
+Key metrics tracked:
+- Request counts by endpoint and status
+- Request latency histograms
+- Active request count
+- Error rates by type
+- Database query performance
 
-Query Parameters:
-```json
-{
-  "format": "json | sqlite | csv",
-  "filters": {
-    "date_range": {
-      "start": "ISO8601",
-      "end": "ISO8601"
-    },
-    "region": {
-      "bounds": {
-        "north": "number",
-        "south": "number",
-        "east": "number",
-        "west": "number"
-      }
-    },
-    "sources": ["string"]
-  },
-  "options": {
-    "compression": "boolean",
-    "include_metadata": "boolean",
-    "split_by_region": "boolean",
-    "max_file_size": "number"
-  }
-}
+### CORS Configuration
+
+The API supports Cross-Origin Resource Sharing (CORS) with:
+- Allowed methods: `GET`, `HEAD`, `OPTIONS`
+- Allowed headers: All headers plus `Content-Type`, `X-Request-ID`
+- Exposed headers: `X-Request-ID`
+- Max age: 600 seconds
+
+Configure allowed origins in `.env`:
+```bash
+CORS_ORIGINS=["http://localhost:3000", "https://yourdomain.com"]
+```
+
+### Request Correlation
+
+All requests are assigned a correlation ID for tracing:
+
+- Header: `X-Request-ID`  
+- If not provided, one is generated automatically
+- Returned in all responses for tracking
+
+```bash
+curl -H "X-Request-ID: my-request-123" \
+  http://localhost:8000/api/v1/health
+
+# Response includes:
+# X-Request-ID: my-request-123
 ```
 
 ## Implementation Notes
@@ -396,10 +388,12 @@ Query Parameters:
 
 ### Authentication
 
-- API key required for write operations
-- JWT support for authenticated sessions
-- Role-based access control available
-- CORS enabled for web clients
+The API is currently read-only and does not require authentication. All endpoints are publicly accessible.
+
+Future versions may include:
+- API key authentication for rate limiting
+- JWT tokens for user sessions
+- OAuth2 for third-party integrations
 
 ### Compression
 
@@ -448,50 +442,55 @@ Version lifecycle:
 
 ## API Usage Examples
 
-### Basic Food Service Search
+### Basic Location Search
 
-Search for food services within 5 miles of downtown Seattle:
+Search for food service locations within 5 miles of downtown Seattle:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/search?lat=47.6062&lng=-122.3321&radius=5" \
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=47.6062&longitude=-122.3321&radius=5" \
   -H "Accept: application/json"
 ```
 
-### Search with Filters
-
-Search for food pantries that offer Spanish language services:
-
-```bash
-curl -X GET "http://localhost:8000/api/v1/search" \
-  -H "Accept: application/json" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "lat": 47.6062,
-    "lng": -122.3321,
-    "radius": 10,
-    "filters": {
-      "services": ["food_pantry"],
-      "languages": ["Spanish"]
+**Expected Response**:
+```json
+{
+  "locations": [
+    {
+      "id": "loc-123",
+      "name": "Seattle Food Bank",
+      "latitude": 47.6062,
+      "longitude": -122.3321,
+      "address_1": "123 Main St",
+      "city": "Seattle",
+      "state_province": "WA",
+      "postal_code": "98101"
     }
-  }'
+  ],
+  "total": 15,
+  "limit": 20,
+  "offset": 0
+}
 ```
 
-### Bounding Box Search
+### Search with Pagination
 
-Search for all food services in a specific area:
+Use limit and offset for pagination:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/search" \
-  -H "Accept: application/json" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bounds": {
-      "north": 47.7,
-      "south": 47.5,
-      "east": -122.2,
-      "west": -122.4
-    }
-  }'
+# Get first 10 results
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=10&limit=10&offset=0"
+
+# Get next 10 results
+curl -X GET "http://localhost:8000/api/v1/locations?latitude=40.7128&longitude=-74.0060&radius=10&limit=10&offset=10"
+```
+
+### Get All Organizations
+
+List all organizations in the database:
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/organizations?limit=20&offset=0" \
+  -H "Accept: application/json"
 ```
 
 ### Python Example
@@ -500,56 +499,65 @@ curl -X GET "http://localhost:8000/api/v1/search" \
 import requests
 import json
 
-# Search for food services
+# Search for food service locations
 response = requests.get(
-    "http://localhost:8000/api/v1/search",
+    "http://localhost:8000/api/v1/locations",
     params={
-        "lat": 47.6062,
-        "lng": -122.3321,
-        "radius": 5
+        "latitude": 47.6062,
+        "longitude": -122.3321,
+        "radius": 5,
+        "limit": 20
     }
 )
 
 if response.status_code == 200:
     data = response.json()
-    print(f"Found {len(data['services'])} food services")
+    print(f"Found {data['total']} locations")
 
-    for service in data['services']:
-        org = service['organization']
-        location = service['location']
-        print(f"- {org['name']} at {location['address']['address_1']}")
+    for location in data['locations']:
+        print(f"- {location['name']} at {location['address_1']}")
+        print(f"  {location['city']}, {location['state_province']} {location['postal_code']}")
 else:
-    print(f"Error: {response.status_code}")
+    error = response.json()
+    print(f"Error: {error.get('detail', 'Unknown error')}")
 ```
 
 ### JavaScript Example
 
 ```javascript
-// Search for food services using fetch
-async function searchFoodServices(lat, lng, radius) {
+// Search for food service locations using fetch
+async function searchLocations(latitude, longitude, radius) {
   try {
+    const params = new URLSearchParams({
+      latitude,
+      longitude,
+      radius,
+      limit: 20
+    });
+    
     const response = await fetch(
-      `http://localhost:8000/api/v1/search?lat=${lat}&lng=${lng}&radius=${radius}`
+      `http://localhost:8000/api/v1/locations?${params}`
     );
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const error = await response.json();
+      throw new Error(error.detail || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
-    return data.services;
+    return data.locations;
   } catch (error) {
-    console.error('Error searching for food services:', error);
+    console.error('Error searching for locations:', error);
     return [];
   }
 }
 
 // Usage
-searchFoodServices(47.6062, -122.3321, 5)
-  .then(services => {
-    console.log(`Found ${services.length} food services`);
-    services.forEach(service => {
-      console.log(`- ${service.organization.name}`);
+searchLocations(47.6062, -122.3321, 5)
+  .then(locations => {
+    console.log(`Found ${locations.length} locations`);
+    locations.forEach(location => {
+      console.log(`- ${location.name} at ${location.address_1}`);
     });
   });
 ```
@@ -568,24 +576,89 @@ curl -X GET "http://localhost:8000/api/v1/services?page=1&per_page=20" \
   -H "Accept: application/json"
 ```
 
-### Health Check
+### Health Checks
 
 ```bash
-curl -X GET "http://localhost:8000/health" \
+# Basic health check
+curl -X GET "http://localhost:8000/api/v1/health" \
   -H "Accept: application/json"
+
+# Response:
+# {
+#   "status": "healthy",
+#   "version": "1.0.0",
+#   "correlation_id": "req-abc123"
+# }
+
+# LLM provider health check
+curl -X GET "http://localhost:8000/api/v1/health/llm" \
+  -H "Accept: application/json"
+
+# Response:
+# {
+#   "status": "healthy",
+#   "provider": "openai",
+#   "model": "gpt-4",
+#   "correlation_id": "req-def456"
+# }
 ```
 
-### Export Data
+### Monitoring with Bouy
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/export?format=json" \
-  -H "Accept: application/json" \
-  -o food_services.json
+# Check API service status
+./bouy ps
+
+# View API logs
+./bouy logs app
+
+# Test API endpoints
+./bouy exec app curl http://localhost:8000/api/v1/health
+
+# Run API tests
+./bouy test --pytest tests/test_api_integration_simple.py
 ```
 
-## Documentation
+## Interactive Documentation
 
-- OpenAPI specification: `/docs`
-- Swagger UI: `/docs/swagger`
-- ReDoc: `/docs/redoc`
-- JSON Schema: `/docs/schema`
+The API provides interactive documentation using FastAPI's built-in tools:
+
+### Swagger UI
+Access at: `http://localhost:8000/docs`
+- Interactive API explorer
+- Try out endpoints directly
+- View request/response schemas
+- Download OpenAPI specification
+
+### ReDoc
+Access at: `http://localhost:8000/redoc`
+- Clean, readable API documentation
+- Detailed schema definitions
+- Code generation support
+
+### OpenAPI Schema
+Access at: `http://localhost:8000/openapi.json`
+- Machine-readable API specification
+- Use for client code generation
+- Import into Postman or similar tools
+
+## Environment Configuration
+
+Key environment variables for API configuration:
+
+```bash
+# API Settings
+API_PREFIX=/api/v1
+CORS_ORIGINS=["*"]  # Configure for production
+CORS_ALLOW_CREDENTIALS=false
+
+# Database
+DATABASE_URL=postgresql+psycopg2://user:pass@db:5432/pantry_pirate_radio
+
+# Redis Cache
+REDIS_URL=redis://cache:6379/0
+
+# LLM Provider
+LLM_PROVIDER=openai
+OPENROUTER_API_KEY=your_key_here
+```

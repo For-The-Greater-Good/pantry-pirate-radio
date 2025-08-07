@@ -320,10 +320,13 @@ class TestGeocodingService:
         assert lat == 39.8283
         assert lon == -98.5795
 
-        # Test with offset
+        # Test with offset (default offset_range is 0.01)
         lat_off, lon_off = service.get_default_coordinates("US", with_offset=True)
-        assert 39.81 < lat_off < 39.84  # Within offset range
-        assert -98.59 < lon_off < -98.57
+        # The offset is random.uniform(-0.01, 0.01), so the bounds should be:
+        # lat: 39.8283 +/- 0.01 = [39.8183, 39.8383]
+        # lon: -98.5795 +/- 0.01 = [-98.5895, -98.5695]
+        assert 39.8183 <= lat_off <= 39.8383  # Within offset range (inclusive)
+        assert -98.5895 <= lon_off <= -98.5695  # Within offset range (inclusive)
 
         # Test unknown location defaults to US
         lat, lon = service.get_default_coordinates("UNKNOWN", with_offset=False)

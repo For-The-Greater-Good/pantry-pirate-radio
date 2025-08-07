@@ -23,49 +23,53 @@ This guide helps you diagnose and resolve common issues with Pantry Pirate Radio
 
 ```bash
 # Check all services
-docker-compose ps
+./bouy ps
 
 # Check application health
 curl -f http://localhost:8000/health
 
 # Check logs for errors
-docker-compose logs --tail=50 app
+./bouy logs --tail 50 app
 ```
 
 ### Common Commands
 
 ```bash
 # Restart all services
-docker-compose restart
+./bouy restart
 
 # Rebuild and restart
-docker-compose down
-docker-compose up -d --build
+./bouy down
+./bouy build --no-cache
+./bouy up
 
 # Check resource usage
 docker stats
 
 # View detailed logs
-docker-compose logs -f [service_name]
+./bouy logs -f [service_name]
 ```
 
 ## Installation Issues
 
-### Poetry Installation Problems
+### Bouy Setup Problems
 
-**Problem**: Poetry installation fails or poetry commands don't work
+**Problem**: Bouy commands don't work or setup fails
 
 **Solution**:
 ```bash
-# Reinstall Poetry
-curl -sSL https://install.python-poetry.org | python3 -
-source ~/.bashrc
+# Make bouy executable
+chmod +x bouy
 
-# Or use pip
-pip install poetry
+# Run setup wizard
+./bouy setup
 
-# Verify installation
-poetry --version
+# Check Docker is running
+docker version
+
+# If Docker not running, start it:
+# macOS/Windows: Start Docker Desktop
+# Linux: sudo systemctl start docker
 ```
 
 ### Docker Installation Issues
@@ -84,20 +88,21 @@ newgrp docker
 docker run hello-world
 ```
 
-### Python Version Issues
+### Docker Version Issues
 
-**Problem**: Python 3.11+ not available
+**Problem**: Docker version too old or not installed
 
 **Solution**:
 ```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install python3.11 python3.11-venv
+# Check Docker version (need 20.10+)
+docker --version
 
-# Or use pyenv
-curl https://pyenv.run | bash
-pyenv install 3.11.7
-pyenv global 3.11.7
+# Install/update Docker
+# macOS/Windows: Download Docker Desktop from docker.com
+# Linux:
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
 ## Database Problems
@@ -109,26 +114,27 @@ pyenv global 3.11.7
 **Diagnosis**:
 ```bash
 # Check if database is running
-docker-compose ps db
+./bouy ps | grep db
 
 # Check database logs
-docker-compose logs db
+./bouy logs db
 
 # Test connection
-docker-compose exec db psql -U pantry_pirate_radio -c "SELECT 1;"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT 1;"
 ```
 
 **Solutions**:
 ```bash
 # Restart database
-docker-compose restart db
+./bouy restart db
 
 # Check environment variables
-echo $DATABASE_URL
+./bouy exec app printenv | grep DATABASE_URL
 
 # Reset database
-docker-compose down -v
-docker-compose up -d db
+./bouy down
+./bouy clean  # WARNING: Removes all data
+./bouy up --with-init
 ```
 
 ### Migration Issues
@@ -137,21 +143,22 @@ docker-compose up -d db
 
 **Diagnosis**:
 ```bash
-# Check migration status
-docker-compose exec app python -m alembic current
+# Check if database tables exist
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "\dt"
 
-# Check migration history
-docker-compose exec app python -m alembic history
+# Check record counts
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT COUNT(*) FROM organization;"
 ```
 
 **Solutions**:
 ```bash
-# Force migration
-docker-compose exec app python -m alembic upgrade head
+# Reinitialize database with SQL dumps
+./bouy down
+./bouy clean
+./bouy up --with-init
 
-# Reset migrations (development only)
-docker-compose exec app python -m alembic downgrade base
-docker-compose exec app python -m alembic upgrade head
+# Or start with empty database
+./bouy up
 ```
 
 ### PostGIS Extension Issues
@@ -160,11 +167,14 @@ docker-compose exec app python -m alembic upgrade head
 
 **Solution**:
 ```bash
-# Install PostGIS extension
-docker-compose exec db psql -U pantry_pirate_radio -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-
+# PostGIS is automatically installed in the Docker image
 # Verify installation
-docker-compose exec db psql -U pantry_pirate_radio -c "SELECT PostGIS_version();"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT PostGIS_version();"
+
+# If missing, recreate database
+./bouy down
+./bouy clean
+./bouy up --with-init
 ```
 
 ## Docker Issues
@@ -176,10 +186,10 @@ docker-compose exec db psql -U pantry_pirate_radio -c "SELECT PostGIS_version();
 **Diagnosis**:
 ```bash
 # Check container status
-docker-compose ps
+./bouy ps
 
 # View startup logs
-docker-compose logs [service_name]
+./bouy logs [service_name]
 
 # Check resource usage
 docker system df
@@ -188,12 +198,12 @@ docker system df
 **Solutions**:
 ```bash
 # Clean up stopped containers
-docker-compose down
+./bouy down
 docker system prune -f
 
 # Rebuild containers
-docker-compose build --no-cache
-docker-compose up -d
+./bouy build --no-cache
+./bouy up
 ```
 
 ### Port Already in Use
@@ -208,9 +218,11 @@ sudo lsof -i :8000
 # Kill the process
 sudo kill -9 [PID]
 
-# Or change port in docker-compose.yml
-ports:
-  - "8001:8000"
+# Or change port in .env file
+API_PORT=8001
+
+# Restart with new port
+./bouy up
 ```
 
 ### Volume Mount Issues
@@ -223,11 +235,11 @@ ports:
 sudo chown -R $USER:$USER outputs/ archives/
 
 # Check mount points
-docker-compose exec app ls -la /app/outputs
+./bouy exec app ls -la /app/outputs
 
 # Recreate volumes
-docker-compose down -v
-docker-compose up -d
+./bouy clean  # WARNING: Removes all data
+./bouy up
 ```
 
 ## API Issues
@@ -239,25 +251,26 @@ docker-compose up -d
 **Diagnosis**:
 ```bash
 # Check application logs
-docker-compose logs -f app
+./bouy logs -f app
 
 # Check database connectivity
-docker-compose exec app python -c "from app.core.database import engine; print(engine.connect())"
+./bouy exec app python -c "from app.core.database import engine; print('Connected!' if engine else 'Failed')"
 
 # Test specific endpoint
-curl -v http://localhost:8000/api/v1/health
+curl -v http://localhost:8000/health
 ```
 
 **Solutions**:
 ```bash
 # Restart application
-docker-compose restart app
+./bouy restart app
 
 # Check environment variables
-docker-compose exec app printenv | grep -E "(DATABASE_URL|REDIS_URL)"
+./bouy exec app printenv | grep -E "(DATABASE_URL|REDIS_URL)"
 
-# Verify database schema
-docker-compose exec app python -c "from app.core.database import Base, engine; Base.metadata.create_all(engine)"
+# Reinitialize database
+./bouy down
+./bouy up --with-init
 ```
 
 ### API Timeout Issues
@@ -266,15 +279,14 @@ docker-compose exec app python -c "from app.core.database import Base, engine; B
 
 **Solutions**:
 ```bash
-# Increase timeout in docker-compose.yml
-environment:
-  - TIMEOUT=300
+# Increase timeout in .env
+WORKER_TIMEOUT=300
 
 # Check resource limits
 docker stats app
 
 # Scale workers
-docker-compose up -d --scale worker=3
+./bouy up --scale worker=3
 ```
 
 ### CORS Issues
@@ -287,7 +299,7 @@ docker-compose up -d --scale worker=3
 ALLOWED_ORIGINS=https://yourdomain.com,http://localhost:3000
 
 # Restart application
-docker-compose restart app
+./bouy restart app
 ```
 
 ## Worker Problems
@@ -299,25 +311,26 @@ docker-compose restart app
 **Diagnosis**:
 ```bash
 # Check worker logs
-docker-compose logs -f worker
+./bouy logs -f worker
 
-# Check Redis queue
-docker-compose exec redis redis-cli llen queue:default
+# Check Redis queue lengths
+./bouy exec cache redis-cli llen llm
+./bouy exec cache redis-cli llen recorder
 
 # Monitor worker activity
-docker-compose exec redis redis-cli monitor
+./bouy exec cache redis-cli monitor
 ```
 
 **Solutions**:
 ```bash
 # Restart workers
-docker-compose restart worker
+./bouy restart worker
 
 # Scale workers
-docker-compose up -d --scale worker=3
+./bouy up --scale worker=3
 
-# Clear failed jobs
-docker-compose exec redis redis-cli flushdb
+# Clear failed jobs (WARNING: Clears all Redis data)
+./bouy exec cache redis-cli flushdb
 ```
 
 ### LLM Processing Failures
@@ -327,22 +340,26 @@ docker-compose exec redis redis-cli flushdb
 **Diagnosis**:
 ```bash
 # Check API key configuration
-docker-compose exec worker python -c "import os; print(os.getenv('OPENROUTER_API_KEY'))"
+./bouy exec worker printenv | grep -E "(ANTHROPIC_API_KEY|OPENROUTER_API_KEY)"
 
-# Test LLM connectivity
-docker-compose exec worker python -c "from app.llm.providers import get_provider; print(get_provider().test_connection())"
+# Check LLM provider
+./bouy exec worker printenv | grep LLM_PROVIDER
+
+# For Claude auth status
+./bouy claude-auth status
 ```
 
 **Solutions**:
 ```bash
-# Verify API key
-echo $OPENROUTER_API_KEY
+# For Claude provider
+./bouy claude-auth setup
 
-# Switch to different model
-LLM_MODEL_NAME=anthropic/claude-3-haiku
+# For OpenAI provider, set in .env
+OPENROUTER_API_KEY=your_key
+LLM_MODEL_NAME=gpt-4
 
 # Restart workers
-docker-compose restart worker
+./bouy restart worker
 ```
 
 ## Scraper Issues
@@ -353,14 +370,17 @@ docker-compose restart worker
 
 **Diagnosis**:
 ```bash
-# Test specific scraper
-docker-compose exec app python -m app.scraper nyc_efap_programs
+# List available scrapers
+./bouy scraper --list
+
+# Test specific scraper (dry run)
+./bouy scraper-test nyc_efap_programs
 
 # Check scraper logs
-docker-compose logs -f scraper
+./bouy logs -f scraper
 
-# Test manually
-docker-compose exec scraper python -c "from app.scraper.nyc_efap_programs_scraper import NYCEFAPProgramsScraper; s = NYCEFAPProgramsScraper(); s.scrape()"
+# Run scraper normally
+./bouy scraper nyc_efap_programs
 ```
 
 **Solutions**:
@@ -397,7 +417,7 @@ time.sleep(2)  # Add delays between requests
 docker stats
 
 # Check process memory
-docker-compose exec app ps aux --sort=-%mem
+./bouy exec app ps aux --sort=-%mem
 
 # Monitor memory over time
 watch -n 5 docker stats
@@ -422,11 +442,11 @@ deploy:
 
 **Diagnosis**:
 ```bash
-# Check slow queries
-docker-compose exec db psql -U pantry_pirate_radio -c "SELECT query, mean_exec_time FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;"
-
 # Check active queries
-docker-compose exec db psql -U pantry_pirate_radio -c "SELECT * FROM pg_stat_activity WHERE state = 'active';"
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT * FROM pg_stat_activity WHERE state = 'active';"
+
+# Check database size
+./bouy exec db psql -U postgres -d pantry_pirate_radio -c "SELECT pg_database_size('pantry_pirate_radio');"
 ```
 
 **Solutions**:
@@ -439,25 +459,32 @@ docker-compose exec db psql -U pantry_pirate_radio -c "SELECT * FROM pg_stat_act
 
 ## LLM Provider Issues
 
-### OpenAI API Issues
+### LLM API Issues
 
-**Problem**: OpenAI API calls fail
+**Problem**: LLM API calls fail
 
 **Diagnosis**:
 ```bash
-# Test API key
-curl -H "Authorization: Bearer $OPENROUTER_API_KEY" https://api.openai.com/v1/models
+# Check which provider is configured
+./bouy exec worker printenv | grep LLM_PROVIDER
 
-# Check quota usage
-# Verify API key permissions
+# For Claude
+./bouy claude-auth test
+
+# For OpenAI
+curl -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/models
 ```
 
 **Solutions**:
 ```bash
-# Rotate API keys
-# Implement retry logic
-# Use different model
-# Use different model or provider
+# Switch providers in .env
+LLM_PROVIDER=claude  # or openai
+
+# For Claude issues
+./bouy claude-auth setup
+
+# Restart workers
+./bouy restart worker
 ```
 
 ## Monitoring and Logging
@@ -500,10 +527,10 @@ curl http://localhost:8000/metrics
 **Solution**:
 ```bash
 # Check database status
-docker-compose ps db
+./bouy ps | grep db
 
 # Verify credentials
-echo $DATABASE_URL
+./bouy exec app printenv | grep DATABASE_URL
 ```
 
 ### "Redis connection refused"
@@ -512,22 +539,22 @@ echo $DATABASE_URL
 
 **Solution**:
 ```bash
-# Start Redis
-docker-compose up -d redis
+# Start Redis (cache service)
+./bouy up cache
 
 # Check Redis logs
-docker-compose logs redis
+./bouy logs cache
 ```
 
 ### "Module not found"
 
-**Cause**: Python dependencies not installed
+**Cause**: Docker image not built properly
 
 **Solution**:
 ```bash
-# Reinstall dependencies
-docker-compose build --no-cache
-poetry install
+# Rebuild Docker image
+./bouy build --no-cache
+./bouy up
 ```
 
 ### "Permission denied"
@@ -545,9 +572,9 @@ chmod +x scripts/*
 
 ### Before Reporting Issues
 
-1. **Check the logs**: `docker-compose logs -f [service]`
+1. **Check the logs**: `./bouy logs -f [service]`
 2. **Test isolation**: Try with minimal configuration
-3. **Check dependencies**: Verify all required services are running
+3. **Check dependencies**: Verify all required services are running with `./bouy ps`
 4. **Review documentation**: Check relevant sections
 5. **Search existing issues**: Look for similar problems
 
@@ -565,24 +592,28 @@ When reporting issues, include:
 
 ### Community Resources
 
-- **GitHub Issues**: https://github.com/***REMOVED_USER***/pantry-pirate-radio/issues
+- **GitHub Issues**: https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues
 - **Documentation**: Check all files in `docs/`
 - **API Reference**: http://localhost:8000/docs
 - **Health Check**: http://localhost:8000/health
+- **Bouy Help**: Run `./bouy --help` for command reference
 
 ### Debug Mode
 
 Enable debug mode for detailed logging:
 
 ```bash
-# Set environment variables
+# Set environment variables in .env
 LOG_LEVEL=DEBUG
 DEBUG=true
 
 # Restart services
-docker-compose restart
+./bouy restart
+
+# Or use verbose mode with bouy
+./bouy --verbose up
 ```
 
 ---
 
-*This troubleshooting guide is regularly updated. For the latest information, visit our [GitHub repository](https://github.com/***REMOVED_USER***/pantry-pirate-radio).*
+*This troubleshooting guide is regularly updated. For the latest information, visit our [GitHub repository](https://github.com/For-The-Greater-Good/pantry-pirate-radio).*

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LLM module provides HSDS (Human Services Data Specification) data alignment capabilities through an asynchronous job processing system. It supports multiple LLM providers, handles streaming responses, and includes comprehensive monitoring.
+The LLM module provides HSDS (Human Services Data Specification) data alignment capabilities through RQ-based asynchronous job processing. It supports multiple LLM providers (OpenAI via OpenRouter, Claude via API or CLI), implements intelligent retry strategies, and integrates with the content deduplication store for cost optimization.
 
 ```plaintext
 ┌─────────────┐    ┌─────────────┐
@@ -415,9 +415,10 @@ The LLM module supports multiple provider implementations with a unified interfa
 
 ##### OpenAI/OpenRouter Provider (`providers/openai.py`)
 - **API-based**: Uses HTTP requests to OpenAI-compatible endpoints
-- **Models**: GPT-4o, GPT-4 Turbo, Claude via OpenRouter, etc.
+- **Models**: GPT-4o, GPT-4o-mini, GPT-4 Turbo, Claude via OpenRouter
 - **Authentication**: API key via `OPENROUTER_API_KEY` environment variable
-- **Features**: Structured output, streaming, function calling
+- **Features**: Structured output (JSON Schema), streaming, high token limits (64k+)
+- **Rate Limiting**: Built-in retry logic with exponential backoff
 
 ```python
 from app.llm.providers.openai import OpenAIProvider, OpenAIConfig
@@ -443,11 +444,12 @@ provider = OpenAIProvider(
 
 ##### Claude Provider (`providers/claude.py`)
 - **CLI-based**: Uses Claude Code SDK via subprocess calls
-- **Models**: Claude Sonnet 4, Claude Haiku, Claude Opus
+- **Models**: claude-sonnet-4-20250514, claude-haiku, claude-opus
 - **Authentication**:
   - **Option 1**: API key via `ANTHROPIC_API_KEY` environment variable
   - **Option 2**: CLI authentication (recommended for Claude Max accounts)
-- **Features**: Native structured output, high-quality responses, quota management
+- **Features**: Native structured output, high-quality responses, intelligent quota management
+- **Special Handling**: Automatic retry on quota exceeded, authentication state management
 
 ```python
 from app.llm.providers.claude import ClaudeProvider, ClaudeConfig
@@ -468,58 +470,59 @@ provider = ClaudeProvider(config=config)
 The Claude provider supports two authentication methods:
 
 ##### Method 1: API Key Authentication
-Set the `ANTHROPIC_API_KEY` environment variable:
+Set during setup or in `.env` file:
 ```bash
-export ANTHROPIC_API_KEY=your-api-key-here
+# During setup
+./bouy setup  # Choose Claude provider, then API key option
+
+# Or manually in .env
+LLM_PROVIDER=claude
+ANTHROPIC_API_KEY=your-api-key-here
 ```
 
-##### Method 2: CLI Authentication (Recommended)
-For Claude Max accounts or interactive authentication:
+##### Method 2: CLI Authentication (Recommended for Claude Max)
+For Claude Max accounts with better quotas:
 
-1. **Container Setup**: Authentication is shared across scaled worker containers via Docker volumes
-2. **One-time Setup**: Authenticate once, use across all workers
-3. **Intelligent Retry**: Jobs automatically retry when authentication expires
-
-**Quick Setup:**
 ```bash
-# Start containers
-docker compose up -d
+# Initial setup
+./bouy setup  # Choose Claude provider, then CLI option
+
+# Authenticate Claude (one-time)
+./bouy claude-auth setup
 
 # Check authentication status
-curl http://localhost:8080/health
+./bouy claude-auth status
 
-# If authentication needed
-docker compose exec worker python -m app.claude_auth_manager setup
+# Test Claude connection
+./bouy claude-auth test
 
-# Verify authentication
-curl http://localhost:8080/health
+# View configuration
+./bouy claude-auth config
 ```
 
-**Available Commands:**
+**Bouy Commands for Claude:**
 ```bash
-# Interactive setup
-docker compose exec worker python -m app.claude_auth_manager setup
+# Interactive authentication
+./bouy claude-auth           # Interactive mode
 
-# Check status
-docker compose exec worker python -m app.claude_auth_manager status
-
-# Test request
-docker compose exec worker python -m app.claude_auth_manager test
-
-# View config files
-docker compose exec worker python -m app.claude_auth_manager config
+# Specific commands
+./bouy claude-auth setup     # Setup authentication
+./bouy claude-auth status    # Check status
+./bouy claude-auth test      # Test with sample request
+./bouy claude-auth config    # Show config files
 ```
 
-**Scaling Workers:**
+**Worker Scaling with Shared Authentication:**
 ```bash
-# Scale to multiple workers (shared authentication)
-docker compose up -d --scale worker=3
+# Scale workers (authentication shared via Docker volumes)
+./bouy up --scale worker=3
 
-# All workers share the same Claude authentication
-# Health checks available on ports 8080-8089
+# Or set in environment
+WORKER_COUNT=3 ./bouy up worker
+
+# Check worker health (ports 8080-8089)
 curl http://localhost:8080/health
 curl http://localhost:8081/health
-curl http://localhost:8082/health
 ```
 
 #### Claude Quota Management
@@ -545,32 +548,43 @@ CLAUDE_QUOTA_MAX_DELAY=14400         # Max delay: 4 hours
 CLAUDE_QUOTA_BACKOFF_MULTIPLIER=1.5  # Exponential multiplier
 ```
 
-#### Provider Selection
+#### Provider Selection and Configuration
 
-Set the LLM provider via environment variable:
-
+##### Environment Variables
 ```bash
-# Use Claude provider
-LLM_PROVIDER=claude
+# Provider selection
+LLM_PROVIDER=openai              # or 'claude'
+LLM_MODEL_NAME=gpt-4o-mini      # Model to use
+LLM_TEMPERATURE=0.7              # Temperature (0-1)
+LLM_MAX_TOKENS=4000              # Max tokens to generate
+LLM_TIMEOUT=30                   # Request timeout in seconds
+LLM_RETRIES=3                    # Number of retries
 
-# Use OpenAI provider
-LLM_PROVIDER=openai
+# OpenAI/OpenRouter specific
+OPENROUTER_API_KEY=your-key     # Required for OpenAI provider
+
+# Claude specific
+ANTHROPIC_API_KEY=your-key       # Option 1: API key
+# Or use CLI authentication (no API key needed)
 ```
 
-The system automatically selects the appropriate provider based on configuration.
-
-#### Health Monitoring
-
-Each provider implements health check endpoints:
-
+##### Provider Selection During Setup
 ```bash
-# Provider health (includes authentication status)
+./bouy setup
+# Interactive prompts will guide you through:
+# 1. Choose LLM provider (OpenAI or Claude)
+# 2. Configure authentication method
+# 3. Set model preferences
+```
+
+#### Health Monitoring and Debugging
+
+##### Health Check Endpoints
+```bash
+# Check worker health (Claude workers only)
 curl http://localhost:8080/health
 
-# Authentication status
-curl http://localhost:8080/auth
-
-# Example health response
+# Response format:
 {
   "provider": "claude",
   "status": "healthy",
@@ -578,6 +592,33 @@ curl http://localhost:8080/auth
   "model": "claude-sonnet-4-20250514",
   "message": "Ready to process requests"
 }
+```
+
+##### Monitoring with Bouy
+```bash
+# View LLM worker logs
+./bouy logs worker
+
+# Follow logs in real-time
+./bouy logs worker -f
+
+# Check queue status
+./bouy exec worker rq info
+
+# View failed LLM jobs
+./bouy exec worker rq info --failed
+```
+
+##### RQ Dashboard
+```bash
+# Access RQ dashboard for detailed monitoring
+# http://localhost:9181
+
+# Shows:
+# - LLM queue size and processing rate
+# - Worker status and current jobs
+# - Failed jobs with error details
+# - Job history and results
 ```
 
 #### Error Handling
@@ -633,13 +674,226 @@ class CustomProvider(BaseLLMProvider[ConfigType, ResponseType]):
         pass
 ```
 
-#### Best Practices
+## Prompt Engineering
 
-1. **Claude Max Users**: Use CLI authentication for quota advantages
-2. **Production**: Use API keys for predictable billing
-3. **Development**: CLI authentication for experimentation
-4. **Scaling**: Shared volumes ensure consistent authentication
-5. **Monitoring**: Use health endpoints for system status
-6. **Resilience**: Let the retry system handle temporary failures
+### System Prompts
 
-[Previous content continues unchanged...]
+The LLM module uses carefully crafted prompts for HSDS alignment:
+
+```python
+# Located in app/llm/hsds_aligner/prompts/
+
+# food_pantry_mapper.prompt - Main alignment prompt
+# - Instructs LLM to map pantry data to HSDS format
+# - Provides field descriptions and requirements
+# - Includes examples of correct mappings
+
+# validation_prompt.prompt - Validation prompt
+# - Checks for hallucinations and missing fields
+# - Validates data coherence
+# - Suggests corrections
+```
+
+### Prompt Structure
+
+1. **Context Setting**: Explains HSDS and the task
+2. **Schema Definition**: Provides field requirements
+3. **Known Fields**: Lists fields that must be preserved
+4. **Examples**: Shows correct transformations
+5. **Constraints**: Specifies validation rules
+
+### Optimization Techniques
+
+- **Temperature Control**: Lower temperature (0.3-0.4) for consistency
+- **Structured Output**: Use JSON Schema for guaranteed format
+- **Validation Loop**: Re-prompt with feedback for corrections
+- **Field Hints**: Provide known fields to reduce hallucination
+
+## Rate Limiting and Cost Optimization
+
+### Content Deduplication Store
+
+```bash
+# Check content store status
+./bouy content-store status
+
+# View deduplication statistics
+./bouy content-store report
+
+# Find duplicate processing
+./bouy content-store duplicates
+```
+
+### Cost Optimization Strategies
+
+1. **Content Hashing**: Avoid reprocessing identical content
+2. **Result Caching**: Store and reuse LLM responses
+3. **Batch Processing**: Group similar requests
+4. **Model Selection**: Use appropriate model for task complexity
+5. **Token Management**: Optimize prompt length
+
+### Rate Limiting
+
+```python
+# OpenAI/OpenRouter rate limiting
+# Automatic retry with exponential backoff
+# Headers: X-RateLimit-Remaining, X-RateLimit-Reset
+
+# Claude quota management
+CLAUDE_QUOTA_RETRY_DELAY=3600        # 1 hour base delay
+CLAUDE_QUOTA_MAX_DELAY=14400         # 4 hour max delay
+CLAUDE_QUOTA_BACKOFF_MULTIPLIER=1.5  # Exponential factor
+```
+
+## LLM Usage in Reconciler
+
+### Integration Flow
+
+```
+Scraper Data → LLM Alignment → Reconciler → Database
+      ↓              ↓              ↓           ↓
+  Raw JSON    HSDS Format    Validation   PostgreSQL
+```
+
+### Reconciler Processing
+
+```python
+# app/reconciler/job_processor.py
+
+def process_job_result(job_result: JobResult):
+    """Process LLM-aligned HSDS data."""
+    
+    # 1. Extract HSDS data from LLM response
+    hsds_data = job_result.result.parsed or json.loads(job_result.result.text)
+    
+    # 2. Validate HSDS compliance
+    validator = HSDSValidator()
+    if not validator.validate(hsds_data):
+        raise ValidationError("Invalid HSDS format")
+    
+    # 3. Geocode addresses
+    geocoder = GeocodeCorrector()
+    hsds_data = geocoder.correct_coordinates(hsds_data)
+    
+    # 4. Create/update database records
+    reconciler = Reconciler()
+    reconciler.reconcile(hsds_data)
+    
+    # 5. Track data lineage
+    version_tracker = VersionTracker()
+    version_tracker.track_changes(hsds_data)
+```
+
+### Example: Complete Pipeline
+
+```bash
+# 1. Run scraper (generates raw data)
+./bouy scraper food_bank_scraper
+
+# 2. LLM processes automatically via worker
+# Check processing status
+./bouy exec worker rq info
+
+# 3. View results in database
+./bouy shell app
+python -c "
+from app.database.repositories import OrganizationRepository
+repo = OrganizationRepository()
+orgs = repo.get_all()
+for org in orgs:
+    print(f'{org.name}: {org.description[:50]}...')
+"
+
+# 4. Check reconciler logs
+./bouy logs reconciler --tail 50
+```
+
+## Debugging LLM Processing
+
+### Common Issues
+
+#### 1. LLM Not Processing Jobs
+```bash
+# Check worker is running
+./bouy ps | grep worker
+
+# Check LLM queue
+./bouy exec worker rq info | grep llm
+
+# View worker logs
+./bouy logs worker --tail 100
+```
+
+#### 2. Authentication Failures
+```bash
+# For Claude
+./bouy claude-auth status
+./bouy claude-auth setup  # Re-authenticate
+
+# For OpenAI
+# Check API key in .env
+grep OPENROUTER_API_KEY .env
+```
+
+#### 3. Structured Output Errors
+```bash
+# Check job details in RQ dashboard
+# http://localhost:9181
+
+# Or via CLI
+./bouy exec worker rq info --failed
+
+# Requeue failed job
+./bouy exec worker rq requeue JOB_ID
+```
+
+#### 4. Rate Limiting / Quota Issues
+```bash
+# Check logs for quota messages
+./bouy logs worker | grep -i quota
+
+# Jobs will automatically retry with backoff
+# Monitor retry status in RQ dashboard
+```
+
+## Best Practices
+
+### 1. Provider Selection
+- **Development**: Use Claude CLI for better quotas
+- **Production**: Use API keys for predictability
+- **Testing**: Use mock provider to avoid costs
+- **Fallback**: Configure secondary provider
+
+### 2. Job Configuration
+- Include content hashes for deduplication
+- Set appropriate token limits
+- Use structured output for consistency
+- Include known fields to reduce hallucination
+
+### 3. Error Handling
+- Let workers handle retries automatically
+- Monitor failed job queue regularly
+- Use validation loops for quality
+- Log with sufficient context
+
+### 4. Performance
+- Use content store for caching
+- Batch similar requests when possible
+- Scale workers based on queue size
+- Monitor token usage and costs
+
+### 5. Development Workflow
+```bash
+# 1. Test LLM alignment locally
+./bouy shell worker
+python -m app.llm.hsds_aligner
+
+# 2. Run tests
+./bouy test --pytest tests/test_llm/
+
+# 3. Monitor processing
+./bouy logs worker -f
+
+# 4. Check results
+./bouy exec app python -m app.reconciler
+```

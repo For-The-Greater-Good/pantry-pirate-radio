@@ -20,14 +20,22 @@ The HAARRRvest Publisher Service is a dedicated service that monitors recorder o
 ### Starting the Service
 
 ```bash
-# Start the HAARRRvest publisher service
-docker-compose up -d haarrrvest-publisher
+# Start all services including the HAARRRvest publisher
+./bouy up
 
-# View logs
-docker-compose logs -f haarrrvest-publisher
+# View publisher logs
+./bouy haarrrvest logs
 
-# Trigger immediate processing (restart the service)
-docker-compose restart haarrrvest-publisher
+# Check publisher service status
+./bouy haarrrvest status
+
+# Manually trigger publishing run
+./bouy haarrrvest run
+
+# The service runs automatically:
+# - On startup (processes pending files immediately)
+# - Every 5 minutes (configurable via PUBLISHER_CHECK_INTERVAL)
+# - Creates date-based branches for safety
 ```
 
 ### Configuration
@@ -50,16 +58,21 @@ PUBLISHER_PUSH_ENABLED=false  # Set to 'true' ONLY for production deployments
 
 ⚠️ **IMPORTANT**: The publisher will NOT push to remote by default. You must explicitly set `PUBLISHER_PUSH_ENABLED=true` for production deployments that should push data to HAARRRvest.
 
-### Manual Testing
-
-To test the publisher without Docker:
+### Testing the Publisher
 
 ```bash
-# Make sure you have DATABASE_URL set
-export DATABASE_URL=postgresql://user:pass@localhost:5432/pantry_pirate_radio
+# Run tests for the publisher service
+./bouy test --pytest tests/test_haarrrvest_publisher.py
 
-# Run the test script
-python test_haarrrvest_publisher.py
+# Test in dry-run mode (no actual pushes)
+# Ensure PUBLISHER_PUSH_ENABLED=false in .env
+./bouy haarrrvest run
+
+# Check the logs to verify processing
+./bouy haarrrvest logs
+
+# Verify files were processed
+./bouy exec app cat outputs/.haarrrvest_publisher_state.json
 ```
 
 ## How It Works
@@ -67,7 +80,8 @@ python test_haarrrvest_publisher.py
 ### 1. File Monitoring
 - Monitors `outputs/daily/` for new JSON files
 - Tracks processed files in `.haarrrvest_publisher_state.json`
-- Only processes files from the last N days (configurable)
+- Only processes files from the last N days (configurable via `DAYS_TO_SYNC`)
+- Runs every 5 minutes by default (configurable via `PUBLISHER_CHECK_INTERVAL`)
 
 ### 2. Repository Safety
 - Always pulls latest changes from origin/main before starting
@@ -82,7 +96,7 @@ python test_haarrrvest_publisher.py
 - All changes are committed to this branch first
 - Prevents accidental commits to main
 
-### 3. Data Synchronization
+### 4. Data Synchronization
 - Copies new files to HAARRRvest repository structure
 - Maintains same directory layout (`daily/`, `latest/`)
 - Syncs content store to `content_store/` directory for durability
@@ -151,11 +165,14 @@ Environment variables:
 ### Manual SQL Dump Creation
 
 ```bash
-# Create a SQL dump manually
-docker compose exec app bash /app/scripts/create-sql-dump.sh
+# Create a SQL dump manually using bouy
+./bouy exec app bash /app/scripts/create-sql-dump.sh
 
-# Or from host with database running
-POSTGRES_PASSWORD=your_password ./scripts/create-sql-dump.sh
+# View existing SQL dumps
+./bouy exec app ls -la /data-repo/sql_dumps/
+
+# Check the latest dump symlink
+./bouy exec app readlink /data-repo/sql_dumps/latest.sql
 ```
 
 ### Using SQL Dumps for Initialization
@@ -205,27 +222,39 @@ HAARRRvest/
 
 ## Directory Structure
 
-The service expects:
+The service expects and creates:
 ```
 pantry-pirate-radio/
-├── outputs/              # Recorder output files
-│   ├── daily/
-│   └── latest/
-├── docs/HAARRRvest/     # HAARRRvest repository
-└── scripts/             # Optional rebuild scripts
+├── outputs/                          # Recorder output files
+│   ├── daily/                       # Daily JSON recordings
+│   │   └── YYYY-MM-DD/              # Date-organized data
+│   ├── latest/                      # Latest data symlinks
+│   └── .haarrrvest_publisher_state.json  # Processing state
+├── /data-repo/                      # HAARRRvest repository (Docker volume)
+│   ├── daily/                       # Published daily data
+│   ├── latest/                      # Published latest data
+│   ├── sqlite/                      # SQLite database exports
+│   ├── sql_dumps/                   # PostgreSQL dumps
+│   ├── content_store/               # Content deduplication store
+│   └── data/                        # Map visualization data
+└── scripts/                         # Utility scripts
+    └── create-sql-dump.sh           # SQL dump generation
 ```
 
 ## Troubleshooting
 
 ### Service won't start
-- Check Docker logs: `docker-compose logs haarrrvest-publisher`
-- Verify DATABASE_URL is set in `.env`
-- Ensure HAARRRvest repo exists at `docs/HAARRRvest/`
+- Check Docker logs: `./bouy haarrrvest logs`
+- Verify DATABASE_URL is set in `.env`: `grep DATABASE_URL .env`
+- Check all services are running: `./bouy ps`
+- Verify data-repo volume exists: `docker volume ls | grep data-repo`
 
 ### Git push fails
-- Check SSH keys are mounted: `~/.ssh:/root/.ssh:ro`
-- Verify DATA_REPO_TOKEN for HTTPS repos
-- Ensure repository write permissions
+- Check push is enabled: `grep PUBLISHER_PUSH_ENABLED .env` (must be `true`)
+- Verify DATA_REPO_TOKEN has `repo` scope for GitHub
+- Test token permissions: `curl -H "Authorization: token YOUR_TOKEN" https://api.github.com/user/repos`
+- Check git configuration: `./bouy exec haarrrvest-publisher git config --list`
+- Ensure repository exists and you have write access
 
 ### Map not updating
 - Check if SQLite export succeeded
@@ -233,9 +262,11 @@ pantry-pirate-radio/
 - Look for `data/locations.json` in HAARRRvest repo
 
 ### Files not being processed
-- Check `.haarrrvest_publisher_state.json` in outputs/
-- Remove state file to reprocess all files
-- Verify file timestamps are within DAYS_TO_SYNC
+- Check state file: `./bouy exec app cat outputs/.haarrrvest_publisher_state.json`
+- Reset state to reprocess: `./bouy exec app rm outputs/.haarrrvest_publisher_state.json`
+- Verify files exist: `./bouy exec app ls -la outputs/daily/`
+- Check DAYS_TO_SYNC setting: `grep DAYS_TO_SYNC .env`
+- Force immediate processing: `./bouy haarrrvest run`
 
 ## Integration with Scrapers
 
