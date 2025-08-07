@@ -231,27 +231,6 @@ services:
       cache:
         condition: service_started
 
-  datasette-exporter:
-    build:
-      context: ../..
-      dockerfile: .docker/images/app/Dockerfile
-      target: datasette-exporter
-    env_file: ../../.env
-    environment:
-      # Datasette exporter specific settings
-      - OUTPUT_DIR=/data
-      - EXPORT_INTERVAL=3600  # Seconds between exports (1 hour default)
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ../../outputs:/app/outputs
-      - datasette_data:/data
-      - ../../datasette-metadata.json:/data/metadata.json
-      - haarrrvest_repo:/data-repo
-      - app_data:/app/data
-      - claude_config:/root/.config/claude
-
   datasette:
     build:
       context: ../..
@@ -260,12 +239,12 @@ services:
       - "8001:8001"
     command: [
       "sh", "-c",
-      "while [ ! -f /data/latest.sqlite ]; do echo 'Waiting for SQLite database...'; sleep 5; done; exec datasette -p 8001 -h 0.0.0.0 --metadata /data/metadata.json --setting sql_time_limit_ms 10000 --setting max_returned_rows 5000 --setting allow_download 1 --setting default_page_size 50 --setting base_url / /data/latest.sqlite"
+      "while [ ! -f /data-repo/sqlite/pantry_pirate_radio.sqlite ]; do echo 'Waiting for SQLite database from HAARRRvest publisher...'; sleep 5; done; exec datasette -p 8001 -h 0.0.0.0 --metadata /data-repo/sqlite/metadata.json --setting sql_time_limit_ms 10000 --setting max_returned_rows 5000 --setting allow_download 1 --setting default_page_size 50 --setting base_url / /data-repo/sqlite/pantry_pirate_radio.sqlite"
     ]
     volumes:
-      - datasette_data:/data
+      - haarrrvest_repo:/data-repo:ro
     depends_on:
-      - datasette-exporter
+      - haarrrvest-publisher
 
   db-backup:
     image: prodrigestivill/postgres-backup-local:15
@@ -287,7 +266,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  datasette_data:
   postgres_backups:
   claude_config:  # Shared Claude authentication across worker containers
   haarrrvest_repo:  # HAARRRvest repository managed by publisher service

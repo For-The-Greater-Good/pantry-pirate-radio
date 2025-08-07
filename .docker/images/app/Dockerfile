@@ -158,21 +158,6 @@ FROM production-base AS test
 CMD ["poetry", "run", "pytest"]
 
 # =============================================================================
-# DATASETTE EXPORTER SERVICE
-# =============================================================================
-FROM production-base AS datasette-exporter
-
-# Set environment variables
-ENV OUTPUT_DIR=/data
-ENV EXPORT_INTERVAL=3600
-
-# Set up entrypoint
-ENTRYPOINT ["python", "-m", "app.datasette"]
-
-# Default command
-CMD ["schedule", "--verbose"]
-
-# =============================================================================
 # DEFAULT STAGE - FastAPI Application
 # =============================================================================
 FROM app AS default

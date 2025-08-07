@@ -159,14 +159,6 @@ These options can be used with any bouy command:
 ./bouy replay --dry-run                   # Preview without executing
 ```
 
-#### `datasette` - Export to SQLite
-```bash
-./bouy datasette                          # Export immediately
-./bouy datasette export                   # Same as above
-./bouy datasette schedule                 # Start periodic export
-./bouy datasette status                   # Check export status
-```
-
 ### Content Store
 
 #### `content-store` - Deduplication management

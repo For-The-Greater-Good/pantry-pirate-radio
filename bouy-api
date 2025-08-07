@@ -539,43 +539,6 @@ case "$COMMAND" in
         esac
         ;;
 
-    datasette)
-        subcmd="${1:-export}"
-        parse_mode "$@"
-
-        # Ensure datasette-exporter service is running
-        if ! $COMPOSE_CMD $COMPOSE_FILES ps datasette-exporter | grep -q "Up"; then
-            output "info" "Starting datasette-exporter service..."
-            $COMPOSE_CMD $COMPOSE_FILES up -d datasette-exporter db
-            sleep 2
-        fi
-
-        case "$subcmd" in
-            export)
-                output "info" "Exporting database to SQLite"
-                $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter python -m app.datasette export
-                ;;
-            status)
-                output "info" "Checking datasette export status"
-                if $COMPOSE_CMD $COMPOSE_FILES exec -T datasette-exporter test -f "/data/latest.sqlite" 2>/dev/null; then
-                    output "info" "SQLite export exists"
-                    if [ $JSON_OUTPUT -eq 1 ]; then
-                        echo '{"status":"ready","file":"/data/latest.sqlite"}'
-                    fi
-                else
-                    output "warning" "No SQLite export found"
-                    if [ $JSON_OUTPUT -eq 1 ]; then
-                        echo '{"status":"not_found"}'
-                    fi
-                fi
-                ;;
-            *)
-                output "error" "Unknown datasette command: $subcmd"
-                exit 5
-                ;;
-        esac
-        ;;
-
     replay)
         parse_mode "$@"
 
