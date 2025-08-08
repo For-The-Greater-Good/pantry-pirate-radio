@@ -73,7 +73,8 @@
       "WebFetch(domain:geopy.readthedocs.io)",
       "Bash(./bouy:*)",
       "Bash(git tag:*)",
-      "WebFetch(domain:for-the-greater-good.github.io)"
+      "WebFetch(domain:for-the-greater-good.github.io)",
+      "Bash(gh release view:*)"
     ],
     "deny": []
   }
