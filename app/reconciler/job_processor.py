@@ -200,7 +200,14 @@ class JobProcessor:
                     ) from demjson_error
 
             # Transform data structure if needed
-            # Check if we have a single organization object instead of the expected structure
+            # Handle different OpenAI response formats
+            
+            # Case 1: Array at top level - extract first element
+            if isinstance(raw_data, list) and len(raw_data) > 0:
+                logger.info("Converting array response to object structure")
+                raw_data = raw_data[0]
+            
+            # Case 2: Single organization object instead of the expected structure
             if (
                 isinstance(raw_data, dict)
                 and "name" in raw_data
@@ -220,6 +227,15 @@ class JobProcessor:
                     "location": locations,
                 }
                 data = cast(HSDataDict, transformed_data)
+            # Case 3: Organization is a single object instead of array
+            elif (
+                isinstance(raw_data, dict)
+                and "organization" in raw_data
+                and isinstance(raw_data["organization"], dict)
+            ):
+                logger.info("Converting organization object to array")
+                raw_data["organization"] = [raw_data["organization"]]
+                data = cast(HSDataDict, raw_data)
             else:
                 # Use the data as-is
                 data = cast(HSDataDict, raw_data)
