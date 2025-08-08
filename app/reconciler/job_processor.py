@@ -262,93 +262,110 @@ class JobProcessor:
             if "organization" in data and len(data["organization"]) > 0:
                 # Use first organization since they should all be the same
                 org = data["organization"][0]
-
-                # Ensure description is never null - use name as fallback if no description
-                description = org.get("description")
-                if description is None or description == "":
-                    description = f"Food service organization: {org['name']}"
+                
+                # Determine organization name from available fields
+                org_name = (
+                    org.get("name") or
+                    org.get("alternate_name") or
+                    org.get("legal_name") or
+                    (org.get("description", "")[:50] + "..." if org.get("description") else None)
+                )
+                
+                if not org_name:
                     logger.warning(
-                        f"Missing description for organization {org['name']}, using generated description"
+                        f"Skipping organization with no identifiable name. Data: {org}"
                     )
-
-                # Check if process_organization method exists (for source-specific handling)
-                if hasattr(org_creator, "process_organization"):
-                    # Process organization to find a match or create a new one
-                    # Convert empty strings and invalid values to None for numeric fields
-                    year_inc = org.get("year_incorporated")
-                    if isinstance(year_inc, str):
-                        year_inc = (
-                            int(year_inc)
-                            if year_inc.strip() and year_inc.strip().isdigit()
-                            else None
-                        )
-                    elif not isinstance(year_inc, int | type(None)):
-                        year_inc = None
-
-                    org_id, is_new_org = org_creator.process_organization(
-                        org["name"],
-                        description,
-                        job_result.job.metadata,
-                        website=org.get("website") or None,
-                        email=org.get("email") or None,
-                        year_incorporated=year_inc,
-                        legal_status=org.get("legal_status") or None,
-                        uri=org.get("uri") or None,
-                    )
+                    org_id = None
                 else:
-                    # Fall back to old method for backward compatibility with tests
-                    # Convert empty strings and invalid values to None for numeric fields
-                    year_inc = org.get("year_incorporated")
-                    if isinstance(year_inc, str):
-                        year_inc = (
-                            int(year_inc)
-                            if year_inc.strip() and year_inc.strip().isdigit()
-                            else None
-                        )
-                    elif not isinstance(year_inc, int | type(None)):
-                        year_inc = None
+                    # Store the determined name back in the org dict for consistent use
+                    org["name"] = org_name
 
-                    org_id = org_creator.create_organization(
-                        org["name"],
-                        description,
-                        job_result.job.metadata,
-                        website=org.get("website") or None,
-                        email=org.get("email") or None,
-                        year_incorporated=year_inc,
-                        legal_status=org.get("legal_status") or None,
-                        uri=org.get("uri") or None,
-                    )
-
-                # Create organization phones with languages
-                if "phones" in org:
-                    for phone in org["phones"]:
-                        # Use empty strings for missing fields
-                        phone_id = service_creator.create_phone(
-                            number=phone.get("number", ""),
-                            phone_type=phone.get("type", ""),
-                            organization_id=org_id,
-                            metadata=job_result.job.metadata,
-                            transaction=self.db,
+                    # Ensure description is never null - use name as fallback if no description
+                    description = org.get("description")
+                    if description is None or description == "":
+                        description = f"Food service organization: {org_name}"
+                        logger.warning(
+                            f"Missing description for organization {org_name}, using generated description"
                         )
-                        # Add phone languages
-                        if "languages" in phone:
-                            for language in phone["languages"]:
-                                service_creator.create_language(
-                                    name=language.get("name", ""),
-                                    code=language.get("code", ""),
-                                    phone_id=phone_id,
-                                    metadata=job_result.job.metadata,
-                                )
 
-                # Create organization identifiers
-                if "organization_identifiers" in org:
-                    for identifier in org["organization_identifiers"]:
-                        # Use empty strings for missing fields
-                        org_creator.create_organization_identifier(
-                            org_id,
-                            identifier.get("identifier_type", ""),
-                            identifier.get("identifier", ""),
+                    # Check if process_organization method exists (for source-specific handling)
+                    if hasattr(org_creator, "process_organization"):
+                        # Process organization to find a match or create a new one
+                        # Convert empty strings and invalid values to None for numeric fields
+                        year_inc = org.get("year_incorporated")
+                        if isinstance(year_inc, str):
+                            year_inc = (
+                                int(year_inc)
+                                if year_inc.strip() and year_inc.strip().isdigit()
+                                else None
+                            )
+                        elif not isinstance(year_inc, int | type(None)):
+                            year_inc = None
+
+                        org_id, is_new_org = org_creator.process_organization(
+                            org["name"],
+                            description,
+                            job_result.job.metadata,
+                            website=org.get("website") or None,
+                            email=org.get("email") or None,
+                            year_incorporated=year_inc,
+                            legal_status=org.get("legal_status") or None,
+                            uri=org.get("uri") or None,
                         )
+                    else:
+                        # Fall back to old method for backward compatibility with tests
+                        # Convert empty strings and invalid values to None for numeric fields
+                        year_inc = org.get("year_incorporated")
+                        if isinstance(year_inc, str):
+                            year_inc = (
+                                int(year_inc)
+                                if year_inc.strip() and year_inc.strip().isdigit()
+                                else None
+                            )
+                        elif not isinstance(year_inc, int | type(None)):
+                            year_inc = None
+
+                        org_id = org_creator.create_organization(
+                            org["name"],
+                            description,
+                            job_result.job.metadata,
+                            website=org.get("website") or None,
+                            email=org.get("email") or None,
+                            year_incorporated=year_inc,
+                            legal_status=org.get("legal_status") or None,
+                            uri=org.get("uri") or None,
+                        )
+
+                    # Create organization phones with languages
+                    if "phones" in org:
+                        for phone in org["phones"]:
+                            # Use empty strings for missing fields
+                            phone_id = service_creator.create_phone(
+                                number=phone.get("number", ""),
+                                phone_type=phone.get("type", ""),
+                                organization_id=org_id,
+                                metadata=job_result.job.metadata,
+                                transaction=self.db,
+                            )
+                            # Add phone languages
+                            if "languages" in phone:
+                                for language in phone["languages"]:
+                                    service_creator.create_language(
+                                        name=language.get("name", ""),
+                                        code=language.get("code", ""),
+                                        phone_id=phone_id,
+                                        metadata=job_result.job.metadata,
+                                    )
+
+                    # Create organization identifiers
+                    if "organization_identifiers" in org:
+                        for identifier in org["organization_identifiers"]:
+                            # Use empty strings for missing fields
+                            org_creator.create_organization_identifier(
+                                org_id,
+                                identifier.get("identifier_type", ""),
+                                identifier.get("identifier", ""),
+                            )
             else:
                 # Log a warning if organization list is empty
                 logger.warning(
@@ -388,13 +405,14 @@ class JobProcessor:
                         location_name = location.get("name", "Unknown")
                         geocoded_coords = None
 
-                        # Check if we have address information
-                        if location.get("addresss"):
-                            # Build address string from first address (HSDS uses "addresss" with 3 s's)
+                        # Check if we have address information (handle both "addresss" and "address" field names)
+                        if location.get("addresss") or location.get("address"):
+                            # Build address string from first address (HSDS uses "addresss" with 3 s's, but handle both)
+                            address_field = location.get("addresss") or location.get("address")
                             address_data = (
-                                location["addresss"][0]
-                                if isinstance(location["addresss"], list)
-                                else location["addresss"]
+                                address_field[0]
+                                if isinstance(address_field, list)
+                                else address_field
                             )
                             address_parts = []
 
@@ -575,8 +593,8 @@ class JobProcessor:
                         )
                         location_id = uuid.UUID(location_id_str)
 
-                        # Create location addresses for both new and existing locations (HSDS spec uses "addresss" with 3 s's)
-                        if "addresss" in location and location_id:
+                        # Create location addresses for both new and existing locations (handle both "addresss" and "address")
+                        if ("addresss" in location or "address" in location) and location_id:
                             location_id_str = str(location_id)
 
                             # Check if addresses already exist for this location
@@ -592,7 +610,13 @@ class JobProcessor:
 
                             # Only create addresses if none exist
                             if address_count == 0:
-                                for address in location["addresss"]:
+                                # Handle both field names
+                                addresses = location.get("addresss") or location.get("address")
+                                # Ensure it's a list
+                                if not isinstance(addresses, list):
+                                    addresses = [addresses]
+                                
+                                for address in addresses:
                                     # Ensure required address fields are never null by using empty strings
                                     # These will be updated later based on lat/long
                                     location_creator.create_address(
@@ -689,12 +713,29 @@ class JobProcessor:
 
             # Process all collected services
             for service in services_to_process:
+                # Determine service name from available fields (LLM often provides service_type instead of name)
+                service_name = (
+                    service.get("name") or 
+                    service.get("service_type") or 
+                    service.get("type") or
+                    (service.get("description", "")[:50] + "..." if service.get("description") else None)
+                )
+                
+                if not service_name:
+                    logger.warning(
+                        f"Skipping service with no identifiable name. Data: {service}"
+                    )
+                    continue
+                
+                # Store the determined name back in the service dict for consistent use
+                service["name"] = service_name
+                
                 # Ensure description is never null - use name as fallback if no description
                 service_description = service.get("description")
                 if service_description is None or service_description == "":
-                    service_description = f"Food service: {service['name']}"
+                    service_description = f"Food service: {service_name}"
                     logger.warning(
-                        f"Missing description for service {service['name']}, using generated description"
+                        f"Missing description for service {service_name}, using generated description"
                     )
 
                 # Check if process_service method exists (for source-specific handling)
