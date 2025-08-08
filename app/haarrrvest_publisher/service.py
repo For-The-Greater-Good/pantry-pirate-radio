@@ -140,8 +140,85 @@ class HAARRRvestPublisher:
             return f"https://{self.data_repo_token}@{parts[0]}/{parts[1]}"
         return self.data_repo_url
 
+    def _get_content_store_stats(self):
+        """Get current content store statistics for integrity checking."""
+        try:
+            from app.content_store.config import get_content_store
+
+            content_store = get_content_store()
+            if content_store:
+                stats = content_store.get_statistics()
+                # Handle Mock objects in tests by ensuring we have a proper dict
+                if hasattr(stats, "get") and callable(stats.get):
+                    return stats
+                # If it's not a dict-like object, return None to avoid errors
+                return None
+        except Exception as e:
+            logger.debug(f"Could not get content store statistics: {e}")
+        return None
+
+    def _verify_content_store_integrity(self, before_stats, after_stats):
+        """Verify content store wasn't damaged by git operations."""
+        if before_stats and after_stats:
+            before_count = before_stats.get("total_content", 0)
+            after_count = after_stats.get("total_content", 0)
+
+            if after_count < before_count * 0.95:  # 5% tolerance for edge cases
+                raise Exception(
+                    f"CRITICAL: Content store data loss detected during git operations! "
+                    f"Before: {before_count}, After: {after_count}"
+                )
+            elif before_count > 0:  # Only log if we had data to begin with
+                logger.info(
+                    f"Content store integrity verified: {after_count} items preserved"
+                )
+
+    def _safe_git_stash_with_content_store_protection(self):
+        """Stash changes while protecting content store data."""
+
+        # First, commit any content store changes immediately to protect them
+        content_store_path = self.data_repo_path / "content_store"
+        if content_store_path.exists():
+            logger.info("Protecting content store: committing changes before stash")
+            self._run_command(["git", "add", "content_store/"], cwd=self.data_repo_path)
+
+            # Check if there are actually changes to commit
+            code, out, err = self._run_command(
+                ["git", "diff", "--cached", "--name-only"], cwd=self.data_repo_path
+            )
+            if out.strip():
+                # Commit content store changes with a clear message
+                commit_msg = f"Auto-commit content store updates - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                self._run_command(
+                    ["git", "commit", "-m", commit_msg], cwd=self.data_repo_path
+                )
+                logger.info("Content store changes committed successfully")
+
+        # Now check for any remaining non-content-store changes to stash
+        code, out, err = self._run_command(
+            ["git", "status", "--porcelain"], cwd=self.data_repo_path
+        )
+        if out.strip():
+            # Only stash non-content-store files using pathspec exclusion
+            logger.info("Stashing non-content-store changes")
+            self._run_command(
+                [
+                    "git",
+                    "stash",
+                    "push",
+                    "-m",
+                    "Publisher auto-stash (excluding content_store)",
+                    "--",
+                    ".",
+                    ":(exclude)content_store",
+                ],
+                cwd=self.data_repo_path,
+            )
+        else:
+            logger.info("No additional changes to stash after content store commit")
+
     def _setup_git_repo(self):
-        """Clone or update the HAARRRvest repository."""
+        """Clone or update the HAARRRvest repository with content store protection."""
         # Check if path exists AND is a git repository
         is_git_repo = (self.data_repo_path / ".git").exists()
 
@@ -204,43 +281,21 @@ class HAARRRvestPublisher:
                 cwd=self.data_repo_path,
             )
 
-            # First, check if we have uncommitted changes
+            # NEW: Get content store stats BEFORE any git operations
+            initial_content_stats = self._get_content_store_stats()
+            if initial_content_stats:
+                logger.info(
+                    f"Content store before git operations: {initial_content_stats['total_content']} items"
+                )
+
+            # Check if we have uncommitted changes and handle them safely
             code, out, err = self._run_command(
                 ["git", "status", "--porcelain"], cwd=self.data_repo_path
             )
             if out.strip():
                 logger.warning("Repository has uncommitted changes")
-                # Add and commit content_store changes before stashing
-                # This preserves content_store data that should be kept
-                content_store_path = self.data_repo_path / "content_store"
-                if content_store_path.exists():
-                    logger.info("Adding content_store changes to git before stashing")
-                    self._run_command(
-                        ["git", "add", "content_store"],
-                        cwd=self.data_repo_path,
-                    )
-                    # Check if there are staged changes in content_store
-                    code, out, err = self._run_command(
-                        ["git", "diff", "--cached", "--name-only", "content_store"],
-                        cwd=self.data_repo_path,
-                    )
-                    if out.strip():
-                        logger.info("Committing content_store changes")
-                        self._run_command(
-                            ["git", "commit", "-m", "Update content store"],
-                            cwd=self.data_repo_path,
-                        )
-
-                # Now stash any remaining changes
-                code, out, err = self._run_command(
-                    ["git", "status", "--porcelain"], cwd=self.data_repo_path
-                )
-                if out.strip():
-                    logger.warning("Stashing remaining uncommitted changes")
-                    self._run_command(
-                        ["git", "stash", "push", "-m", "Publisher auto-stash"],
-                        cwd=self.data_repo_path,
-                    )
+                # Use protected stash operation
+                self._safe_git_stash_with_content_store_protection()
 
             # Ensure we're on main branch
             code, out, err = self._run_command(
@@ -279,6 +334,16 @@ class HAARRRvestPublisher:
                     raise Exception(f"Cannot pull from origin: {err}")
             else:
                 logger.info("Repository is up to date with origin/main")
+
+            # NEW: Verify content store integrity after git operations
+            final_content_stats = self._get_content_store_stats()
+            if final_content_stats:
+                logger.info(
+                    f"Content store after git operations: {final_content_stats['total_content']} items"
+                )
+            self._verify_content_store_integrity(
+                initial_content_stats, final_content_stats
+            )
 
     def _create_branch_name(self) -> str:
         """Create a validated branch name based on current date."""
