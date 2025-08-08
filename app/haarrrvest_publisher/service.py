@@ -1089,7 +1089,8 @@ This repository contains food resource data collected by Pantry Pirate Radio.
         export_script = self.data_repo_path / "scripts" / "export-locations.py"
 
         if not export_script.exists():
-            logger.error(f"Location export script not found: {export_script}")
+            logger.warning(f"Location export script not found: {export_script}")
+            logger.info("Skipping location export - script not available")
             return
 
         logger.info("Running location export for map data")
@@ -1104,7 +1105,13 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             if out:
                 logger.info(f"Export output:\n{out}")
         else:
-            logger.error(f"Location export failed: {err}")
+            # Check if the error is just about no location data
+            if "No location data found" in err or "Warning: No location data found" in err:
+                logger.warning("No location data found in database - this is normal for new or empty databases")
+                logger.info("Location export skipped due to no data")
+            else:
+                logger.error(f"Location export failed: {err}")
+                # Don't raise exception - this shouldn't stop the publishing pipeline
 
     def _run_database_operations(self):
         """Run database rebuild and SQLite export."""
