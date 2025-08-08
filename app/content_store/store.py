@@ -13,6 +13,7 @@ from rq import Queue
 from rq.job import Job
 
 from app.content_store.models import ContentEntry
+from app.content_store.retry import with_connection_retry, with_transaction_retry
 
 
 class ContentStore:
@@ -43,11 +44,15 @@ class ContentStore:
         (self.content_store_path / "content").mkdir(parents=True, exist_ok=True)
         (self.content_store_path / "results").mkdir(parents=True, exist_ok=True)
 
+    @with_connection_retry
     def _init_database(self):
         """Initialize SQLite database for content index."""
         db_path = self.content_store_path / "index.db"
 
         with sqlite3.connect(db_path) as conn:
+            # Enable WAL mode for better concurrent access
+            conn.execute("PRAGMA journal_mode=WAL")
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS content_index (
@@ -91,6 +96,7 @@ class ContentStore:
             # Job doesn't exist or can't be fetched
             return False
 
+    @with_connection_retry
     def has_content(self, content_hash: str) -> bool:
         """Check if content exists in store.
 
@@ -184,24 +190,15 @@ class ContentStore:
             }
             content_path.write_text(json.dumps(content_data, indent=2))
 
-            # Update index
-            db_path = self.content_store_path / "index.db"
-            with sqlite3.connect(db_path) as conn:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO content_index
-                    (hash, status, content_path, created_at)
-                    VALUES (?, ?, ?, ?)
-                """,
-                    (content_hash, "pending", str(content_path), datetime.utcnow()),
-                )
-                conn.commit()
+            # Update index with retry logic
+            self._store_content_index(content_hash, content_path)
 
         # Return pending status without job_id (allow new processing)
         return ContentEntry(
             hash=content_hash, status="pending", result=None, job_id=None
         )
 
+    @with_transaction_retry
     def store_result(self, content_hash: str, result: str, job_id: str):
         """Store processing result for content.
 
@@ -272,6 +269,7 @@ class ContentStore:
 
             conn.commit()
 
+    @with_connection_retry
     def get_job_id(self, content_hash: str) -> Optional[str]:
         """Get job ID for a content hash.
 
@@ -294,6 +292,7 @@ class ContentStore:
             result = cursor.fetchone()
             return result[0] if result and result[0] else None
 
+    @with_connection_retry
     def clear_job_id(self, content_hash: str):
         """Clear job ID for a content hash.
 
@@ -312,6 +311,7 @@ class ContentStore:
             )
             conn.commit()
 
+    @with_connection_retry
     def link_job(self, content_hash: str, job_id: str):
         """Link a job ID to a content hash.
 
@@ -336,6 +336,7 @@ class ContentStore:
             )
             conn.commit()
 
+    @with_connection_retry
     def get_statistics(self) -> dict:
         """Get statistics about stored content.
 
@@ -380,6 +381,26 @@ class ContentStore:
             "pending_content": pending,
             "store_size_bytes": store_size,
         }
+
+    @with_connection_retry
+    def _store_content_index(self, content_hash: str, content_path: Path):
+        """Store content entry in database index with retry logic.
+
+        Args:
+            content_hash: SHA-256 hash of content
+            content_path: Path to content file
+        """
+        db_path = self.content_store_path / "index.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO content_index
+                (hash, status, content_path, created_at)
+                VALUES (?, ?, ?, ?)
+            """,
+                (content_hash, "pending", str(content_path), datetime.utcnow()),
+            )
+            conn.commit()
 
     def _validate_hash(self, content_hash: str) -> None:
         """Validate hash format for security.
