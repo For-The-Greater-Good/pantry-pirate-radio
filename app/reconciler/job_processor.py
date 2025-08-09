@@ -163,6 +163,20 @@ class JobProcessor:
         if "opens_at" not in transformed or "closes_at" not in transformed:
             # Skip schedules without time information
             return None
+        
+        # Convert invalid frequency values to valid ones
+        if "freq" in transformed:
+            freq_value = transformed["freq"].upper()
+            if freq_value == "ONCE":
+                # Convert ONCE to WEEKLY since database doesn't support ONCE
+                transformed["freq"] = "WEEKLY"
+                logger.debug(f"Converted schedule frequency from ONCE to WEEKLY")
+            elif freq_value not in ["WEEKLY", "MONTHLY"]:
+                # Skip schedules with invalid frequency
+                logger.warning(f"Skipping schedule with invalid frequency: {freq_value}")
+                return None
+            else:
+                transformed["freq"] = freq_value
             
         # Only return if we have actual freq/wkst data, don't create defaults
         if "freq" not in transformed or "wkst" not in transformed:
@@ -252,6 +266,26 @@ class JobProcessor:
                 # Extract services and locations from the organization object
                 services = raw_data.pop("services", [])
                 locations = raw_data.pop("locations", [])
+                
+                # Process locations to extract nested coordinates
+                for loc in locations:
+                    # Check if coordinates are nested in addresses
+                    if "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
+                        first_address = loc["addresses"][0]
+                        if "coordinates" in first_address and isinstance(first_address["coordinates"], dict):
+                            coords = first_address["coordinates"]
+                            if "latitude" in coords and "longitude" in coords:
+                                # Extract coordinates to location level
+                                loc["latitude"] = coords["latitude"]
+                                loc["longitude"] = coords["longitude"]
+                                # Remove coordinates from addresses since we've extracted them
+                                for addr in loc["addresses"]:
+                                    if "coordinates" in addr:
+                                        del addr["coordinates"]
+                    
+                    # Also rename addresses to addresss (HSDS uses 3 s's)
+                    if "addresses" in loc and "addresss" not in loc:
+                        loc["addresss"] = loc.pop("addresses")
 
                 # Create the expected structure
                 transformed_data = {
@@ -278,7 +312,29 @@ class JobProcessor:
                         raw_data["service"] = services
                     if "locations" in raw_data and "location" not in raw_data:
                         logger.info("Converting 'locations' to 'location'")
-                        raw_data["location"] = raw_data.pop("locations")
+                        locations = raw_data.pop("locations")
+                        
+                        # Process each location to extract nested coordinates and fix addresses
+                        for loc in locations if isinstance(locations, list) else []:
+                            # Check if coordinates are nested in addresses
+                            if "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
+                                first_address = loc["addresses"][0]
+                                if "coordinates" in first_address and isinstance(first_address["coordinates"], dict):
+                                    coords = first_address["coordinates"]
+                                    if "latitude" in coords and "longitude" in coords:
+                                        # Extract coordinates to location level
+                                        loc["latitude"] = coords["latitude"]
+                                        loc["longitude"] = coords["longitude"]
+                                        # Remove coordinates from addresses since we've extracted them
+                                        for addr in loc["addresses"]:
+                                            if "coordinates" in addr:
+                                                del addr["coordinates"]
+                            
+                            # Also rename addresses to addresss (HSDS uses 3 s's)
+                            if "addresses" in loc and "addresss" not in loc:
+                                loc["addresss"] = loc.pop("addresses")
+                        
+                        raw_data["location"] = locations
                     
                     # Extract locations from nested services if needed
                     if "service" in raw_data and isinstance(raw_data["service"], list):
@@ -295,11 +351,23 @@ class JobProcessor:
                                         transformed_loc["name"] = loc.get("name") or loc.get("location_id") or f"location_{len(all_locations) + 1}"
                                         transformed_loc["description"] = loc.get("description", f"Service location")
                                         
-                                        # Extract coordinates
+                                        # Extract coordinates - check multiple possible locations
                                         if "coordinates" in loc:
+                                            # Direct coordinates object on location
                                             transformed_loc["latitude"] = loc["coordinates"].get("latitude")
                                             transformed_loc["longitude"] = loc["coordinates"].get("longitude")
+                                        elif "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
+                                            # Coordinates nested in addresses array
+                                            first_address = loc["addresses"][0]
+                                            if "coordinates" in first_address:
+                                                coords = first_address["coordinates"]
+                                                transformed_loc["latitude"] = coords.get("latitude")
+                                                transformed_loc["longitude"] = coords.get("longitude")
+                                            else:
+                                                transformed_loc["latitude"] = loc.get("latitude")
+                                                transformed_loc["longitude"] = loc.get("longitude")
                                         else:
+                                            # Direct latitude/longitude on location
                                             transformed_loc["latitude"] = loc.get("latitude")
                                             transformed_loc["longitude"] = loc.get("longitude")
                                         
@@ -316,8 +384,15 @@ class JobProcessor:
                                                 "address_type": "physical"
                                             }]
                                         elif "addresses" in loc:
-                                            # Already an array
-                                            transformed_loc["addresss"] = loc["addresses"]
+                                            # Already an array - rename and clean up coordinates
+                                            addresses_copy = []
+                                            for addr in loc["addresses"]:
+                                                addr_copy = dict(addr)
+                                                # Remove coordinates from address since we extracted them
+                                                if "coordinates" in addr_copy:
+                                                    del addr_copy["coordinates"]
+                                                addresses_copy.append(addr_copy)
+                                            transformed_loc["addresss"] = addresses_copy
                                         elif "address_1" in loc or "city" in loc:
                                             # Address fields are directly on location
                                             transformed_loc["addresss"] = [{
@@ -469,6 +544,25 @@ class JobProcessor:
             # Process locations
             if "location" in data:
                 for location in data["location"]:
+                    # First check if coordinates are nested in addresses structure
+                    if "addresses" in location and isinstance(location.get("addresses"), list) and len(location["addresses"]) > 0:
+                        first_address = location["addresses"][0]
+                        if "coordinates" in first_address and isinstance(first_address["coordinates"], dict):
+                            coords = first_address["coordinates"]
+                            if "latitude" in coords and "longitude" in coords:
+                                # Extract coordinates to location level
+                                location["latitude"] = coords["latitude"]
+                                location["longitude"] = coords["longitude"]
+                                logger.debug(f"Extracted coordinates from nested address structure for location '{location.get('name', 'Unknown')}'")
+                    
+                    # Also rename addresses to addresss (HSDS uses 3 s's)
+                    if "addresses" in location and "addresss" not in location:
+                        location["addresss"] = location.pop("addresses")
+                        # Remove coordinates from addresss entries since we've extracted them
+                        for addr in location.get("addresss", []):
+                            if "coordinates" in addr:
+                                del addr["coordinates"]
+                    
                     # Check that latitude and longitude exist and are not None
                     # Note: 0,0 coordinates are invalid (ocean off Africa) and should be geocoded
                     has_valid_coords = False
@@ -498,6 +592,7 @@ class JobProcessor:
                         # Try to geocode if we have address information
                         location_name = location.get("name", "Unknown")
                         geocoded_coords = None
+                        match_id = None
 
                         # Check if we have address information
                         if location.get("addresss"):
@@ -585,7 +680,7 @@ class JobProcessor:
                                         f"Error geocoding location '{location_name}': {e}"
                                     )
 
-                        # If geocoding failed or no address available, skip location
+                        # If geocoding failed or no address available
                         if not geocoded_coords:
                             missing_fields = []
                             if (
@@ -598,10 +693,27 @@ class JobProcessor:
                                 or location.get("longitude") is None
                             ):
                                 missing_fields.append("longitude")
-                            logger.warning(
-                                f"Skipping location '{location_name}' - unable to geocode and missing coordinates: {', '.join(missing_fields)}"
-                            )
-                            continue
+                            
+                            # Check if we have meaningful address data that failed to geocode
+                            has_address_data = False
+                            if location.get("addresss"):
+                                first_address = location["addresss"][0] if isinstance(location["addresss"], list) else location["addresss"]
+                                # Check if address has meaningful data (not just empty strings)
+                                if (first_address.get("address_1") and first_address["address_1"].strip()) or \
+                                   (first_address.get("city") and first_address["city"].strip()):
+                                    has_address_data = True
+                            
+                            if has_address_data:
+                                # We have real address data but couldn't geocode it - this is an error
+                                error_msg = f"Unable to geocode location '{location_name}' with address data - missing coordinates: {', '.join(missing_fields)}"
+                                logger.error(error_msg)
+                                raise ValueError(error_msg)
+                            else:
+                                # No meaningful address data and no coordinates - skip this location
+                                logger.warning(
+                                    f"Skipping location '{location_name}' - no address data and missing coordinates: {', '.join(missing_fields)}"
+                                )
+                                continue
 
                     location_id = None
                     if match_id:
@@ -800,6 +912,11 @@ class JobProcessor:
 
             # Process all collected services
             for service in services_to_process:
+                # Ensure service has a name
+                if "name" not in service or not service.get("name"):
+                    service["name"] = service.get("service_name") or "Food Service"
+                    logger.warning(f"Missing name for service, using default: {service['name']}")
+                
                 # Ensure description is never null - use name as fallback if no description
                 service_description = service.get("description")
                 if service_description is None or service_description == "":
