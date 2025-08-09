@@ -219,10 +219,17 @@ class JobProcessor:
         # Parse HSDS data
         if not job_result.result:
             raise ValueError("Job result has no result")
+        
+        if not job_result.result.text or job_result.result.text.strip() == "":
+            raise ValueError("Job result has empty text")
 
         try:
             # Extract JSON from markdown code blocks if present
             json_text = self._extract_json_from_markdown(job_result.result.text)
+            
+            # Check if we got empty text after extraction
+            if not json_text or json_text.strip() == "":
+                raise ValueError(f"Empty JSON text after extraction from: {job_result.result.text[:200]}")
 
             # Additional cleanup for known problematic patterns
             # Fix unquoted values that start with 'I'
@@ -363,9 +370,15 @@ class JobProcessor:
                                         
                                         # Extract coordinates - check multiple possible locations
                                         if "coordinates" in loc:
-                                            # Direct coordinates object on location
-                                            transformed_loc["latitude"] = loc["coordinates"].get("latitude")
-                                            transformed_loc["longitude"] = loc["coordinates"].get("longitude")
+                                            # Direct coordinates on location - could be dict or list
+                                            coords = loc["coordinates"]
+                                            if isinstance(coords, dict):
+                                                transformed_loc["latitude"] = coords.get("latitude")
+                                                transformed_loc["longitude"] = coords.get("longitude")
+                                            elif isinstance(coords, list) and len(coords) >= 2:
+                                                # Coordinates as [lat, lon] array
+                                                transformed_loc["latitude"] = coords[0]
+                                                transformed_loc["longitude"] = coords[1]
                                         elif "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
                                             # Coordinates nested in addresses array
                                             first_address = loc["addresses"][0]
@@ -787,6 +800,11 @@ class JobProcessor:
 
                     else:
                         # Create new location with all fields
+                        # Ensure location has a name
+                        if "name" not in location or not location.get("name"):
+                            location["name"] = f"Location {len(location_ids) + 1}"
+                            logger.warning(f"Missing name for location, using default: {location['name']}")
+                        
                         # Ensure description is never null
                         loc_description = location.get("description")
                         if loc_description is None or loc_description == "":
@@ -865,7 +883,7 @@ class JobProcessor:
                                         )
 
                         # Create location accessibility (for both new and existing locations)
-                        if "accessibility" in location and location_id:
+                        if "accessibility" in location and location_id and location["accessibility"]:
                             location_id_str = str(location_id)
                             for access in location["accessibility"]:
                                 location_creator.create_accessibility(
