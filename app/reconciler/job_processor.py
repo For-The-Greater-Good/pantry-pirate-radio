@@ -344,6 +344,16 @@ class JobProcessor:
                                 locations = svc.pop("locations")
                                 if isinstance(locations, list):
                                     for loc in locations:
+                                        # Handle case where location is just a string
+                                        if isinstance(loc, str):
+                                            # Convert string to location dict
+                                            transformed_loc = {
+                                                "name": loc,
+                                                "description": f"Service location: {loc}"
+                                            }
+                                            all_locations.append(transformed_loc)
+                                            continue
+                                        
                                         # Transform location to expected format
                                         transformed_loc = {}
                                         
