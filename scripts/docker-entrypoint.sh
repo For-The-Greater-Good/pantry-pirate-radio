@@ -13,9 +13,16 @@ case "$SERVICE" in
         ;;
     
     worker|llm-worker)
-        echo "Starting LLM worker with Claude setup..."
-        # Use the existing startup script for Claude authentication
-        exec /app/scripts/container_startup.sh rq worker llm
+        # Check LLM_PROVIDER to determine worker type
+        if [ "$LLM_PROVIDER" = "claude" ] || [ "$LLM_PROVIDER" = "anthropic" ]; then
+            echo "Starting LLM worker with Claude setup (LLM_PROVIDER=$LLM_PROVIDER)..."
+            # Use the existing startup script for Claude authentication
+            exec /app/scripts/container_startup.sh rq worker llm
+        else
+            echo "Starting LLM worker for provider: $LLM_PROVIDER"
+            # Start standard RQ worker without Claude setup
+            exec rq worker llm
+        fi
         ;;
     
     simple-worker)

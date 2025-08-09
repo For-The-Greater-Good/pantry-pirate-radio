@@ -221,7 +221,76 @@ class JobProcessor:
                 }
                 data = cast(HSDataDict, transformed_data)
             else:
-                # Use the data as-is
+                # Handle plural field names from some LLM providers
+                if isinstance(raw_data, dict):
+                    # Normalize plural names to singular
+                    if "organizations" in raw_data and "organization" not in raw_data:
+                        logger.info("Converting 'organizations' to 'organization'")
+                        raw_data["organization"] = raw_data.pop("organizations")
+                    if "services" in raw_data and "service" not in raw_data:
+                        logger.info("Converting 'services' to 'service'")
+                        raw_data["service"] = raw_data.pop("services")
+                    if "locations" in raw_data and "location" not in raw_data:
+                        logger.info("Converting 'locations' to 'location'")
+                        raw_data["location"] = raw_data.pop("locations")
+                    
+                    # Extract locations from nested services if needed
+                    if "service" in raw_data and isinstance(raw_data["service"], list):
+                        all_locations = []
+                        for svc in raw_data["service"]:
+                            if isinstance(svc, dict) and "locations" in svc:
+                                locations = svc.pop("locations")
+                                if isinstance(locations, list):
+                                    for loc in locations:
+                                        # Transform location to expected format
+                                        transformed_loc = {}
+                                        
+                                        # Use location_id as name if no name exists
+                                        transformed_loc["name"] = loc.get("name") or loc.get("location_id") or f"location_{len(all_locations) + 1}"
+                                        transformed_loc["description"] = loc.get("description", f"Service location")
+                                        
+                                        # Extract coordinates
+                                        if "coordinates" in loc:
+                                            transformed_loc["latitude"] = loc["coordinates"].get("latitude")
+                                            transformed_loc["longitude"] = loc["coordinates"].get("longitude")
+                                        else:
+                                            transformed_loc["latitude"] = loc.get("latitude")
+                                            transformed_loc["longitude"] = loc.get("longitude")
+                                        
+                                        # Transform address to addresss (triple 's' as per HSDS spec)
+                                        if "address" in loc:
+                                            addr = loc["address"]
+                                            transformed_loc["addresss"] = [{
+                                                "address_1": addr.get("address_1", ""),
+                                                "city": addr.get("city", ""),
+                                                "state_province": addr.get("state_province", ""),
+                                                "postal_code": addr.get("postal_code", ""),
+                                                "country": addr.get("country", "US"),
+                                                "address_type": "physical"
+                                            }]
+                                        elif "addresses" in loc:
+                                            transformed_loc["addresss"] = loc["addresses"]
+                                        
+                                        all_locations.append(transformed_loc)
+                        
+                        if all_locations and "location" not in raw_data:
+                            logger.info(f"Extracted and transformed {len(all_locations)} locations from services")
+                            raw_data["location"] = all_locations
+                    
+                    # Check if organization is an object instead of array
+                    if "organization" in raw_data:
+                        if isinstance(raw_data["organization"], dict):
+                            # Convert single organization object to array
+                            logger.info("Converting organization from object to array format")
+                            raw_data["organization"] = [raw_data["organization"]]
+                    
+                    # Also check service and location - ensure they are arrays
+                    if "service" in raw_data and isinstance(raw_data["service"], dict):
+                        raw_data["service"] = [raw_data["service"]]
+                    if "location" in raw_data and isinstance(raw_data["location"], dict):
+                        raw_data["location"] = [raw_data["location"]]
+                
+                # Use the data as-is (now normalized)
                 data = cast(HSDataDict, raw_data)
 
             # Log the structure for debugging
@@ -740,7 +809,12 @@ class JobProcessor:
                 # Link service to locations and create schedules
                 if "location" in data:
                     for loc in data["location"]:
-                        if loc["name"] in location_ids:
+                        # Get location identifier - could be 'name' or fallback to other fields
+                        loc_identifier = loc.get("name")
+                        if not loc_identifier:
+                            continue  # Skip if no identifier
+                        
+                        if loc_identifier in location_ids:
                             # Check for existing service_at_location
                             query = text(
                                 """
