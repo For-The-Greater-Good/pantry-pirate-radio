@@ -131,6 +131,47 @@ class JobProcessor:
         """
         self.logger.info("Method deprecated - jobs are processed by RQ worker")
 
+    def _transform_schedule(self, schedule: dict) -> dict | None:
+        """Transform schedule from various formats to expected format.
+        
+        Handles conversion from times array with start_time/end_time 
+        to opens_at/closes_at format.
+        """
+        if not schedule:
+            return None
+            
+        transformed = schedule.copy()
+        
+        # Handle times array format (from LLM output)
+        if "times" in schedule and isinstance(schedule["times"], list) and schedule["times"]:
+            time_info = schedule["times"][0]  # Use first time entry
+            if "start_time" in time_info:
+                transformed["opens_at"] = time_info["start_time"]
+            if "end_time" in time_info:
+                transformed["closes_at"] = time_info["end_time"]
+            # Remove times array after extracting
+            transformed.pop("times", None)
+        
+        # Handle direct start_time/end_time fields
+        elif "start_time" in schedule:
+            transformed["opens_at"] = schedule["start_time"]
+            transformed["closes_at"] = schedule.get("end_time", schedule["start_time"])
+            transformed.pop("start_time", None)
+            transformed.pop("end_time", None)
+        
+        # Ensure required fields exist
+        if "opens_at" not in transformed or "closes_at" not in transformed:
+            # Skip schedules without time information
+            return None
+            
+        # Only return if we have actual freq/wkst data, don't create defaults
+        if "freq" not in transformed or "wkst" not in transformed:
+            # Log that we're skipping incomplete schedule
+            logger.warning(f"Skipping schedule missing freq or wkst: {transformed}")
+            return None
+            
+        return transformed
+    
     def _extract_json_from_markdown(self, text: str) -> str:
         """Extract JSON content from markdown code blocks.
 
@@ -229,7 +270,12 @@ class JobProcessor:
                         raw_data["organization"] = raw_data.pop("organizations")
                     if "services" in raw_data and "service" not in raw_data:
                         logger.info("Converting 'services' to 'service'")
-                        raw_data["service"] = raw_data.pop("services")
+                        services = raw_data.pop("services")
+                        # Normalize service field names
+                        for svc in services if isinstance(services, list) else []:
+                            if "service_name" in svc and "name" not in svc:
+                                svc["name"] = svc.pop("service_name")
+                        raw_data["service"] = services
                     if "locations" in raw_data and "location" not in raw_data:
                         logger.info("Converting 'locations' to 'location'")
                         raw_data["location"] = raw_data.pop("locations")
@@ -259,6 +305,7 @@ class JobProcessor:
                                         
                                         # Transform address to addresss (triple 's' as per HSDS spec)
                                         if "address" in loc:
+                                            # Address is nested
                                             addr = loc["address"]
                                             transformed_loc["addresss"] = [{
                                                 "address_1": addr.get("address_1", ""),
@@ -269,7 +316,18 @@ class JobProcessor:
                                                 "address_type": "physical"
                                             }]
                                         elif "addresses" in loc:
+                                            # Already an array
                                             transformed_loc["addresss"] = loc["addresses"]
+                                        elif "address_1" in loc or "city" in loc:
+                                            # Address fields are directly on location
+                                            transformed_loc["addresss"] = [{
+                                                "address_1": loc.get("address_1", ""),
+                                                "city": loc.get("city", ""),
+                                                "state_province": loc.get("state_province", ""),
+                                                "postal_code": loc.get("postal_code", ""),
+                                                "country": loc.get("country", "US"),
+                                                "address_type": loc.get("address_type", "physical")
+                                            }]
                                         
                                         all_locations.append(transformed_loc)
                         
@@ -857,14 +915,21 @@ class JobProcessor:
                                     # Collect all schedules from service and location
                                     schedules_to_create: list[ScheduleDict] = []
 
-                                    # Add service schedules
+                                    # Add service schedules (transform format if needed)
                                     if "schedules" in service:
-                                        schedules_to_create.extend(service["schedules"])
+                                        for sched in service["schedules"]:
+                                            transformed_sched = self._transform_schedule(sched)
+                                            if transformed_sched:
+                                                schedules_to_create.append(transformed_sched)
 
                                     # Add location schedules if they don't overlap with service schedules
                                     if "schedules" in loc:
                                         loc_schedules = loc["schedules"]
                                         for loc_schedule in loc_schedules:
+                                            transformed_sched = self._transform_schedule(loc_schedule)
+                                            if not transformed_sched:
+                                                continue
+                                            loc_schedule = transformed_sched
                                             # Check if this schedule already exists
                                             exists = False
                                             for existing in schedules_to_create:
