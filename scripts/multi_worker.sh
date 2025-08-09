@@ -59,8 +59,8 @@ for i in $(seq 1 $WORKER_COUNT); do
         redis-cli -u "${REDIS_URL:-redis://cache:6379}" del "rq:worker:$WORKER_NAME" &> /dev/null || true
     fi
 
-    # Use custom Claude worker for llm queue, standard worker for others
-    if [ "$QUEUE_NAME" = "llm" ]; then
+    # Use custom Claude worker only for llm queue with Claude provider
+    if [ "$QUEUE_NAME" = "llm" ] && [[ "$LLM_PROVIDER" == "claude" || "$LLM_PROVIDER" == "anthropic" ]]; then
         echo "   Command: /usr/local/bin/python /app/scripts/claude_worker.py $QUEUE_NAME $WORKER_NAME"
         /usr/local/bin/python /app/scripts/claude_worker.py "$QUEUE_NAME" "$WORKER_NAME" 2>&1 &
     else
@@ -108,7 +108,7 @@ while true; do
             fi
             
             # Start the worker
-            if [ "$QUEUE_NAME" = "llm" ]; then
+            if [ "$QUEUE_NAME" = "llm" ] && [[ "$LLM_PROVIDER" == "claude" || "$LLM_PROVIDER" == "anthropic" ]]; then
                 /usr/local/bin/python /app/scripts/claude_worker.py "$QUEUE_NAME" "$WORKER_NAME" 2>&1 &
             else
                 /usr/local/bin/python -m rq.cli worker "$QUEUE_NAME" --name "$WORKER_NAME" 2>&1 &
