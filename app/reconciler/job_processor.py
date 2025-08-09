@@ -201,12 +201,12 @@ class JobProcessor:
 
             # Transform data structure if needed
             # Handle different OpenAI response formats
-            
+
             # Case 1: Array at top level - extract first element
             if isinstance(raw_data, list) and len(raw_data) > 0:
                 logger.info("Converting array response to object structure")
                 raw_data = raw_data[0]
-            
+
             # Case 2: Single organization object instead of the expected structure
             if (
                 isinstance(raw_data, dict)
@@ -262,15 +262,19 @@ class JobProcessor:
             if "organization" in data and len(data["organization"]) > 0:
                 # Use first organization since they should all be the same
                 org = data["organization"][0]
-                
+
                 # Determine organization name from available fields
                 org_name = (
-                    org.get("name") or
-                    org.get("alternate_name") or
-                    org.get("legal_name") or
-                    (org.get("description", "")[:50] + "..." if org.get("description") else None)
+                    org.get("name")
+                    or org.get("alternate_name")
+                    or org.get("legal_name")
+                    or (
+                        org.get("description", "")[:50] + "..."
+                        if org.get("description")
+                        else None
+                    )
                 )
-                
+
                 if not org_name:
                     logger.warning(
                         f"Skipping organization with no identifiable name. Data: {org}"
@@ -408,7 +412,9 @@ class JobProcessor:
                         # Check if we have address information (handle both "addresss" and "address" field names)
                         if location.get("addresss") or location.get("address"):
                             # Build address string from first address (HSDS uses "addresss" with 3 s's, but handle both)
-                            address_field = location.get("addresss") or location.get("address")
+                            address_field = location.get("addresss") or location.get(
+                                "address"
+                            )
                             address_data = (
                                 address_field[0]
                                 if isinstance(address_field, list)
@@ -594,7 +600,9 @@ class JobProcessor:
                         location_id = uuid.UUID(location_id_str)
 
                         # Create location addresses for both new and existing locations (handle both "addresss" and "address")
-                        if ("addresss" in location or "address" in location) and location_id:
+                        if (
+                            "addresss" in location or "address" in location
+                        ) and location_id:
                             location_id_str = str(location_id)
 
                             # Check if addresses already exist for this location
@@ -611,11 +619,13 @@ class JobProcessor:
                             # Only create addresses if none exist
                             if address_count == 0:
                                 # Handle both field names
-                                addresses = location.get("addresss") or location.get("address")
+                                addresses = location.get("addresss") or location.get(
+                                    "address"
+                                )
                                 # Ensure it's a list
                                 if not isinstance(addresses, list):
                                     addresses = [addresses]
-                                
+
                                 for address in addresses:
                                     # Ensure required address fields are never null by using empty strings
                                     # These will be updated later based on lat/long
@@ -715,21 +725,25 @@ class JobProcessor:
             for service in services_to_process:
                 # Determine service name from available fields (LLM often provides service_type instead of name)
                 service_name = (
-                    service.get("name") or 
-                    service.get("service_type") or 
-                    service.get("type") or
-                    (service.get("description", "")[:50] + "..." if service.get("description") else None)
+                    service.get("name")
+                    or service.get("service_type")
+                    or service.get("type")
+                    or (
+                        service.get("description", "")[:50] + "..."
+                        if service.get("description")
+                        else None
+                    )
                 )
-                
+
                 if not service_name:
                     logger.warning(
                         f"Skipping service with no identifiable name. Data: {service}"
                     )
                     continue
-                
+
                 # Store the determined name back in the service dict for consistent use
                 service["name"] = service_name
-                
+
                 # Ensure description is never null - use name as fallback if no description
                 service_description = service.get("description")
                 if service_description is None or service_description == "":

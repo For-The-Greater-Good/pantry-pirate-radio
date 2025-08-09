@@ -13,6 +13,7 @@ from app.llm.queue.types import JobResult, JobStatus
 from app.llm.providers.types import LLMResponse
 from app.reconciler.job_processor import JobProcessor
 
+
 class TestOpenAIResponseFormats:
     """Test cases for different OpenAI response formats."""
 

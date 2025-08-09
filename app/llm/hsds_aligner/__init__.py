@@ -1,11 +1,6 @@
 """HSDS alignment module using LLM"""
 
-from app.llm.hsds_aligner.aligner import HSDSAligner
-from app.llm.hsds_aligner.type_defs import (
-    AlignmentInputDict as AlignmentInput,
-)
-from app.llm.hsds_aligner.type_defs import (
-    AlignmentOutputDict as AlignmentOutput,
-)
+# Note: HSDSAligner has been removed as it's not used in production
+# SchemaConverter and ValidationConfig are still used by scrapers
 
-__all__ = ["HSDSAligner", "AlignmentInput", "AlignmentOutput"]
+__all__: list[str] = []

@@ -967,8 +967,9 @@ class TestHAARRRvestPublisher:
         with patch("app.haarrrvest_publisher.service.logger") as mock_logger:
             publisher._run_location_export()
 
-            # Should log error
-            mock_logger.error.assert_called()
+            # Should log warning and info about skipping
+            mock_logger.warning.assert_called()
+            mock_logger.info.assert_called()
 
     def test_should_handle_location_export_failure(self, publisher, temp_dirs):
         """Test handling location export script failure."""

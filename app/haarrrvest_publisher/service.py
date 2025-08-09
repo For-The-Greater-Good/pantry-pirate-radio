@@ -1106,8 +1106,13 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 logger.info(f"Export output:\n{out}")
         else:
             # Check if the error is just about no location data
-            if "No location data found" in err or "Warning: No location data found" in err:
-                logger.warning("No location data found in database - this is normal for new or empty databases")
+            if (
+                "No location data found" in err
+                or "Warning: No location data found" in err
+            ):
+                logger.warning(
+                    "No location data found in database - this is normal for new or empty databases"
+                )
                 logger.info("Location export skipped due to no data")
             else:
                 logger.error(f"Location export failed: {err}")
