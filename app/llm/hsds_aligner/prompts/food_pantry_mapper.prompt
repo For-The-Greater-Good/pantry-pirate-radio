@@ -10,23 +10,28 @@ FORMAT REQUIREMENTS:
 
 SMART DATA COMPLETION GUIDELINES:
 
-✅ REQUIRED DEFAULTS (Always populate these with reasonable values):
-- country: Default to "US" for US-based organizations
-- address_type: "physical" for street addresses, "virtual" for online-only services
-- phone.type: "voice" for standard phones, "fax" when explicitly mentioned
-- phone.languages: [{"name": "English"}] as default for US organizations
-- service.status: "active" for currently operating services
-- location_type: "physical" for street addresses
-- schedule.freq: "WEEKLY" for regular weekly patterns (e.g., "Mon-Fri")
-- schedule.wkst: "MO" as standard week start
-- metadata: Generate simple IDs (org_1, svc_1, loc_1) and use current date for last_action_date
+⚠️ CRITICAL: DO NOT hallucinate or add data that doesn't exist in the input!
+- Only include fields that are explicitly present or directly derivable from the input
+- Empty arrays/lists are acceptable - do not populate them with defaults
+- DO NOT add fields just to satisfy schema requirements
 
-✅ CONTEXTUAL INFERENCE (Populate when reasonably derivable):
-- city/state_province: From organization name (e.g., "Maryland Food Bank" → state: "MD")
-- postal_code: From context if mentioned nearby or standard for the area
-- state_province: From phone area codes (e.g., 410/443 → "MD", 415 → "CA")
-- organization.description: Brief factual description based on name and services offered
-- service.description: Clear description based on service type and details provided
+✅ SAFE DEFAULTS (Only when the context clearly requires them):
+- country: "US" ONLY if the organization is clearly US-based (has US state/city)
+- address_type: "physical" ONLY when a street address is actually provided
+- phone.type: "voice" ONLY when a phone number is actually provided
+- service.status: "active" ONLY when a service is actually described
+
+✅ CONTEXTUAL INFERENCE (Only when directly derivable):
+- state_province: From explicit mention or well-known city names (e.g., "New York City" → "NY")
+- organization.description: ONLY if you can create it from explicitly stated information
+- service.description: ONLY based on explicitly mentioned service details
+
+❌ NEVER ADD UNLESS EXPLICITLY PROVIDED:
+- phone.languages: Only add if language information is actually given
+- schedule.freq/schedule.wkst: Only add when actual schedule/hours are provided
+- metadata: NEVER generate IDs or dates - these come from the data source
+- location_type: Only add when location information exists
+- coordinates: Only if explicitly provided in decimal degrees format
 
 ⚠️ GEOGRAPHIC COORDINATE GUIDELINES:
 - ONLY provide latitude/longitude if explicitly given in the input data
@@ -37,12 +42,22 @@ SMART DATA COMPLETION GUIDELINES:
 - If coordinates appear to be in a different format (e.g., large numbers like 4716694), DO NOT include them
 - Never guess or estimate coordinates - leave blank if uncertain
 
-❌ NEVER INFER (Leave out if not in input):
+❌ NEVER INFER OR HALLUCINATE:
 - Phone numbers, email addresses, or websites not explicitly provided
 - Specific services not mentioned in the input
 - Operating hours without clear time indicators
 - Financial information, fees, or eligibility requirements not stated
 - Personal names or contact information not provided
+- IDs or metadata that should come from the data source
+- Default values for arrays - leave them empty if no data exists
+- Geographic coordinates unless explicitly provided in the correct format
+
+🚫 ANTI-HALLUCINATION RULES:
+1. If data is missing, leave the field out or use an empty array/object
+2. DO NOT create placeholder or example data
+3. DO NOT add fields to "complete" the schema if they're not in the input
+4. When in doubt, leave it out
+5. It's better to have incomplete but accurate data than complete but fabricated data
 
 📍 STATE VALIDATION:
 - Valid US state codes: AL, AK, AZ, AR, CA, CO, CT, DE, DC, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD, MA, MI, MN, MS, MO, MT, NE, NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC, SD, TN, TX, UT, VT, VA, WA, WV, WI, WY

@@ -351,11 +351,11 @@ class JobProcessor:
                                 locations = svc.pop("locations")
                                 if isinstance(locations, list):
                                     for loc in locations:
-                                        # Handle case where location is just a string
-                                        if isinstance(loc, str):
-                                            # Convert string to location dict
+                                        # Handle case where location is not a dict
+                                        if not isinstance(loc, dict):
+                                            # Convert string/int/other to location dict
                                             transformed_loc = {
-                                                "name": loc,
+                                                "name": str(loc),
                                                 "description": f"Service location: {loc}"
                                             }
                                             all_locations.append(transformed_loc)
@@ -471,6 +471,11 @@ class JobProcessor:
             if "organization" in data and len(data["organization"]) > 0:
                 # Use first organization since they should all be the same
                 org = data["organization"][0]
+                
+                # Ensure organization has a name
+                if "name" not in org or not org.get("name"):
+                    org["name"] = "Food Service Organization"
+                    logger.warning(f"Missing name for organization, using default: {org['name']}")
 
                 # Ensure description is never null - use name as fallback if no description
                 description = org.get("description")
