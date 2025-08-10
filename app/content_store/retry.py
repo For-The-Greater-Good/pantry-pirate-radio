@@ -49,13 +49,18 @@ def with_db_retry(
                     if isinstance(e, sqlite3.OperationalError):
                         error_msg = str(e).lower()
                         # Only skip retry for specific non-recoverable errors
-                        if "database is locked" not in error_msg and \
-                           "database table is locked" not in error_msg and \
-                           "cannot start a transaction within a transaction" not in error_msg:
+                        if (
+                            "database is locked" not in error_msg
+                            and "database table is locked" not in error_msg
+                            and "cannot start a transaction within a transaction"
+                            not in error_msg
+                        ):
                             # Check if this is a non-recoverable operational error
-                            if "no such table" in error_msg or \
-                               "no such column" in error_msg or \
-                               "syntax error" in error_msg:
+                            if (
+                                "no such table" in error_msg
+                                or "no such column" in error_msg
+                                or "syntax error" in error_msg
+                            ):
                                 should_retry = False
                             # Otherwise, keep the original should_retry value for other operational errors
 

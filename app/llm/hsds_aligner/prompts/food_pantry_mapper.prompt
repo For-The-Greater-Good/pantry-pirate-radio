@@ -1,5 +1,44 @@
 You are converting food pantry data into HSDS 3.1.1 compliant format.
 
+HSDS ENTITY MODEL AND RELATIONSHIPS:
+
+HSDS uses a flexible, non-hierarchical model with four core entities:
+
+1. **organization** - The agency/entity providing services (1:many with services and locations)
+2. **service** - What is being offered (food distribution, pantry, etc.)
+3. **location** - Physical places where services are delivered
+4. **service_at_location** - Links services to locations with location-specific details
+
+KEY RELATIONSHIPS:
+• One organization can have MANY services
+• One organization can have MANY locations  
+• Services and locations have a many:many relationship via service_at_location
+• Each unique physical address should be a separate location entity
+• Schedules can be attached to service, location, OR service_at_location
+
+CRITICAL DATA MAPPING RULES:
+
+📍 LOCATION CREATION:
+- Create a separate location entity for EACH unique physical address
+- If an organization has a main office AND multiple distribution sites, create a location for EACH
+- Events at different addresses should create separate locations
+- Even temporary distribution sites should be locations
+- Example: If FreshTrak shows Agency X with events at 3 different addresses, create 3 location entities
+
+🔗 SERVICE LINKING:
+- Use service_at_location to connect services to their delivery locations
+- If a service is offered at multiple locations, create multiple service_at_location entries
+- Location-specific details (hours, contacts) go in service_at_location, not in the base service
+
+📅 SCHEDULE HANDLING:
+- Attach schedules to service_at_location when they're specific to a location
+- Recurring patterns should use RRULE format (RFC 5545):
+  • "Every Tuesday" → freq: "WEEKLY", byday: "TU"
+  • "First Saturday of month" → freq: "MONTHLY", byday: "1SA"
+  • "Weekdays" → freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"
+- Use opens_at/closes_at for time ranges (HH:MM format)
+- Set valid_from/valid_to for schedule validity periods
+
 FORMAT REQUIREMENTS:
 • State codes: 2 letters (e.g., CA, NY, TX) - must be valid US state codes
 • ZIP codes: 5 digits or ZIP+4 (e.g., 12345 or 12345-6789)
@@ -8,7 +47,13 @@ FORMAT REQUIREMENTS:
 • Times: HH:MM format (24-hour)
 • Coordinates: Decimal degrees only (e.g., 40.7128, -74.0060)
 
-SMART DATA COMPLETION GUIDELINES:
+ENTITY EXTRACTION GUIDELINES:
+
+✅ ALWAYS CREATE:
+- One organization entity for the main agency/provider
+- At least one service entity describing what's offered (food pantry, distribution, etc.)
+- One location entity for EACH unique address mentioned
+- service_at_location entries to connect services to their locations
 
 ⚠️ CRITICAL: DO NOT hallucinate or add data that doesn't exist in the input!
 - Only include fields that are explicitly present or directly derivable from the input
@@ -25,6 +70,16 @@ SMART DATA COMPLETION GUIDELINES:
 - state_province: From explicit mention or well-known city names (e.g., "New York City" → "NY")
 - organization.description: ONLY if you can create it from explicitly stated information
 - service.description: ONLY based on explicitly mentioned service details
+- location.name: Can be inferred from event name or address if not explicitly given
+- Schedule patterns: Convert recurring text to RRULE format:
+  • "Every Monday" → {freq: "WEEKLY", byday: "MO"}
+  • "2nd and 4th Tuesday" → {freq: "MONTHLY", byday: "2TU,4TU"}
+  • "Daily" → {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR,SA,SU"}
+  • "Weekdays" → {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+- Date/time conversion: Parse various formats to HSDS standards:
+  • "January 15, 2024" → "2024-01-15"
+  • "3:30 PM" → "15:30"
+  • "9am-12pm" → opens_at: "09:00", closes_at: "12:00"
 
 ❌ NEVER ADD UNLESS EXPLICITLY PROVIDED:
 - phone.languages: Only add if language information is actually given
@@ -64,3 +119,40 @@ SMART DATA COMPLETION GUIDELINES:
 - If a state name is provided, convert to 2-letter code
 - If coordinates are provided, they should be consistent with the state
 - Common city/state relationships should be respected (e.g., "New York City" → NY, "Los Angeles" → CA)
+
+🔄 RRULE SCHEDULE PATTERNS (RFC 5545):
+Use these fields for recurring schedules:
+- freq: "WEEKLY" or "MONTHLY" (required for patterns)
+- byday: Day codes (MO,TU,WE,TH,FR,SA,SU) with optional position prefix for monthly
+- interval: Frequency interval (e.g., 2 for bi-weekly)
+- dtstart: First occurrence date (YYYY-MM-DD)
+- until: End date for recurrence (YYYY-MM-DD)
+- opens_at/closes_at: Time range (HH:MM format)
+
+Examples:
+- "Every Tuesday 10am-2pm":
+  {freq: "WEEKLY", byday: "TU", opens_at: "10:00", closes_at: "14:00"}
+- "1st and 3rd Saturday of each month":
+  {freq: "MONTHLY", byday: "1SA,3SA"}
+- "Monday through Friday":
+  {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+
+💡 PRACTICAL EXAMPLES:
+
+Example 1 - Organization with multiple distribution sites:
+Input: "Food Bank of Springfield has distributions at Community Center (123 Main St) on Tuesdays and at Church Hall (456 Oak Ave) on Thursdays"
+
+Output Structure:
+- 1 organization (Food Bank of Springfield)
+- 1 service (Food distribution)
+- 2 locations (Community Center at 123 Main St, Church Hall at 456 Oak Ave)
+- 2 service_at_location entries (linking the service to each location with their specific schedules)
+
+Example 2 - Events creating locations:
+Input: "Agency X has monthly food distributions: Jan 15 at Park Pavilion (789 Park Rd), Feb 12 at School Gym (321 School St)"
+
+Output Structure:
+- 1 organization (Agency X)
+- 1 service (Monthly food distribution)
+- 2 locations (Park Pavilion, School Gym)
+- 2 service_at_location entries (with specific dates in schedules)
