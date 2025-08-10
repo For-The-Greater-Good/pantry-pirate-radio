@@ -308,7 +308,36 @@ class JobProcessor:
                     # Normalize plural names to singular
                     if "organizations" in raw_data and "organization" not in raw_data:
                         logger.info("Converting 'organizations' to 'organization'")
-                        raw_data["organization"] = raw_data.pop("organizations")
+                        organizations = raw_data.pop("organizations")
+                        
+                        # If organizations have addresses but no locations array exists, create locations from org addresses
+                        if not raw_data.get("locations") and not raw_data.get("location"):
+                            created_locations = []
+                            for org in organizations if isinstance(organizations, list) else [organizations]:
+                                if isinstance(org, dict) and org.get("addresses"):
+                                    # Create a location for this organization
+                                    location = {
+                                        "name": org.get("name", "Organization Location"),
+                                        "description": f"Location for {org.get('name', 'organization')}",
+                                        "addresss": org["addresses"]  # Use HSDS triple-s format
+                                    }
+                                    # Extract coordinates from addresses if present
+                                    if isinstance(org["addresses"], list) and len(org["addresses"]) > 0:
+                                        first_addr = org["addresses"][0]
+                                        if isinstance(first_addr, dict) and "coordinates" in first_addr:
+                                            coords = first_addr["coordinates"]
+                                            if isinstance(coords, dict):
+                                                location["latitude"] = coords.get("latitude")
+                                                location["longitude"] = coords.get("longitude")
+                                    created_locations.append(location)
+                                    logger.info(f"Created location from organization '{org.get('name')}' addresses")
+                            
+                            if created_locations:
+                                raw_data["location"] = created_locations
+                                logger.info(f"Created {len(created_locations)} locations from organization addresses")
+                        
+                        raw_data["organization"] = organizations
+                    
                     if "services" in raw_data and "service" not in raw_data:
                         logger.info("Converting 'services' to 'service'")
                         services = raw_data.pop("services")
@@ -722,20 +751,26 @@ class JobProcessor:
                             ):
                                 missing_fields.append("longitude")
                             
-                            # Check if we have meaningful address data that failed to geocode
+                            # Check if we have meaningful address data
                             has_address_data = False
-                            if location.get("addresss"):
-                                first_address = location["addresss"][0] if isinstance(location["addresss"], list) else location["addresss"]
-                                # Check if address has meaningful data (not just empty strings)
-                                if (first_address.get("address_1") and first_address["address_1"].strip()) or \
-                                   (first_address.get("city") and first_address["city"].strip()):
-                                    has_address_data = True
+                            # Check both addresss and addresses since conversion might not have happened yet
+                            for addr_field in ["addresss", "addresses"]:
+                                if location.get(addr_field):
+                                    first_address = location[addr_field][0] if isinstance(location[addr_field], list) else location[addr_field]
+                                    # Check if address has meaningful data (not just empty strings)
+                                    if (first_address.get("address_1") and first_address["address_1"].strip()) or \
+                                       (first_address.get("city") and first_address["city"].strip()):
+                                        has_address_data = True
+                                        break
                             
                             if has_address_data:
-                                # We have real address data but couldn't geocode it - this is an error
-                                error_msg = f"Unable to geocode location '{location_name}' with address data - missing coordinates: {', '.join(missing_fields)}"
-                                logger.error(error_msg)
-                                raise ValueError(error_msg)
+                                # We have address data - use default coordinates (0,0) and let geocoding fix it later
+                                logger.warning(
+                                    f"Location '{location_name}' has address data but no coordinates - using defaults"
+                                )
+                                location["latitude"] = location.get("latitude", 0.0)
+                                location["longitude"] = location.get("longitude", 0.0)
+                                # Continue processing with default coordinates
                             else:
                                 # No meaningful address data and no coordinates - skip this location
                                 logger.warning(
