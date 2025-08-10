@@ -370,7 +370,7 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         schema_format = format
         if not schema_format and config and config.format:
             schema_format = config.format
-        
+
         # TODO: Remove schema wrapper unwrapping once downstream services updated
         # Currently schema comes wrapped as {"type": "json_schema", "json_schema": {...}}
         # OpenAI expects just the inner json_schema part for response_format

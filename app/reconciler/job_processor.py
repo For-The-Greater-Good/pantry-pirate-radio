@@ -97,7 +97,9 @@ class LocationDict(TypedDict):
     description: str
     latitude: float
     longitude: float
-    address: list[dict[str, Any]]  # Fixed: HSDS JSON schema uses "address" (CSV had typo)
+    address: list[
+        dict[str, Any]
+    ]  # Fixed: HSDS JSON schema uses "address" (CSV had typo)
     phones: list[dict[str, Any]]
     schedules: list[ScheduleDict]
     accessibility: list[dict[str, Any]]
@@ -113,29 +115,46 @@ class HSDataDict(TypedDict):
 
 def validate_website(website: str | None) -> str | None:
     """Validate and clean website URL.
-    
+
     Args:
         website: The website URL to validate
-        
+
     Returns:
         Cleaned website URL or None if invalid/too long
     """
     if not website:
         return None
-        
-    # Check length first
+
+    # Strip whitespace
+    website = website.strip()
+
+    # If it doesn't start with http:// or https://, add http://
+    if not website.startswith(("http://", "https://")):
+        # Check if it looks like a domain (has dots and valid characters)
+        domain_pattern = r"^[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(/.*)?$"
+        if re.match(domain_pattern, website):
+            website = "http://" + website
+            logger.debug(f"Added http:// prefix to website: {website}")
+        else:
+            logger.warning(f"Invalid website URL format, dropping: {website[:100]}...")
+            return None
+
+    # Check length after potential http:// addition
     if len(website) > 255:
-        logger.warning(f"Website URL too long ({len(website)} chars), dropping: {website[:100]}...")
+        logger.warning(
+            f"Website URL too long ({len(website)} chars), dropping: {website[:100]}..."
+        )
         return None
-        
-    # Basic URL pattern - must start with http:// or https:// and have a domain
-    url_pattern = r'^https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(/.*)?$'
-    
-    # Check if it matches URL pattern
+
+    # Final validation - must be a proper URL now
+    # Pattern: https? means "http" with optional "s", so matches both http:// and https://
+    url_pattern = r"^https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(/.*)?$"
     if not re.match(url_pattern, website):
-        logger.warning(f"Invalid website URL format, dropping: {website[:100]}...")
+        logger.warning(
+            f"Invalid website URL format after processing, dropping: {website[:100]}..."
+        )
         return None
-        
+
     return website
 
 
@@ -311,12 +330,14 @@ class JobProcessor:
 
             # With structured outputs, data should already be in HSDS format
             if not isinstance(raw_data, dict):
-                raise ValueError(f"Expected dict with HSDS structure but got {type(raw_data)}")
-            
+                raise ValueError(
+                    f"Expected dict with HSDS structure but got {type(raw_data)}"
+                )
+
             # Validate and ensure we have the expected HSDS structure with three top-level arrays
             required_fields = ["organization", "service", "location"]
             missing_fields = [f for f in required_fields if f not in raw_data]
-            
+
             if missing_fields:
                 logger.warning(
                     f"Missing HSDS fields: {missing_fields}. Found: {list(raw_data.keys())}"
@@ -325,17 +346,17 @@ class JobProcessor:
                 for field in required_fields:
                     if field not in raw_data:
                         raw_data[field] = []
-            
+
             # Ensure all top-level fields are arrays (convert single objects to arrays if needed)
             for field in required_fields:
                 if field in raw_data:
                     if not isinstance(raw_data[field], list):
                         logger.info(f"Converting {field} from object to array")
                         raw_data[field] = [raw_data[field]]
-            
+
             # Use the data as-is (already in HSDS format)
             data = cast(HSDataDict, raw_data)
-            
+
             logger.info(
                 f"Processing HSDS data: {len(data.get('organization', []))} orgs, "
                 f"{len(data.get('service', []))} services, "
@@ -468,7 +489,9 @@ class JobProcessor:
             if "location" in data:
                 for location in data["location"]:
                     # Check if coordinates are directly on location (from array format)
-                    if "coordinates" in location and isinstance(location["coordinates"], dict):
+                    if "coordinates" in location and isinstance(
+                        location["coordinates"], dict
+                    ):
                         coords = location["coordinates"]
                         if "latitude" in coords and "longitude" in coords:
                             # Extract coordinates to location level
@@ -502,14 +525,18 @@ class JobProcessor:
                     if "address_1" in location or "city" in location:
                         # Create address array from direct fields
                         if "address" not in location:
-                            location["address"] = [{
-                                "address_1": location.pop("address_1", ""),
-                                "city": location.pop("city", ""),
-                                "state_province": location.pop("state_province", ""),
-                                "postal_code": location.pop("postal_code", ""),
-                                "country": location.pop("country", "US"),
-                                "address_type": "physical"
-                            }]
+                            location["address"] = [
+                                {
+                                    "address_1": location.pop("address_1", ""),
+                                    "city": location.pop("city", ""),
+                                    "state_province": location.pop(
+                                        "state_province", ""
+                                    ),
+                                    "postal_code": location.pop("postal_code", ""),
+                                    "country": location.pop("country", "US"),
+                                    "address_type": "physical",
+                                }
+                            ]
                             logger.debug(
                                 f"Created address array from direct fields for location '{location.get('name', 'Unknown')}'"
                             )
@@ -808,7 +835,7 @@ class JobProcessor:
                             if address_count == 0:
                                 for address in location["address"]:
                                     # Ensure required address fields are never null by using empty strings
-                                    # These will be updated later based on lat/long
+                                    # Pass coordinates for reverse geocoding if postal code is missing
                                     location_creator.create_address(
                                         address_1=address.get("address_1", ""),
                                         city=address.get("city", ""),
@@ -822,6 +849,8 @@ class JobProcessor:
                                         ),
                                         location_id=location_id_str,
                                         metadata=job_result.job.metadata,
+                                        latitude=location.get("latitude"),
+                                        longitude=location.get("longitude"),
                                     )
 
                         # Create location phones with languages (for both new and existing locations)

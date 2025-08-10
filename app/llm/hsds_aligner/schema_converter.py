@@ -947,22 +947,24 @@ class SchemaConverter:
 
     def load_hsds_core_schema(self) -> LLMJsonSchema:
         """Load and combine core HSDS schemas from JSON files.
-        
+
         This method loads only the essential HSDS schemas needed for food pantry data:
         - Core tables: organization, service, location, service_at_location
         - Supporting tables: address, phone, schedule
         - Additional tables: required_document, service_area
-        
+
         Returns:
             Dict containing LLM-compatible schema for core HSDS structure
         """
         # Define paths to core schema files
-        schema_base_path = Path(__file__).parent.parent.parent.parent / "docs" / "HSDS" / "schema"
-        
+        schema_base_path = (
+            Path(__file__).parent.parent.parent.parent / "docs" / "HSDS" / "schema"
+        )
+
         # Core entity schemas to load
         core_schemas = {
             "organization": schema_base_path / "organization.json",
-            "service": schema_base_path / "service.json", 
+            "service": schema_base_path / "service.json",
             "location": schema_base_path / "location.json",
             "service_at_location": schema_base_path / "service_at_location.json",
             "address": schema_base_path / "address.json",
@@ -971,7 +973,7 @@ class SchemaConverter:
             "required_document": schema_base_path / "required_document.json",
             "service_area": schema_base_path / "service_area.json",
         }
-        
+
         # Load each schema file
         definitions = {}
         for name, path in core_schemas.items():
@@ -985,16 +987,22 @@ class SchemaConverter:
                         for field_name, field_def in schema_data["properties"].items():
                             # Include all fields for now, but prioritize core fields
                             # Core fields are marked with "core": "Y"
-                            if field_def.get("core") == "Y" or name in ["service_at_location", "required_document", "service_area"]:
+                            if field_def.get("core") == "Y" or name in [
+                                "service_at_location",
+                                "required_document",
+                                "service_area",
+                            ]:
                                 core_properties[field_name] = {
                                     "type": field_def.get("type", "string"),
                                     "description": field_def.get("description", ""),
                                 }
                                 if field_def.get("format"):
-                                    core_properties[field_name]["format"] = field_def["format"]
+                                    core_properties[field_name]["format"] = field_def[
+                                        "format"
+                                    ]
                                 if field_def.get("constraints", {}).get("unique"):
                                     required_fields.append(field_name)
-                        
+
                         # For non-core tables, include all fields
                         if not core_properties:
                             core_properties = {
@@ -1002,9 +1010,11 @@ class SchemaConverter:
                                     "type": field_def.get("type", "string"),
                                     "description": field_def.get("description", ""),
                                 }
-                                for field_name, field_def in schema_data["properties"].items()
+                                for field_name, field_def in schema_data[
+                                    "properties"
+                                ].items()
                             }
-                        
+
                         definitions[name] = {
                             "type": "object",
                             "description": schema_data.get("description", ""),
@@ -1012,7 +1022,7 @@ class SchemaConverter:
                             "required": required_fields if required_fields else ["id"],
                             "additionalProperties": False,
                         }
-        
+
         # Build the top-level HSDS structure with enhanced descriptions for food pantry context
         hsds_core_schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1064,8 +1074,8 @@ class SchemaConverter:
                                 "type": "array",
                                 "description": "Physical addresses for this location. Usually just one address per location.",
                                 "items": definitions.get("address", {"type": "object"}),
-                            }
-                        }
+                            },
+                        },
                     },
                     "minItems": 1,
                 },
@@ -1073,7 +1083,7 @@ class SchemaConverter:
             "required": ["organization", "service", "location"],
             "additionalProperties": False,
         }
-        
+
         # Enhanced guidance specific to food pantries
         food_pantry_guidance = (
             "FOOD PANTRY SPECIFIC GUIDANCE: "
@@ -1108,7 +1118,7 @@ class SchemaConverter:
             "- If schedule is unclear, use description field to capture text as-is "
             "- Maintain original names - don't standardize 'St.' to 'Saint' or vice versa"
         )
-        
+
         return {
             "type": "json_schema",
             "json_schema": {
@@ -1120,44 +1130,55 @@ class SchemaConverter:
                 "temperature": 0.4,
             },
         }
-    
+
     def convert_to_hsds_full_schema(self) -> LLMJsonSchema:
         """Convert to complete HSDS structure schema with top-level arrays.
-        
+
         Returns:
             Dict containing LLM-compatible schema for full HSDS structure
         """
         self._processed_tables.clear()
-        
+
         # Build schemas for each main entity type
         org_schema = self.convert_table_schema("organization")
-        service_schema = self.convert_table_schema("service") 
+        service_schema = self.convert_table_schema("service")
         location_schema = self.convert_table_schema("location")
-        
+
         # Collect all referenced tables for definitions
-        referenced_tables: set[str] = {"address", "phone", "schedule", "metadata",
-                                      "service_at_location", "organization_identifier",
-                                      "contact", "language", "accessibility"}
-        
+        referenced_tables: set[str] = {
+            "address",
+            "phone",
+            "schedule",
+            "metadata",
+            "service_at_location",
+            "organization_identifier",
+            "contact",
+            "language",
+            "accessibility",
+        }
+
         # Build definitions for all referenced entities
         definitions: dict[str, SchemaDict] = {
             "organization": org_schema,
             "service": service_schema,
             "location": location_schema,
         }
-        
+
         # Add other entity definitions
         for ref_table in referenced_tables:
             if ref_table in self._schema_cache:
                 definitions[ref_table] = self.convert_table_schema(ref_table)
-        
+
         # Add common definitions
         common_defs: dict[str, SchemaDict] = {
             "phone": {
                 "type": "object",
                 "properties": {
                     "number": {"type": "string"},
-                    "type": {"type": "string", "enum": KNOWN_ENUMS.get("phone.type", [])},
+                    "type": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("phone.type", []),
+                    },
                     "languages": {
                         "type": "array",
                         "items": {
@@ -1184,7 +1205,7 @@ class SchemaConverter:
                 },
                 "required": [
                     "resource_id",
-                    "resource_type", 
+                    "resource_type",
                     "last_action_date",
                     "last_action_type",
                 ],
@@ -1193,8 +1214,14 @@ class SchemaConverter:
             "schedule": {
                 "type": "object",
                 "properties": {
-                    "freq": {"type": "string", "enum": KNOWN_ENUMS.get("schedule.freq", [])},
-                    "wkst": {"type": "string", "enum": KNOWN_ENUMS.get("schedule.wkst", [])},
+                    "freq": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("schedule.freq", []),
+                    },
+                    "wkst": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("schedule.wkst", []),
+                    },
                     "opens_at": {"type": "string"},
                     "closes_at": {"type": "string"},
                 },
@@ -1202,10 +1229,10 @@ class SchemaConverter:
                 "additionalProperties": False,
             },
         }
-        
+
         # Merge all definitions
         all_definitions = {**definitions, **common_defs}
-        
+
         # Build the top-level HSDS structure schema
         hsds_full_schema: SchemaDict = {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1226,7 +1253,7 @@ class SchemaConverter:
                     "minItems": 1,
                 },
                 "service": {
-                    "type": "array", 
+                    "type": "array",
                     "description": (
                         "Array of service objects. Each service represents a program or assistance offered. "
                         "Services are linked to locations via service_at_location entries."
@@ -1249,7 +1276,7 @@ class SchemaConverter:
             "additionalProperties": False,
             "definitions": all_definitions,
         }
-        
+
         # Enhanced schema description with comprehensive HSDS guidance
         full_schema_description = (
             "Structured output schema for complete HSDS data following Human Services Data Specification v3.1.1. "
@@ -1278,7 +1305,7 @@ class SchemaConverter:
             "- 3 locations (one for each church address) "
             "- service_at_location entries linking the service to each of the 3 locations"
         )
-        
+
         return {
             "type": "json_schema",
             "json_schema": {
