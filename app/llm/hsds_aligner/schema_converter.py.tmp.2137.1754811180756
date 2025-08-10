@@ -1056,21 +1056,20 @@ class SchemaConverter:
                         "Example: If a food bank distributes at 3 different churches on different days, "
                         "create 3 separate location entities, one for each church address."
                     ),
-                    "items": {
-                        **definitions.get("location", {"type": "object"}),
-                        "properties": {
-                            **definitions.get("location", {}).get("properties", {}),
-                            "address": {
-                                "type": "array",
-                                "description": "Physical addresses for this location. Usually just one address per location.",
-                                "items": definitions.get("address", {"type": "object"}),
-                            }
-                        }
-                    },
+                    "items": definitions.get("location", {"type": "object"}),
                     "minItems": 1,
                 },
+                "address": {
+                    "type": "array",
+                    "description": (
+                        "Array of addresses linked to locations. Each location should have at least one address. "
+                        "Include street address, city, state, ZIP code, and country (US) for each physical location."
+                    ),
+                    "items": definitions.get("address", {"type": "object"}),
+                    "minItems": 0,
+                },
             },
-            "required": ["organization", "service", "location"],
+            "required": ["organization", "service", "location", "address"],
             "additionalProperties": False,
         }
         
