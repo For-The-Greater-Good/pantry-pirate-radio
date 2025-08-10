@@ -315,11 +315,20 @@ class JobProcessor:
                             created_locations = []
                             for org in organizations if isinstance(organizations, list) else [organizations]:
                                 if isinstance(org, dict) and org.get("addresses"):
+                                    # Normalize address field names in org addresses
+                                    addresses = org["addresses"]
+                                    if isinstance(addresses, list):
+                                        for addr in addresses:
+                                            if isinstance(addr, dict):
+                                                # Normalize street_address_1 to address_1
+                                                if "street_address_1" in addr and "address_1" not in addr:
+                                                    addr["address_1"] = addr.pop("street_address_1")
+                                    
                                     # Create a location for this organization
                                     location = {
                                         "name": org.get("name", "Organization Location"),
                                         "description": f"Location for {org.get('name', 'organization')}",
-                                        "addresss": org["addresses"]  # Use HSDS triple-s format
+                                        "addresss": addresses  # Use HSDS triple-s format
                                     }
                                     # Extract coordinates from addresses if present
                                     if isinstance(org["addresses"], list) and len(org["addresses"]) > 0:
@@ -425,16 +434,21 @@ class JobProcessor:
                                         
                                         # Transform address to addresss (triple 's' as per HSDS spec)
                                         if "address" in loc:
-                                            # Address is nested
+                                            # Address could be nested dict or list
                                             addr = loc["address"]
-                                            transformed_loc["addresss"] = [{
-                                                "address_1": addr.get("address_1", ""),
-                                                "city": addr.get("city", ""),
-                                                "state_province": addr.get("state_province", ""),
-                                                "postal_code": addr.get("postal_code", ""),
-                                                "country": addr.get("country", "US"),
-                                                "address_type": "physical"
-                                            }]
+                                            if isinstance(addr, list):
+                                                # Address is already a list, just rename
+                                                transformed_loc["addresss"] = addr
+                                            elif isinstance(addr, dict):
+                                                # Address is a single dict, wrap in list
+                                                transformed_loc["addresss"] = [{
+                                                    "address_1": addr.get("address_1", ""),
+                                                    "city": addr.get("city", ""),
+                                                    "state_province": addr.get("state_province", ""),
+                                                    "postal_code": addr.get("postal_code", ""),
+                                                    "country": addr.get("country", "US"),
+                                                    "address_type": "physical"
+                                                }]
                                         elif "addresses" in loc:
                                             # Already an array - rename and clean up coordinates
                                             addresses_copy = []
@@ -758,9 +772,14 @@ class JobProcessor:
                                 if location.get(addr_field):
                                     first_address = location[addr_field][0] if isinstance(location[addr_field], list) else location[addr_field]
                                     # Check if address has meaningful data (not just empty strings)
-                                    if (first_address.get("address_1") and first_address["address_1"].strip()) or \
-                                       (first_address.get("city") and first_address["city"].strip()):
+                                    # Check multiple possible address field names
+                                    addr_1 = first_address.get("address_1") or first_address.get("street_address_1") or first_address.get("address1")
+                                    city = first_address.get("city")
+                                    if (addr_1 and str(addr_1).strip()) or (city and str(city).strip()):
                                         has_address_data = True
+                                        # Normalize address field names
+                                        if "street_address_1" in first_address and "address_1" not in first_address:
+                                            first_address["address_1"] = first_address.pop("street_address_1")
                                         break
                             
                             if has_address_data:
