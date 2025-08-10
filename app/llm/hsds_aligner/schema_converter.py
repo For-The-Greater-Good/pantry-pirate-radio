@@ -1024,7 +1024,7 @@ class SchemaConverter:
                         }
 
         # Build the top-level HSDS structure with enhanced descriptions for food pantry context
-        hsds_core_schema = {
+        hsds_core_schema: SchemaDict = {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
             "title": "HSDS Core Data Structure for Food Pantries",
