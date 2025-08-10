@@ -133,17 +133,21 @@ class JobProcessor:
 
     def _transform_schedule(self, schedule: dict) -> dict | None:
         """Transform schedule from various formats to expected format.
-        
-        Handles conversion from times array with start_time/end_time 
+
+        Handles conversion from times array with start_time/end_time
         to opens_at/closes_at format.
         """
         if not schedule:
             return None
-            
+
         transformed = schedule.copy()
-        
+
         # Handle times array format (from LLM output)
-        if "times" in schedule and isinstance(schedule["times"], list) and schedule["times"]:
+        if (
+            "times" in schedule
+            and isinstance(schedule["times"], list)
+            and schedule["times"]
+        ):
             time_info = schedule["times"][0]  # Use first time entry
             if "start_time" in time_info:
                 transformed["opens_at"] = time_info["start_time"]
@@ -151,41 +155,55 @@ class JobProcessor:
                 transformed["closes_at"] = time_info["end_time"]
             # Remove times array after extracting
             transformed.pop("times", None)
-        
+
         # Handle direct start_time/end_time fields
         elif "start_time" in schedule:
             transformed["opens_at"] = schedule["start_time"]
             transformed["closes_at"] = schedule.get("end_time", schedule["start_time"])
             transformed.pop("start_time", None)
             transformed.pop("end_time", None)
-        
+
         # Ensure required fields exist
         if "opens_at" not in transformed or "closes_at" not in transformed:
             # Skip schedules without time information
             return None
-        
+
         # Convert invalid frequency values to valid ones
         if "freq" in transformed:
             freq_value = transformed["freq"].upper()
             if freq_value == "ONCE":
-                # Convert ONCE to WEEKLY since database doesn't support ONCE
+                # Convert ONCE to a proper one-time event representation per HSDS spec
                 transformed["freq"] = "WEEKLY"
-                logger.debug(f"Converted schedule frequency from ONCE to WEEKLY")
+                
+                # Set count to 1 to indicate single occurrence
+                transformed["count"] = 1
+                
+                # If dtstart is available, also set until to the same date
+                if "dtstart" in transformed:
+                    transformed["until"] = transformed["dtstart"]
+                
+                # If we have valid_from but not valid_to, set them the same
+                if "valid_from" in transformed and "valid_to" not in transformed:
+                    transformed["valid_to"] = transformed["valid_from"]
+                
+                logger.debug("Converted one-time event: ONCE -> WEEKLY with count=1")
             elif freq_value not in ["WEEKLY", "MONTHLY"]:
                 # Skip schedules with invalid frequency
-                logger.warning(f"Skipping schedule with invalid frequency: {freq_value}")
+                logger.warning(
+                    f"Skipping schedule with invalid frequency: {freq_value}"
+                )
                 return None
             else:
                 transformed["freq"] = freq_value
-            
+
         # Only return if we have actual freq/wkst data, don't create defaults
         if "freq" not in transformed or "wkst" not in transformed:
             # Log that we're skipping incomplete schedule
             logger.warning(f"Skipping schedule missing freq or wkst: {transformed}")
             return None
-            
+
         return transformed
-    
+
     def _extract_json_from_markdown(self, text: str) -> str:
         """Extract JSON content from markdown code blocks.
 
@@ -219,17 +237,19 @@ class JobProcessor:
         # Parse HSDS data
         if not job_result.result:
             raise ValueError("Job result has no result")
-        
+
         if not job_result.result.text or job_result.result.text.strip() == "":
             raise ValueError("Job result has empty text")
 
         try:
             # Extract JSON from markdown code blocks if present
             json_text = self._extract_json_from_markdown(job_result.result.text)
-            
+
             # Check if we got empty text after extraction
             if not json_text or json_text.strip() == "":
-                raise ValueError(f"Empty JSON text after extraction from: {job_result.result.text[:200]}")
+                raise ValueError(
+                    f"Empty JSON text after extraction from: {job_result.result.text[:200]}"
+                )
 
             # Additional cleanup for known problematic patterns
             # Fix unquoted values that start with 'I'
@@ -273,13 +293,19 @@ class JobProcessor:
                 # Extract services and locations from the organization object
                 services = raw_data.pop("services", [])
                 locations = raw_data.pop("locations", [])
-                
+
                 # Process locations to extract nested coordinates
                 for loc in locations:
                     # Check if coordinates are nested in addresses
-                    if "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
+                    if (
+                        "addresses" in loc
+                        and isinstance(loc.get("addresses"), list)
+                        and len(loc["addresses"]) > 0
+                    ):
                         first_address = loc["addresses"][0]
-                        if "coordinates" in first_address and isinstance(first_address["coordinates"], dict):
+                        if "coordinates" in first_address and isinstance(
+                            first_address["coordinates"], dict
+                        ):
                             coords = first_address["coordinates"]
                             if "latitude" in coords and "longitude" in coords:
                                 # Extract coordinates to location level
@@ -289,7 +315,7 @@ class JobProcessor:
                                 for addr in loc["addresses"]:
                                     if "coordinates" in addr:
                                         del addr["coordinates"]
-                    
+
                     # Also rename addresses to addresss (HSDS uses 3 s's)
                     if "addresses" in loc and "addresss" not in loc:
                         loc["addresss"] = loc.pop("addresses")
@@ -309,11 +335,17 @@ class JobProcessor:
                     if "organizations" in raw_data and "organization" not in raw_data:
                         logger.info("Converting 'organizations' to 'organization'")
                         organizations = raw_data.pop("organizations")
-                        
+
                         # If organizations have addresses but no locations array exists, create locations from org addresses
-                        if not raw_data.get("locations") and not raw_data.get("location"):
+                        if not raw_data.get("locations") and not raw_data.get(
+                            "location"
+                        ):
                             created_locations = []
-                            for org in organizations if isinstance(organizations, list) else [organizations]:
+                            for org in (
+                                organizations
+                                if isinstance(organizations, list)
+                                else [organizations]
+                            ):
                                 if isinstance(org, dict) and org.get("addresses"):
                                     # Normalize address field names in org addresses
                                     addresses = org["addresses"]
@@ -321,32 +353,53 @@ class JobProcessor:
                                         for addr in addresses:
                                             if isinstance(addr, dict):
                                                 # Normalize street_address_1 to address_1
-                                                if "street_address_1" in addr and "address_1" not in addr:
-                                                    addr["address_1"] = addr.pop("street_address_1")
-                                    
+                                                if (
+                                                    "street_address_1" in addr
+                                                    and "address_1" not in addr
+                                                ):
+                                                    addr["address_1"] = addr.pop(
+                                                        "street_address_1"
+                                                    )
+
                                     # Create a location for this organization
                                     location = {
-                                        "name": org.get("name", "Organization Location"),
+                                        "name": org.get(
+                                            "name", "Organization Location"
+                                        ),
                                         "description": f"Location for {org.get('name', 'organization')}",
-                                        "addresss": addresses  # Use HSDS triple-s format
+                                        "addresss": addresses,  # Use HSDS triple-s format
                                     }
                                     # Extract coordinates from addresses if present
-                                    if isinstance(org["addresses"], list) and len(org["addresses"]) > 0:
+                                    if (
+                                        isinstance(org["addresses"], list)
+                                        and len(org["addresses"]) > 0
+                                    ):
                                         first_addr = org["addresses"][0]
-                                        if isinstance(first_addr, dict) and "coordinates" in first_addr:
+                                        if (
+                                            isinstance(first_addr, dict)
+                                            and "coordinates" in first_addr
+                                        ):
                                             coords = first_addr["coordinates"]
                                             if isinstance(coords, dict):
-                                                location["latitude"] = coords.get("latitude")
-                                                location["longitude"] = coords.get("longitude")
+                                                location["latitude"] = coords.get(
+                                                    "latitude"
+                                                )
+                                                location["longitude"] = coords.get(
+                                                    "longitude"
+                                                )
                                     created_locations.append(location)
-                                    logger.info(f"Created location from organization '{org.get('name')}' addresses")
-                            
+                                    logger.info(
+                                        f"Created location from organization '{org.get('name')}' addresses"
+                                    )
+
                             if created_locations:
                                 raw_data["location"] = created_locations
-                                logger.info(f"Created {len(created_locations)} locations from organization addresses")
-                        
+                                logger.info(
+                                    f"Created {len(created_locations)} locations from organization addresses"
+                                )
+
                         raw_data["organization"] = organizations
-                    
+
                     if "services" in raw_data and "service" not in raw_data:
                         logger.info("Converting 'services' to 'service'")
                         services = raw_data.pop("services")
@@ -358,13 +411,19 @@ class JobProcessor:
                     if "locations" in raw_data and "location" not in raw_data:
                         logger.info("Converting 'locations' to 'location'")
                         locations = raw_data.pop("locations")
-                        
+
                         # Process each location to extract nested coordinates and fix addresses
                         for loc in locations if isinstance(locations, list) else []:
                             # Check if coordinates are nested in addresses
-                            if "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
+                            if (
+                                "addresses" in loc
+                                and isinstance(loc.get("addresses"), list)
+                                and len(loc["addresses"]) > 0
+                            ):
                                 first_address = loc["addresses"][0]
-                                if "coordinates" in first_address and isinstance(first_address["coordinates"], dict):
+                                if "coordinates" in first_address and isinstance(
+                                    first_address["coordinates"], dict
+                                ):
                                     coords = first_address["coordinates"]
                                     if "latitude" in coords and "longitude" in coords:
                                         # Extract coordinates to location level
@@ -374,13 +433,13 @@ class JobProcessor:
                                         for addr in loc["addresses"]:
                                             if "coordinates" in addr:
                                                 del addr["coordinates"]
-                            
+
                             # Also rename addresses to addresss (HSDS uses 3 s's)
                             if "addresses" in loc and "addresss" not in loc:
                                 loc["addresss"] = loc.pop("addresses")
-                        
+
                         raw_data["location"] = locations
-                    
+
                     # Extract locations from nested services if needed
                     if "service" in raw_data and isinstance(raw_data["service"], list):
                         all_locations = []
@@ -394,44 +453,73 @@ class JobProcessor:
                                             # Convert string/int/other to location dict
                                             transformed_loc = {
                                                 "name": str(loc),
-                                                "description": f"Service location: {loc}"
+                                                "description": f"Service location: {loc}",
                                             }
                                             all_locations.append(transformed_loc)
                                             continue
-                                        
+
                                         # Transform location to expected format
                                         transformed_loc = {}
-                                        
+
                                         # Use location_id as name if no name exists
-                                        transformed_loc["name"] = loc.get("name") or loc.get("location_id") or f"location_{len(all_locations) + 1}"
-                                        transformed_loc["description"] = loc.get("description", f"Service location")
-                                        
+                                        transformed_loc["name"] = (
+                                            loc.get("name")
+                                            or loc.get("location_id")
+                                            or f"location_{len(all_locations) + 1}"
+                                        )
+                                        transformed_loc["description"] = loc.get(
+                                            "description", "Service location"
+                                        )
+
                                         # Extract coordinates - check multiple possible locations
                                         if "coordinates" in loc:
                                             # Direct coordinates on location - could be dict or list
                                             coords = loc["coordinates"]
                                             if isinstance(coords, dict):
-                                                transformed_loc["latitude"] = coords.get("latitude")
-                                                transformed_loc["longitude"] = coords.get("longitude")
-                                            elif isinstance(coords, list) and len(coords) >= 2:
+                                                transformed_loc["latitude"] = (
+                                                    coords.get("latitude")
+                                                )
+                                                transformed_loc["longitude"] = (
+                                                    coords.get("longitude")
+                                                )
+                                            elif (
+                                                isinstance(coords, list)
+                                                and len(coords) >= 2
+                                            ):
                                                 # Coordinates as [lat, lon] array
                                                 transformed_loc["latitude"] = coords[0]
                                                 transformed_loc["longitude"] = coords[1]
-                                        elif "addresses" in loc and isinstance(loc.get("addresses"), list) and len(loc["addresses"]) > 0:
+                                        elif (
+                                            "addresses" in loc
+                                            and isinstance(loc.get("addresses"), list)
+                                            and len(loc["addresses"]) > 0
+                                        ):
                                             # Coordinates nested in addresses array
                                             first_address = loc["addresses"][0]
                                             if "coordinates" in first_address:
                                                 coords = first_address["coordinates"]
-                                                transformed_loc["latitude"] = coords.get("latitude")
-                                                transformed_loc["longitude"] = coords.get("longitude")
+                                                transformed_loc["latitude"] = (
+                                                    coords.get("latitude")
+                                                )
+                                                transformed_loc["longitude"] = (
+                                                    coords.get("longitude")
+                                                )
                                             else:
-                                                transformed_loc["latitude"] = loc.get("latitude")
-                                                transformed_loc["longitude"] = loc.get("longitude")
+                                                transformed_loc["latitude"] = loc.get(
+                                                    "latitude"
+                                                )
+                                                transformed_loc["longitude"] = loc.get(
+                                                    "longitude"
+                                                )
                                         else:
                                             # Direct latitude/longitude on location
-                                            transformed_loc["latitude"] = loc.get("latitude")
-                                            transformed_loc["longitude"] = loc.get("longitude")
-                                        
+                                            transformed_loc["latitude"] = loc.get(
+                                                "latitude"
+                                            )
+                                            transformed_loc["longitude"] = loc.get(
+                                                "longitude"
+                                            )
+
                                         # Transform address to addresss (triple 's' as per HSDS spec)
                                         if "address" in loc:
                                             # Address could be nested dict or list
@@ -441,14 +529,24 @@ class JobProcessor:
                                                 transformed_loc["addresss"] = addr
                                             elif isinstance(addr, dict):
                                                 # Address is a single dict, wrap in list
-                                                transformed_loc["addresss"] = [{
-                                                    "address_1": addr.get("address_1", ""),
-                                                    "city": addr.get("city", ""),
-                                                    "state_province": addr.get("state_province", ""),
-                                                    "postal_code": addr.get("postal_code", ""),
-                                                    "country": addr.get("country", "US"),
-                                                    "address_type": "physical"
-                                                }]
+                                                transformed_loc["addresss"] = [
+                                                    {
+                                                        "address_1": addr.get(
+                                                            "address_1", ""
+                                                        ),
+                                                        "city": addr.get("city", ""),
+                                                        "state_province": addr.get(
+                                                            "state_province", ""
+                                                        ),
+                                                        "postal_code": addr.get(
+                                                            "postal_code", ""
+                                                        ),
+                                                        "country": addr.get(
+                                                            "country", "US"
+                                                        ),
+                                                        "address_type": "physical",
+                                                    }
+                                                ]
                                         elif "addresses" in loc:
                                             # Already an array - rename and clean up coordinates
                                             addresses_copy = []
@@ -461,34 +559,50 @@ class JobProcessor:
                                             transformed_loc["addresss"] = addresses_copy
                                         elif "address_1" in loc or "city" in loc:
                                             # Address fields are directly on location
-                                            transformed_loc["addresss"] = [{
-                                                "address_1": loc.get("address_1", ""),
-                                                "city": loc.get("city", ""),
-                                                "state_province": loc.get("state_province", ""),
-                                                "postal_code": loc.get("postal_code", ""),
-                                                "country": loc.get("country", "US"),
-                                                "address_type": loc.get("address_type", "physical")
-                                            }]
-                                        
+                                            transformed_loc["addresss"] = [
+                                                {
+                                                    "address_1": loc.get(
+                                                        "address_1", ""
+                                                    ),
+                                                    "city": loc.get("city", ""),
+                                                    "state_province": loc.get(
+                                                        "state_province", ""
+                                                    ),
+                                                    "postal_code": loc.get(
+                                                        "postal_code", ""
+                                                    ),
+                                                    "country": loc.get("country", "US"),
+                                                    "address_type": loc.get(
+                                                        "address_type", "physical"
+                                                    ),
+                                                }
+                                            ]
+
                                         all_locations.append(transformed_loc)
-                        
+
                         if all_locations and "location" not in raw_data:
-                            logger.info(f"Extracted and transformed {len(all_locations)} locations from services")
+                            logger.info(
+                                f"Extracted and transformed {len(all_locations)} locations from services"
+                            )
                             raw_data["location"] = all_locations
-                    
+
                     # Check if organization is an object instead of array
                     if "organization" in raw_data:
                         if isinstance(raw_data["organization"], dict):
                             # Convert single organization object to array
-                            logger.info("Converting organization from object to array format")
+                            logger.info(
+                                "Converting organization from object to array format"
+                            )
                             raw_data["organization"] = [raw_data["organization"]]
-                    
+
                     # Also check service and location - ensure they are arrays
                     if "service" in raw_data and isinstance(raw_data["service"], dict):
                         raw_data["service"] = [raw_data["service"]]
-                    if "location" in raw_data and isinstance(raw_data["location"], dict):
+                    if "location" in raw_data and isinstance(
+                        raw_data["location"], dict
+                    ):
                         raw_data["location"] = [raw_data["location"]]
-                
+
                 # Use the data as-is (now normalized)
                 data = cast(HSDataDict, raw_data)
 
@@ -514,11 +628,13 @@ class JobProcessor:
             if "organization" in data and len(data["organization"]) > 0:
                 # Use first organization since they should all be the same
                 org = data["organization"][0]
-                
+
                 # Ensure organization has a name
                 if "name" not in org or not org.get("name"):
                     org["name"] = "Food Service Organization"
-                    logger.warning(f"Missing name for organization, using default: {org['name']}")
+                    logger.warning(
+                        f"Missing name for organization, using default: {org['name']}"
+                    )
 
                 # Ensure description is never null - use name as fallback if no description
                 description = org.get("description")
@@ -616,16 +732,24 @@ class JobProcessor:
             if "location" in data:
                 for location in data["location"]:
                     # First check if coordinates are nested in addresses structure
-                    if "addresses" in location and isinstance(location.get("addresses"), list) and len(location["addresses"]) > 0:
+                    if (
+                        "addresses" in location
+                        and isinstance(location.get("addresses"), list)
+                        and len(location["addresses"]) > 0
+                    ):
                         first_address = location["addresses"][0]
-                        if "coordinates" in first_address and isinstance(first_address["coordinates"], dict):
+                        if "coordinates" in first_address and isinstance(
+                            first_address["coordinates"], dict
+                        ):
                             coords = first_address["coordinates"]
                             if "latitude" in coords and "longitude" in coords:
                                 # Extract coordinates to location level
                                 location["latitude"] = coords["latitude"]
                                 location["longitude"] = coords["longitude"]
-                                logger.debug(f"Extracted coordinates from nested address structure for location '{location.get('name', 'Unknown')}'")
-                    
+                                logger.debug(
+                                    f"Extracted coordinates from nested address structure for location '{location.get('name', 'Unknown')}'"
+                                )
+
                     # Also rename addresses to addresss (HSDS uses 3 s's)
                     if "addresses" in location and "addresss" not in location:
                         location["addresss"] = location.pop("addresses")
@@ -633,7 +757,7 @@ class JobProcessor:
                         for addr in location.get("addresss", []):
                             if "coordinates" in addr:
                                 del addr["coordinates"]
-                    
+
                     # Check that latitude and longitude exist and are not None
                     # Note: 0,0 coordinates are invalid (ocean off Africa) and should be geocoded
                     has_valid_coords = False
@@ -764,24 +888,39 @@ class JobProcessor:
                                 or location.get("longitude") is None
                             ):
                                 missing_fields.append("longitude")
-                            
+
                             # Check if we have meaningful address data
                             has_address_data = False
                             # Check both addresss and addresses since conversion might not have happened yet
                             for addr_field in ["addresss", "addresses"]:
                                 if location.get(addr_field):
-                                    first_address = location[addr_field][0] if isinstance(location[addr_field], list) else location[addr_field]
+                                    first_address = (
+                                        location[addr_field][0]
+                                        if isinstance(location[addr_field], list)
+                                        else location[addr_field]
+                                    )
                                     # Check if address has meaningful data (not just empty strings)
                                     # Check multiple possible address field names
-                                    addr_1 = first_address.get("address_1") or first_address.get("street_address_1") or first_address.get("address1")
+                                    addr_1 = (
+                                        first_address.get("address_1")
+                                        or first_address.get("street_address_1")
+                                        or first_address.get("address1")
+                                    )
                                     city = first_address.get("city")
-                                    if (addr_1 and str(addr_1).strip()) or (city and str(city).strip()):
+                                    if (addr_1 and str(addr_1).strip()) or (
+                                        city and str(city).strip()
+                                    ):
                                         has_address_data = True
                                         # Normalize address field names
-                                        if "street_address_1" in first_address and "address_1" not in first_address:
-                                            first_address["address_1"] = first_address.pop("street_address_1")
+                                        if (
+                                            "street_address_1" in first_address
+                                            and "address_1" not in first_address
+                                        ):
+                                            first_address["address_1"] = (
+                                                first_address.pop("street_address_1")
+                                            )
                                         break
-                            
+
                             if has_address_data:
                                 # We have address data - use default coordinates (0,0) and let geocoding fix it later
                                 logger.warning(
@@ -862,8 +1001,10 @@ class JobProcessor:
                         # Ensure location has a name
                         if "name" not in location or not location.get("name"):
                             location["name"] = f"Location {len(location_ids) + 1}"
-                            logger.warning(f"Missing name for location, using default: {location['name']}")
-                        
+                            logger.warning(
+                                f"Missing name for location, using default: {location['name']}"
+                            )
+
                         # Ensure description is never null
                         loc_description = location.get("description")
                         if loc_description is None or loc_description == "":
@@ -942,7 +1083,11 @@ class JobProcessor:
                                         )
 
                         # Create location accessibility (for both new and existing locations)
-                        if "accessibility" in location and location_id and location["accessibility"]:
+                        if (
+                            "accessibility" in location
+                            and location_id
+                            and location["accessibility"]
+                        ):
                             location_id_str = str(location_id)
                             for access in location["accessibility"]:
                                 location_creator.create_accessibility(
@@ -1002,8 +1147,10 @@ class JobProcessor:
                 # Ensure service has a name
                 if "name" not in service or not service.get("name"):
                     service["name"] = service.get("service_name") or "Food Service"
-                    logger.warning(f"Missing name for service, using default: {service['name']}")
-                
+                    logger.warning(
+                        f"Missing name for service, using default: {service['name']}"
+                    )
+
                 # Ensure description is never null - use name as fallback if no description
                 service_description = service.get("description")
                 if service_description is None or service_description == "":
@@ -1075,7 +1222,7 @@ class JobProcessor:
                         loc_identifier = loc.get("name")
                         if not loc_identifier:
                             continue  # Skip if no identifier
-                        
+
                         if loc_identifier in location_ids:
                             # Check for existing service_at_location
                             query = text(
@@ -1122,15 +1269,21 @@ class JobProcessor:
                                     # Add service schedules (transform format if needed)
                                     if "schedules" in service:
                                         for sched in service["schedules"]:
-                                            transformed_sched = self._transform_schedule(sched)
+                                            transformed_sched = (
+                                                self._transform_schedule(sched)
+                                            )
                                             if transformed_sched:
-                                                schedules_to_create.append(transformed_sched)
+                                                schedules_to_create.append(
+                                                    transformed_sched
+                                                )
 
                                     # Add location schedules if they don't overlap with service schedules
                                     if "schedules" in loc:
                                         loc_schedules = loc["schedules"]
                                         for loc_schedule in loc_schedules:
-                                            transformed_sched = self._transform_schedule(loc_schedule)
+                                            transformed_sched = (
+                                                self._transform_schedule(loc_schedule)
+                                            )
                                             if not transformed_sched:
                                                 continue
                                             loc_schedule = transformed_sched
