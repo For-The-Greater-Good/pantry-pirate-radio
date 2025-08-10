@@ -97,6 +97,14 @@ ENTITY EXTRACTION GUIDELINES:
 - If coordinates appear to be in a different format (e.g., large numbers like 4716694), DO NOT include them
 - Never guess or estimate coordinates - leave blank if uncertain
 
+🌐 WEBSITE FIELD GUIDELINES:
+- ONLY include a website if an actual URL is provided (starts with http:// or https://)
+- DO NOT construct URLs or put other information in the website field
+- DO NOT put addresses, phone numbers, or descriptions in the website field
+- If no website URL exists in the input data, omit the website field entirely
+- Valid example: "https://foodbank.org" 
+- Invalid examples: "Food Bank at 123 Main St", "Call 555-1234", any non-URL text
+
 ❌ NEVER INFER OR HALLUCINATE:
 - Phone numbers, email addresses, or websites not explicitly provided
 - Specific services not mentioned in the input
