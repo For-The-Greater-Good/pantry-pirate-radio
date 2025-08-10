@@ -491,6 +491,8 @@ class LocationCreator(BaseReconciler):
         attention: str | None = None,
         address_2: str | None = None,
         region: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> str:
         """Create new address.
 
@@ -506,10 +508,40 @@ class LocationCreator(BaseReconciler):
             attention: Attention line
             address_2: Second line of address
             region: Region name
+            latitude: Optional latitude for reverse geocoding
+            longitude: Optional longitude for reverse geocoding
 
         Returns:
             Address ID
         """
+        # Try to fill in missing postal code using reverse geocoding
+        # But skip if coordinates are invalid (0,0) or missing
+        if (postal_code is None or postal_code == "") and latitude and longitude:
+            # Check for invalid (0,0) coordinates - use threshold of 0.01 degrees
+            if abs(latitude) < 0.01 and abs(longitude) < 0.01:
+                self.logger.debug(
+                    f"Skipping reverse geocoding for invalid (0,0) coordinates for {address_1}"
+                )
+            else:
+                try:
+                    from app.core.geocoding import GeocodingService
+
+                    geocoder = GeocodingService()
+                    reverse_result = geocoder.reverse_geocode(latitude, longitude)
+
+                    if reverse_result and reverse_result.get("postal_code"):
+                        postal_code = reverse_result["postal_code"]
+                        self.logger.info(
+                            f"Filled missing postal_code using reverse geocoding: {postal_code} for {address_1}"
+                        )
+                        # Also update other fields if they were missing
+                        if not city and reverse_result.get("city"):
+                            city = reverse_result["city"]
+                        if not state_province and reverse_result.get("state"):
+                            state_province = reverse_result["state"]
+                except Exception as e:
+                    self.logger.warning(f"Reverse geocoding failed: {e}")
+
         # Ensure postal_code is never null to satisfy NOT NULL constraint
         if postal_code is None or postal_code == "":
             # Use a placeholder for missing postal code
