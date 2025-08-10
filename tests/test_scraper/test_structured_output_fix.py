@@ -58,7 +58,7 @@ def test_scraper_passes_full_schema_structure(monkeypatch):
     # Mock other dependencies
     with patch("app.llm.hsds_aligner.validation.ValidationConfig"):
         with patch("pathlib.Path.read_text", return_value="Test prompt"):
-            with patch("app.llm.queue.queues.llm_queue") as mock_queue:
+            with patch("app.scraper.utils.llm_queue") as mock_queue:
                 with patch(
                     "app.content_store.config.get_content_store", return_value=None
                 ):
@@ -71,10 +71,15 @@ def test_scraper_passes_full_schema_structure(monkeypatch):
                             "llm_max_tokens": None,
                         }.get(key)
 
-                        # Mock queue
-                        mock_job = MagicMock()
-                        mock_job.id = "test-job-id"
-                        mock_queue.enqueue_call.return_value = mock_job
+                        # Mock queue - the enqueue_call will be passed job.id from LLMJob
+                        # and should return a result with the same ID
+                        def mock_enqueue(*args, **kwargs):
+                            mock_result = MagicMock()
+                            # Use the job_id that was passed to enqueue_call
+                            mock_result.id = kwargs.get('job_id', 'test-job-id')
+                            return mock_result
+                        
+                        mock_queue.enqueue_call.side_effect = mock_enqueue
 
                         # Create scraper utils
                         utils = ScraperUtils("test_scraper")
@@ -83,7 +88,11 @@ def test_scraper_passes_full_schema_structure(monkeypatch):
                         job_id = utils.queue_for_processing("Test content")
 
                         # Verify the job was created correctly
-                        assert job_id == "test-job-id"
+                        # Job ID should be a timestamp string
+                        assert job_id is not None
+                        assert isinstance(job_id, str)
+                        # Check it's a valid timestamp format (should be able to convert to float)
+                        assert float(job_id) > 0
 
                         # Check that enqueue_call was called
                         assert mock_queue.enqueue_call.called
