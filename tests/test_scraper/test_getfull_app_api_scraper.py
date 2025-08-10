@@ -226,106 +226,91 @@ class TestGetfullAppApiScraper:
             # Assert
             assert pantries == []
 
-    def test_should_transform_to_hsds_when_valid_pantry_data(
+    def test_should_pass_through_pantry_data_unchanged(
         self, scraper, mock_pantry_data
     ):
-        """Test transformation of pantry data to HSDS format."""
+        """Test that pantry data passes through unchanged for LLM processing."""
         # Act
-        hsds_data = scraper.transform_to_hsds(mock_pantry_data)
+        result_data = scraper.transform_to_hsds(mock_pantry_data)
 
-        # Assert
-        assert hsds_data["id"] == "123"
-        assert hsds_data["name"] == "Test Food Pantry"
-        assert hsds_data["description"] == "A test pantry"
-        assert hsds_data["email"] == "test@example.com"
-        assert hsds_data["url"] == "https://example.com"
-        assert hsds_data["status"] == "active"
+        # Assert - data should be unchanged
+        assert result_data == mock_pantry_data
+        assert result_data["id"] == "123"
+        assert result_data["name"] == "Test Food Pantry"
+        assert result_data["description"] == "A test pantry"
+        assert result_data["email"] == "test@example.com"
+        assert result_data["website"] == "https://example.com"
+        assert result_data["phone"] == "555-1234"
+        assert result_data["latitude"] == 40.7128
+        assert result_data["longitude"] == -74.0060
 
-        # Check address
-        assert hsds_data["address"]["address_1"] == "123 Main St"
-        assert hsds_data["address"]["city"] == "New York"
-        assert hsds_data["address"]["state_province"] == "NY"
-        assert hsds_data["address"]["postal_code"] == "10001"
-        assert hsds_data["address"]["country"] == "US"
-
-        # Check phone
-        assert len(hsds_data["phones"]) == 1
-        assert hsds_data["phones"][0]["number"] == "555-1234"
-        assert hsds_data["phones"][0]["type"] == "voice"
-
-        # Check location
-        assert hsds_data["location"]["latitude"] == 40.7128
-        assert hsds_data["location"]["longitude"] == -74.0060
-
-        # Check schedule
-        assert len(hsds_data["regular_schedule"]) == 1
-        assert hsds_data["regular_schedule"][0]["weekday"] == "Monday"
-        assert hsds_data["regular_schedule"][0]["opens_at"] == "9:00 AM"
-        assert hsds_data["regular_schedule"][0]["closes_at"] == "5:00 PM"
-
-    def test_should_handle_string_address_when_transforming(self, scraper):
-        """Test handling string address format."""
+    def test_should_pass_through_any_data_format(self, scraper):
+        """Test that any data format passes through unchanged."""
         # Arrange
         pantry_data = {
             "id": "456",
             "name": "Test Pantry",
-            "address": "789 Broadway, Brooklyn, NY 11211",
+            "address1": "789 Broadway",
+            "city": "Brooklyn",
+            "state": "NY",
+            "zip": "11211",
         }
 
         # Act
-        hsds_data = scraper.transform_to_hsds(pantry_data)
+        result_data = scraper.transform_to_hsds(pantry_data)
 
-        # Assert
-        assert hsds_data["address"]["address_1"] == "789 Broadway"
-        assert hsds_data["address"]["city"] == "Brooklyn"
-        assert hsds_data["address"]["state_province"] == "NY"
-        assert hsds_data["address"]["postal_code"] == "11211"
+        # Assert - data should be unchanged
+        assert result_data == pantry_data
 
-    def test_should_handle_missing_fields_gracefully(self, scraper):
-        """Test graceful handling of missing fields."""
+    def test_should_handle_minimal_data(self, scraper):
+        """Test handling of minimal data."""
         # Arrange
         minimal_pantry = {"id": "789", "name": "Minimal Pantry"}
 
         # Act
-        hsds_data = scraper.transform_to_hsds(minimal_pantry)
+        result_data = scraper.transform_to_hsds(minimal_pantry)
 
-        # Assert
-        assert hsds_data["id"] == "789"
-        assert hsds_data["name"] == "Minimal Pantry"
-        assert hsds_data["description"] == ""
-        assert hsds_data["phones"] == []
-        assert hsds_data["location"] == {}
-        assert hsds_data["regular_schedule"] == []
+        # Assert - data should be unchanged
+        assert result_data == minimal_pantry
+        assert result_data["id"] == "789"
+        assert result_data["name"] == "Minimal Pantry"
 
-    def test_should_handle_closed_pantry_status(self, scraper):
-        """Test handling of closed pantry status."""
+    def test_should_preserve_status_fields(self, scraper):
+        """Test preservation of status fields."""
         # Arrange
-        pantry_data = {"id": "999", "name": "Closed Pantry", "isClosed": True}
+        pantry_data = {"id": "999", "name": "Active Pantry", "active": True, "claimed": True}
 
         # Act
-        hsds_data = scraper.transform_to_hsds(pantry_data)
+        result_data = scraper.transform_to_hsds(pantry_data)
 
-        # Assert
-        assert hsds_data["status"] == "inactive"
+        # Assert - data should be unchanged
+        assert result_data == pantry_data
+        assert result_data["active"] == True
+        assert result_data["claimed"] == True
 
-    def test_should_convert_services_to_attributes(self, scraper):
-        """Test conversion of services to service attributes."""
+    def test_should_preserve_all_service_fields(self, scraper):
+        """Test preservation of all service-related fields."""
         # Arrange
         pantry_data = {
             "id": "111",
             "name": "Service Pantry",
-            "services": ["Food Pantry", "Meals", "Groceries"],
+            "services": ["1-Groceries", "2-Meals"],
+            "tags": ["family-friendly", "no-id-required"],
+            "online_order": True,
+            "delivery": False,
+            "pickup": True,
+            "walkup": False,
         }
 
         # Act
-        hsds_data = scraper.transform_to_hsds(pantry_data)
+        result_data = scraper.transform_to_hsds(pantry_data)
 
-        # Assert
-        assert "service_attributes" in hsds_data
-        assert len(hsds_data["service_attributes"]) == 3
-        for i, service in enumerate(["Food Pantry", "Meals", "Groceries"]):
-            assert hsds_data["service_attributes"][i]["attribute_key"] == "service_type"
-            assert hsds_data["service_attributes"][i]["attribute_value"] == service
+        # Assert - all fields should be preserved
+        assert result_data == pantry_data
+        assert result_data["services"] == ["1-Groceries", "2-Meals"]
+        assert result_data["tags"] == ["family-friendly", "no-id-required"]
+        assert result_data["online_order"] == True
+        assert result_data["delivery"] == False
 
     @pytest.mark.asyncio
     async def test_should_deduplicate_pantries_across_search_areas(
@@ -369,21 +354,23 @@ class TestGetfullAppApiScraper:
                         assert summary["unique_pantries"] == 1
 
     @pytest.mark.asyncio
-    async def test_should_handle_invalid_coordinates_gracefully(self, scraper):
-        """Test graceful handling of invalid coordinates."""
+    async def test_should_preserve_all_coordinate_formats(self, scraper):
+        """Test preservation of coordinate data regardless of format."""
         # Arrange
         pantry_data = {
-            "id": "bad-coords",
-            "name": "Bad Coords Pantry",
-            "latitude": "not-a-number",
-            "longitude": None,
+            "id": "coords-test",
+            "name": "Coords Test Pantry",
+            "lat": 45.5,
+            "lng": -122.6,
         }
 
         # Act
-        hsds_data = scraper.transform_to_hsds(pantry_data)
+        result_data = scraper.transform_to_hsds(pantry_data)
 
-        # Assert
-        assert hsds_data["location"] == {}  # Empty location when coordinates invalid
+        # Assert - data should be unchanged
+        assert result_data == pantry_data
+        assert result_data["lat"] == 45.5
+        assert result_data["lng"] == -122.6
 
     @pytest.mark.asyncio
     async def test_should_continue_without_auth_when_no_token_available(self, scraper):
@@ -419,21 +406,25 @@ class TestGetfullAppApiScraper:
                         assert summary["total_pantries_found"] == 0
                         assert summary["jobs_created"] == 0
 
-    def test_should_handle_alternative_hour_field_names(self, scraper):
-        """Test handling of alternative field names for hours."""
+    def test_should_preserve_hours_data_format(self, scraper):
+        """Test preservation of hours data in API format."""
         # Arrange
         pantry_data = {
-            "id": "alt-hours",
-            "name": "Alt Hours Pantry",
-            "hours": [
-                {"day": "Tuesday", "opens_at": "10:00 AM", "closes_at": "6:00 PM"}
-            ],
+            "id": "hours-test",
+            "name": "Hours Test Pantry",
+            "days": ["Monday", "Friday"],
+            "hours": {
+                "monday": "09:00 - 17:00",
+                "friday": "10:00 - 14:00"
+            },
+            "availability_notes": "Call ahead for holiday hours",
         }
 
         # Act
-        hsds_data = scraper.transform_to_hsds(pantry_data)
+        result_data = scraper.transform_to_hsds(pantry_data)
 
-        # Assert
-        assert len(hsds_data["regular_schedule"]) == 1
-        assert hsds_data["regular_schedule"][0]["opens_at"] == "10:00 AM"
-        assert hsds_data["regular_schedule"][0]["closes_at"] == "6:00 PM"
+        # Assert - all fields should be preserved
+        assert result_data == pantry_data
+        assert result_data["hours"] == {"monday": "09:00 - 17:00", "friday": "10:00 - 14:00"}
+        assert result_data["days"] == ["Monday", "Friday"]
+        assert result_data["availability_notes"] == "Call ahead for holiday hours"

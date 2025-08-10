@@ -210,108 +210,20 @@ class Getfull_App_ApiScraper(ScraperJob):
         return search_areas
 
     def transform_to_hsds(self, pantry: dict[str, Any]) -> dict[str, Any]:
-        """Transform pantry data to HSDS format.
+        """Pass pantry data through with minimal transformation.
+        
+        The LLM will handle the actual HSDS alignment - we just ensure
+        the data is complete and properly structured.
 
         Args:
             pantry: Pantry data from API
 
         Returns:
-            HSDS-formatted data
+            Complete pantry data for LLM processing
         """
-        # Extract basic information
-        pantry_id = str(pantry.get("id", ""))
-        name = pantry.get("name", "")
-        description = pantry.get("description", "")
-
-        # Extract address
-        address = pantry.get("address", {})
-        if isinstance(address, str):
-            # If address is a string, parse it
-            address_parts = address.split(",")
-            street = address_parts[0].strip() if address_parts else ""
-            city = address_parts[1].strip() if len(address_parts) > 1 else ""
-            state_zip = address_parts[2].strip() if len(address_parts) > 2 else ""
-            state = state_zip.split()[0] if state_zip else ""
-            postal_code = state_zip.split()[1] if len(state_zip.split()) > 1 else ""
-        else:
-            street = address.get("street", "")
-            city = address.get("city", "")
-            state = address.get("state", "")
-            postal_code = address.get("zip", "")
-
-        # Extract contact info
-        phone = pantry.get("phone", "")
-        website = pantry.get("website", "")
-        email = pantry.get("email", "")
-
-        # Extract location
-        location = {}
-        lat = pantry.get("latitude") or pantry.get("lat")
-        lng = pantry.get("longitude") or pantry.get("lng") or pantry.get("lon")
-
-        if lat is not None and lng is not None:
-            location = {"latitude": float(lat), "longitude": float(lng)}
-
-        # Extract hours
-        regular_schedule = []
-        hours = pantry.get("hours", [])
-
-        if isinstance(hours, list):
-            for hour in hours:
-                if isinstance(hour, dict):
-                    day = hour.get("day", "")
-                    opens = hour.get("open", "") or hour.get("opens_at", "")
-                    closes = hour.get("close", "") or hour.get("closes_at", "")
-
-                    if day and opens and closes:
-                        regular_schedule.append(
-                            {
-                                "weekday": day,
-                                "opens_at": opens,
-                                "closes_at": closes,
-                            }
-                        )
-
-        # Extract services
-        service_attributes = []
-        services = pantry.get("services", [])
-
-        if isinstance(services, list):
-            for service in services:
-                if service:
-                    service_attributes.append(
-                        {
-                            "attribute_key": "service_type",
-                            "attribute_value": str(service),
-                        }
-                    )
-
-        # Build HSDS record
-        hsds_data = {
-            "id": pantry_id,
-            "name": name,
-            "alternate_name": "",
-            "description": description,
-            "email": email,
-            "url": website,
-            "status": "active" if not pantry.get("isClosed", False) else "inactive",
-            "address": {
-                "address_1": street,
-                "address_2": "",
-                "city": city,
-                "state_province": state,
-                "postal_code": postal_code,
-                "country": "US",
-            },
-            "phones": [{"number": phone, "type": "voice"}] if phone else [],
-            "location": location,
-            "regular_schedule": regular_schedule,
-        }
-
-        if service_attributes:
-            hsds_data["service_attributes"] = service_attributes
-
-        return hsds_data
+        # Simply return the complete pantry data
+        # The LLM will handle mapping to HSDS format
+        return pantry
 
     async def scrape(self) -> str:
         """Scrape data from GetFull.app using direct API calls.
