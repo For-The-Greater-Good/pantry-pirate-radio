@@ -414,7 +414,14 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         if format and content:
             try:
                 parsed = json.loads(content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                # Log the actual content that failed to parse
+                logger.warning(
+                    "Failed to parse JSON response. Error: %s. Content length: %d. First 500 chars: %s",
+                    str(e),
+                    len(content),
+                    content[:500] if content else "(empty)",
+                )
                 if "cannot" in content.lower() or "refuse" in content.lower():
                     return content, None
                 return "Invalid JSON response", None
