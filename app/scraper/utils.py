@@ -241,15 +241,7 @@ class ScraperUtils:
         job = LLMJob(
             id=str(datetime.now().timestamp()),
             prompt=full_prompt,
-            format={
-                "type": "json_schema",
-                "schema": self.hsds_schema["json_schema"],
-                "strict": True,
-                "validation": {
-                    "min_confidence": self.validation_config.min_confidence,
-                    "retry_threshold": self.validation_config.retry_threshold,
-                },
-            },
+            format=self.hsds_schema,  # Pass the entire schema structure as-is
             metadata=job_metadata,
             provider_config={},
             created_at=datetime.now(),
