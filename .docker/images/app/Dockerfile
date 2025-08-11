@@ -13,6 +13,7 @@ FROM python:3.11-slim-bullseye AS base
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    git-lfs \
     jq \
     lsb-release \
     gnupg \
@@ -57,7 +58,8 @@ RUN apt-get update && apt-get install -y \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
     && apt-get update \
     && apt-get install -y postgresql-client-15 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git lfs install
 
 # Install Node.js (v18 LTS)
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
