@@ -97,7 +97,7 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 )
 
                 if isinstance(
-                    e, (ClaudeNotAuthenticatedException, ClaudeQuotaExceededException)
+                    e, ClaudeNotAuthenticatedException | ClaudeQuotaExceededException
                 ):
                     # Handle Claude errors and re-raise them immediately without retrying
                     handle_claude_errors(e, job)
