@@ -105,15 +105,15 @@ class Getfull_App_ApiScraper(ScraperJob):
 
     async def get_pantry_details(self, slug: str) -> dict[str, Any] | None:
         """Fetch detailed pantry information using the slug.
-        
+
         Args:
             slug: Pantry slug identifier
-            
+
         Returns:
             Detailed pantry data or None if failed
         """
         detail_url = f"{self.api_url}/pantry-api/pantries/{slug}"
-        
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -121,13 +121,15 @@ class Getfull_App_ApiScraper(ScraperJob):
                     headers={"Accept": "application/json"},
                     timeout=self.REQUEST_TIMEOUT,
                 )
-                
+
                 if response.status_code == 200:
                     return response.json()
                 else:
-                    logger.debug(f"Failed to get details for {slug}: {response.status_code}")
+                    logger.debug(
+                        f"Failed to get details for {slug}: {response.status_code}"
+                    )
                     return None
-                    
+
         except Exception as e:
             logger.debug(f"Error fetching details for {slug}: {e}")
             return None
@@ -241,7 +243,7 @@ class Getfull_App_ApiScraper(ScraperJob):
 
     def transform_to_hsds(self, pantry: dict[str, Any]) -> dict[str, Any]:
         """Pass pantry data through with minimal transformation.
-        
+
         The LLM will handle the actual HSDS alignment - we just ensure
         the data is complete and properly structured.
 
@@ -334,18 +336,20 @@ class Getfull_App_ApiScraper(ScraperJob):
             await asyncio.sleep(self.DEFAULT_REQUEST_DELAY)
 
         # Fetch detailed information for each pantry
-        logger.info(f"Fetching detailed information for {len(all_pantries)} pantries...")
+        logger.info(
+            f"Fetching detailed information for {len(all_pantries)} pantries..."
+        )
         pantries_with_details = {}
         detail_fetch_count = 0
-        
+
         for pantry_id, pantry_data in all_pantries.items():
             # Get slug from pantry data
             slug = pantry_data.get("slug")
-            
+
             if slug:
                 # Try to get detailed data
                 detailed_data = await self.get_pantry_details(slug)
-                
+
                 if detailed_data:
                     # Use detailed data which has more complete information
                     pantries_with_details[pantry_id] = detailed_data
@@ -356,16 +360,20 @@ class Getfull_App_ApiScraper(ScraperJob):
             else:
                 # No slug available, use search data
                 pantries_with_details[pantry_id] = pantry_data
-            
+
             # Progress logging
             if len(pantries_with_details) % 100 == 0:
-                logger.info(f"Fetched details for {len(pantries_with_details)} pantries...")
-            
+                logger.info(
+                    f"Fetched details for {len(pantries_with_details)} pantries..."
+                )
+
             # Small delay to avoid rate limiting on detail API
             await asyncio.sleep(0.02)  # 20ms between detail requests
-        
-        logger.info(f"Successfully fetched detailed data for {detail_fetch_count}/{len(all_pantries)} pantries")
-        
+
+        logger.info(
+            f"Successfully fetched detailed data for {detail_fetch_count}/{len(all_pantries)} pantries"
+        )
+
         # Submit all pantries to queue
         logger.info(f"Submitting {len(pantries_with_details)} unique pantries to queue")
         jobs_created = 0
@@ -377,23 +385,26 @@ class Getfull_App_ApiScraper(ScraperJob):
             # Submit to queue
             try:
                 job_id = self.submit_to_queue(json.dumps(hsds_data))
-                
+
                 # Debug: Check if we're getting existing job IDs
                 if jobs_created == 0:
                     logger.info(f"First job_id returned: {job_id}")
                     import hashlib
-                    content_hash = hashlib.sha256(json.dumps(hsds_data).encode()).hexdigest()
+
+                    content_hash = hashlib.sha256(
+                        json.dumps(hsds_data).encode()
+                    ).hexdigest()
                     logger.info(f"First content hash: {content_hash[:16]}...")
-                
+
                 jobs_created += 1
 
                 if jobs_created % 100 == 0:
                     logger.info(f"Submitted {jobs_created} jobs to queue...")
-                
+
                 # Add throttling to prevent overwhelming the queue
                 if self.JOB_SUBMISSION_DELAY > 0:
                     await asyncio.sleep(self.JOB_SUBMISSION_DELAY)
-                    
+
             except Exception as e:
                 logger.error(f"Error submitting pantry {pantry_id}: {e}")
 
