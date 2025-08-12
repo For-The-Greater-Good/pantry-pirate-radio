@@ -171,7 +171,14 @@ class GeocodingService:
 
         return None
 
-    def _cache_result(self, address: str, provider: str, lat: float, lon: float):
+    def _cache_result(
+        self,
+        address: str,
+        provider: str,
+        lat: float,
+        lon: float,
+        extra_data: dict = None,
+    ):
         """Cache geocoding result.
 
         Args:
@@ -179,14 +186,17 @@ class GeocodingService:
             provider: Geocoding provider used
             lat: Latitude result
             lon: Longitude result
+            extra_data: Optional extra data to cache (for reverse geocoding)
         """
         if not self.redis_client:
             return
 
         try:
             cache_key = self._get_cache_key(address, provider)
-            cache_value = json.dumps({"lat": lat, "lon": lon})
-            self.redis_client.setex(cache_key, self.cache_ttl, cache_value)
+            cache_value = {"lat": lat, "lon": lon}
+            if extra_data:
+                cache_value.update(extra_data)
+            self.redis_client.setex(cache_key, self.cache_ttl, json.dumps(cache_value))
             logger.debug(f"Cached result for address: {address[:50]}...")
         except Exception as e:
             logger.warning(f"Cache storage error: {e}")
@@ -292,6 +302,103 @@ class GeocodingService:
                     return result
 
         logger.warning(f"Failed to geocode address: {address[:100]}...")
+        return None
+
+    def reverse_geocode(
+        self, latitude: float, longitude: float, provider: Optional[str] = None
+    ) -> Optional[dict]:
+        """Reverse geocode coordinates to get address components.
+
+        Args:
+            latitude: Latitude coordinate
+            longitude: Longitude coordinate
+            provider: Optional provider to use ('arcgis' or 'nominatim')
+
+        Returns:
+            Dict with address components including postal_code, or None if failed
+        """
+        if not latitude or not longitude:
+            return None
+
+        # Try cache first
+        cache_key = f"reverse:{latitude:.6f},{longitude:.6f}"
+        if self.redis_client:
+            try:
+                cached = self.redis_client.get(cache_key)
+                if cached:
+                    result = json.loads(cached)
+                    if "postal_code" in result:
+                        logger.debug(
+                            f"Cache hit for reverse geocoding: {latitude},{longitude}"
+                        )
+                        return result
+            except Exception as e:
+                logger.warning(f"Cache retrieval error: {e}")
+
+        try:
+            point = f"{latitude}, {longitude}"
+            location = None
+
+            # Determine which provider to use
+            use_provider = provider or self.primary_provider
+
+            if use_provider == "arcgis" and self.arcgis_geocode:
+                try:
+                    location = ArcGIS().reverse(point, timeout=10)
+                except Exception as e:
+                    logger.debug(f"ArcGIS reverse geocoding failed: {e}")
+                    if self.enable_fallback and self.nominatim_geocode:
+                        location = self.nominatim_geocode.reverse(point)
+
+            elif self.nominatim_geocode:
+                location = self.nominatim_geocode.reverse(point)
+
+            if location and location.raw:
+                # Extract address components
+                result = {}
+                raw = location.raw
+
+                # Handle different response formats
+                if "address" in raw:  # Nominatim format
+                    addr = raw["address"]
+                    result["postal_code"] = addr.get("postcode", "")
+                    result["city"] = (
+                        addr.get("city") or addr.get("town") or addr.get("village", "")
+                    )
+                    result["state"] = addr.get("state", "")
+                    result["country"] = addr.get("country_code", "").upper()
+                elif "attributes" in raw:  # ArcGIS format
+                    attrs = raw["attributes"]
+                    result["postal_code"] = attrs.get("Postal", "")
+                    result["city"] = attrs.get("City", "")
+                    result["state"] = attrs.get("Region", "")
+                    result["country"] = attrs.get("Country", "")
+                else:
+                    # Try to extract from address string
+                    address_str = str(location.address) if location.address else ""
+                    # Look for ZIP code pattern
+                    zip_match = re.search(r"\b(\d{5}(?:-\d{4})?)\b", address_str)
+                    if zip_match:
+                        result["postal_code"] = zip_match.group(1)
+                    result["address_string"] = address_str
+
+                # Cache the result directly
+                if result.get("postal_code") and self.redis_client:
+                    try:
+                        self.redis_client.setex(
+                            cache_key, self.cache_ttl, json.dumps(result)
+                        )
+                        logger.debug(
+                            f"Cached reverse geocoding result for {latitude},{longitude}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Cache storage error: {e}")
+
+                return result
+
+        except Exception as e:
+            logger.warning(f"Reverse geocoding failed for {latitude},{longitude}: {e}")
+
         return None
 
     def batch_geocode(

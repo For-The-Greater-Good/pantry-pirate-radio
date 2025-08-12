@@ -346,12 +346,14 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         self,
         messages: list[dict[str, str]],
         config: GenerateConfig | None = None,
+        format: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build parameters for API call.
 
         Args:
             messages: Formatted messages
             config: Generation configuration
+            format: Optional JSON schema for structured output
 
         Returns:
             dict[str, Any]: API parameters
@@ -364,11 +366,15 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         if self.config.max_tokens is not None:
             params["max_tokens"] = self.config.max_tokens
 
+        # Use format parameter directly, fall back to config.format if not provided
+        schema_format = format
+        if not schema_format and config and config.format:
+            schema_format = config.format
+
         # TODO: Remove schema wrapper unwrapping once downstream services updated
         # Currently schema comes wrapped as {"type": "json_schema", "json_schema": {...}}
         # OpenAI expects just the inner json_schema part for response_format
-        if config and config.format:
-            schema_format = config.format
+        if schema_format:
             if (
                 isinstance(schema_format, dict)
                 and schema_format.get("type") == "json_schema"
@@ -408,7 +414,14 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         if format and content:
             try:
                 parsed = json.loads(content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                # Log the actual content that failed to parse
+                logger.warning(
+                    "Failed to parse JSON response. Error: %s. Content length: %d. First 500 chars: %s",
+                    str(e),
+                    len(content),
+                    content[:500] if content else "(empty)",
+                )
                 if "cannot" in content.lower() or "refuse" in content.lower():
                     return content, None
                 return "Invalid JSON response", None
@@ -528,7 +541,7 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
             messages = self._format_messages(prompt, format)
 
             # Build API parameters
-            params = self._build_api_params(messages, config)
+            params = self._build_api_params(messages, config, format)
 
             # Log request details
             logger.info("Making API request to %s", self.base_url)

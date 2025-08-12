@@ -316,7 +316,7 @@ class TestEndToEndGeographicValidation:
                     "description": "Primary distribution center",
                     "latitude": 45.5234,
                     "longitude": -122.6762,
-                    "addresss": [{
+                    "address": [{
                         "address_1": "123 Test St",
                         "city": "Portland",
                         "state_province": "OR",
