@@ -14,6 +14,7 @@ import uuid
 import re
 import signal
 import atexit
+import gzip
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any
@@ -771,7 +772,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 
     def _export_to_sql_dump(self):
         """Export PostgreSQL database to compressed SQL dump for fast initialization."""
-        self._safe_log("info", "Creating PostgreSQL SQL dump")
+        self._safe_log("info", "Creating compressed PostgreSQL SQL dump")
 
         try:
             # Create sql_dumps directory in repo
@@ -899,16 +900,18 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 }
                 ratchet_file.write_text(json.dumps(ratchet_data, indent=2))
 
-            # Generate filename with timestamp for more frequent dumps
-            dump_filename = f"pantry_pirate_radio_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.sql"
+            # Generate filename with timestamp for compressed dumps
+            dump_filename = f"pantry_pirate_radio_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.sql.gz"
             dump_path = sql_dumps_dir / dump_filename
 
-            # Create a plain SQL dump without compression for better git tracking
-            # Git can efficiently track text file changes
-            # Run pg_dump without shell
-            self._safe_log("info", f"Running pg_dump to create {dump_filename}")
+            # Create a compressed SQL dump using gzip for better storage efficiency
+            # SQL dumps compress very well (typically 10-20% of original size)
+            self._safe_log("info", f"Running pg_dump with gzip compression to create {dump_filename}")
             env = os.environ.copy()
             env["PGPASSWORD"] = db_password
+            
+            # Create temporary uncompressed dump first
+            temp_dump_path = dump_path.with_suffix('')  # Remove .gz for temp file
             dump_cmd = [
                 "pg_dump",
                 "-h",
@@ -924,7 +927,8 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 "--if-exists",
                 "--clean",
             ]
-            with open(dump_path, "w") as dump_file:
+            
+            with open(temp_dump_path, "w") as dump_file:
                 result = subprocess.run(  # nosec B603 - Safe hardcoded command
                     dump_cmd,
                     env=env,
@@ -934,22 +938,40 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 )
 
             if result.returncode == 0:
-                # Get file size
-                file_size_mb = dump_path.stat().st_size / (1024 * 1024)
+                # Compress the dump file
+                self._safe_log("info", "Compressing SQL dump...")
+                with open(temp_dump_path, 'rb') as f_in:
+                    with gzip.open(dump_path, 'wb', compresslevel=9) as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                
+                # Remove temporary uncompressed file
+                temp_dump_path.unlink()
+                
+                # Get compressed file size
+                compressed_size_mb = dump_path.stat().st_size / (1024 * 1024)
+                # Estimate original size (gzip typically achieves 10-20% of original for SQL)
+                estimated_original_mb = compressed_size_mb * 7  # Rough estimate
+                compression_ratio = (1 - compressed_size_mb / estimated_original_mb) * 100
+                
                 self._safe_log(
                     "info",
-                    f"Successfully created SQL dump: {dump_filename} ({file_size_mb:.1f} MB)",
+                    f"Successfully created compressed SQL dump: {dump_filename} "
+                    f"({compressed_size_mb:.1f} MB, ~{compression_ratio:.0f}% compression)",
                 )
 
                 # Create a latest symlink for easy access
-                latest_link = sql_dumps_dir / "latest.sql"
+                latest_link = sql_dumps_dir / "latest.sql.gz"
+                # Remove old uncompressed symlink if it exists
+                old_link = sql_dumps_dir / "latest.sql"
+                if old_link.exists():
+                    old_link.unlink()
                 if latest_link.exists():
                     latest_link.unlink()
                 latest_link.symlink_to(dump_filename)
-                self._safe_log("info", "Updated latest.sql symlink")
+                self._safe_log("info", "Updated latest.sql.gz symlink")
 
-                # Keep only recent dumps (last 24 hours worth)
-                self._cleanup_old_dumps(sql_dumps_dir, keep_hours=24)
+                # Keep only recent dumps (reduced from 24 to 3 hours to save storage)
+                self._cleanup_old_dumps(sql_dumps_dir, keep_hours=3)
 
             else:
                 self._safe_log("error", f"pg_dump failed: {result.stderr}")
@@ -960,31 +982,55 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             # Don't fail the entire pipeline if SQL dump fails
             self._safe_log("warning", "Continuing without SQL dump")
 
-    def _cleanup_old_dumps(self, sql_dumps_dir: Path, keep_hours: int = 24):
-        """Remove SQL dumps older than keep_hours."""
+    def _cleanup_old_dumps(self, sql_dumps_dir: Path, keep_hours: int = 3):
+        """Remove SQL dumps older than keep_hours, but always keep the latest dump."""
         cutoff_time = datetime.now() - timedelta(hours=keep_hours)
-
-        for dump_file in sql_dumps_dir.glob("pantry_pirate_radio_*.sql"):
-            # Skip the latest symlink
-            if dump_file.name == "latest.sql":
-                continue
-
+        
+        # Find all SQL dump files (both compressed and uncompressed)
+        dump_files = list(sql_dumps_dir.glob("pantry_pirate_radio_*.sql")) + \
+                    list(sql_dumps_dir.glob("pantry_pirate_radio_*.sql.gz"))
+        
+        # Skip symlinks
+        dump_files = [f for f in dump_files if not f.is_symlink()]
+        
+        if not dump_files:
+            return
+        
+        # Sort files by modification time to identify the latest
+        dump_files_with_time = []
+        for dump_file in dump_files:
             # Extract timestamp from filename
             match = re.match(
-                r"pantry_pirate_radio_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.sql",
+                r"pantry_pirate_radio_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.sql(?:\.gz)?",
                 dump_file.name,
             )
             if match:
                 try:
                     file_time = datetime.strptime(match.group(1), "%Y-%m-%d_%H-%M-%S")
-                    if file_time < cutoff_time:
-                        logger.info(f"Removing old SQL dump: {dump_file.name}")
-                        dump_file.unlink()
+                    dump_files_with_time.append((dump_file, file_time))
                 except ValueError:
                     self._safe_log(
                         "warning",
                         f"Could not parse timestamp from filename: {dump_file.name}",
                     )
+        
+        if not dump_files_with_time:
+            return
+        
+        # Sort by timestamp (newest first)
+        dump_files_with_time.sort(key=lambda x: x[1], reverse=True)
+        
+        # Always keep the latest file
+        latest_file = dump_files_with_time[0][0]
+        self._safe_log("debug", f"Keeping latest dump: {latest_file.name}")
+        
+        # Remove old files (skip the first one which is the latest)
+        for dump_file, file_time in dump_files_with_time[1:]:
+            if file_time < cutoff_time:
+                self._safe_log("info", f"Removing old SQL dump: {dump_file.name}")
+                dump_file.unlink()
+            else:
+                self._safe_log("debug", f"Keeping recent dump: {dump_file.name}")
 
     def _sync_database_from_haarrrvest(self):
         """Sync database with recent HAARRRvest data using replay tool.
