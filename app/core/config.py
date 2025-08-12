@@ -73,11 +73,28 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def use_test_redis_for_testing(self) -> "Settings":
-        """Use Redis database 1 for tests to ensure isolation."""
+    def use_test_configs_for_testing(self) -> "Settings":
+        """Use test database and Redis for tests to ensure isolation."""
         import os
 
         if os.getenv("TESTING") == "true":
+            # Use TEST_DATABASE_URL if provided
+            test_database_url = os.getenv("TEST_DATABASE_URL")
+            if test_database_url:
+                self.DATABASE_URL = test_database_url
+            elif "test_" not in self.DATABASE_URL:
+                # Add test_ prefix to database name if not already present
+                # This is a safety measure to avoid using production database
+                import re
+
+                # Match postgresql://user:pass@host:port/dbname pattern
+                match = re.match(r"(.*/)([^/]+)$", self.DATABASE_URL)
+                if match:
+                    base_url = match.group(1)
+                    db_name = match.group(2)
+                    if not db_name.startswith("test_"):
+                        self.DATABASE_URL = f"{base_url}test_{db_name}"
+
             # Use TEST_REDIS_URL if provided, otherwise switch to database 1
             test_redis_url = os.getenv("TEST_REDIS_URL")
             if test_redis_url:

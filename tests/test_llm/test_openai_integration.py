@@ -4,7 +4,6 @@ import os
 import pytest
 from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
 from app.llm.providers.types import GenerateConfig
-from app.core.config import settings
 
 
 @pytest.mark.skipif(
@@ -125,8 +124,13 @@ async def test_shortened_prompt_with_structured_output():
 
     # Load our shortened prompt
     from pathlib import Path
+    import os
 
-    prompt_path = Path("/app/app/llm/hsds_aligner/prompts/food_pantry_mapper.prompt")
+    # Get project root and construct path
+    project_root = Path(__file__).parent.parent.parent
+    prompt_path = (
+        project_root / "app/llm/hsds_aligner/prompts/food_pantry_mapper.prompt"
+    )
     shortened_prompt = prompt_path.read_text()
 
     # Create a realistic HSDS schema
