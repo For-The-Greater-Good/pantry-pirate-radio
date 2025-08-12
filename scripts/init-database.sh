@@ -91,6 +91,17 @@ check_data_repo() {
         # Clone the repository
         if git clone "$repo_url" "$DATA_REPO_PATH"; then
             log "Successfully cloned HAARRRvest repository"
+            
+            # Pull LFS files
+            cd "$DATA_REPO_PATH"
+            log "Pulling Git LFS files (SQL dumps and SQLite databases)..."
+            if git lfs pull; then
+                log "Git LFS files pulled successfully"
+            else
+                warn "Failed to pull Git LFS files - SQL dumps may not be available"
+            fi
+            cd - >/dev/null
+            
             # After successful clone, wait a moment for filesystem to settle
             sleep 2
             log "HAARRRvest repository is ready"
@@ -118,6 +129,14 @@ check_data_repo() {
         log "Pulling latest changes from origin/main..."
         if git pull origin main; then
             log "Repository updated successfully"
+            
+            # Pull LFS files to get latest SQL dumps and SQLite databases
+            log "Pulling Git LFS files (SQL dumps and SQLite databases)..."
+            if git lfs pull; then
+                log "Git LFS files pulled successfully"
+            else
+                warn "Failed to pull Git LFS files - SQL dumps may be outdated"
+            fi
         else
             warn "Failed to pull latest changes"
             warn "Continuing with existing repository state"
@@ -188,24 +207,63 @@ restore_from_sql_dump() {
     }
 
     # Restore using psql for plain SQL dumps
-    if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$latest_dump" 2>&1 | while IFS= read -r line; do
-        # Filter out common warnings
+    log "Starting SQL restore (this may take several minutes for large datasets)..."
+    
+    # Run the restore and capture the exit code
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$latest_dump" 2>&1 | while IFS= read -r line; do
+        # Filter out common warnings but show progress
         if echo "$line" | grep -E "(ERROR|FATAL|failed)" >/dev/null; then
             echo "[RESTORE] $line"
+        elif echo "$line" | grep -E "(CREATE|ALTER|INSERT|COPY)" >/dev/null; then
+            # Show some progress indicators
+            echo -n "."
         fi
-    done; then
-        log "SQL dump restored successfully!"
-
+    done
+    
+    local restore_exit_code=${PIPESTATUS[0]}
+    echo ""  # New line after dots
+    
+    if [ $restore_exit_code -eq 0 ]; then
+        log "SQL restore command completed, verifying data..."
+        
+        # Wait for database to finish writing
+        log "Waiting for database to finish processing (large datasets need time)..."
+        sleep 5
+        
+        # Verify the restore worked by checking table counts
+        local org_count=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c \
+            "SELECT COUNT(*) FROM organization;" 2>/dev/null || echo "0")
+        local loc_count=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c \
+            "SELECT COUNT(*) FROM location;" 2>/dev/null || echo "0")
+        local svc_count=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c \
+            "SELECT COUNT(*) FROM service;" 2>/dev/null || echo "0")
+        
+        log "Restored: $org_count organizations, $loc_count locations, $svc_count services"
+        
+        # If we have data, wait a bit more to ensure indexes are built
+        if [ "$org_count" -gt 1000 ]; then
+            log "Large dataset detected, waiting for indexes to build..."
+            sleep 10
+            
+            # Analyze tables for query optimization
+            log "Analyzing tables for query optimization..."
+            psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "ANALYZE;" 2>/dev/null || true
+        fi
+        
         # Mark initialization as complete
         date -u +"%Y-%m-%d %H:%M:%S UTC" > "$INIT_STATE_FILE"
-
-        # Get final record count
+        
+        # Final verification
         local final_count=$(count_records)
-        log "Database now contains $final_count organizations"
-
-        return 0
+        if [ "$final_count" -gt 0 ]; then
+            log "Database successfully restored with $final_count organizations"
+            return 0
+        else
+            error "SQL restore appeared to succeed but no data found in database"
+            return 1
+        fi
     else
-        error "SQL dump restore failed!"
+        error "SQL dump restore failed with exit code $restore_exit_code!"
         return 1
     fi
 }
