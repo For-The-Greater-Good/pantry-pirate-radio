@@ -226,9 +226,7 @@ class TestGetfullAppApiScraper:
             # Assert
             assert pantries == []
 
-    def test_should_pass_through_pantry_data_unchanged(
-        self, scraper, mock_pantry_data
-    ):
+    def test_should_pass_through_pantry_data_unchanged(self, scraper, mock_pantry_data):
         """Test that pantry data passes through unchanged for LLM processing."""
         # Act
         result_data = scraper.transform_to_hsds(mock_pantry_data)
@@ -278,15 +276,20 @@ class TestGetfullAppApiScraper:
     def test_should_preserve_status_fields(self, scraper):
         """Test preservation of status fields."""
         # Arrange
-        pantry_data = {"id": "999", "name": "Active Pantry", "active": True, "claimed": True}
+        pantry_data = {
+            "id": "999",
+            "name": "Active Pantry",
+            "active": True,
+            "claimed": True,
+        }
 
         # Act
         result_data = scraper.transform_to_hsds(pantry_data)
 
         # Assert - data should be unchanged
         assert result_data == pantry_data
-        assert result_data["active"] == True
-        assert result_data["claimed"] == True
+        assert result_data["active"] is True
+        assert result_data["claimed"] is True
 
     def test_should_preserve_all_service_fields(self, scraper):
         """Test preservation of all service-related fields."""
@@ -309,8 +312,8 @@ class TestGetfullAppApiScraper:
         assert result_data == pantry_data
         assert result_data["services"] == ["1-Groceries", "2-Meals"]
         assert result_data["tags"] == ["family-friendly", "no-id-required"]
-        assert result_data["online_order"] == True
-        assert result_data["delivery"] == False
+        assert result_data["online_order"] is True
+        assert result_data["delivery"] is False
 
     @pytest.mark.asyncio
     async def test_should_deduplicate_pantries_across_search_areas(
@@ -413,10 +416,7 @@ class TestGetfullAppApiScraper:
             "id": "hours-test",
             "name": "Hours Test Pantry",
             "days": ["Monday", "Friday"],
-            "hours": {
-                "monday": "09:00 - 17:00",
-                "friday": "10:00 - 14:00"
-            },
+            "hours": {"monday": "09:00 - 17:00", "friday": "10:00 - 14:00"},
             "availability_notes": "Call ahead for holiday hours",
         }
 
@@ -425,6 +425,9 @@ class TestGetfullAppApiScraper:
 
         # Assert - all fields should be preserved
         assert result_data == pantry_data
-        assert result_data["hours"] == {"monday": "09:00 - 17:00", "friday": "10:00 - 14:00"}
+        assert result_data["hours"] == {
+            "monday": "09:00 - 17:00",
+            "friday": "10:00 - 14:00",
+        }
         assert result_data["days"] == ["Monday", "Friday"]
         assert result_data["availability_notes"] == "Call ahead for holiday hours"

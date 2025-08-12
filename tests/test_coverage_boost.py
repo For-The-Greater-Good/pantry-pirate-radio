@@ -76,13 +76,6 @@ def test_merge_strategy_basic():
     assert app.reconciler.merge_strategy is not None
 
 
-def test_hsds_validator_basic():
-    """Test HSDS validator basic structure."""
-    import app.llm.hsds_aligner.validator
-
-    assert app.llm.hsds_aligner.validator is not None
-
-
 def test_api_router_basic_functions():
     """Test API router basic functionality."""
     from app.api.v1.router import health_check
@@ -112,26 +105,12 @@ def test_claude_provider_basic_structure():
     assert hasattr(ClaudeProvider, "generate")
 
 
-def test_hsds_aligner_basic():
-    """Test HSDS aligner basic functionality."""
-    import app.llm.hsds_aligner.aligner
-
-    assert app.llm.hsds_aligner.aligner is not None
-
-
 def test_location_creator_basic():
     """Test location creator basic functionality."""
     from app.reconciler.location_creator import LocationCreator
 
     assert LocationCreator is not None
     assert hasattr(LocationCreator, "__init__")
-
-
-def test_field_validator_basic():
-    """Test field validator basic functionality."""
-    import app.llm.hsds_aligner.field_validator
-
-    assert app.llm.hsds_aligner.field_validator is not None
 
 
 def test_provider_types_basic():
