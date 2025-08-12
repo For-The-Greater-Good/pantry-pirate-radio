@@ -2,7 +2,6 @@
 
 import os
 import random
-import re
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
@@ -13,7 +12,6 @@ from redis import Redis
 from app.core.config import settings
 from app.core.grid import GridGenerator
 from app.llm.hsds_aligner.schema_converter import SchemaConverter
-from app.llm.hsds_aligner.validation import ValidationConfig
 from app.llm.queue.queues import llm_queue
 from app.models.geographic import BoundingBox, GridPoint
 
@@ -41,6 +39,7 @@ class JobMetadata(TypedDict):
     scraper_id: str
     source_type: NotRequired[str]
     priority: NotRequired[str]
+    content_hash: NotRequired[str]
 
 
 class ScraperUtils:
@@ -181,10 +180,6 @@ class ScraperUtils:
         # Load schema and prompt
         self.schema_converter = SchemaConverter(schema_path)
         self.system_prompt = prompt_path.read_text()
-
-        # Configure validation - will load thresholds from environment
-        # HSDS_MIN_CONFIDENCE, HSDS_RETRY_THRESHOLD, HSDS_MAX_RETRIES
-        self.validation_config = ValidationConfig()
 
         # Convert schema for structured output using core HSDS schemas
         self.hsds_schema = self.schema_converter.load_hsds_core_schema()
@@ -331,11 +326,7 @@ class GeocoderUtils:
         self.geocoding_service = get_geocoding_service()
 
         # Store custom default coordinates if provided
-        if default_coordinates:
-            # Merge with service's defaults
-            self.default_coordinates = default_coordinates
-        else:
-            self.default_coordinates = None
+        self.default_coordinates = default_coordinates if default_coordinates else {}
 
     def geocode_address(
         self, address: str, county: str | None = None, state: str | None = None

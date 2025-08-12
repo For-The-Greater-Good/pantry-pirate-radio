@@ -1087,23 +1087,25 @@ This repository contains food resource data collected by Pantry Pirate Radio.
     def _run_location_export(self):
         """Run optimized PostgreSQL-based location export for map data."""
         logger.info("Running optimized location export for map data")
-        
+
         try:
             # Use the new optimized PostgreSQL-based exporter
             from app.haarrrvest_publisher.export_map_data import MapDataExporter
-            
+
             start_time = time.time()
             exporter = MapDataExporter(self.data_repo_path)
             success = exporter.export()
             elapsed = time.time() - start_time
-            
+
             if success:
-                logger.info(f"Location export completed successfully in {elapsed:.2f} seconds")
+                logger.info(
+                    f"Location export completed successfully in {elapsed:.2f} seconds"
+                )
             else:
                 # Fall back to the old method if available
                 logger.warning("Optimized export failed, trying legacy export script")
                 export_script = self.data_repo_path / "scripts" / "export-locations.py"
-                
+
                 if export_script.exists():
                     code, out, err = self._run_command(
                         ["python3", str(export_script)], cwd=self.data_repo_path
@@ -1114,7 +1116,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                         logger.error(f"Legacy location export also failed: {err}")
                 else:
                     logger.error("No fallback export script available")
-                    
+
         except ImportError as e:
             logger.error(f"Could not import MapDataExporter: {e}")
             # Fall back to old method
