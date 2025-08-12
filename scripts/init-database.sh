@@ -174,11 +174,21 @@ restore_from_sql_dump() {
         return 1
     fi
 
-    # Look for latest SQL dump
-    local latest_dump="$sql_dumps_dir/latest.sql"
-    if [ ! -f "$latest_dump" ]; then
-        # Look for any SQL dump files
-        local dump_files=$(find "$sql_dumps_dir" -name "pantry_pirate_radio_*.sql" -type f | sort -r)
+    # Look for latest SQL dump (compressed or uncompressed)
+    local latest_dump=""
+    
+    # First check for compressed dump
+    if [ -f "$sql_dumps_dir/latest.sql.gz" ]; then
+        latest_dump="$sql_dumps_dir/latest.sql.gz"
+    elif [ -f "$sql_dumps_dir/latest.sql" ]; then
+        latest_dump="$sql_dumps_dir/latest.sql"
+    else
+        # Look for any SQL dump files (compressed first, then uncompressed)
+        local dump_files=$(find "$sql_dumps_dir" -name "pantry_pirate_radio_*.sql.gz" -type f | sort -r)
+        if [ -z "$dump_files" ]; then
+            dump_files=$(find "$sql_dumps_dir" -name "pantry_pirate_radio_*.sql" -type f | sort -r)
+        fi
+        
         if [ -z "$dump_files" ]; then
             log "No SQL dump files found"
             return 1
@@ -206,19 +216,35 @@ restore_from_sql_dump() {
         return 1
     }
 
-    # Restore using psql for plain SQL dumps
+    # Restore using psql, handling both compressed and uncompressed dumps
     log "Starting SQL restore (this may take several minutes for large datasets)..."
     
-    # Run the restore and capture the exit code
-    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$latest_dump" 2>&1 | while IFS= read -r line; do
-        # Filter out common warnings but show progress
-        if echo "$line" | grep -E "(ERROR|FATAL|failed)" >/dev/null; then
-            echo "[RESTORE] $line"
-        elif echo "$line" | grep -E "(CREATE|ALTER|INSERT|COPY)" >/dev/null; then
-            # Show some progress indicators
-            echo -n "."
-        fi
-    done
+    # Check if dump is compressed and restore accordingly
+    if [[ "$latest_dump" == *.gz ]]; then
+        log "Decompressing and restoring from gzipped SQL dump..."
+        # Use gunzip to decompress and pipe to psql
+        gunzip -c "$latest_dump" | psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" 2>&1 | while IFS= read -r line; do
+            # Filter out common warnings but show progress
+            if echo "$line" | grep -E "(ERROR|FATAL|failed)" >/dev/null; then
+                echo "[RESTORE] $line"
+            elif echo "$line" | grep -E "(CREATE|ALTER|INSERT|COPY)" >/dev/null; then
+                # Show some progress indicators
+                echo -n "."
+            fi
+        done
+    else
+        log "Restoring from uncompressed SQL dump..."
+        # Run the restore for uncompressed dump
+        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$latest_dump" 2>&1 | while IFS= read -r line; do
+            # Filter out common warnings but show progress
+            if echo "$line" | grep -E "(ERROR|FATAL|failed)" >/dev/null; then
+                echo "[RESTORE] $line"
+            elif echo "$line" | grep -E "(CREATE|ALTER|INSERT|COPY)" >/dev/null; then
+                # Show some progress indicators
+                echo -n "."
+            fi
+        done
+    fi
     
     local restore_exit_code=${PIPESTATUS[0]}
     echo ""  # New line after dots
