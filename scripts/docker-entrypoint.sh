@@ -13,8 +13,8 @@ case "$SERVICE" in
         ;;
     
     worker|llm-worker)
-        echo "Starting LLM worker with Claude setup..."
-        # Use the existing startup script for Claude authentication
+        echo "Starting LLM worker (LLM_PROVIDER=$LLM_PROVIDER)..."
+        # Always use container_startup.sh which handles multi-worker setup
         exec /app/scripts/container_startup.sh rq worker llm
         ;;
     

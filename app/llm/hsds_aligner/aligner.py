@@ -89,10 +89,8 @@ class HSDSAligner(Generic[ModelType, ConfigType]):
         self.system_prompt = self._load_prompt()
         self.attempts: list[AlignmentAttemptDict] = []
 
-        # Convert schema for structured output
-        self.hsds_schema: LLMJsonSchema = self.schema_converter.convert_to_llm_schema(
-            "organization"
-        )
+        # Convert schema for structured output using core HSDS schemas
+        self.hsds_schema: LLMJsonSchema = self.schema_converter.load_hsds_core_schema()
 
         # Setup validation
         self.validation_config = validation_config or ValidationConfig()

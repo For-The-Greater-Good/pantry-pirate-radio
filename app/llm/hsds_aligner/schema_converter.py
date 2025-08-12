@@ -5,6 +5,7 @@ suitable for LLM processing.
 """
 
 import csv
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Union
@@ -488,15 +489,45 @@ class SchemaConverter:
         Returns:
             Schema dict for relationship or None if not a relationship
         """
+        # Enhanced descriptions for critical HSDS relationships
+        relationship_descriptions = {
+            "organization.locations": (
+                "Array of location objects where this organization provides services. "
+                "IMPORTANT: Create a separate location entity for EACH unique physical address, "
+                "including event sites, distribution points, and mobile locations. "
+                "Each location must have its own entry in the locations array."
+            ),
+            "organization.services": (
+                "Array of service objects provided by this organization. "
+                "Services should be linked to their delivery locations via service_at_location."
+            ),
+            "service.service_at_location": (
+                "Array linking this service to the locations where it's provided. "
+                "Use this to connect services to multiple delivery sites."
+            ),
+            "location.addresses": (
+                "Array of address objects for this location. "
+                "Each unique physical address should have its own location entity."
+            ),
+        }
+
         if field.one_to_many:
             ref_name = field.one_to_many.replace(".json", "")
-            return {
-                "type": "array",
-                "description": (
+            field_key = f"{field.table_name}.{field.name}"
+
+            # Use enhanced description if available
+            description = relationship_descriptions.get(
+                field_key,
+                (
                     f"Array of {ref_name} objects. These must be included both here "
                     f"and in the top-level {ref_name} array. Each {ref_name} must "
                     f"reference back to this {field.table_name} via {ref_name}_id."
                 ),
+            )
+
+            return {
+                "type": "array",
+                "description": description,
                 "items": {"$ref": f"#/definitions/{ref_name}"},
                 "additionalProperties": False,
             }
@@ -663,10 +694,36 @@ class SchemaConverter:
         properties = self._build_properties(fields)
         required = self._collect_required_fields(fields)
 
+        # Enhanced table descriptions with HSDS guidance
+        table_descriptions = {
+            "organization": (
+                "The agency or entity providing services. Must include ALL locations where services are delivered as separate location objects in the locations array."
+            ),
+            "service": (
+                "A program or assistance offered by the organization. Link to delivery locations via service_at_location."
+            ),
+            "location": (
+                "A physical place where services are delivered. Create one location for EACH unique address, including event sites and mobile distribution points."
+            ),
+            "address": (
+                "Physical or mailing address details. Each unique street address should have its own parent location entity."
+            ),
+            "service_at_location": (
+                "Links services to their delivery locations with location-specific details like schedules."
+            ),
+            "schedule": (
+                "Operating hours and recurring patterns. Use RRULE format for recurring schedules (e.g., freq: WEEKLY, byday: MO,TU)."
+            ),
+        }
+
+        description = table_descriptions.get(
+            table_name, f"Schema for {table_name} data in HSDS format"
+        )
+
         schema: SchemaDict = {
             "type": "object",
             "title": f"HSDS {table_name.title()}",
-            "description": f"Schema for {table_name} data in HSDS format",
+            "description": description,
             "properties": properties,
             "required": required,
             "additionalProperties": False,
@@ -860,12 +917,401 @@ class SchemaConverter:
         # are updated to handle native structured output format directly.
         # Currently returns {"type": "json_schema", "json_schema": {...}} for compatibility.
         # OpenAI provider unwraps this to use native response_format parameter.
+        # Enhanced schema description with HSDS relationship guidance
+        schema_description = (
+            f"Structured output schema for HSDS {table_name} data following Human Services Data Specification v3.1.1. "
+            "CRITICAL REQUIREMENTS: "
+            "1. Create separate location entities for EACH unique physical address (including event sites, distribution points, mobile locations). "
+            "2. Services and locations have a many-to-many relationship via service_at_location. "
+            "3. Each organization must have its locations array populated with location objects for every address where services are provided. "
+            "4. Location entities are NOT hierarchical - each unique address needs its own location object. "
+            "5. When input data contains events or distributions at different addresses, create a separate location entity for each address. "
+            "6. Arrays like 'locations', 'services', 'addresses' must contain actual objects, not be empty when data exists. "
+            "7. Use RRULE format for recurring schedules (freq: WEEKLY/MONTHLY, byday: MO,TU,WE,TH,FR,SA,SU). "
+            "8. Convert date/time strings to ISO format (YYYY-MM-DD for dates, HH:MM for times). "
+            "9. State codes must be 2-letter US state codes (e.g., OH, CA, NY). "
+            "10. Never hallucinate data - only include fields present in or directly derivable from the input."
+        )
+
         return {
             "type": "json_schema",
             "json_schema": {
                 "name": f"hsds_{table_name}",
-                "description": f"Structured output schema for HSDS {table_name} data",
+                "description": schema_description,
                 "schema": schema,
+                "strict": True,
+                "max_tokens": 64768,
+                "temperature": 0.4,  # Ensure deterministic outputs
+            },
+        }
+
+    def load_hsds_core_schema(self) -> LLMJsonSchema:
+        """Load and combine core HSDS schemas from JSON files.
+
+        This method loads only the essential HSDS schemas needed for food pantry data:
+        - Core tables: organization, service, location, service_at_location
+        - Supporting tables: address, phone, schedule
+        - Additional tables: required_document, service_area
+
+        Returns:
+            Dict containing LLM-compatible schema for core HSDS structure
+        """
+        # Define paths to core schema files
+        schema_base_path = (
+            Path(__file__).parent.parent.parent.parent / "docs" / "HSDS" / "schema"
+        )
+
+        # Core entity schemas to load
+        core_schemas = {
+            "organization": schema_base_path / "organization.json",
+            "service": schema_base_path / "service.json",
+            "location": schema_base_path / "location.json",
+            "service_at_location": schema_base_path / "service_at_location.json",
+            "address": schema_base_path / "address.json",
+            "phone": schema_base_path / "phone.json",
+            "schedule": schema_base_path / "schedule.json",
+            "required_document": schema_base_path / "required_document.json",
+            "service_area": schema_base_path / "service_area.json",
+        }
+
+        # Load each schema file
+        definitions = {}
+        for name, path in core_schemas.items():
+            if path.exists():
+                with open(path) as f:
+                    schema_data = json.load(f)
+                    # Extract only core fields if marked
+                    if "properties" in schema_data:
+                        core_properties = {}
+                        required_fields = []
+                        for field_name, field_def in schema_data["properties"].items():
+                            # Include all fields for now, but prioritize core fields
+                            # Core fields are marked with "core": "Y"
+                            if field_def.get("core") == "Y" or name in [
+                                "service_at_location",
+                                "required_document",
+                                "service_area",
+                            ]:
+                                core_properties[field_name] = {
+                                    "type": field_def.get("type", "string"),
+                                    "description": field_def.get("description", ""),
+                                }
+                                if field_def.get("format"):
+                                    core_properties[field_name]["format"] = field_def[
+                                        "format"
+                                    ]
+                                if field_def.get("constraints", {}).get("unique"):
+                                    required_fields.append(field_name)
+
+                        # For non-core tables, include all fields
+                        if not core_properties:
+                            core_properties = {
+                                field_name: {
+                                    "type": field_def.get("type", "string"),
+                                    "description": field_def.get("description", ""),
+                                }
+                                for field_name, field_def in schema_data[
+                                    "properties"
+                                ].items()
+                            }
+
+                        definitions[name] = {
+                            "type": "object",
+                            "description": schema_data.get("description", ""),
+                            "properties": core_properties,
+                            "required": required_fields if required_fields else ["id"],
+                            "additionalProperties": False,
+                        }
+
+        # Build the top-level HSDS structure with enhanced descriptions for food pantry context
+        hsds_core_schema: SchemaDict = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "title": "HSDS Core Data Structure for Food Pantries",
+            "description": (
+                "Core HSDS data structure optimized for food pantry and food distribution services. "
+                "Uses only essential fields to minimize processing costs while capturing critical information."
+            ),
+            "properties": {
+                "organization": {
+                    "type": "array",
+                    "description": (
+                        "Array of food pantry organizations. Each organization represents a food bank, pantry, "
+                        "church, or community organization that distributes food. "
+                        "Examples: 'First Baptist Church Food Pantry', 'Community Action Food Bank', 'St. Mary's Kitchen'."
+                    ),
+                    "items": definitions.get("organization", {"type": "object"}),
+                    "minItems": 1,
+                },
+                "service": {
+                    "type": "array",
+                    "description": (
+                        "Array of food distribution services. Common services include: "
+                        "'Food Pantry' (groceries to take home), 'Mobile Food Pantry' (truck/van distribution), "
+                        "'Hot Meals' (prepared food), 'Weekend Backpack Program' (food for children), "
+                        "'Senior Food Box', 'Emergency Food Box', 'Fresh Produce Distribution'."
+                    ),
+                    "items": definitions.get("service", {"type": "object"}),
+                    "minItems": 1,
+                },
+                "location": {
+                    "type": "array",
+                    "description": (
+                        "Array of physical locations where food is distributed. "
+                        "CRITICAL: Create a SEPARATE location for EACH distribution address, including: "
+                        "- Main pantry building "
+                        "- Each church or community center used for distribution "
+                        "- Mobile pantry stops (parking lots, schools, etc.) "
+                        "- Temporary distribution sites for events "
+                        "Example: If a food bank distributes at 3 different churches on different days, "
+                        "create 3 separate location entities, one for each church address."
+                    ),
+                    "items": {
+                        **definitions.get("location", {"type": "object"}),
+                        "properties": {
+                            **definitions.get("location", {}).get("properties", {}),
+                            "address": {
+                                "type": "array",
+                                "description": "Physical addresses for this location. Usually just one address per location.",
+                                "items": definitions.get("address", {"type": "object"}),
+                            },
+                        },
+                    },
+                    "minItems": 1,
+                },
+            },
+            "required": ["organization", "service", "location"],
+            "additionalProperties": False,
+        }
+
+        # Enhanced guidance specific to food pantries
+        food_pantry_guidance = (
+            "FOOD PANTRY SPECIFIC GUIDANCE: "
+            "CRITICAL STRUCTURE: Output must have three top-level arrays: organization[], service[], location[]. "
+            "LOCATION CREATION RULES: "
+            "1. ALWAYS create separate locations for different addresses - never combine them. "
+            "2. Mobile pantries: Create a location for each regular stop (e.g., 'Walmart Parking Lot - Main St'). "
+            "3. Multi-site distributions: If one organization distributes at multiple sites, create a location for each. "
+            "4. Church partnerships: Each church/community center needs its own location entity. "
+            "SERVICE TYPES TO RECOGNIZE: "
+            "- 'Food Pantry' or 'Food Distribution': Standard grocery distribution "
+            "- 'Mobile Pantry' or 'Mobile Food Distribution': Truck/van that travels to sites "
+            "- 'Fresh Produce', 'Fresh Market', 'Farmers Market': Fresh fruits/vegetables "
+            "- 'Hot Meals', 'Community Meals', 'Soup Kitchen': Prepared food to eat on-site "
+            "- 'Food Box', 'Commodity Box', 'Senior Box': Pre-packed food boxes "
+            "- 'Weekend Backpack', 'Kids Pack': Food for children to take home "
+            "SCHEDULE PATTERNS: "
+            "- Use RRULE format: freq=WEEKLY for weekly distributions, freq=MONTHLY for monthly "
+            "- Common patterns: '1st and 3rd Tuesday' = freq=MONTHLY;byday=TU;bysetpos=1,3 "
+            "- Time format: HH:MM in 24-hour format (e.g., '09:00' for 9 AM, '13:30' for 1:30 PM) "
+            "REQUIRED DOCUMENTS (if mentioned): "
+            "- 'Photo ID' or 'ID': Government-issued identification "
+            "- 'Proof of Address': Utility bill, lease, or mail showing address "
+            "- 'Income Verification': Pay stubs, benefit letters "
+            "- 'Referral': From social services or partner agency "
+            "SERVICE AREAS: "
+            "- ZIP codes served: List as comma-separated (e.g., '44101, 44102, 44103') "
+            "- County restrictions: Name the county (e.g., 'Cuyahoga County residents only') "
+            "- No restrictions: Indicate 'Open to all' or 'No geographic restrictions' "
+            "DATA QUALITY: "
+            "- Never invent phone numbers, addresses, or specific details not in the source "
+            "- If schedule is unclear, use description field to capture text as-is "
+            "- Maintain original names - don't standardize 'St.' to 'Saint' or vice versa"
+        )
+
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "hsds_core_food_pantry",
+                "description": food_pantry_guidance,
+                "schema": hsds_core_schema,
+                "strict": True,
+                "max_tokens": 64768,
+                "temperature": 0.4,
+            },
+        }
+
+    def convert_to_hsds_full_schema(self) -> LLMJsonSchema:
+        """Convert to complete HSDS structure schema with top-level arrays.
+
+        Returns:
+            Dict containing LLM-compatible schema for full HSDS structure
+        """
+        self._processed_tables.clear()
+
+        # Build schemas for each main entity type
+        org_schema = self.convert_table_schema("organization")
+        service_schema = self.convert_table_schema("service")
+        location_schema = self.convert_table_schema("location")
+
+        # Collect all referenced tables for definitions
+        referenced_tables: set[str] = {
+            "address",
+            "phone",
+            "schedule",
+            "metadata",
+            "service_at_location",
+            "organization_identifier",
+            "contact",
+            "language",
+            "accessibility",
+        }
+
+        # Build definitions for all referenced entities
+        definitions: dict[str, SchemaDict] = {
+            "organization": org_schema,
+            "service": service_schema,
+            "location": location_schema,
+        }
+
+        # Add other entity definitions
+        for ref_table in referenced_tables:
+            if ref_table in self._schema_cache:
+                definitions[ref_table] = self.convert_table_schema(ref_table)
+
+        # Add common definitions
+        common_defs: dict[str, SchemaDict] = {
+            "phone": {
+                "type": "object",
+                "properties": {
+                    "number": {"type": "string"},
+                    "type": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("phone.type", []),
+                    },
+                    "languages": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                            "required": ["name"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["number", "type", "languages"],
+                "additionalProperties": False,
+            },
+            "metadata": {
+                "type": "object",
+                "properties": {
+                    "resource_id": {"type": "string"},
+                    "resource_type": {"type": "string"},
+                    "last_action_date": {"type": "string"},
+                    "last_action_type": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("metadata.last_action_type", []),
+                    },
+                },
+                "required": [
+                    "resource_id",
+                    "resource_type",
+                    "last_action_date",
+                    "last_action_type",
+                ],
+                "additionalProperties": False,
+            },
+            "schedule": {
+                "type": "object",
+                "properties": {
+                    "freq": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("schedule.freq", []),
+                    },
+                    "wkst": {
+                        "type": "string",
+                        "enum": KNOWN_ENUMS.get("schedule.wkst", []),
+                    },
+                    "opens_at": {"type": "string"},
+                    "closes_at": {"type": "string"},
+                },
+                "required": ["freq", "wkst", "opens_at", "closes_at"],
+                "additionalProperties": False,
+            },
+        }
+
+        # Merge all definitions
+        all_definitions = {**definitions, **common_defs}
+
+        # Build the top-level HSDS structure schema
+        hsds_full_schema: SchemaDict = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "title": "HSDS Complete Data Structure",
+            "description": (
+                "Complete HSDS data structure with separate top-level arrays for organizations, services, and locations. "
+                "This structure follows Human Services Data Specification v3.1.1."
+            ),
+            "properties": {
+                "organization": {
+                    "type": "array",
+                    "description": (
+                        "Array of organization objects. Each organization represents an agency or entity providing services. "
+                        "Organizations can have multiple locations and services."
+                    ),
+                    "items": {"$ref": "#/definitions/organization"},
+                    "minItems": 1,
+                },
+                "service": {
+                    "type": "array",
+                    "description": (
+                        "Array of service objects. Each service represents a program or assistance offered. "
+                        "Services are linked to locations via service_at_location entries."
+                    ),
+                    "items": {"$ref": "#/definitions/service"},
+                    "minItems": 1,
+                },
+                "location": {
+                    "type": "array",
+                    "description": (
+                        "Array of location objects. CRITICAL: Create a separate location for EACH unique physical address, "
+                        "including event sites, distribution points, and mobile locations. Do not combine multiple addresses "
+                        "into one location. Each address where services are delivered needs its own location entity."
+                    ),
+                    "items": {"$ref": "#/definitions/location"},
+                    "minItems": 1,
+                },
+            },
+            "required": ["organization", "service", "location"],
+            "additionalProperties": False,
+            "definitions": all_definitions,
+        }
+
+        # Enhanced schema description with comprehensive HSDS guidance
+        full_schema_description = (
+            "Structured output schema for complete HSDS data following Human Services Data Specification v3.1.1. "
+            "OUTPUT STRUCTURE REQUIREMENTS: "
+            "1. Output must contain three top-level arrays: 'organization', 'service', and 'location'. "
+            "2. Each array must contain at least one object of the appropriate type. "
+            "3. All entities that appear nested within organizations must ALSO appear in their respective top-level arrays. "
+            "LOCATION ENTITY REQUIREMENTS: "
+            "4. Create a SEPARATE location entity for EACH unique physical address in the input data. "
+            "5. If an organization operates at multiple addresses (e.g., main office, distribution sites, event locations), "
+            "   create a separate location entity for each address. "
+            "6. Events or distributions at different addresses must each have their own location entity. "
+            "7. Mobile distribution points or temporary sites also need separate location entities. "
+            "RELATIONSHIP REQUIREMENTS: "
+            "8. Services and locations have a many-to-many relationship via service_at_location. "
+            "9. Each organization's 'locations' array should reference all locations where it provides services. "
+            "10. Each service should be linked to its delivery locations via service_at_location entries. "
+            "DATA FORMATTING REQUIREMENTS: "
+            "11. Use RRULE format for recurring schedules (freq: WEEKLY/MONTHLY, byday: MO,TU,WE,TH,FR,SA,SU). "
+            "12. Convert date/time strings to ISO format (YYYY-MM-DD for dates, HH:MM for times). "
+            "13. State codes must be 2-letter US state codes (e.g., OH, CA, NY). "
+            "14. Never hallucinate data - only include fields present in or directly derivable from the input. "
+            "EXAMPLE: If input has one food bank with distributions at 3 different churches, output should have: "
+            "- 1 organization (the food bank) "
+            "- 1+ services (food distribution, etc.) "
+            "- 3 locations (one for each church address) "
+            "- service_at_location entries linking the service to each of the 3 locations"
+        )
+
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "hsds_complete",
+                "description": full_schema_description,
+                "schema": hsds_full_schema,
                 "strict": True,
                 "max_tokens": 64768,
                 "temperature": 0.4,  # Ensure deterministic outputs

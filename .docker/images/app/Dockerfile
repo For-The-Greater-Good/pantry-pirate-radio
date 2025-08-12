@@ -13,6 +13,7 @@ FROM python:3.11-slim-bullseye AS base
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    git-lfs \
     jq \
     lsb-release \
     gnupg \

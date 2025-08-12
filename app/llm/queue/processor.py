@@ -40,99 +40,162 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
     # Run async generate in sync context
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    try:
-        # Call generate with proper type handling
-        result = provider.generate(
-            prompt=job.prompt,
-            format=job.format,
-            config=None,  # Use default config
-        )
+    
+    # Retry logic for transient failures
+    max_retries = 3
+    retry_count = 0
+    last_error = None
+    
+    while retry_count < max_retries:
+        try:
+            # Call generate with proper type handling
+            result = provider.generate(
+                prompt=job.prompt,
+                format=job.format,
+                config=None,  # Use default config
+            )
 
-        # Handle coroutine or generator result
-        if asyncio.iscoroutine(result):
-            # For coroutine result
-            coro = cast(Coroutine[Any, Any, LLMResponse], result)
-            llm_result = loop.run_until_complete(coro)
-        else:
-            # For async generator result
-            gen = cast(AsyncGenerator[LLMResponse, None], result)
-            llm_result = loop.run_until_complete(anext(gen))
-
-        # Create job result
-        job_result = JobResult(
-            job_id=job.id,
-            job=job,
-            status=JobStatus.COMPLETED,
-            result=llm_result,
-            error=None,
-            completed_at=datetime.now(),
-            processing_time=0.0,
-        )
-
-        # Store result in content store FIRST (before enqueuing other jobs that might fail)
-        from app.content_store.config import get_content_store
-
-        content_store = get_content_store()
-        if content_store:
-            if "content_hash" in job.metadata:
-                content_hash = job.metadata["content_hash"]
-                logger.info(
-                    f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
-                )
-                try:
-                    content_store.store_result(content_hash, llm_result.text, job.id)
-                    logger.info(
-                        f"Successfully stored result for hash {content_hash[:8]}..."
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to store result in content store: {e}")
-                    # Don't fail the job, but log the error
+            # Handle coroutine or generator result
+            if asyncio.iscoroutine(result):
+                # For coroutine result
+                coro = cast(Coroutine[Any, Any, LLMResponse], result)
+                llm_result = loop.run_until_complete(coro)
             else:
-                logger.debug(f"No content_hash in job metadata for job {job.id}")
+                # For async generator result
+                gen = cast(AsyncGenerator[LLMResponse, None], result)
+                llm_result = loop.run_until_complete(anext(gen))
+            
+            # Validate the response
+            if llm_result.text == "Invalid JSON response":
+                retry_count += 1
+                last_error = "Received 'Invalid JSON response' from LLM"
+                logger.warning(
+                    f"LLM returned 'Invalid JSON response' for job {job.id}, "
+                    f"retry {retry_count}/{max_retries}"
+                )
+                if retry_count < max_retries:
+                    # Wait a bit before retrying (exponential backoff)
+                    import time
+                    time.sleep(2 ** retry_count)
+                    continue
+                else:
+                    # Max retries reached, fail the job
+                    raise ValueError(
+                        f"LLM consistently returned 'Invalid JSON response' after {max_retries} attempts"
+                    )
+            
+            # Response is valid, break out of retry loop
+            break
+            
+        except Exception as e:
+            retry_count += 1
+            last_error = str(e)
+            logger.error(
+                f"Error generating LLM response for job {job.id}, "
+                f"retry {retry_count}/{max_retries}: {e}"
+            )
+            if retry_count >= max_retries:
+                raise ValueError(
+                    f"Failed to generate valid LLM response after {max_retries} attempts: {last_error}"
+                )
+            # Wait before retrying
+            import time
+            time.sleep(2 ** retry_count)
+    
+    # Create job result (outside the retry loop)
+    job_result = JobResult(
+        job_id=job.id,
+        job=job,
+        status=JobStatus.COMPLETED,
+        result=llm_result,
+        error=None,
+        completed_at=datetime.now(),
+        processing_time=0.0,
+    )
+
+    # Validate response before storing in content store
+    is_valid_response = (
+        llm_result.text 
+        and llm_result.text != "Invalid JSON response"
+        and llm_result.text != "No response from model"
+        and llm_result.text != "Empty response from model"
+    )
+
+    # Store result in content store ONLY if valid
+    from app.content_store.config import get_content_store
+
+    content_store = get_content_store()
+    if content_store and is_valid_response:
+        if "content_hash" in job.metadata:
+            content_hash = job.metadata["content_hash"]
+            logger.info(
+                f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
+            )
+            try:
+                content_store.store_result(content_hash, llm_result.text, job.id)
+                logger.info(
+                    f"Successfully stored result for hash {content_hash[:8]}..."
+                )
+            except Exception as e:
+                logger.error(f"Failed to store result in content store: {e}")
+                # Don't fail the job, but log the error
         else:
-            logger.debug("Content store not configured")
+            logger.debug(f"No content_hash in job metadata for job {job.id}")
+    elif not is_valid_response:
+        logger.warning(
+            f"Not storing invalid response in content store for job {job.id}: '{llm_result.text[:50]}...'"
+        )
+    else:
+        logger.debug("Content store not configured")
 
-        # Enqueue follow-up jobs for reconciler and recorder
-        try:
-            reconciler_job = reconciler_queue.enqueue_call(
-                func="app.reconciler.job_processor.process_job_result",
-                args=(job_result,),
-                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-            )
-            logger.info(
-                f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to enqueue reconciler job for LLM job {job.id}: {e}")
-            # Re-raise to ensure the LLM job fails and can be retried
-            raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
-
-        try:
-            recorder_job = recorder_queue.enqueue_call(
-                func="app.recorder.utils.record_result",
-                args=(
-                    {
-                        "job_id": job.id,
-                        "job": job.model_dump(),
-                        "result": llm_result,
-                        "error": None,
-                    },
-                ),
-                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-            )
-            logger.info(
-                f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
-            # Re-raise to ensure the LLM job fails and can be retried
-            raise ValueError(f"Failed to enqueue recorder job: {e}") from e
-
-        return llm_result
+    # Enqueue follow-up jobs for reconciler and recorder
+    try:
+        reconciler_job = reconciler_queue.enqueue_call(
+            func="app.reconciler.job_processor.process_job_result",
+            args=(job_result,),
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
+        )
+        logger.info(
+            f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
+        )
     except Exception as e:
-        # Handle Claude-specific errors with intelligent retry
+        logger.error(f"Failed to enqueue reconciler job for LLM job {job.id}: {e}")
+        # Re-raise to ensure the LLM job fails and can be retried
+        raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
+
+    try:
+        recorder_job = recorder_queue.enqueue_call(
+            func="app.recorder.utils.record_result",
+            args=(
+                {
+                    "job_id": job.id,
+                    "job": job.model_dump(),
+                    "result": llm_result,
+                    "error": None,
+                },
+            ),
+            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
+        )
+        logger.info(
+            f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
+        )
+    except Exception as e:
+        # Log error but don't fail the job - recording is optional
+        logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
+
+    return llm_result
+
+
+def handle_claude_errors(e: Exception, job: LLMJob) -> None:
+    """Handle Claude-specific errors with intelligent retry.
+    
+    Args:
+        e: The exception to handle
+        job: The job being processed
+    """
+    try:
         from app.llm.providers.claude import (
             ClaudeQuotaExceededException,
             ClaudeNotAuthenticatedException,

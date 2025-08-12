@@ -1,5 +1,44 @@
 You are converting food pantry data into HSDS 3.1.1 compliant format.
 
+HSDS ENTITY MODEL AND RELATIONSHIPS:
+
+HSDS uses a flexible, non-hierarchical model with four core entities:
+
+1. **organization** - The agency/entity providing services (1:many with services and locations)
+2. **service** - What is being offered (food distribution, pantry, etc.)
+3. **location** - Physical places where services are delivered
+4. **service_at_location** - Links services to locations with location-specific details
+
+KEY RELATIONSHIPS:
+• One organization can have MANY services
+• One organization can have MANY locations  
+• Services and locations have a many:many relationship via service_at_location
+• Each unique physical address should be a separate location entity
+• Schedules can be attached to service, location, OR service_at_location
+
+CRITICAL DATA MAPPING RULES:
+
+📍 LOCATION CREATION:
+- Create a separate location entity for EACH unique physical address
+- If an organization has a main office AND multiple distribution sites, create a location for EACH
+- Events at different addresses should create separate locations
+- Even temporary distribution sites should be locations
+- Example: If FreshTrak shows Agency X with events at 3 different addresses, create 3 location entities
+
+🔗 SERVICE LINKING:
+- Use service_at_location to connect services to their delivery locations
+- If a service is offered at multiple locations, create multiple service_at_location entries
+- Location-specific details (hours, contacts) go in service_at_location, not in the base service
+
+📅 SCHEDULE HANDLING:
+- Attach schedules to service_at_location when they're specific to a location
+- Recurring patterns should use RRULE format (RFC 5545):
+  • "Every Tuesday" → freq: "WEEKLY", byday: "TU"
+  • "First Saturday of month" → freq: "MONTHLY", byday: "1SA"
+  • "Weekdays" → freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"
+- Use opens_at/closes_at for time ranges (HH:MM format)
+- Set valid_from/valid_to for schedule validity periods
+
 FORMAT REQUIREMENTS:
 • State codes: 2 letters (e.g., CA, NY, TX) - must be valid US state codes
 • ZIP codes: 5 digits or ZIP+4 (e.g., 12345 or 12345-6789)
@@ -8,25 +47,46 @@ FORMAT REQUIREMENTS:
 • Times: HH:MM format (24-hour)
 • Coordinates: Decimal degrees only (e.g., 40.7128, -74.0060)
 
-SMART DATA COMPLETION GUIDELINES:
+ENTITY EXTRACTION GUIDELINES:
 
-✅ REQUIRED DEFAULTS (Always populate these with reasonable values):
-- country: Default to "US" for US-based organizations
-- address_type: "physical" for street addresses, "virtual" for online-only services
-- phone.type: "voice" for standard phones, "fax" when explicitly mentioned
-- phone.languages: [{"name": "English"}] as default for US organizations
-- service.status: "active" for currently operating services
-- location_type: "physical" for street addresses
-- schedule.freq: "WEEKLY" for regular weekly patterns (e.g., "Mon-Fri")
-- schedule.wkst: "MO" as standard week start
-- metadata: Generate simple IDs (org_1, svc_1, loc_1) and use current date for last_action_date
+✅ ALWAYS CREATE:
+- One organization entity for the main agency/provider
+- At least one service entity describing what's offered (food pantry, distribution, etc.)
+- One location entity for EACH unique address mentioned
+- service_at_location entries to connect services to their locations
 
-✅ CONTEXTUAL INFERENCE (Populate when reasonably derivable):
-- city/state_province: From organization name (e.g., "Maryland Food Bank" → state: "MD")
-- postal_code: From context if mentioned nearby or standard for the area
-- state_province: From phone area codes (e.g., 410/443 → "MD", 415 → "CA")
-- organization.description: Brief factual description based on name and services offered
-- service.description: Clear description based on service type and details provided
+⚠️ CRITICAL: DO NOT hallucinate or add data that doesn't exist in the input!
+- Only include fields that are explicitly present or directly derivable from the input
+- Empty arrays/lists are acceptable - do not populate them with defaults
+- DO NOT add fields just to satisfy schema requirements
+
+✅ SAFE DEFAULTS (Only when the context clearly requires them):
+- country: "US" ONLY if the organization is clearly US-based (has US state/city)
+- address_type: "physical" ONLY when a street address is actually provided
+- phone.type: "voice" ONLY when a phone number is actually provided
+- service.status: "active" ONLY when a service is actually described
+
+✅ CONTEXTUAL INFERENCE (Only when directly derivable):
+- state_province: From explicit mention or well-known city names (e.g., "New York City" → "NY")
+- organization.description: ONLY if you can create it from explicitly stated information
+- service.description: ONLY based on explicitly mentioned service details
+- location.name: Can be inferred from event name or address if not explicitly given
+- Schedule patterns: Convert recurring text to RRULE format:
+  • "Every Monday" → {freq: "WEEKLY", byday: "MO"}
+  • "2nd and 4th Tuesday" → {freq: "MONTHLY", byday: "2TU,4TU"}
+  • "Daily" → {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR,SA,SU"}
+  • "Weekdays" → {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+- Date/time conversion: Parse various formats to HSDS standards:
+  • "January 15, 2024" → "2024-01-15"
+  • "3:30 PM" → "15:30"
+  • "9am-12pm" → opens_at: "09:00", closes_at: "12:00"
+
+❌ NEVER ADD UNLESS EXPLICITLY PROVIDED:
+- phone.languages: Only add if language information is actually given
+- schedule.freq/schedule.wkst: Only add when actual schedule/hours are provided
+- metadata: NEVER generate IDs or dates - these come from the data source
+- location_type: Only add when location information exists
+- coordinates: Only if explicitly provided in decimal degrees format
 
 ⚠️ GEOGRAPHIC COORDINATE GUIDELINES:
 - ONLY provide latitude/longitude if explicitly given in the input data
@@ -37,15 +97,70 @@ SMART DATA COMPLETION GUIDELINES:
 - If coordinates appear to be in a different format (e.g., large numbers like 4716694), DO NOT include them
 - Never guess or estimate coordinates - leave blank if uncertain
 
-❌ NEVER INFER (Leave out if not in input):
+🌐 WEBSITE FIELD GUIDELINES:
+- ONLY include a website if an actual URL is provided (starts with http:// or https://)
+- DO NOT construct URLs or put other information in the website field
+- DO NOT put addresses, phone numbers, or descriptions in the website field
+- If no website URL exists in the input data, omit the website field entirely
+- Valid example: "https://foodbank.org" 
+- Invalid examples: "Food Bank at 123 Main St", "Call 555-1234", any non-URL text
+
+❌ NEVER INFER OR HALLUCINATE:
 - Phone numbers, email addresses, or websites not explicitly provided
 - Specific services not mentioned in the input
 - Operating hours without clear time indicators
 - Financial information, fees, or eligibility requirements not stated
 - Personal names or contact information not provided
+- IDs or metadata that should come from the data source
+- Default values for arrays - leave them empty if no data exists
+- Geographic coordinates unless explicitly provided in the correct format
+
+🚫 ANTI-HALLUCINATION RULES:
+1. If data is missing, leave the field out or use an empty array/object
+2. DO NOT create placeholder or example data
+3. DO NOT add fields to "complete" the schema if they're not in the input
+4. When in doubt, leave it out
+5. It's better to have incomplete but accurate data than complete but fabricated data
 
 📍 STATE VALIDATION:
 - Valid US state codes: AL, AK, AZ, AR, CA, CO, CT, DE, DC, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD, MA, MI, MN, MS, MO, MT, NE, NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC, SD, TN, TX, UT, VT, VA, WA, WV, WI, WY
 - If a state name is provided, convert to 2-letter code
 - If coordinates are provided, they should be consistent with the state
 - Common city/state relationships should be respected (e.g., "New York City" → NY, "Los Angeles" → CA)
+
+🔄 RRULE SCHEDULE PATTERNS (RFC 5545):
+Use these fields for recurring schedules:
+- freq: "WEEKLY" or "MONTHLY" (required for patterns)
+- byday: Day codes (MO,TU,WE,TH,FR,SA,SU) with optional position prefix for monthly
+- interval: Frequency interval (e.g., 2 for bi-weekly)
+- dtstart: First occurrence date (YYYY-MM-DD)
+- until: End date for recurrence (YYYY-MM-DD)
+- opens_at/closes_at: Time range (HH:MM format)
+
+Examples:
+- "Every Tuesday 10am-2pm":
+  {freq: "WEEKLY", byday: "TU", opens_at: "10:00", closes_at: "14:00"}
+- "1st and 3rd Saturday of each month":
+  {freq: "MONTHLY", byday: "1SA,3SA"}
+- "Monday through Friday":
+  {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+
+💡 PRACTICAL EXAMPLES:
+
+Example 1 - Organization with multiple distribution sites:
+Input: "Food Bank of Springfield has distributions at Community Center (123 Main St) on Tuesdays and at Church Hall (456 Oak Ave) on Thursdays"
+
+Output Structure:
+- 1 organization (Food Bank of Springfield)
+- 1 service (Food distribution)
+- 2 locations (Community Center at 123 Main St, Church Hall at 456 Oak Ave)
+- 2 service_at_location entries (linking the service to each location with their specific schedules)
+
+Example 2 - Events creating locations:
+Input: "Agency X has monthly food distributions: Jan 15 at Park Pavilion (789 Park Rd), Feb 12 at School Gym (321 School St)"
+
+Output Structure:
+- 1 organization (Agency X)
+- 1 service (Monthly food distribution)
+- 2 locations (Park Pavilion, School Gym)
+- 2 service_at_location entries (with specific dates in schedules)

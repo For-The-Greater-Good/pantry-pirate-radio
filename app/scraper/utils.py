@@ -186,8 +186,8 @@ class ScraperUtils:
         # HSDS_MIN_CONFIDENCE, HSDS_RETRY_THRESHOLD, HSDS_MAX_RETRIES
         self.validation_config = ValidationConfig()
 
-        # Convert schema for structured output
-        self.hsds_schema = self.schema_converter.convert_to_llm_schema("organization")
+        # Convert schema for structured output using core HSDS schemas
+        self.hsds_schema = self.schema_converter.load_hsds_core_schema()
 
     def queue_for_processing(
         self,
@@ -241,15 +241,7 @@ class ScraperUtils:
         job = LLMJob(
             id=str(datetime.now().timestamp()),
             prompt=full_prompt,
-            format={
-                "type": "json_schema",
-                "schema": self.hsds_schema["json_schema"],
-                "strict": True,
-                "validation": {
-                    "min_confidence": self.validation_config.min_confidence,
-                    "retry_threshold": self.validation_config.retry_threshold,
-                },
-            },
+            format=self.hsds_schema,  # Pass the entire schema structure as-is
             metadata=job_metadata,
             provider_config={},
             created_at=datetime.now(),
