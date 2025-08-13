@@ -40,30 +40,30 @@ FORMAT_HANDLERS = {
 
 # Known field type constraints
 TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
-    # Geographic coordinates
+    # Geographic coordinates - US bounds including Alaska and Hawaii
     "latitude": {
         "type": "number",
-        "minimum": -90,
-        "maximum": 90,
-        "description": "Latitude in decimal degrees (-90 to 90, negative = south)",
+        "minimum": 18.91,  # Hawaii southern bound
+        "maximum": 71.54,  # Alaska northern bound
+        "description": "US latitude including all states (18.91-71.54°N for Hawaii to Alaska)",
     },
     "longitude": {
         "type": "number",
-        "minimum": -180,
-        "maximum": 180,
-        "description": "Longitude in decimal degrees (-180 to 180, negative = west)",
+        "minimum": -179.15,  # Alaska/Aleutian western bound
+        "maximum": -67,  # Eastern US bound
+        "description": "US longitude including all states (-179.15 to -67°W for Alaska to Eastern US)",
     },
     "location.latitude": {
         "type": "number",
-        "minimum": -90,
-        "maximum": 90,
-        "description": "Location latitude in decimal degrees",
+        "minimum": 18.91,  # Hawaii southern bound
+        "maximum": 71.54,  # Alaska northern bound
+        "description": "Location latitude in decimal degrees (US bounds: 18.91-71.54°N)",
     },
     "location.longitude": {
         "type": "number",
-        "minimum": -180,
-        "maximum": 180,
-        "description": "Location longitude in decimal degrees",
+        "minimum": -179.15,  # Alaska/Aleutian western bound
+        "maximum": -67,  # Eastern US bound
+        "description": "Location longitude in decimal degrees (US bounds: -179.15 to -67°W)",
     },
     # Address constraints
     "address.state_province": {
@@ -789,7 +789,7 @@ class SchemaConverter:
                         },
                     },
                 },
-                "required": ["number", "type", "languages"],
+                "required": ["number", "type"],  # Languages made optional - scrapers rarely have this data
                 "additionalProperties": False,
             },
             "metadata": {
@@ -888,7 +888,7 @@ class SchemaConverter:
                 ]
             )
         elif table_name == "phone":
-            required_fields.extend(["number", "type", "languages"])
+            required_fields.extend(["number", "type"])  # Languages made optional
         elif table_name == "schedule":
             required_fields.extend(["freq", "wkst", "opens_at", "closes_at"])
         elif table_name == "metadata":
@@ -1189,7 +1189,7 @@ class SchemaConverter:
                         },
                     },
                 },
-                "required": ["number", "type", "languages"],
+                "required": ["number", "type"],  # Languages made optional - scrapers rarely have this data
                 "additionalProperties": False,
             },
             "metadata": {
