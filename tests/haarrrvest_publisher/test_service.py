@@ -549,18 +549,19 @@ class TestHAARRRvestPublisher:
         """Test running HAARRRvest's location export script."""
         _, repo_dir = temp_dirs
 
-        # Create mock script
-        scripts_dir = repo_dir / "scripts"
-        scripts_dir.mkdir()
-        export_script = scripts_dir / "export-locations.py"
-        export_script.write_text("print('Export success')")
-
-        with patch.object(publisher, "_run_command") as mock_run:
-            mock_run.return_value = (0, "Export success", "")
+        # Mock the new MapDataExporter - imported within the method
+        with patch(
+            "app.haarrrvest_publisher.export_map_data.MapDataExporter"
+        ) as MockExporter:
+            mock_exporter = Mock()
+            mock_exporter.export.return_value = True
+            MockExporter.return_value = mock_exporter
 
             publisher._run_location_export()
 
-            mock_run.assert_called_with(["python3", str(export_script)], cwd=repo_dir)
+            # Verify exporter was created and called
+            MockExporter.assert_called_with(repo_dir)
+            mock_exporter.export.assert_called_once()
 
     @patch.object(HAARRRvestPublisher, "_setup_git_repo")
     @patch.object(HAARRRvestPublisher, "_find_new_files")
@@ -964,30 +965,43 @@ class TestHAARRRvestPublisher:
         """Test handling missing location export script."""
         _, repo_dir = temp_dirs
 
-        with patch("app.haarrrvest_publisher.service.logger") as mock_logger:
-            publisher._run_location_export()
+        # Mock ImportError for MapDataExporter at the correct import location
+        with patch(
+            "app.haarrrvest_publisher.export_map_data.MapDataExporter",
+            side_effect=ImportError("Module not found"),
+        ):
+            with patch("app.haarrrvest_publisher.service.logger") as mock_logger:
+                publisher._run_location_export()
 
-            # Should log error
-            mock_logger.error.assert_called()
+                # Should log error about missing MapDataExporter
+                mock_logger.error.assert_called()
 
     def test_should_handle_location_export_failure(self, publisher, temp_dirs):
         """Test handling location export script failure."""
         _, repo_dir = temp_dirs
 
-        # Create mock script
-        scripts_dir = repo_dir / "scripts"
-        scripts_dir.mkdir()
-        export_script = scripts_dir / "export-locations.py"
-        export_script.write_text("raise Exception('Export failed')")
+        # Mock MapDataExporter to fail at the correct import location
+        with patch(
+            "app.haarrrvest_publisher.export_map_data.MapDataExporter"
+        ) as MockExporter:
+            mock_exporter = Mock()
+            mock_exporter.export.return_value = False  # Export fails
+            MockExporter.return_value = mock_exporter
 
-        with patch.object(publisher, "_run_command") as mock_run:
-            mock_run.return_value = (1, "", "Export failed")
+            # Create mock fallback script
+            scripts_dir = repo_dir / "scripts"
+            scripts_dir.mkdir()
+            export_script = scripts_dir / "export-locations.py"
+            export_script.write_text("raise Exception('Export failed')")
 
-            with patch("app.haarrrvest_publisher.service.logger") as mock_logger:
-                publisher._run_location_export()
+            with patch.object(publisher, "_run_command") as mock_run:
+                mock_run.return_value = (1, "", "Export failed")
 
-                # Should log error
-                mock_logger.error.assert_called()
+                with patch("app.haarrrvest_publisher.service.logger") as mock_logger:
+                    publisher._run_location_export()
+
+                    # Should log error about both failures
+                    mock_logger.error.assert_called()
 
     def test_should_handle_sqlite_export_exception(self, publisher):
         """Test handling exceptions during SQLite export."""

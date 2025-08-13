@@ -243,24 +243,26 @@ class TestHAARRRvestPublisher:
 
             publisher._export_to_sql_dump()
 
-            # Check symlink exists
-            latest_link = sql_dumps_dir / "latest.sql"
+            # Check symlink exists (now using compressed .gz extension)
+            latest_link = sql_dumps_dir / "latest.sql.gz"
             assert latest_link.exists()
             assert latest_link.is_symlink()
 
     def test_sql_dump_rotation_keeps_24_hours(self, publisher, temp_dirs):
-        """Test that SQL dump rotation keeps only last 24 hours of dumps."""
+        """Test that SQL dump rotation keeps only last 3 hours of dumps."""
         sql_dumps_dir = temp_dirs["repo"] / "sql_dumps"
         sql_dumps_dir.mkdir()
 
-        # Create old dumps
-        old_dump1 = sql_dumps_dir / "pantry_pirate_radio_2025-01-20_00-00-00.sql"
+        # Create old dumps (now using .sql.gz extension)
+        old_dump1 = sql_dumps_dir / "pantry_pirate_radio_2025-01-27_00-00-00.sql.gz"
         old_dump1.write_text("old")
-        old_dump1_time = datetime(2025, 1, 20).timestamp()
+        old_dump1_time = datetime(2025, 1, 27, 0, 0).timestamp()  # 12 hours old
         os.utime(old_dump1, (old_dump1_time, old_dump1_time))
 
-        recent_dump = sql_dumps_dir / "pantry_pirate_radio_2025-01-26_00-00-00.sql"
+        recent_dump = sql_dumps_dir / "pantry_pirate_radio_2025-01-27_10-00-00.sql.gz"
         recent_dump.write_text("recent")
+        recent_dump_time = datetime(2025, 1, 27, 10, 0).timestamp()  # 2 hours old
+        os.utime(recent_dump, (recent_dump_time, recent_dump_time))
 
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [
@@ -269,7 +271,9 @@ class TestHAARRRvestPublisher:
             ]
 
             with patch("app.haarrrvest_publisher.service.datetime") as mock_datetime:
-                mock_datetime.now.return_value = datetime(2025, 1, 27)
+                mock_datetime.now.return_value = datetime(
+                    2025, 1, 27, 12, 0
+                )  # Current time: 12:00
                 mock_datetime.strptime = datetime.strptime  # Keep strptime working
                 publisher._export_to_sql_dump()
 

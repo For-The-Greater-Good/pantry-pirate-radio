@@ -516,15 +516,22 @@ class LocationCreator(BaseReconciler):
         """
         # Try to fill in missing fields using reverse geocoding
         # Use if we have valid coordinates and ANY field is missing
-        if latitude and longitude and (
-            not postal_code or postal_code == "" or
-            not city or city == "" or
-            not address_1 or address_1 == ""
+        if (
+            latitude
+            and longitude
+            and (
+                not postal_code
+                or postal_code == ""
+                or not city
+                or city == ""
+                or not address_1
+                or address_1 == ""
+            )
         ):
             # Check for invalid (0,0) coordinates - use threshold of 0.01 degrees
             if abs(latitude) < 0.01 and abs(longitude) < 0.01:
                 self.logger.debug(
-                    f"Skipping reverse geocoding for invalid (0,0) coordinates"
+                    "Skipping reverse geocoding for invalid (0,0) coordinates"
                 )
             # Check if outside US bounds (including Alaska and Hawaii)
             elif not (18.91 <= latitude <= 71.54 and -179.15 <= longitude <= -67):
@@ -540,7 +547,9 @@ class LocationCreator(BaseReconciler):
 
                     if reverse_result:
                         # Fill ALL missing fields from reverse geocoding
-                        if (not postal_code or postal_code == "") and reverse_result.get("postal_code"):
+                        if (
+                            not postal_code or postal_code == ""
+                        ) and reverse_result.get("postal_code"):
                             postal_code = reverse_result["postal_code"]
                             self.logger.info(
                                 f"Filled missing postal_code using reverse geocoding: {postal_code}"
@@ -550,12 +559,16 @@ class LocationCreator(BaseReconciler):
                             self.logger.info(
                                 f"Filled missing city using reverse geocoding: {city}"
                             )
-                        if (not state_province or state_province == "") and reverse_result.get("state"):
+                        if (
+                            not state_province or state_province == ""
+                        ) and reverse_result.get("state"):
                             state_province = reverse_result["state"]
                             self.logger.info(
                                 f"Filled missing state using reverse geocoding: {state_province}"
                             )
-                        if (not address_1 or address_1 == "") and reverse_result.get("address"):
+                        if (not address_1 or address_1 == "") and reverse_result.get(
+                            "address"
+                        ):
                             # Try to extract street address from full address
                             full_address = reverse_result.get("address", "")
                             if full_address and "," in full_address:
@@ -574,7 +587,7 @@ class LocationCreator(BaseReconciler):
             missing_fields.append("city")
         if not address_1 or address_1 == "":
             missing_fields.append("address_1")
-            
+
         if missing_fields and (address_1 or city or state_province):
             # Build geocoding query from available parts
             geocode_parts = []
@@ -586,76 +599,136 @@ class LocationCreator(BaseReconciler):
                 geocode_parts.append(state_province)
             # Add country for better results
             geocode_parts.append("USA")
-            
+
             geocode_query = ", ".join(geocode_parts)
-            
+
             try:
                 from app.core.geocoding import GeocodingService
-                if not hasattr(self, 'geocoding_service'):
+
+                if not hasattr(self, "geocoding_service"):
                     self.geocoding_service = GeocodingService()
-                    
+
                 # Try forward geocoding to get complete address info
-                self.logger.info(f"Attempting forward geocoding to fill {', '.join(missing_fields)} for query: {geocode_query}")
+                self.logger.info(
+                    f"Attempting forward geocoding to fill {', '.join(missing_fields)} for query: {geocode_query}"
+                )
                 geocoded_result = self.geocoding_service.geocode(geocode_query)
-                
+
                 if geocoded_result:
                     # Extract ALL missing fields from geocoding result
-                    if (not postal_code or postal_code == ""):
-                        if hasattr(geocoded_result, 'postal_code') and geocoded_result.postal_code:
+                    if not postal_code or postal_code == "":
+                        if (
+                            hasattr(geocoded_result, "postal_code")
+                            and geocoded_result.postal_code
+                        ):
                             postal_code = geocoded_result.postal_code
-                            self.logger.info(f"Retrieved postal code {postal_code} via forward geocoding")
-                        elif hasattr(geocoded_result, 'raw') and geocoded_result.raw:
+                            self.logger.info(
+                                f"Retrieved postal code {postal_code} via forward geocoding"
+                            )
+                        elif hasattr(geocoded_result, "raw") and geocoded_result.raw:
                             # Try to extract from raw result
                             raw = geocoded_result.raw
                             if isinstance(raw, dict):
                                 # Try different field names used by various providers
-                                extracted_postal = (raw.get('postcode') or 
-                                             raw.get('postal_code') or 
-                                             raw.get('zip') or 
-                                             raw.get('zipcode'))
+                                extracted_postal = (
+                                    raw.get("postcode")
+                                    or raw.get("postal_code")
+                                    or raw.get("zip")
+                                    or raw.get("zipcode")
+                                )
                                 if extracted_postal:
                                     postal_code = extracted_postal
-                                    self.logger.info(f"Extracted postal code {postal_code} from geocoding result")
-                    
+                                    self.logger.info(
+                                        f"Extracted postal code {postal_code} from geocoding result"
+                                    )
+
                     # Fill missing city
-                    if (not city or city == "") and hasattr(geocoded_result, 'city'):
+                    if (not city or city == "") and hasattr(geocoded_result, "city"):
                         city = geocoded_result.city
                         self.logger.info(f"Retrieved city {city} via forward geocoding")
-                    
+
                     # Fill missing state
-                    if (not state_province or state_province == "") and hasattr(geocoded_result, 'state'):
+                    if (not state_province or state_province == "") and hasattr(
+                        geocoded_result, "state"
+                    ):
                         state_province = geocoded_result.state
-                        self.logger.info(f"Retrieved state {state_province} via forward geocoding")
-                    
+                        self.logger.info(
+                            f"Retrieved state {state_province} via forward geocoding"
+                        )
+
                     # Fill missing street address if we only had city/state
-                    if (not address_1 or address_1 == "") and hasattr(geocoded_result, 'address'):
+                    if (not address_1 or address_1 == "") and hasattr(
+                        geocoded_result, "address"
+                    ):
                         # Extract just the street portion
                         full_addr = geocoded_result.address
                         if full_addr and "," in full_addr:
                             address_1 = full_addr.split(",")[0].strip()
-                            self.logger.info(f"Retrieved address_1 {address_1} via forward geocoding")
-                    
+                            self.logger.info(
+                                f"Retrieved address_1 {address_1} via forward geocoding"
+                            )
+
             except Exception as e:
-                self.logger.warning(f"Forward geocoding failed for {geocode_query}: {e}")
-        
+                self.logger.warning(
+                    f"Forward geocoding failed for {geocode_query}: {e}"
+                )
+
         # If still no postal code after geocoding attempts, use a default based on state
         if postal_code is None or postal_code == "":
             if state_province:
                 # Use state capital ZIP as a reasonable default (better than UNKNOWN)
                 state_defaults = {
-                    "NY": "10001", "CA": "90001", "TX": "73301", "FL": "32301",
-                    "IL": "60601", "PA": "17101", "OH": "43201", "GA": "30301",
-                    "NC": "27601", "MI": "48901", "NJ": "08601", "VA": "23219",
-                    "WA": "98101", "AZ": "85001", "MA": "02108", "IN": "46201",
-                    "TN": "37201", "MO": "63101", "MD": "21201", "WI": "53701",
-                    "MN": "55101", "CO": "80201", "AL": "36101", "SC": "29201",
-                    "LA": "70801", "KY": "40601", "OR": "97201", "OK": "73101",
-                    "CT": "06101", "IA": "50301", "MS": "39201", "AR": "72201",
-                    "UT": "84101", "NV": "89101", "KS": "66101", "NE": "68501",
-                    "WV": "25301", "ID": "83701", "HI": "96801", "NH": "03301",
-                    "ME": "04101", "RI": "02901", "MT": "59601", "DE": "19901",
-                    "SD": "57501", "AK": "99501", "ND": "58501", "VT": "05601",
-                    "DC": "20001", "WY": "82001", "NM": "87501"
+                    "NY": "10001",
+                    "CA": "90001",
+                    "TX": "73301",
+                    "FL": "32301",
+                    "IL": "60601",
+                    "PA": "17101",
+                    "OH": "43201",
+                    "GA": "30301",
+                    "NC": "27601",
+                    "MI": "48901",
+                    "NJ": "08601",
+                    "VA": "23219",
+                    "WA": "98101",
+                    "AZ": "85001",
+                    "MA": "02108",
+                    "IN": "46201",
+                    "TN": "37201",
+                    "MO": "63101",
+                    "MD": "21201",
+                    "WI": "53701",
+                    "MN": "55101",
+                    "CO": "80201",
+                    "AL": "36101",
+                    "SC": "29201",
+                    "LA": "70801",
+                    "KY": "40601",
+                    "OR": "97201",
+                    "OK": "73101",
+                    "CT": "06101",
+                    "IA": "50301",
+                    "MS": "39201",
+                    "AR": "72201",
+                    "UT": "84101",
+                    "NV": "89101",
+                    "KS": "66101",
+                    "NE": "68501",
+                    "WV": "25301",
+                    "ID": "83701",
+                    "HI": "96801",
+                    "NH": "03301",
+                    "ME": "04101",
+                    "RI": "02901",
+                    "MT": "59601",
+                    "DE": "19901",
+                    "SD": "57501",
+                    "AK": "99501",
+                    "ND": "58501",
+                    "VT": "05601",
+                    "DC": "20001",
+                    "WY": "82001",
+                    "NM": "87501",
                 }
                 postal_code = state_defaults.get(state_province, "00000")
                 self.logger.warning(

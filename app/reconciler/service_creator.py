@@ -438,17 +438,21 @@ class ServiceCreator(BaseReconciler):
         """
         # Skip creation if no valid phone number provided
         if not number or number.strip() == "":
-            self.logger.debug("No phone number provided, skipping phone record creation")
+            self.logger.debug(
+                "No phone number provided, skipping phone record creation"
+            )
             return None  # Don't create invalid phone records
-        
+
         # Clean the phone number
         number = number.strip()
-        
+
         # Basic validation - skip if obviously invalid
         if number.upper() in ["UNKNOWN", "INVALID", "N/A", "NA", "NONE"]:
-            self.logger.warning(f"Invalid phone placeholder '{number}', skipping creation")
+            self.logger.warning(
+                f"Invalid phone placeholder '{number}', skipping creation"
+            )
             return None
-        
+
         # Check if it has at least some digits (allow for formatted numbers)
         if not any(char.isdigit() for char in number):
             self.logger.warning(f"Phone number '{number}' contains no digits, skipping")
@@ -694,8 +698,12 @@ class ServiceCreator(BaseReconciler):
         )
 
         # Convert time strings to time objects (handle None values)
-        opens_at_time = datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
-        closes_at_time = datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
+        opens_at_time = (
+            datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
+        )
+        closes_at_time = (
+            datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
+        )
 
         self.db.execute(
             query,
