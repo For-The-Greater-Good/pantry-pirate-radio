@@ -858,7 +858,10 @@ class SchemaConverter:
                         },
                     },
                 },
-                "required": ["number", "type"],  # Languages made optional - scrapers rarely have this data
+                "required": [
+                    "number",
+                    "type",
+                ],  # Languages made optional - scrapers rarely have this data
                 "additionalProperties": False,
             },
             "metadata": {
@@ -1286,7 +1289,10 @@ class SchemaConverter:
                         },
                     },
                 },
-                "required": ["number", "type"],  # Languages made optional - scrapers rarely have this data
+                "required": [
+                    "number",
+                    "type",
+                ],  # Languages made optional - scrapers rarely have this data
                 "additionalProperties": False,
             },
             "metadata": {
