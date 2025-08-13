@@ -693,9 +693,9 @@ class ServiceCreator(BaseReconciler):
         """
         )
 
-        # Convert time strings to time objects
-        opens_at_time = datetime.strptime(opens_at, "%H:%M").time()
-        closes_at_time = datetime.strptime(closes_at, "%H:%M").time()
+        # Convert time strings to time objects (handle None values)
+        opens_at_time = datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
+        closes_at_time = datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
 
         self.db.execute(
             query,
