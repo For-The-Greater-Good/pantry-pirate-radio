@@ -449,6 +449,40 @@ class JobProcessor:
                         uri=org.get("uri") or None,
                     )
 
+                # Try to extract phone numbers from text if none provided
+                if not org.get("phones") or len(org.get("phones", [])) == 0:
+                    # Try to extract from various text fields
+                    extracted_phones = []
+                    phone_patterns = [
+                        r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',  # (123) 456-7890
+                        r'\d{3}[-.\s]\d{3}[-.\s]\d{4}',           # 123-456-7890
+                        r'\d{10}',                                 # 1234567890
+                        r'1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}', # 1-123-456-7890
+                    ]
+                    
+                    # Search in various fields
+                    search_fields = ['description', 'email', 'website', 'alternate_name']
+                    search_text = ""
+                    for field in search_fields:
+                        if field in org and org[field]:
+                            search_text += " " + str(org[field])
+                    
+                    if search_text:
+                        for pattern in phone_patterns:
+                            matches = re.findall(pattern, search_text)
+                            for match in matches:
+                                # Avoid duplicates
+                                if match not in [p.get("number") for p in extracted_phones]:
+                                    extracted_phones.append({
+                                        "number": match,
+                                        "type": "voice",
+                                        "languages": []  # Empty array, now optional
+                                    })
+                        
+                        if extracted_phones:
+                            org["phones"] = extracted_phones
+                            logger.info(f"Extracted {len(extracted_phones)} phone numbers from text for organization '{org.get('name', 'Unknown')}'")
+                
                 # Create organization phones with languages
                 if "phones" in org:
                     for phone in org["phones"]:
@@ -551,6 +585,7 @@ class JobProcessor:
                     # Check that latitude and longitude exist and are not None
                     # Note: 0,0 coordinates are invalid (ocean off Africa) and should be geocoded
                     has_valid_coords = False
+                    needs_regeocode = False
 
                     if (
                         "latitude" in location
@@ -558,26 +593,60 @@ class JobProcessor:
                         and location["latitude"] is not None
                         and location["longitude"] is not None
                     ):
-                        # Check if coordinates are invalid (0,0)
+                        # Check if coordinates are invalid
                         lat = float(location["latitude"])
                         lon = float(location["longitude"])
+                        
+                        # Import geocoding validator for comprehensive validation
+                        from app.llm.utils.geocoding_validator import GeocodingValidator
+                        validator = GeocodingValidator()
+                        
+                        # Check for 0,0 coordinates
                         if lat == 0.0 and lon == 0.0:
                             logger.warning(
                                 f"Location '{location.get('name', 'Unknown')}' has invalid 0,0 coordinates, will attempt geocoding"
                             )
+                            needs_regeocode = True
+                        # Check if coordinates are within US bounds (including Alaska and Hawaii)
+                        elif not (-179.15 <= lon <= -67 and 18.91 <= lat <= 71.54):
+                            logger.warning(
+                                f"Location '{location.get('name', 'Unknown')}' has coordinates outside US bounds: {lat}, {lon}"
+                            )
+                            needs_regeocode = True
                         else:
-                            has_valid_coords = True
+                            # Coordinates are within general US bounds, now check state-specific bounds
+                            state = None
+                            if location.get("address"):
+                                addr = location["address"][0] if isinstance(location["address"], list) else location["address"]
+                                state = addr.get("state_province")
+                            
+                            if state:
+                                # Use validator to check state-specific bounds
+                                if not validator.is_within_state_bounds(lat, lon, state):
+                                    logger.warning(
+                                        f"Coordinates {lat}, {lon} don't match state {state} bounds, will re-geocode"
+                                    )
+                                    needs_regeocode = True
+                                else:
+                                    has_valid_coords = True
+                            else:
+                                # No state to validate against, accept if within US bounds
+                                has_valid_coords = True
 
-                    if has_valid_coords:
+                    if has_valid_coords and not needs_regeocode:
                         # Check for existing location by coordinates
                         match_id = location_creator.find_matching_location(
                             float(location["latitude"]), float(location["longitude"])
                         )
                     else:
-                        # Try to geocode if we have address information
+                        # Try to geocode if we have address information OR if coordinates need re-geocoding
                         location_name = location.get("name", "Unknown")
                         geocoded_coords = None
                         match_id = None
+                        
+                        # Force re-geocoding if coordinates were invalid
+                        if needs_regeocode:
+                            logger.info(f"Re-geocoding location '{location_name}' due to invalid coordinates")
 
                         # Check if we have address information
                         if location.get("address"):
@@ -853,6 +922,37 @@ class JobProcessor:
                                         longitude=location.get("longitude"),
                                     )
 
+                        # Try to extract phone numbers from location text if none provided
+                        if location_id and (not location.get("phones") or len(location.get("phones", [])) == 0):
+                            # Try to extract from location fields
+                            extracted_phones = []
+                            phone_patterns = [
+                                r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',  # (123) 456-7890
+                                r'\d{3}[-.\s]\d{3}[-.\s]\d{4}',           # 123-456-7890
+                                r'\d{10}',                                 # 1234567890
+                            ]
+                            
+                            # Search in location-specific fields
+                            search_text = ""
+                            for field in ['name', 'description', 'transportation', 'alternate_name']:
+                                if field in location and location[field]:
+                                    search_text += " " + str(location[field])
+                            
+                            if search_text:
+                                for pattern in phone_patterns:
+                                    matches = re.findall(pattern, search_text)
+                                    for match in matches:
+                                        if match not in [p.get("number") for p in extracted_phones]:
+                                            extracted_phones.append({
+                                                "number": match,
+                                                "type": "voice",
+                                                "languages": []
+                                            })
+                                
+                                if extracted_phones:
+                                    location["phones"] = extracted_phones
+                                    logger.info(f"Extracted {len(extracted_phones)} phone numbers for location '{location.get('name', 'Unknown')}'")
+                        
                         # Create location phones with languages (for both new and existing locations)
                         if "phones" in location and location_id:
                             for phone in location["phones"]:

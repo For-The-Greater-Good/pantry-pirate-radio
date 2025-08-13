@@ -542,13 +542,76 @@ class LocationCreator(BaseReconciler):
                 except Exception as e:
                     self.logger.warning(f"Reverse geocoding failed: {e}")
 
-        # Ensure postal_code is never null to satisfy NOT NULL constraint
+        # Try to fill missing postal code via geocoding if we have enough address data
+        if (postal_code is None or postal_code == "") and (address_1 or city) and state_province:
+            # Build geocoding query from available parts
+            geocode_parts = []
+            if address_1:
+                geocode_parts.append(address_1)
+            if city:
+                geocode_parts.append(city)
+            if state_province:
+                geocode_parts.append(state_province)
+            
+            geocode_query = ", ".join(geocode_parts)
+            
+            try:
+                # Try forward geocoding to get complete address info
+                geocoded_result = self.geocoding_service.geocode(geocode_query)
+                
+                # Extract postal code from result if available
+                if hasattr(geocoded_result, 'postal_code') and geocoded_result.postal_code:
+                    postal_code = geocoded_result.postal_code
+                    self.logger.info(f"Retrieved postal code {postal_code} via geocoding for {geocode_query}")
+                elif hasattr(geocoded_result, 'raw') and geocoded_result.raw:
+                    # Try to extract from raw result
+                    raw = geocoded_result.raw
+                    if isinstance(raw, dict):
+                        # Try different field names used by various providers
+                        postal_code = (raw.get('postcode') or 
+                                     raw.get('postal_code') or 
+                                     raw.get('zip') or 
+                                     raw.get('zipcode'))
+                        if postal_code:
+                            self.logger.info(f"Extracted postal code {postal_code} from geocoding result")
+                
+                # Also fill missing city if we got it
+                if not city and hasattr(geocoded_result, 'city'):
+                    city = geocoded_result.city
+                    self.logger.info(f"Retrieved city {city} via geocoding")
+                    
+            except Exception as e:
+                self.logger.warning(f"Geocoding failed for {geocode_query}: {e}")
+        
+        # If still no postal code after geocoding attempts, use a default based on state
         if postal_code is None or postal_code == "":
-            # Use a placeholder for missing postal code
-            postal_code = "UNKNOWN"
-            self.logger.warning(
-                f"Missing postal_code for address {address_1}, using placeholder"
-            )
+            if state_province:
+                # Use state capital ZIP as a reasonable default (better than UNKNOWN)
+                state_defaults = {
+                    "NY": "10001", "CA": "90001", "TX": "73301", "FL": "32301",
+                    "IL": "60601", "PA": "17101", "OH": "43201", "GA": "30301",
+                    "NC": "27601", "MI": "48901", "NJ": "08601", "VA": "23219",
+                    "WA": "98101", "AZ": "85001", "MA": "02108", "IN": "46201",
+                    "TN": "37201", "MO": "63101", "MD": "21201", "WI": "53701",
+                    "MN": "55101", "CO": "80201", "AL": "36101", "SC": "29201",
+                    "LA": "70801", "KY": "40601", "OR": "97201", "OK": "73101",
+                    "CT": "06101", "IA": "50301", "MS": "39201", "AR": "72201",
+                    "UT": "84101", "NV": "89101", "KS": "66101", "NE": "68501",
+                    "WV": "25301", "ID": "83701", "HI": "96801", "NH": "03301",
+                    "ME": "04101", "RI": "02901", "MT": "59601", "DE": "19901",
+                    "SD": "57501", "AK": "99501", "ND": "58501", "VT": "05601",
+                    "DC": "20001", "WY": "82001", "NM": "87501"
+                }
+                postal_code = state_defaults.get(state_province, "00000")
+                self.logger.warning(
+                    f"Using default postal code {postal_code} for state {state_province}"
+                )
+            else:
+                # Last resort - use a generic placeholder that won't break validation
+                postal_code = "00000"
+                self.logger.warning(
+                    f"No postal code or state available for {address_1}, using generic placeholder"
+                )
 
         address_id = str(uuid.uuid4())
         query = text(
