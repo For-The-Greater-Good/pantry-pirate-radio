@@ -808,7 +808,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             )  # nosec B603 - Safe hardcoded command
 
             if result.returncode != 0:
-                logger.error(f"Failed to check database record count: {result.stderr}")
+                self._safe_log(
+                    "error", f"Failed to check database record count: {result.stderr}"
+                )
                 raise Exception("Cannot verify database state before dump")
 
             current_count = int(result.stdout.strip())
@@ -1293,6 +1295,15 @@ This repository contains food resource data collected by Pantry Pirate Radio.
     def _shutdown_handler(self, signum=None, frame=None):
         """Handle shutdown by creating a final SQL dump."""
         _ = signum, frame  # Signal handler parameters, not used but required
+
+        # Skip SQL dump only in integration tests to avoid logging errors
+        # Allow it in unit tests that specifically test the shutdown handler
+        if (
+            os.getenv("TESTING") == "true"
+            and os.getenv("SKIP_SHUTDOWN_SQL_DUMP") == "true"
+        ):
+            self._safe_log("debug", "Skipping SQL dump in integration test environment")
+            return
 
         self._safe_log("info", "Received shutdown signal, creating final SQL dump...")
         try:
