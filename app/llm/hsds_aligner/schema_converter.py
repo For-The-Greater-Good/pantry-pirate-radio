@@ -40,30 +40,30 @@ FORMAT_HANDLERS = {
 
 # Known field type constraints
 TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
-    # Geographic coordinates
+    # Geographic coordinates - US bounds including Alaska and Hawaii
     "latitude": {
         "type": "number",
-        "minimum": -90,
-        "maximum": 90,
-        "description": "Latitude in decimal degrees (-90 to 90, negative = south)",
+        "minimum": 18.91,  # Hawaii southern bound
+        "maximum": 71.54,  # Alaska northern bound
+        "description": "US latitude including all states (18.91-71.54°N for Hawaii to Alaska)",
     },
     "longitude": {
         "type": "number",
-        "minimum": -180,
-        "maximum": 180,
-        "description": "Longitude in decimal degrees (-180 to 180, negative = west)",
+        "minimum": -179.15,  # Alaska/Aleutian western bound
+        "maximum": -67,  # Eastern US bound
+        "description": "US longitude including all states (-179.15 to -67°W for Alaska to Eastern US)",
     },
     "location.latitude": {
         "type": "number",
-        "minimum": -90,
-        "maximum": 90,
-        "description": "Location latitude in decimal degrees",
+        "minimum": 18.91,  # Hawaii southern bound
+        "maximum": 71.54,  # Alaska northern bound
+        "description": "Location latitude in decimal degrees (US bounds: 18.91-71.54°N)",
     },
     "location.longitude": {
         "type": "number",
-        "minimum": -180,
-        "maximum": 180,
-        "description": "Location longitude in decimal degrees",
+        "minimum": -179.15,  # Alaska/Aleutian western bound
+        "maximum": -67,  # Eastern US bound
+        "description": "Location longitude in decimal degrees (US bounds: -179.15 to -67°W)",
     },
     # Address constraints
     "address.state_province": {
@@ -191,7 +191,8 @@ TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
         "type": "string",
         "pattern": r"^[A-Z]{2}$",  # ISO 3166-1 country codes
         "default": "US",
-        "description": "ISO 3166-1 country code (2 letters, e.g., US)",
+        "const": "US",  # For US-only food pantries
+        "description": "ISO 3166-1 country code (2 letters, defaults to US)",
     },
     # Phone constraints
     "phone.number": {
@@ -236,7 +237,75 @@ TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
     # Financial
     "amount": {"type": "number", "minimum": 0},  # Non-negative amounts
     # Extensions
-    "phone.extension": {"type": "number", "minimum": 0},
+    "phone.extension": {"type": "integer", "minimum": 0, "maximum": 99999},
+    # Text field length constraints
+    "organization.name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Organization name (required, max 255 characters)",
+    },
+    "organization.description": {
+        "type": "string",
+        "maxLength": 5000,
+        "description": "Organization description (max 5000 characters)",
+    },
+    "organization.alternate_name": {
+        "type": "string",
+        "maxLength": 255,
+        "description": "Alternate organization name (max 255 characters)",
+    },
+    "service.name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Service name (required, max 255 characters)",
+    },
+    "service.description": {
+        "type": "string",
+        "maxLength": 5000,
+        "description": "Service description (max 5000 characters)",
+    },
+    "location.name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Location name (required, max 255 characters)",
+    },
+    "location.description": {
+        "type": "string",
+        "maxLength": 5000,
+        "description": "Location description (max 5000 characters)",
+    },
+    # URL and Email validation
+    "organization.website": {
+        "type": "string",
+        "format": "uri",
+        "pattern": r"^https?://",
+        "description": "Organization website URL (must start with http:// or https://)",
+    },
+    "organization.email": {
+        "type": "string",
+        "format": "email",
+        "description": "Organization email address",
+    },
+    "service.email": {
+        "type": "string",
+        "format": "email",
+        "description": "Service-specific email address",
+    },
+    # Schedule day validation
+    "schedule.byday": {
+        "type": "string",
+        "pattern": r"^(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*$",
+        "description": "Days of week in RRULE format (e.g., MO,WE,FR)",
+    },
+    # Address field flexibility
+    "address.city": {
+        "type": "string",
+        "maxLength": 100,
+        "description": "City name (can be geocoded if missing)",
+    },
 }
 
 # Known enum values from schema
@@ -789,7 +858,10 @@ class SchemaConverter:
                         },
                     },
                 },
-                "required": ["number", "type", "languages"],
+                "required": [
+                    "number",
+                    "type",
+                ],  # Languages made optional - scrapers rarely have this data
                 "additionalProperties": False,
             },
             "metadata": {
@@ -880,15 +952,14 @@ class SchemaConverter:
             required_fields.extend(
                 [
                     "address_1",
-                    "city",
                     "state_province",
-                    "postal_code",
-                    "country",
                     "address_type",
                 ]
+                # Only address_1 and state_province are truly required
+                # city, postal_code, and country can be geocoded if missing
             )
         elif table_name == "phone":
-            required_fields.extend(["number", "type", "languages"])
+            required_fields.extend(["number", "type"])  # Languages made optional
         elif table_name == "schedule":
             required_fields.extend(["freq", "wkst", "opens_at", "closes_at"])
         elif table_name == "metadata":
@@ -1079,6 +1150,34 @@ class SchemaConverter:
                     },
                     "minItems": 1,
                 },
+                "phone": {
+                    "type": "array",
+                    "description": (
+                        "Array of phone numbers for organizations, services, and locations. "
+                        "Each phone entry includes the number, type (voice/fax/tty), and can be linked to "
+                        "an organization, service, or location via their respective IDs."
+                    ),
+                    "items": definitions.get("phone", {"type": "object"}),
+                },
+                "schedule": {
+                    "type": "array",
+                    "description": (
+                        "Array of schedules defining when services are available. "
+                        "Includes recurring patterns (weekly/monthly), specific dates, and time ranges. "
+                        "Can be linked to services, locations, or service_at_location entries. "
+                        "Use RRULE format for recurring schedules (e.g., freq='WEEKLY', byday='MO,WE,FR')."
+                    ),
+                    "items": definitions.get("schedule", {"type": "object"}),
+                },
+                "service_at_location": {
+                    "type": "array",
+                    "description": (
+                        "Array linking services to specific locations where they are delivered. "
+                        "This represents the many-to-many relationship between services and locations. "
+                        "Use this when a service has location-specific details like different hours or contacts at each location."
+                    ),
+                    "items": definitions.get("service_at_location", {"type": "object"}),
+                },
             },
             "required": ["organization", "service", "location"],
             "additionalProperties": False,
@@ -1087,7 +1186,8 @@ class SchemaConverter:
         # Enhanced guidance specific to food pantries
         food_pantry_guidance = (
             "FOOD PANTRY SPECIFIC GUIDANCE: "
-            "CRITICAL STRUCTURE: Output must have three top-level arrays: organization[], service[], location[]. "
+            "CRITICAL STRUCTURE: Output must have these top-level arrays: organization[], service[], location[], "
+            "and optionally: service_at_location[], phone[], schedule[]. "
             "LOCATION CREATION RULES: "
             "1. ALWAYS create separate locations for different addresses - never combine them. "
             "2. Mobile pantries: Create a location for each regular stop (e.g., 'Walmart Parking Lot - Main St'). "
@@ -1189,7 +1289,10 @@ class SchemaConverter:
                         },
                     },
                 },
-                "required": ["number", "type", "languages"],
+                "required": [
+                    "number",
+                    "type",
+                ],  # Languages made optional - scrapers rarely have this data
                 "additionalProperties": False,
             },
             "metadata": {
@@ -1284,21 +1387,26 @@ class SchemaConverter:
             "1. Output must contain three top-level arrays: 'organization', 'service', and 'location'. "
             "2. Each array must contain at least one object of the appropriate type. "
             "3. All entities that appear nested within organizations must ALSO appear in their respective top-level arrays. "
+            "ID GENERATION RULES: "
+            "4. DO NOT generate or create any 'id' fields - the system will automatically generate all IDs. "
+            "5. Leave all 'id' fields empty, null, or omit them entirely from your output. "
+            "6. For entity relationships, use descriptive names instead of IDs. "
             "LOCATION ENTITY REQUIREMENTS: "
-            "4. Create a SEPARATE location entity for EACH unique physical address in the input data. "
-            "5. If an organization operates at multiple addresses (e.g., main office, distribution sites, event locations), "
+            "7. Create a SEPARATE location entity for EACH unique physical address in the input data. "
+            "8. If an organization operates at multiple addresses (e.g., main office, distribution sites, event locations), "
             "   create a separate location entity for each address. "
-            "6. Events or distributions at different addresses must each have their own location entity. "
-            "7. Mobile distribution points or temporary sites also need separate location entities. "
+            "9. Events or distributions at different addresses must each have their own location entity. "
+            "10. Mobile distribution points or temporary sites also need separate location entities. "
             "RELATIONSHIP REQUIREMENTS: "
-            "8. Services and locations have a many-to-many relationship via service_at_location. "
-            "9. Each organization's 'locations' array should reference all locations where it provides services. "
-            "10. Each service should be linked to its delivery locations via service_at_location entries. "
+            "11. Services and locations have a many-to-many relationship via service_at_location. "
+            "12. Each organization's 'locations' array should reference all locations where it provides services. "
+            "13. Each service should be linked to its delivery locations via service_at_location entries. "
             "DATA FORMATTING REQUIREMENTS: "
-            "11. Use RRULE format for recurring schedules (freq: WEEKLY/MONTHLY, byday: MO,TU,WE,TH,FR,SA,SU). "
-            "12. Convert date/time strings to ISO format (YYYY-MM-DD for dates, HH:MM for times). "
-            "13. State codes must be 2-letter US state codes (e.g., OH, CA, NY). "
-            "14. Never hallucinate data - only include fields present in or directly derivable from the input. "
+            "14. Use RRULE format for recurring schedules (freq: WEEKLY/MONTHLY, byday: MO,TU,WE,TH,FR,SA,SU). "
+            "15. Convert date/time strings to ISO format (YYYY-MM-DD for dates, HH:MM for times). "
+            "16. State codes must be 2-letter US state codes (e.g., OH, CA, NY). "
+            "17. Never hallucinate data - only include fields present in or directly derivable from the input. "
+            "18. NEVER generate ID values - all IDs will be created by the system. "
             "EXAMPLE: If input has one food bank with distributions at 3 different churches, output should have: "
             "- 1 organization (the food bank) "
             "- 1+ services (food distribution, etc.) "

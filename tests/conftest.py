@@ -17,15 +17,51 @@ from pytest import (
 
 from app.core.logging import configure_logging
 
-# Load .env file for tests
+# Load .env.test file for tests, but preserve API keys from .env
 try:
     from dotenv import load_dotenv
 
-    # Load .env file from project root
     project_dir = Path(__file__).parent.parent
+
+    # First, save any real API keys from .env if it exists
+    real_api_keys = {}
     env_file = project_dir / ".env"
     if env_file.exists():
-        load_dotenv(env_file)
+        # Temporarily load .env to extract API keys
+        temp_env = {}
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    # Save real API keys that aren't placeholders
+                    if (
+                        "API_KEY" in key
+                        and value
+                        and value
+                        not in [
+                            "test_key",
+                            "your_openrouter_api_key_here",
+                            "your_anthropic_api_key_here",
+                        ]
+                    ):
+                        real_api_keys[key] = value
+
+    # Load .env.test file from project root (test-specific configuration)
+    env_test_file = project_dir / ".env.test"
+    if env_test_file.exists():
+        load_dotenv(env_test_file, override=True)
+        # Restore real API keys for integration tests
+        for key, value in real_api_keys.items():
+            os.environ[key] = value
+    else:
+        # Fallback to .env if .env.test doesn't exist
+        if env_file.exists():
+            load_dotenv(env_file)
+            # Override CONTENT_STORE_PATH to prevent using production store
+            os.environ.pop("CONTENT_STORE_PATH", None)
 except ImportError:
     # dotenv not available, skip loading
     pass

@@ -112,8 +112,8 @@ main() {
         if [ "$record_count" -lt "$min_threshold" ]; then
             warn "Database has only $record_count records (minimum: $min_threshold)"
 
-            # Check if we have existing dumps (legacy check)
-            if ls "$OUTPUT_DIR"/pantry_pirate_radio_*.sql >/dev/null 2>&1; then
+            # Check if we have existing dumps (both compressed and uncompressed)
+            if ls "$OUTPUT_DIR"/pantry_pirate_radio_*.sql* >/dev/null 2>&1; then
                 error "Existing SQL dumps found but no ratchet file"
 
                 if [ "$allow_empty" != "true" ]; then
@@ -147,45 +147,62 @@ with open('$ratchet_file', 'w') as f:
     # Create output directory
     mkdir -p "$OUTPUT_DIR"
 
-    # Generate filename with timestamp
-    local dump_filename="pantry_pirate_radio_$(date +'%Y-%m-%d_%H-%M-%S').sql"
+    # Generate filename with timestamp for compressed dump
+    local dump_filename="pantry_pirate_radio_$(date +'%Y-%m-%d_%H-%M-%S').sql.gz"
     local dump_path="$OUTPUT_DIR/$dump_filename"
+    local temp_dump_path="${dump_path%.gz}"  # Remove .gz for temp file
 
-    log "Creating SQL dump: $dump_path"
+    log "Creating compressed SQL dump: $dump_path"
     log "This may take a few minutes..."
 
-    # Create plain SQL dump (uncompressed for git tracking)
+    # Create uncompressed SQL dump first
     if pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
         --no-owner \
         --no-privileges \
         --if-exists \
         --clean \
-        --verbose 2>&1 > "$dump_path" | while IFS= read -r line; do
+        --verbose 2>&1 > "$temp_dump_path" | while IFS= read -r line; do
         # Show progress
         if echo "$line" | grep -E "(dumping|writing|archiving)" >/dev/null; then
             echo "  $line"
         fi
     done; then
-        # Get final file size
-        local file_size_mb=$(stat -f%z "$dump_path" 2>/dev/null || stat -c%s "$dump_path" 2>/dev/null)
-        file_size_mb=$((file_size_mb / 1024 / 1024))
+        # Compress the dump
+        log "Compressing SQL dump with gzip..."
+        gzip -9 < "$temp_dump_path" > "$dump_path"
+        
+        # Remove temporary uncompressed file
+        rm -f "$temp_dump_path"
+        
+        # Get compressed file size
+        local compressed_size_mb=$(stat -f%z "$dump_path" 2>/dev/null || stat -c%s "$dump_path" 2>/dev/null)
+        compressed_size_mb=$((compressed_size_mb / 1024 / 1024))
+        
+        # Estimate compression ratio (SQL typically compresses to 10-20% of original)
+        local estimated_original_mb=$((compressed_size_mb * 7))
+        local compression_ratio=$((100 - (compressed_size_mb * 100 / estimated_original_mb)))
 
         log "SQL dump created successfully!"
         log "File: $dump_path"
-        log "Size: ${file_size_mb} MB"
+        log "Size: ${compressed_size_mb} MB (compressed, ~${compression_ratio}% reduction)"
 
-        # Create/update latest symlink
-        local latest_link="$OUTPUT_DIR/latest.sql"
+        # Create/update latest symlink for compressed dump
+        local latest_link="$OUTPUT_DIR/latest.sql.gz"
+        # Remove old uncompressed symlink if it exists
+        local old_link="$OUTPUT_DIR/latest.sql"
+        if [ -L "$old_link" ] || [ -e "$old_link" ]; then
+            rm -f "$old_link"
+        fi
         if [ -L "$latest_link" ] || [ -e "$latest_link" ]; then
             rm -f "$latest_link"
         fi
         ln -s "$(basename "$dump_path")" "$latest_link"
-        log "Updated latest.sql symlink"
+        log "Updated latest.sql.gz symlink"
 
         echo
-        log "To restore this dump to a new database:"
+        log "To restore this compressed dump to a new database:"
         log "  1. Create empty database: createdb -h HOST -U USER new_database"
-        log "  2. Restore: psql -h HOST -U USER -d new_database < $dump_path"
+        log "  2. Restore: gunzip -c $dump_path | psql -h HOST -U USER -d new_database"
 
     else
         error "Failed to create SQL dump!"
@@ -199,7 +216,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo
-            echo "Create a compressed SQL dump of the Pantry Pirate Radio database"
+            echo "Create a gzip-compressed SQL dump of the Pantry Pirate Radio database"
             echo
             echo "Options:"
             echo "  -h, --help     Show this help message"

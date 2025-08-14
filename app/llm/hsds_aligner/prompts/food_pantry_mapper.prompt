@@ -49,6 +49,12 @@ FORMAT REQUIREMENTS:
 
 ENTITY EXTRACTION GUIDELINES:
 
+🚫 ID GENERATION RULES:
+- DO NOT generate or create any 'id' fields for any entities
+- The system will automatically generate all IDs - you should NEVER provide them
+- Leave 'id' fields empty, null, or omit them entirely
+- For relationships between entities, use descriptive references (names) not IDs
+
 ✅ ALWAYS CREATE:
 - One organization entity for the main agency/provider
 - At least one service entity describing what's offered (food pantry, distribution, etc.)
@@ -59,6 +65,7 @@ ENTITY EXTRACTION GUIDELINES:
 - Only include fields that are explicitly present or directly derivable from the input
 - Empty arrays/lists are acceptable - do not populate them with defaults
 - DO NOT add fields just to satisfy schema requirements
+- NEVER generate ID values - the system handles all ID generation
 
 ✅ SAFE DEFAULTS (Only when the context clearly requires them):
 - country: "US" ONLY if the organization is clearly US-based (has US state/city)

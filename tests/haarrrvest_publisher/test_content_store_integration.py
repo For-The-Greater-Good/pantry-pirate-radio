@@ -10,10 +10,20 @@ import pytest
 
 from app.haarrrvest_publisher.service import HAARRRvestPublisher
 from app.content_store import ContentStore
+from app.content_store.config import reset_content_store
 
 
 class TestHAARRRvestContentStoreIntegration:
     """Test cases for HAARRRvest publisher with content store."""
+
+    @pytest.fixture(autouse=True)
+    def reset_content_store_singleton(self, monkeypatch):
+        """Reset content store singleton before and after each test."""
+        reset_content_store()
+        # Skip SQL dump in shutdown handler to avoid logging errors
+        monkeypatch.setenv("SKIP_SHUTDOWN_SQL_DUMP", "true")
+        yield
+        reset_content_store()
 
     @pytest.fixture
     def temp_dirs(self):

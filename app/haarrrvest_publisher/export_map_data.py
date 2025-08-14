@@ -55,9 +55,9 @@ class MapDataExporter:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT COUNT(*) 
-                    FROM location 
-                    WHERE latitude IS NOT NULL 
+                    SELECT COUNT(*)
+                    FROM location
+                    WHERE latitude IS NOT NULL
                       AND longitude IS NOT NULL
                       AND latitude BETWEEN -90 AND 90
                       AND longitude BETWEEN -180 AND 180
@@ -105,7 +105,7 @@ class MapDataExporter:
                 """
                 WITH location_phones AS (
                     -- Pre-aggregate phones to avoid subquery in main SELECT
-                    SELECT 
+                    SELECT
                         COALESCE(p.location_id, p.organization_id) as ref_id,
                         p.location_id,
                         p.organization_id,
@@ -113,7 +113,7 @@ class MapDataExporter:
                     FROM phone p
                     GROUP BY p.location_id, p.organization_id
                 )
-                SELECT 
+                SELECT
                     l.id,
                     l.latitude as lat,
                     l.longitude as lng,
@@ -129,7 +129,7 @@ class MapDataExporter:
                     ) as address,
                     a.city,
                     -- Clean state codes at query level
-                    CASE 
+                    CASE
                         WHEN LENGTH(a.state_province) <= 2 THEN a.state_province
                         WHEN a.state_province IS NULL THEN NULL
                         ELSE SUBSTRING(a.state_province, 1, 2)
@@ -145,7 +145,7 @@ class MapDataExporter:
                 LEFT JOIN address a ON a.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id
                 LEFT JOIN location_phones lp ON (lp.location_id = l.id OR (lp.location_id IS NULL AND lp.organization_id = o.id))
-                WHERE l.latitude IS NOT NULL 
+                WHERE l.latitude IS NOT NULL
                   AND l.longitude IS NOT NULL
                   AND l.latitude BETWEEN -90 AND 90
                   AND l.longitude BETWEEN -180 AND 180
