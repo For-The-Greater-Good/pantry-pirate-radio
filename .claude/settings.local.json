@@ -74,7 +74,8 @@
       "Bash(git tag:*)",
       "WebFetch(domain:for-the-greater-good.github.io)",
       "Bash(gh release view:*)",
-      "Bash(./bouy exec db psql:*)"
+      "Bash(./bouy exec db psql:*)",
+      "Bash(gh issue view:*)"
     ],
     "deny": [],
     "additionalDirectories": [
