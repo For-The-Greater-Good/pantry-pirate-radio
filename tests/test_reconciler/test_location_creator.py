@@ -573,11 +573,11 @@ def test_create_address_missing_postal_code(mock_db: MagicMock) -> None:
 
             # Verify logger warning was called
             mock_logger.warning.assert_called_once()
-            assert "Missing postal_code" in mock_logger.warning.call_args[0][0]
+            assert "Using default postal code" in mock_logger.warning.call_args[0][0]
 
-            # Verify SQL execution with placeholder postal code
+            # Verify SQL execution with default CA postal code
             address_call = mock_db.execute.call_args_list[0]
             assert isinstance(address_call[0][0], TextClause)
-            assert address_call[0][1]["postal_code"] == "UNKNOWN"
+            assert address_call[0][1]["postal_code"] == "90001"  # Default for CA
             assert address_call[0][1]["address_1"] == "123 Test St"
             assert address_call[0][1]["location_id"] == location_id

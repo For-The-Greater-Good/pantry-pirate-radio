@@ -366,14 +366,22 @@ class ContentStore:
             processed = row[1] or 0
             pending = row[2] or 0
 
-        # Calculate store size (this is less critical and can be approximate)
-        try:
-            store_size = sum(
-                f.stat().st_size for f in self.content_store_path.rglob("*.json")
-            )
-        except Exception:
-            # If file system access fails, provide a reasonable default
-            store_size = 0
+        # Calculate store size - skip for performance if store is large
+        # This is an expensive operation that scans all files
+        # For large stores (>1000 files), just estimate based on count
+        store_size = 0
+        if total < 1000:  # Only calculate for small stores
+            try:
+                # Limit scan to avoid performance issues
+                store_size = sum(
+                    f.stat().st_size for f in self.content_store_path.rglob("*.json")
+                )
+            except Exception:
+                # If file system access fails, default to 0 for compatibility
+                store_size = 0
+        else:
+            # For large stores, estimate: ~1KB per file average
+            store_size = total * 1024
 
         return {
             "total_content": total,

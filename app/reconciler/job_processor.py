@@ -5,6 +5,7 @@ import logging
 import re
 import uuid
 from typing import Any, cast
+from uuid import UUID
 
 import demjson3
 from sqlalchemy import create_engine, text
@@ -360,7 +361,9 @@ class JobProcessor:
             logger.info(
                 f"Processing HSDS data: {len(data.get('organization', []))} orgs, "
                 f"{len(data.get('service', []))} services, "
-                f"{len(data.get('location', []))} locations"
+                f"{len(data.get('location', []))} locations, "
+                f"{len(data.get('phone', []))} phones, "
+                f"{len(data.get('schedule', []))} schedules"
             )
 
             # Log the structure for debugging
@@ -380,6 +383,16 @@ class JobProcessor:
             org_creator = OrganizationCreator(self.db)
             location_creator = LocationCreator(self.db)
             service_creator = ServiceCreator(self.db)
+
+            # Initialize ID mappings for foreign key resolution
+            # Map entity names (and old IDs) to created UUIDs
+            org_name_map: dict[str, UUID] = {}  # Maps org names to created UUIDs
+            service_id_map: dict[str, UUID] = (
+                {}
+            )  # Maps service names/IDs to created UUIDs
+            service_at_location_id_map: dict[str, UUID] = (
+                {}
+            )  # Maps SAL names/IDs to created UUIDs
 
             # Process organization
             if "organization" in data and len(data["organization"]) > 0:
@@ -448,6 +461,62 @@ class JobProcessor:
                         legal_status=org.get("legal_status") or None,
                         uri=org.get("uri") or None,
                     )
+
+                # Store organization name mapping (ignore LLM-provided IDs)
+                if org_id and org.get("name"):
+                    org_name_map[org["name"]] = org_id
+                    logger.debug(
+                        f"Mapped organization '{org['name']}' to UUID {org_id}"
+                    )
+
+                # Try to extract phone numbers from text if none provided
+                # Check if phones is None (missing) or empty list
+                if org.get("phones") is None or len(org.get("phones", [])) == 0:
+                    # Try to extract from various text fields
+                    extracted_phones = []
+                    phone_patterns = [
+                        r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",  # (123) 456-7890
+                        r"\d{3}[-.\s]\d{3}[-.\s]\d{4}",  # 123-456-7890
+                        r"\d{10}",  # 1234567890
+                        r"1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}",  # 1-123-456-7890
+                        r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",  # 1-800-FLOWERS vanity
+                    ]
+
+                    # Search in various fields including year_incorporated and legal_status
+                    search_fields = [
+                        "description",
+                        "email",
+                        "website",
+                        "alternate_name",
+                        "year_incorporated",
+                        "legal_status",
+                    ]
+                    search_text = ""
+                    for field in search_fields:
+                        if org.get(field):
+                            search_text += " " + str(org[field])
+
+                    if search_text:
+                        for pattern in phone_patterns:
+                            matches = re.findall(pattern, search_text)
+                            for match in matches:
+                                # Avoid duplicates
+                                if match not in [
+                                    p.get("number") for p in extracted_phones
+                                ]:
+                                    extracted_phones.append(
+                                        {
+                                            "number": match,
+                                            "type": "voice",
+                                            "languages": [],  # Empty array, now optional
+                                        }
+                                    )
+
+                        if extracted_phones:
+                            org["phones"] = extracted_phones
+                            logger.info(
+                                f"Extracted {len(extracted_phones)} phone numbers from text for organization '{org.get('name', 'Unknown')}'"
+                            )
 
                 # Create organization phones with languages
                 if "phones" in org:
@@ -551,6 +620,7 @@ class JobProcessor:
                     # Check that latitude and longitude exist and are not None
                     # Note: 0,0 coordinates are invalid (ocean off Africa) and should be geocoded
                     has_valid_coords = False
+                    needs_regeocode = False
 
                     if (
                         "latitude" in location
@@ -558,26 +628,69 @@ class JobProcessor:
                         and location["latitude"] is not None
                         and location["longitude"] is not None
                     ):
-                        # Check if coordinates are invalid (0,0)
+                        # Check if coordinates are invalid
                         lat = float(location["latitude"])
                         lon = float(location["longitude"])
+
+                        # Import geocoding validator for comprehensive validation
+                        from app.llm.utils.geocoding_validator import GeocodingValidator
+
+                        validator = GeocodingValidator()
+
+                        # Check for 0,0 coordinates
                         if lat == 0.0 and lon == 0.0:
                             logger.warning(
                                 f"Location '{location.get('name', 'Unknown')}' has invalid 0,0 coordinates, will attempt geocoding"
                             )
+                            needs_regeocode = True
+                        # Check if coordinates are within US bounds (including Alaska and Hawaii)
+                        elif not (-179.15 <= lon <= -67 and 18.91 <= lat <= 71.54):
+                            logger.warning(
+                                f"Location '{location.get('name', 'Unknown')}' has coordinates outside US bounds: {lat}, {lon}"
+                            )
+                            needs_regeocode = True
                         else:
-                            has_valid_coords = True
+                            # Coordinates are within general US bounds, now check state-specific bounds
+                            state = None
+                            if location.get("address"):
+                                addr = (
+                                    location["address"][0]
+                                    if isinstance(location["address"], list)
+                                    else location["address"]
+                                )
+                                state = addr.get("state_province")
 
-                    if has_valid_coords:
+                            if state:
+                                # Use validator to check state-specific bounds
+                                if not validator.is_within_state_bounds(
+                                    lat, lon, state
+                                ):
+                                    logger.warning(
+                                        f"Coordinates {lat}, {lon} don't match state {state} bounds, will re-geocode"
+                                    )
+                                    needs_regeocode = True
+                                else:
+                                    has_valid_coords = True
+                            else:
+                                # No state to validate against, accept if within US bounds
+                                has_valid_coords = True
+
+                    if has_valid_coords and not needs_regeocode:
                         # Check for existing location by coordinates
                         match_id = location_creator.find_matching_location(
                             float(location["latitude"]), float(location["longitude"])
                         )
                     else:
-                        # Try to geocode if we have address information
+                        # Try to geocode if we have address information OR if coordinates need re-geocoding
                         location_name = location.get("name", "Unknown")
                         geocoded_coords = None
                         match_id = None
+
+                        # Force re-geocoding if coordinates were invalid
+                        if needs_regeocode:
+                            logger.info(
+                                f"Re-geocoding location '{location_name}' due to invalid coordinates"
+                            )
 
                         # Check if we have address information
                         if location.get("address"):
@@ -834,7 +947,55 @@ class JobProcessor:
                             # Only create addresses if none exist
                             if address_count == 0:
                                 for address in location["address"]:
-                                    # Ensure required address fields are never null by using empty strings
+                                    # Check if we need to geocode missing fields
+                                    needs_geocoding = False
+                                    missing_fields = []
+
+                                    # Check for missing critical address fields
+                                    if (
+                                        not address.get("postal_code")
+                                        or address.get("postal_code") == ""
+                                    ):
+                                        needs_geocoding = True
+                                        missing_fields.append("postal_code")
+                                    if (
+                                        not address.get("city")
+                                        or address.get("city") == ""
+                                    ):
+                                        needs_geocoding = True
+                                        missing_fields.append("city")
+
+                                    # Check if coordinates are invalid (0,0) or outside US bounds
+                                    lat = location.get("latitude")
+                                    lon = location.get("longitude")
+                                    if lat and lon:
+                                        lat_f, lon_f = float(lat), float(lon)
+                                        # Check for (0,0) coordinates
+                                        if abs(lat_f) < 0.01 and abs(lon_f) < 0.01:
+                                            logger.warning(
+                                                f"Invalid (0,0) coordinates detected for {location.get('name')}, will attempt geocoding"
+                                            )
+                                            needs_geocoding = True
+                                        # Check if outside US bounds (including Alaska and Hawaii)
+                                        elif not (
+                                            18.91 <= lat_f <= 71.54
+                                            and -179.15 <= lon_f <= -67
+                                        ):
+                                            logger.warning(
+                                                f"Coordinates outside US bounds: {lat_f}, {lon_f} for {location.get('name')}, will attempt geocoding"
+                                            )
+                                            needs_geocoding = True
+
+                                    if needs_geocoding and missing_fields:
+                                        logger.info(
+                                            f"Will attempt geocoding to fill missing fields: {', '.join(missing_fields)} for {address.get('address_1', 'unknown address')}"
+                                        )
+
+                                    # Ensure country defaults to US if not provided
+                                    country = address.get("country", "US")
+                                    if not country or country == "":
+                                        country = "US"
+
                                     # Pass coordinates for reverse geocoding if postal code is missing
                                     location_creator.create_address(
                                         address_1=address.get("address_1", ""),
@@ -843,7 +1004,7 @@ class JobProcessor:
                                             "state_province", ""
                                         ),
                                         postal_code=address.get("postal_code", ""),
-                                        country=address.get("country", ""),
+                                        country=country,
                                         address_type=address.get(
                                             "address_type", "physical"
                                         ),
@@ -851,6 +1012,54 @@ class JobProcessor:
                                         metadata=job_result.job.metadata,
                                         latitude=location.get("latitude"),
                                         longitude=location.get("longitude"),
+                                    )
+
+                        # Try to extract phone numbers from location text if none provided
+                        if location_id and (
+                            not location.get("phones")
+                            or len(location.get("phones", [])) == 0
+                        ):
+                            # Try to extract from location fields
+                            extracted_phones = []
+                            phone_patterns = [
+                                r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",  # (123) 456-7890
+                                r"\d{3}[-.\s]\d{3}[-.\s]\d{4}",  # 123-456-7890
+                                r"\d{10}",  # 1234567890
+                                r"1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}",  # 1-800-123-4567
+                                r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",  # 1-800-FLOWERS vanity
+                            ]
+
+                            # Search in more location fields including website
+                            search_text = ""
+                            for field in [
+                                "name",
+                                "description",
+                                "transportation",
+                                "alternate_name",
+                                "website",
+                            ]:
+                                if location.get(field):
+                                    search_text += " " + str(location[field])
+
+                            if search_text:
+                                for pattern in phone_patterns:
+                                    matches = re.findall(pattern, search_text)
+                                    for match in matches:
+                                        if match not in [
+                                            p.get("number") for p in extracted_phones
+                                        ]:
+                                            extracted_phones.append(
+                                                {
+                                                    "number": match,
+                                                    "type": "voice",
+                                                    "languages": [],
+                                                }
+                                            )
+
+                                if extracted_phones:
+                                    location["phones"] = extracted_phones
+                                    logger.info(
+                                        f"Extracted {len(extracted_phones)} phone numbers for location '{location.get('name', 'Unknown')}'"
                                     )
 
                         # Create location phones with languages (for both new and existing locations)
@@ -969,6 +1178,18 @@ class JobProcessor:
                         job_result.job.metadata,
                     )
                     is_new_service = True  # Assume new service for simplicity
+
+                # Store the mapping from service name to created UUID
+                # Ignore any LLM-provided IDs - we generate our own
+                if service.get("name"):
+                    service_id_map[service["name"]] = service_id
+                    logger.debug(
+                        f"Mapped service '{service['name']}' to UUID {service_id}"
+                    )
+
+                # Also store by LLM ID if provided (for backward compatibility)
+                if service.get("id"):
+                    service_id_map[service["id"]] = service_id
 
                 # Create service phones with languages
                 if "phones" in service:
@@ -1123,6 +1344,154 @@ class JobProcessor:
                                             byday=byday,
                                             description=description,
                                         )
+
+            # Log available top-level keys for debugging
+            logger.debug(f"Available top-level keys in data: {list(data.keys())}")
+
+            # Process top-level phone array if present
+            if "phone" in data:
+                logger.info(
+                    f"Processing {len(data['phone'])} phone records from top-level array"
+                )
+                for phone in data["phone"]:
+                    # Map original IDs to actual database IDs
+                    org_id_for_phone = None
+                    service_id_for_phone = None
+                    location_id_for_phone = None
+
+                    # Try to map relationships - prefer names over IDs
+                    if phone.get("organization_id") or phone.get("organization_name"):
+                        ref = phone.get("organization_name") or phone.get(
+                            "organization_id"
+                        )
+                        # Try name mapping first
+                        org_id_for_phone = org_name_map.get(ref)
+                        if not org_id_for_phone:
+                            # Default to the main org if reference not found
+                            org_id_for_phone = org_id if org_id else None
+                            if ref:
+                                logger.debug(
+                                    f"Could not map organization reference '{ref}' for phone, using main org"
+                                )
+
+                    if phone.get("service_id") or phone.get("service_name"):
+                        ref = phone.get("service_name") or phone.get("service_id")
+                        # Try mapping by name or ID
+                        service_id_for_phone = service_id_map.get(ref)
+                        if not service_id_for_phone:
+                            logger.warning(
+                                f"Could not map service reference '{ref}' for phone, using org ID instead"
+                            )
+                            org_id_for_phone = org_id if org_id else None
+
+                    if phone.get("location_id") or phone.get("location_name"):
+                        ref = phone.get("location_name") or phone.get("location_id")
+                        # Try mapping by name or ID
+                        location_id_for_phone = location_ids.get(ref)
+                        if not location_id_for_phone:
+                            logger.warning(
+                                f"Could not map location reference '{ref}' for phone, using org ID instead"
+                            )
+                            org_id_for_phone = org_id if org_id else None
+
+                    # Default to organization if no entity relationship specified
+                    if not any(
+                        [org_id_for_phone, service_id_for_phone, location_id_for_phone]
+                    ):
+                        org_id_for_phone = org_id if org_id else None
+                        logger.debug(
+                            f"Phone {phone.get('number')} has no entity reference, attaching to organization"
+                        )
+
+                    # Create phone record
+                    if phone.get("number"):
+                        phone_id = service_creator.create_phone(
+                            number=phone.get("number", ""),
+                            phone_type=phone.get("type", "voice"),
+                            organization_id=org_id_for_phone,
+                            service_id=service_id_for_phone,
+                            location_id=location_id_for_phone,
+                            metadata=job_result.job.metadata,
+                            transaction=self.db,
+                        )
+                        logger.debug(f"Created phone {phone_id} from top-level array")
+
+            # Process top-level schedule array if present
+            if "schedule" in data:
+                logger.info(
+                    f"Processing {len(data['schedule'])} schedule records from top-level array"
+                )
+                for schedule in data["schedule"]:
+                    # Map original IDs to actual database IDs
+                    service_id_for_schedule = None
+                    location_id_for_schedule = None
+                    service_at_location_id_for_schedule = None
+
+                    # Map service reference if present (try name first, then ID)
+                    if schedule.get("service_id") or schedule.get("service_name"):
+                        ref = schedule.get("service_name") or schedule.get("service_id")
+                        service_id_for_schedule = service_id_map.get(ref)
+                        if not service_id_for_schedule:
+                            logger.warning(
+                                f"Could not map service reference '{ref}' for schedule, skipping"
+                            )
+                            continue
+
+                    # Map location reference if present (try name first, then ID)
+                    if schedule.get("location_id") or schedule.get("location_name"):
+                        ref = schedule.get("location_name") or schedule.get(
+                            "location_id"
+                        )
+                        location_id_for_schedule = location_ids.get(ref)
+                        if not location_id_for_schedule:
+                            logger.warning(
+                                f"Could not map location reference '{ref}' for schedule, skipping"
+                            )
+                            continue
+
+                    # Map service_at_location ID if present
+                    if schedule.get("service_at_location_id"):
+                        original_sal_id = schedule.get("service_at_location_id")
+                        service_at_location_id_for_schedule = (
+                            service_at_location_id_map.get(original_sal_id)
+                        )
+                        if not service_at_location_id_for_schedule:
+                            logger.warning(
+                                f"Could not map service_at_location ID {original_sal_id} for schedule, skipping this schedule"
+                            )
+                            continue
+
+                    # Skip if no valid entity reference exists
+                    if not any(
+                        [
+                            service_id_for_schedule,
+                            location_id_for_schedule,
+                            service_at_location_id_for_schedule,
+                        ]
+                    ):
+                        logger.warning(
+                            "Schedule has no valid entity references, skipping"
+                        )
+                        continue
+
+                    # Parse schedule fields
+                    byday = schedule.get("byday")
+                    description = schedule.get("description", "")
+
+                    # Create schedule record (no 'name' parameter)
+                    service_creator.create_schedule(
+                        freq=schedule.get("freq"),
+                        wkst=schedule.get("wkst"),
+                        opens_at=schedule.get("opens_at"),
+                        closes_at=schedule.get("closes_at"),
+                        service_id=service_id_for_schedule,
+                        location_id=location_id_for_schedule,
+                        service_at_location_id=service_at_location_id_for_schedule,
+                        metadata=job_result.job.metadata,
+                        byday=byday,
+                        description=description,
+                    )
+                    logger.debug("Created schedule from top-level array")
 
             # Update success metric and return result
             scraper_id = job_result.job.metadata.get("scraper_id", "unknown")

@@ -436,12 +436,27 @@ class ServiceCreator(BaseReconciler):
         Returns:
             Phone ID
         """
-        # Ensure number is never NULL - use a placeholder if empty
-        if not number:
-            number = (
-                "UNKNOWN"  # Use a placeholder that's clearly not a real phone number
+        # Skip creation if no valid phone number provided
+        if not number or number.strip() == "":
+            self.logger.debug(
+                "No phone number provided, skipping phone record creation"
             )
-            self.logger.warning("Empty phone number provided, using placeholder")
+            return None  # Don't create invalid phone records
+
+        # Clean the phone number
+        number = number.strip()
+
+        # Basic validation - skip if obviously invalid
+        if number.upper() in ["UNKNOWN", "INVALID", "N/A", "NA", "NONE"]:
+            self.logger.warning(
+                f"Invalid phone placeholder '{number}', skipping creation"
+            )
+            return None
+
+        # Check if it has at least some digits (allow for formatted numbers)
+        if not any(char.isdigit() for char in number):
+            self.logger.warning(f"Phone number '{number}' contains no digits, skipping")
+            return None
 
         phone_id = uuid.uuid4()
         query = text(
@@ -682,9 +697,13 @@ class ServiceCreator(BaseReconciler):
         """
         )
 
-        # Convert time strings to time objects
-        opens_at_time = datetime.strptime(opens_at, "%H:%M").time()
-        closes_at_time = datetime.strptime(closes_at, "%H:%M").time()
+        # Convert time strings to time objects (handle None values)
+        opens_at_time = (
+            datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
+        )
+        closes_at_time = (
+            datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
+        )
 
         self.db.execute(
             query,
