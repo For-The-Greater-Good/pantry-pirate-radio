@@ -26,7 +26,7 @@ def sample_hsds_job():
     """Create a sample HSDSJob for testing."""
     from app.llm.queue.models import JobResult, JobStatus, LLMJob
     from app.llm.providers.types import LLMResponse
-    
+
     # Create LLM job
     llm_job = LLMJob(
         id="test-llm-job-123",
@@ -36,7 +36,7 @@ def sample_hsds_job():
         metadata={"content_hash": "abc123", "source": "test_scraper"},
         created_at=datetime.now(),
     )
-    
+
     # Create LLM response with HSDS data
     llm_response = LLMResponse(
         text='{"organization": {"name": "Test Food Bank", "description": "A test food bank"}}',
@@ -44,7 +44,7 @@ def sample_hsds_job():
         usage={"total_tokens": 100},
         raw={},
     )
-    
+
     # Create job result
     return JobResult(
         job_id=llm_job.id,
