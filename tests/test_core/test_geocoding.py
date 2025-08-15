@@ -16,7 +16,7 @@ class TestGeocodingService:
     @pytest.fixture
     def mock_redis(self):
         """Mock Redis client."""
-        with patch("app.core.geocoding.Redis") as mock:
+        with patch("app.core.geocoding.service.Redis") as mock:
             redis_instance = MagicMock()
             redis_instance.ping.return_value = True
             redis_instance.get.return_value = None
@@ -53,7 +53,7 @@ class TestGeocodingService:
         """Test service initialization with ArcGIS API key."""
         monkeypatch.setenv("ARCGIS_API_KEY", "test_api_key_123")
 
-        with patch("app.core.geocoding.ArcGIS") as mock_arcgis:
+        with patch("app.core.geocoding.service.ArcGIS") as mock_arcgis:
             service = GeocodingService()
 
             # Verify ArcGIS was initialized
@@ -121,7 +121,7 @@ class TestGeocodingService:
         assert cached_data["lat"] == 40.7128
         assert cached_data["lon"] == -74.0060
 
-    @patch("app.core.geocoding.RateLimiter")
+    @patch("app.core.geocoding.service.RateLimiter")
     def test_geocode_with_arcgis_success(self, mock_rate_limiter, mock_env, mock_redis):
         """Test successful geocoding with ArcGIS."""
         service = GeocodingService()
@@ -140,7 +140,7 @@ class TestGeocodingService:
         assert result == (40.7128, -74.0060)
         mock_geocoder.assert_called_once_with("123 Main St")
 
-    @patch("app.core.geocoding.RateLimiter")
+    @patch("app.core.geocoding.service.RateLimiter")
     def test_geocode_with_arcgis_failure(self, mock_rate_limiter, mock_env, mock_redis):
         """Test ArcGIS geocoding failure."""
         service = GeocodingService()
@@ -155,7 +155,7 @@ class TestGeocodingService:
         assert result is None
         mock_geocoder.assert_called_once()
 
-    @patch("app.core.geocoding.RateLimiter")
+    @patch("app.core.geocoding.service.RateLimiter")
     def test_geocode_with_nominatim_success(
         self, mock_rate_limiter, mock_env, mock_redis
     ):

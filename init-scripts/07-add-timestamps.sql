@@ -16,8 +16,8 @@ ALTER TABLE service
 ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
--- Add timestamps to physical_address table
-ALTER TABLE physical_address
+-- Add timestamps to address table
+ALTER TABLE address
 ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
@@ -61,7 +61,7 @@ CREATE TRIGGER update_organization_updated_at BEFORE UPDATE ON organization
 CREATE TRIGGER update_service_updated_at BEFORE UPDATE ON service
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_physical_address_updated_at BEFORE UPDATE ON physical_address
+CREATE TRIGGER update_address_updated_at BEFORE UPDATE ON address
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_phone_updated_at BEFORE UPDATE ON phone
