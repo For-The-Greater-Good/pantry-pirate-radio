@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     CLAUDE_QUOTA_MAX_DELAY: int = 14400  # 4 hours max delay
     CLAUDE_QUOTA_BACKOFF_MULTIPLIER: float = 1.5  # Exponential backoff multiplier
 
+    # Validator Settings
+    VALIDATOR_ENABLED: bool = True  # Enable validator service by default
+    VALIDATOR_QUEUE_NAME: str = "validator"
+    VALIDATOR_REDIS_TTL: int = 3600
+    VALIDATOR_LOG_DATA_FLOW: bool = False
+    VALIDATOR_ONLY_HSDS: bool = True
+    VALIDATOR_CONFIDENCE_THRESHOLD: float = 0.7
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

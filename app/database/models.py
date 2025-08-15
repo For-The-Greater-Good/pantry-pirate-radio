@@ -54,7 +54,12 @@ class OrganizationModel(Base):
     confidence_score = Column(Integer, nullable=True, default=50)
     validation_notes = Column(JSONB, nullable=True)
     validation_status: Column[str] = Column(  # type: ignore[assignment]
-        Enum("verified", "needs_review", "rejected", name="organization_validation_status_enum"),
+        Enum(
+            "verified",
+            "needs_review",
+            "rejected",
+            name="organization_validation_status_enum",
+        ),
         nullable=True,
     )
 
@@ -108,7 +113,12 @@ class LocationModel(Base):
     confidence_score = Column(Integer, nullable=True, default=50)
     validation_notes = Column(JSONB, nullable=True)
     validation_status: Column[str] = Column(  # type: ignore[assignment]
-        Enum("verified", "needs_review", "rejected", name="location_validation_status_enum"),
+        Enum(
+            "verified",
+            "needs_review",
+            "rejected",
+            name="location_validation_status_enum",
+        ),
         nullable=True,
     )
     geocoding_source = Column(Text, nullable=True)
@@ -198,7 +208,12 @@ class ServiceModel(Base):
     confidence_score = Column(Integer, nullable=True, default=50)
     validation_notes = Column(JSONB, nullable=True)
     validation_status: Column[str] = Column(  # type: ignore[assignment]
-        Enum("verified", "needs_review", "rejected", name="service_validation_status_enum"),
+        Enum(
+            "verified",
+            "needs_review",
+            "rejected",
+            name="service_validation_status_enum",
+        ),
         nullable=True,
     )
 
