@@ -108,17 +108,18 @@ def test_process_llm_job_success_enqueues_follow_up_jobs(sample_job: LLMJob) -> 
 
     mock_provider.generate.return_value = mock_generate()
 
-    with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
-        with patch("app.llm.queue.processor.recorder_queue") as mock_recorder:
-            mock_reconciler_job = MagicMock()
-            mock_reconciler_job.id = "reconciler-123"
-            mock_reconciler.enqueue_call.return_value = mock_reconciler_job
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
+            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder:
+                mock_reconciler_job = MagicMock()
+                mock_reconciler_job.id = "reconciler-123"
+                mock_reconciler.enqueue_call.return_value = mock_reconciler_job
 
-            mock_recorder_job = MagicMock()
-            mock_recorder_job.id = "recorder-123"
-            mock_recorder.enqueue_call.return_value = mock_recorder_job
+                mock_recorder_job = MagicMock()
+                mock_recorder_job.id = "recorder-123"
+                mock_recorder.enqueue_call.return_value = mock_recorder_job
 
-            result = process_llm_job(sample_job, mock_provider)
+                result = process_llm_job(sample_job, mock_provider)
 
             # Verify result
             assert result == mock_response
