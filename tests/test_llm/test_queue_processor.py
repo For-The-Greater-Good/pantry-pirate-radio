@@ -47,15 +47,17 @@ def test_process_job_async_generator_result(
     mock_provider = MagicMock()
     mock_provider.generate.return_value = mock_coroutine()
 
-    with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
-        # Process the job
-        result = process_llm_job(sample_job, mock_provider)
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
+            with patch("app.llm.queue.processor.recorder_queue"):
+                # Process the job
+                result = process_llm_job(sample_job, mock_provider)
 
-        # Verify coroutine result was handled correctly
-        assert result == sample_response
+                # Verify coroutine result was handled correctly
+                assert result == sample_response
 
-        # Verify job was queued for reconciler
-        mock_queue.enqueue_call.assert_called_once()
+                # Verify job was queued for reconciler
+                mock_queue.enqueue_call.assert_called_once()
 
 
 def test_process_job_sync_result(sample_job, sample_response, no_content_store):
@@ -67,15 +69,17 @@ def test_process_job_sync_result(sample_job, sample_response, no_content_store):
     mock_provider = MagicMock()
     mock_provider.generate.return_value = mock_coroutine()
 
-    with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
-        # Process the job
-        result = process_llm_job(sample_job, mock_provider)
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
+            with patch("app.llm.queue.processor.recorder_queue"):
+                # Process the job
+                result = process_llm_job(sample_job, mock_provider)
 
-        # Verify coroutine result was handled correctly
-        assert result == sample_response
+                # Verify coroutine result was handled correctly
+                assert result == sample_response
 
-        # Verify job was queued for reconciler
-        mock_queue.enqueue_call.assert_called_once()
+                # Verify job was queued for reconciler
+                mock_queue.enqueue_call.assert_called_once()
 
 
 def test_process_job_with_config(sample_job, sample_response, no_content_store):
@@ -96,13 +100,15 @@ def test_process_job_with_config(sample_job, sample_response, no_content_store):
     mock_provider = MagicMock()
     mock_provider.generate.return_value = mock_coroutine()
 
-    with patch("app.llm.queue.processor.reconciler_queue"):
-        # Process the job
-        result = process_llm_job(job_with_config, mock_provider)
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue"):
+            with patch("app.llm.queue.processor.recorder_queue"):
+                # Process the job
+                result = process_llm_job(job_with_config, mock_provider)
 
-        # Verify config was passed to generate method
-        mock_provider.generate.assert_called_once()
-        call_args = mock_provider.generate.call_args
+                # Verify config was passed to generate method
+                mock_provider.generate.assert_called_once()
+                call_args = mock_provider.generate.call_args
 
-        # Check that the function was called (config handling is internal)
-        assert result == sample_response
+                # Check that the function was called (config handling is internal)
+                assert result == sample_response
