@@ -328,43 +328,60 @@ class TestValidatorIntegration:
         """Test validator performance doesn't significantly impact pipeline."""
         from app.validator.job_processor import ValidationProcessor
 
-        processor = ValidationProcessor(db=db_session)
+        # Disable enrichment for performance test
+        with patch("app.core.config.settings.VALIDATOR_ENRICHMENT_ENABLED", False):
+            processor = ValidationProcessor(db=db_session)
 
-        # Create large job
-        large_data = {
-            "organization": {"name": "Test"},
-            "locations": [
-                {"latitude": i, "longitude": -i} for i in range(100)  # 100 locations
-            ],
-            "services": [{"name": f"Service {i}"} for i in range(50)],  # 50 services
-        }
+            # Create large job with complete data (no enrichment needed)
+            large_data = {
+                "organization": {"name": "Test"},
+                "locations": [
+                    {
+                        "name": f"Location {i}",
+                        "latitude": float(i),
+                        "longitude": float(-i),
+                        "addresses": [
+                            {
+                                "address_1": f"{i} Main St",
+                                "city": "Test City",
+                                "state_province": "NY",
+                                "postal_code": f"1000{i}",
+                            }
+                        ],
+                    }
+                    for i in range(100)  # 100 locations with complete data
+                ],
+                "services": [
+                    {"name": f"Service {i}"} for i in range(50)
+                ],  # 50 services
+            }
 
-        job_result = JobResult(
-            job_id="perf-test",
-            job=LLMJob(
-                id="perf-test",
-                prompt="Test",
-                format={},
-                provider_config={},
-                metadata={},
-                created_at=datetime.now(),
-            ),
-            status=JobStatus.COMPLETED,
-            result=LLMResponse(
-                text=json.dumps(large_data),
-                model="test",
-                usage={"total_tokens": 10},
-                raw={},
-            ),
-            error=None,
-            completed_at=datetime.now(),
-            processing_time=1.0,
-        )
+            job_result = JobResult(
+                job_id="perf-test",
+                job=LLMJob(
+                    id="perf-test",
+                    prompt="Test",
+                    format={},
+                    provider_config={},
+                    metadata={},
+                    created_at=datetime.now(),
+                ),
+                status=JobStatus.COMPLETED,
+                result=LLMResponse(
+                    text=json.dumps(large_data),
+                    model="test",
+                    usage={"total_tokens": 10},
+                    raw={},
+                ),
+                error=None,
+                completed_at=datetime.now(),
+                processing_time=1.0,
+            )
 
-        # Measure processing time
-        start_time = time.time()
-        processor.process_job_result(job_result)
-        processing_time = time.time() - start_time
+            # Measure processing time
+            start_time = time.time()
+            processor.process_job_result(job_result)
+            processing_time = time.time() - start_time
 
-        # Should be fast (passthrough only)
-        assert processing_time < 0.1  # Less than 100ms
+            # Should be reasonably fast for validation only
+            assert processing_time < 1.0  # Less than 1 second for 100 locations

@@ -229,14 +229,21 @@ class TestEnrichmentIntegration:
     @patch("app.validator.job_processor.enqueue_to_reconciler")
     @patch("app.validator.job_processor.get_db_session")
     @patch("app.validator.enrichment.GeocodingService")
+    @patch("app.validator.enrichment.redis.from_url")
     def test_provider_fallback_in_pipeline(
-        self, mock_geocoding_class, mock_get_db, mock_enqueue
+        self, mock_redis_from_url, mock_geocoding_class, mock_get_db, mock_enqueue
     ):
         """Test provider fallback chain in real pipeline."""
         # Arrange
         mock_db = MagicMock()
         mock_get_db.return_value.__enter__.return_value = mock_db
         mock_get_db.return_value.__exit__.return_value = None
+
+        # Setup Redis mock to avoid circuit breaker interference
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None  # No cached values or circuit breaker state
+        mock_redis.ping.return_value = True
+        mock_redis_from_url.return_value = mock_redis
 
         mock_geocoding = MagicMock()
         mock_geocoding_class.return_value = mock_geocoding
@@ -375,14 +382,32 @@ class TestEnrichmentIntegration:
     @patch("app.validator.job_processor.enqueue_to_reconciler")
     @patch("app.validator.job_processor.get_db_session")
     @patch("app.validator.enrichment.GeocodingService")
+    @patch("app.validator.enrichment.redis.from_url")
     def test_enrichment_performance_with_caching(
-        self, mock_geocoding_class, mock_get_db, mock_enqueue
+        self, mock_redis_from_url, mock_geocoding_class, mock_get_db, mock_enqueue
     ):
         """Test that enrichment uses caching for repeated addresses."""
         # Arrange
         mock_db = MagicMock()
         mock_get_db.return_value.__enter__.return_value = mock_db
         mock_get_db.return_value.__exit__.return_value = None
+
+        # Setup Redis mock for caching behavior
+        mock_redis = MagicMock()
+        cache_calls = {}
+
+        def redis_get_side_effect(key):
+            return cache_calls.get(key)
+
+        def redis_setex_side_effect(key, ttl, value):
+            # Store with TTL (ttl parameter is required for setex signature)
+            _ = ttl  # Mark as intentionally unused - required for method signature
+            cache_calls[key] = value
+
+        mock_redis.get.side_effect = redis_get_side_effect
+        mock_redis.setex.side_effect = redis_setex_side_effect
+        mock_redis.ping.return_value = True
+        mock_redis_from_url.return_value = mock_redis
 
         mock_geocoding = MagicMock()
         mock_geocoding_class.return_value = mock_geocoding
@@ -526,11 +551,17 @@ class TestEnrichmentIntegration:
 
     @patch("app.validator.job_processor.enqueue_to_reconciler")
     @patch("app.validator.job_processor.get_db_session")
+    @patch("app.validator.enrichment.redis.from_url")  # Mock Redis
     @patch("app.validator.enrichment.GeocodingService")
     def test_enrichment_handles_partial_failures(
-        self, mock_geocoding_class, mock_get_db, mock_enqueue
+        self, mock_geocoding_class, mock_redis_from_url, mock_get_db, mock_enqueue
     ):
         """Test that partial enrichment failures don't break the pipeline."""
+        # Mock Redis to avoid caching
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None
+        mock_redis_from_url.return_value = mock_redis
+
         # Arrange
         mock_db = MagicMock()
         mock_get_db.return_value.__enter__.return_value = mock_db
@@ -539,12 +570,36 @@ class TestEnrichmentIntegration:
         mock_geocoding = MagicMock()
         mock_geocoding_class.return_value = mock_geocoding
 
-        # First location succeeds, second fails
-        mock_geocoding.geocode.side_effect = [
-            (40.7128, -74.0060),  # First succeeds
-            Exception("Service unavailable"),  # Second fails
-            (41.8781, -87.6298),  # Third succeeds
-        ]
+        # Track which call we're on
+        call_count = {"count": 0}
+
+        def geocode_side_effect(address):
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                # First location succeeds
+                return (40.7128, -74.0060)
+            elif call_count["count"] == 2:
+                # Second location fails
+                raise Exception("Service unavailable")
+            elif call_count["count"] == 3:
+                # Third location succeeds
+                return (41.8781, -87.6298)
+            else:
+                return None
+
+        mock_geocoding.geocode.side_effect = geocode_side_effect
+
+        # Also mock geocode_with_provider to fail for second location
+        def geocode_with_provider_side_effect(address, provider):
+            # Check if this is the second location's address
+            if "456 Second St" in address or "City2" in address:
+                raise Exception("Service unavailable")
+            # For other addresses, return None to let geocode handle it
+            return None
+
+        mock_geocoding.geocode_with_provider.side_effect = (
+            geocode_with_provider_side_effect
+        )
 
         job_result = JobResult(
             job_id="test-partial-failure",

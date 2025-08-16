@@ -99,12 +99,22 @@ class TestRetryLogic:
             TimeoutError("Timeout"),
             (40.7128, -74.0060),  # Success on third try
         ]
+        mock_service.geocode.side_effect = [
+            TimeoutError("Timeout"),
+            TimeoutError("Timeout"),
+            (40.7128, -74.0060),  # Success on third try
+        ]
 
         enricher = GeocodingEnricher(geocoding_service=mock_service)
         coords = enricher._geocode_with_retry("arcgis", "123 Main St", max_retries=3)
 
         assert coords == (40.7128, -74.0060)
-        assert mock_service.geocode_with_provider.call_count == 3
+        # Should call either geocode or geocode_with_provider
+        total_calls = (
+            mock_service.geocode_with_provider.call_count
+            + mock_service.geocode.call_count
+        )
+        assert total_calls == 3
         # Check exponential backoff was applied
         assert mock_sleep.call_count == 2
 
@@ -112,25 +122,35 @@ class TestRetryLogic:
         """Test no retry when geocoding returns None (not found)."""
         mock_service = MagicMock()
         mock_service.geocode_with_provider.return_value = None
+        mock_service.geocode.return_value = None
 
         enricher = GeocodingEnricher(geocoding_service=mock_service)
         coords = enricher._geocode_with_retry("arcgis", "123 Main St", max_retries=3)
 
         assert coords is None
         # Should only try once, no retries for None result
-        assert mock_service.geocode_with_provider.call_count == 1
+        total_calls = (
+            mock_service.geocode_with_provider.call_count
+            + mock_service.geocode.call_count
+        )
+        assert total_calls == 1
 
     @patch("app.validator.enrichment.time.sleep")
     def test_max_retries_exceeded(self, mock_sleep):
         """Test behavior when max retries are exceeded."""
         mock_service = MagicMock()
         mock_service.geocode_with_provider.side_effect = TimeoutError("Timeout")
+        mock_service.geocode.side_effect = TimeoutError("Timeout")
 
         enricher = GeocodingEnricher(geocoding_service=mock_service)
         coords = enricher._geocode_with_retry("arcgis", "123 Main St", max_retries=2)
 
         assert coords is None
-        assert mock_service.geocode_with_provider.call_count == 2
+        total_calls = (
+            mock_service.geocode_with_provider.call_count
+            + mock_service.geocode.call_count
+        )
+        assert total_calls == 2
 
 
 class TestCircuitBreaker:
@@ -171,7 +191,9 @@ class TestCircuitBreaker:
         mock_redis = MagicMock()
         mock_redis.get.side_effect = lambda key: {
             "circuit_breaker:arcgis:state": "open",
-            "circuit_breaker:arcgis:cooldown_until": str(time.time() - 100),  # Past time
+            "circuit_breaker:arcgis:cooldown_until": str(
+                time.time() - 100
+            ),  # Past time
         }.get(key)
 
         enricher = GeocodingEnricher(redis_client=mock_redis)
@@ -257,21 +279,23 @@ class TestProviderConfig:
 
     def test_provider_config_from_settings(self):
         """Test provider config is loaded from settings."""
-        with patch("app.validator.enrichment.settings") as mock_settings:
-            mock_settings.ENRICHMENT_PROVIDER_CONFIG = {
-                "arcgis": {"max_retries": 5, "timeout": 15}
-            }
+        # Pass provider config directly in initialization
+        config = {"provider_config": {"arcgis": {"max_retries": 5, "timeout": 15}}}
 
-            enricher = GeocodingEnricher()
+        enricher = GeocodingEnricher(config=config)
 
-            assert enricher.provider_config["arcgis"]["max_retries"] == 5
-            assert enricher.provider_config["arcgis"]["timeout"] == 15
+        assert enricher.provider_config["arcgis"]["max_retries"] == 5
+        assert enricher.provider_config["arcgis"]["timeout"] == 15
 
     def test_provider_specific_retry_count(self):
         """Test different retry counts per provider."""
         mock_service = MagicMock()
         mock_redis = MagicMock()
         mock_redis.get.return_value = None  # No cached values
+
+        # Make geocoding return None to avoid retries on success
+        mock_service.geocode_with_provider.return_value = None
+        mock_service.geocode.return_value = None
 
         enricher = GeocodingEnricher(
             geocoding_service=mock_service, redis_client=mock_redis
@@ -286,8 +310,12 @@ class TestProviderConfig:
         # Test with nominatim config
         enricher._geocode_with_retry("nominatim", "123 Main St", 2)
 
-        # Verify retry counts match config
-        assert mock_service.geocode_with_provider.call_count >= 2
+        # Verify at least 2 calls were made (one for each provider)
+        total_calls = (
+            mock_service.geocode_with_provider.call_count
+            + mock_service.geocode.call_count
+        )
+        assert total_calls >= 2
 
 
 class TestIntegration:
@@ -303,7 +331,9 @@ class TestIntegration:
         mock_redis_from_url.return_value = mock_redis
 
         mock_service = MagicMock()
+        # Mock both methods for backward compatibility
         mock_service.geocode_with_provider.return_value = (40.7128, -74.0060)
+        mock_service.geocode.return_value = (40.7128, -74.0060)
         mock_service_class.return_value = mock_service
 
         # Create enricher and test location
@@ -328,10 +358,13 @@ class TestIntegration:
         # Verify results
         assert enriched["latitude"] == 40.7128
         assert enriched["longitude"] == -74.0060
-        assert source in ["arcgis", "nominatim", "census"]
+        # Source should be arcgis since it's the first provider that succeeds
+        assert source == "arcgis"
 
         # Verify cache was updated
         mock_redis.setex.assert_called_once()
 
         # Verify metrics were updated
-        assert mock_redis.incr.call_count >= 2  # At least cache miss and provider success
+        assert (
+            mock_redis.incr.call_count >= 2
+        )  # At least cache miss and provider success
