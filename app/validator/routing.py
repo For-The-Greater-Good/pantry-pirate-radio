@@ -41,7 +41,7 @@ def should_validate_job(job_result: JobResult) -> bool:
     # Check if we only validate HSDS jobs
     if getattr(settings, "VALIDATOR_ONLY_HSDS", True):
         # Check if job has HSDS format
-        if job_result.job.format.get("type") == "hsds":
+        if job_result.job and job_result.job.format.get("type") == "hsds":
             return True
         # Non-HSDS jobs skip validation
         return False

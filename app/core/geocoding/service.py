@@ -16,6 +16,7 @@ import random
 import re
 import time
 from typing import Optional, Tuple
+import requests
 
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut, GeocoderUnavailable
 from geopy.extra.rate_limiter import RateLimiter
@@ -84,9 +85,18 @@ class GeocodingService:
                 )
                 logger.info("Set ARCGIS_API_KEY in .env for higher limits")
 
-            # Apply rate limiting
+            # Apply rate limiting for geocoding
             self.arcgis_geocode = RateLimiter(
                 self.arcgis.geocode,
+                min_delay_seconds=arcgis_rate_limit,
+                max_retries=self.max_retries,
+                error_wait_seconds=5,
+                return_value_on_exception=None,
+            )
+
+            # Apply rate limiting for reverse geocoding
+            self.arcgis_reverse = RateLimiter(
+                self.arcgis.reverse,
                 min_delay_seconds=arcgis_rate_limit,
                 max_retries=self.max_retries,
                 error_wait_seconds=5,
@@ -101,6 +111,7 @@ class GeocodingService:
             logger.error(f"Failed to initialize ArcGIS geocoder: {e}")
             self.arcgis = None
             self.arcgis_geocode = None
+            self.arcgis_reverse = None
 
     def _init_nominatim(self):
         """Initialize Nominatim geocoder as fallback."""
@@ -111,9 +122,18 @@ class GeocodingService:
         try:
             self.nominatim = Nominatim(user_agent=user_agent, timeout=self.timeout)
 
-            # Apply rate limiting
+            # Apply rate limiting for geocoding
             self.nominatim_geocode = RateLimiter(
                 self.nominatim.geocode,
+                min_delay_seconds=nominatim_rate_limit,
+                max_retries=self.max_retries,
+                error_wait_seconds=5,
+                return_value_on_exception=None,
+            )
+
+            # Apply rate limiting for reverse geocoding
+            self.nominatim_reverse = RateLimiter(
+                self.nominatim.reverse,
                 min_delay_seconds=nominatim_rate_limit,
                 max_retries=self.max_retries,
                 error_wait_seconds=5,
@@ -128,6 +148,7 @@ class GeocodingService:
             logger.error(f"Failed to initialize Nominatim geocoder: {e}")
             self.nominatim = None
             self.nominatim_geocode = None
+            self.nominatim_reverse = None
 
     def _get_cache_key(self, address: str, provider: str) -> str:
         """Generate cache key for geocoding result.
@@ -342,16 +363,24 @@ class GeocodingService:
             # Determine which provider to use
             use_provider = provider or self.primary_provider
 
-            if use_provider == "arcgis" and self.arcgis_geocode:
+            if (
+                use_provider == "arcgis"
+                and hasattr(self, "arcgis_reverse")
+                and self.arcgis_reverse
+            ):
                 try:
-                    location = ArcGIS().reverse(point, timeout=10)
+                    location = self.arcgis_reverse(point)
                 except Exception as e:
                     logger.debug(f"ArcGIS reverse geocoding failed: {e}")
-                    if self.enable_fallback and self.nominatim_geocode:
-                        location = self.nominatim_geocode.reverse(point)
+                    if (
+                        self.enable_fallback
+                        and hasattr(self, "nominatim_reverse")
+                        and self.nominatim_reverse
+                    ):
+                        location = self.nominatim_reverse(point)
 
-            elif self.nominatim_geocode:
-                location = self.nominatim_geocode.reverse(point)
+            elif hasattr(self, "nominatim_reverse") and self.nominatim_reverse:
+                location = self.nominatim_reverse(point)
 
             if location and location.raw:
                 # Extract address components
@@ -486,6 +515,100 @@ class GeocodingService:
         # If we get here, all geocoding attempts failed
         error_msg = "; ".join(errors) if errors else "Unknown geocoding error"
         raise ValueError(f"Could not geocode address: {address}. Errors: {error_msg}")
+
+    def geocode_with_provider(
+        self, address: str, provider: str
+    ) -> Optional[Tuple[float, float]]:
+        """Geocode an address using a specific provider.
+
+        Args:
+            address: Address string to geocode
+            provider: Provider to use ('arcgis', 'nominatim', or 'census')
+
+        Returns:
+            Tuple of (latitude, longitude) or None if geocoding fails
+        """
+        if not address or not address.strip():
+            logger.warning("Empty address provided for geocoding")
+            return None
+
+        # Check cache first
+        cached_result = self._get_cached_result(address, provider)
+        if cached_result:
+            return cached_result
+
+        result = None
+
+        if provider == "arcgis":
+            result = self._geocode_with_arcgis(address)
+        elif provider == "nominatim":
+            result = self._geocode_with_nominatim(address)
+        elif provider == "census":
+            result = self._geocode_with_census(address)
+        else:
+            logger.warning(f"Unknown geocoding provider: {provider}")
+            return None
+
+        if result:
+            self._cache_result(address, provider, result[0], result[1])
+
+        return result
+
+    def _geocode_with_census(self, address: str) -> Optional[Tuple[float, float]]:
+        """Geocode using US Census Geocoding API.
+
+        Args:
+            address: Address string to geocode
+
+        Returns:
+            Tuple of (latitude, longitude) or None if geocoding fails
+        """
+        try:
+            # Parse address into components if possible
+            # Census API works better with structured input
+            base_url = (
+                "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
+            )
+
+            params = {"address": address, "benchmark": "2020", "format": "json"}
+
+            response = requests.get(base_url, params=params, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Check if we got results
+            if data.get("result") and data["result"].get("addressMatches"):
+                matches = data["result"]["addressMatches"]
+                if matches:
+                    # Use first match
+                    match = matches[0]
+                    coords = match.get("coordinates")
+                    if coords:
+                        # Census returns x (longitude), y (latitude)
+                        longitude = coords.get("x")
+                        latitude = coords.get("y")
+                        if latitude and longitude:
+                            logger.debug(
+                                f"Census geocoded '{address[:50]}...' to {latitude}, {longitude}"
+                            )
+                            return (float(latitude), float(longitude))
+
+            logger.debug(f"Census geocoding found no matches for: {address[:50]}...")
+            return None
+
+        except requests.Timeout as e:
+            logger.debug(f"Census geocoding timeout: {e}")
+            return None
+        except requests.RequestException as e:
+            logger.debug(f"Census geocoding request failed: {e}")
+            return None
+        except (ValueError, KeyError) as e:
+            logger.debug(f"Census geocoding data parsing error: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Unexpected Census geocoding error: {e}")
+            return None
 
     def get_default_coordinates(
         self, location: str = "US", with_offset: bool = True, offset_range: float = 0.01
