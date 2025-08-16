@@ -1,5 +1,7 @@
 """Application configuration."""
 
+from typing import Any, Dict
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -66,10 +68,39 @@ class Settings(BaseSettings):
     VALIDATOR_ENRICHMENT_ENABLED: bool = True  # Enable geocoding enrichment
     ENRICHMENT_GEOCODING_PROVIDERS: list[str] = Field(
         default=["arcgis", "nominatim", "census"],
-        description="Geocoding providers in priority order",
+        description="Geocoding providers in priority order. ArcGIS is fastest and most reliable, "
+        "Nominatim is open-source but rate-limited, Census is US government data.",
     )
-    ENRICHMENT_TIMEOUT: int = 30  # Timeout for enrichment operations in seconds
-    ENRICHMENT_CACHE_SIZE: int = 1000  # Maximum number of cached geocoding results
+    ENRICHMENT_TIMEOUT: int = 30  # Global timeout for enrichment operations in seconds
+    ENRICHMENT_CACHE_TTL: int = 86400  # Cache TTL in seconds (24 hours default)
+    
+    # Provider-specific configuration
+    ENRICHMENT_PROVIDER_CONFIG: Dict[str, Dict[str, Any]] = Field(
+        default={
+            "arcgis": {
+                "timeout": 10,  # Fast commercial service
+                "max_retries": 3,
+                "rate_limit": 100,  # requests per second
+                "circuit_breaker_threshold": 5,  # failures before opening circuit
+                "circuit_breaker_cooldown": 300,  # cooldown in seconds
+            },
+            "nominatim": {
+                "timeout": 15,  # Open-source, can be slower
+                "max_retries": 2,
+                "rate_limit": 1,  # strict rate limit for free tier
+                "circuit_breaker_threshold": 3,
+                "circuit_breaker_cooldown": 600,  # longer cooldown for rate-limited service
+            },
+            "census": {
+                "timeout": 10,  # US government service
+                "max_retries": 3,
+                "rate_limit": 50,  # moderate rate limit
+                "circuit_breaker_threshold": 5,
+                "circuit_breaker_cooldown": 300,
+            },
+        },
+        description="Per-provider configuration for timeouts, retries, and circuit breaker settings",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
