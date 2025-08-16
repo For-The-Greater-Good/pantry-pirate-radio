@@ -54,9 +54,10 @@ class TestValidationJobProcessor:
         assert result["status"] == "passed_validation"
         assert result["data"] == json.loads(sample_hsds_job.result.text)
         # Validation notes now contain enrichment details even if no locations were enriched
-        assert result["validation_notes"] == {
-            "enrichment": {"locations_enriched": 0, "sources": {}}
-        }
+        assert "validation_notes" in result
+        assert "enrichment" in result["validation_notes"]
+        assert result["validation_notes"]["enrichment"]["locations_enriched"] == 0
+        assert result["validation_notes"]["enrichment"]["sources"] == {}
 
     def test_validation_processor_with_database(self, db_session, sample_hsds_job):
         """Test ValidationProcessor with database operations."""

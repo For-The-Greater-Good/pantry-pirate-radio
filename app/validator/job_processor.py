@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Generator
 
@@ -13,6 +14,33 @@ from app.llm.queue.models import JobResult, JobStatus
 from app.llm.queue.queues import reconciler_queue
 from app.validator.base import ValidationService
 from app.validator.queues import setup_validator_queues
+
+
+# Configure logging based on environment variables
+def configure_logging():
+    """Configure logging based on LOG_LEVEL environment variable."""
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, log_level, logging.INFO)
+
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        force=True,  # Override any existing configuration
+    )
+
+    # Ensure our specific loggers are configured
+    for logger_name in [
+        "app.validator",
+        "app.validator.enrichment",
+        "app.validator.job_processor",
+    ]:
+        specific_logger = logging.getLogger(logger_name)
+        specific_logger.setLevel(level)
+
+
+# Configure logging when module is imported
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -196,29 +224,82 @@ class ValidationProcessor:
         Raises:
             Exception: If critical validation error occurs that prevents processing
         """
-        self.logger.info(f"Processing validation job: {job_result.job_id}")
+        self.logger.info(
+            f"🔄 VALIDATOR: Processing validation job: {job_result.job_id}"
+        )
+        self.logger.info(
+            f"🔍 VALIDATOR: Job type: {getattr(job_result.job, 'type', 'unknown')}"
+        )
+
+        # Log input data size and structure
+        job_data_preview = (
+            str(job_result)[:200] + "..."
+            if len(str(job_result)) > 200
+            else str(job_result)
+        )
+        self.logger.info(f"📥 VALIDATOR: Input job preview: {job_data_preview}")
+
         self._validation_errors = []  # Reset errors for this job
 
         # Parse job data
+        self.logger.info("📊 VALIDATOR: Parsing job data...")
         data = self._parse_job_data(job_result)
+        self.logger.info(
+            f"📊 VALIDATOR: Parsed data keys: {list(data.keys()) if data else 'NO_DATA'}"
+        )
+
+        # Log location count for enrichment tracking
+        location_count = 0
+        if "locations" in data and isinstance(data["locations"], list):
+            location_count = len(data["locations"])
+        self.logger.info(f"📍 VALIDATOR: Found {location_count} locations to process")
 
         # Perform enrichment before validation
+        self.logger.info("🌟 VALIDATOR: Starting data enrichment...")
         enriched_data = self._enrich_data(job_result, data)
+        self.logger.info("✨ VALIDATOR: Enrichment completed")
 
         # Perform validation (currently passthrough)
+        self.logger.info("✅ VALIDATOR: Starting validation...")
         validated_data = self.validate_data(enriched_data)
+        self.logger.info(
+            f"✅ VALIDATOR: Validation completed with {len(self._validation_errors)} errors"
+        )
 
         # Update validation fields in database
+        self.logger.info("💾 VALIDATOR: Updating validation fields...")
         self.update_validation_fields(job_result, validated_data)
 
         # Update metrics
+        self.logger.info("📈 VALIDATOR: Updating metrics...")
         self._update_metrics(job_result, validated_data)
 
         # Commit database changes
+        self.logger.info("💾 VALIDATOR: Committing database changes...")
         self._commit_changes()
 
         # Build and return result
-        return self._build_result(job_result, validated_data)
+        result = self._build_result(job_result, validated_data)
+        self.logger.info(
+            f"🎯 VALIDATOR: Job {job_result.job_id} completed with status: {result['status']}"
+        )
+
+        # Log enrichment summary if available
+        if hasattr(self, "_enrichment_details") and self._enrichment_details:
+            enrichment_summary = {
+                k: v
+                for k, v in self._enrichment_details.items()
+                if k
+                in [
+                    "locations_enriched",
+                    "coordinates_added",
+                    "addresses_added",
+                    "postal_codes_added",
+                ]
+            }
+            self.logger.info(f"🌟 VALIDATOR: Enrichment summary: {enrichment_summary}")
+
+        return result
 
     def _parse_job_data(self, job_result: JobResult) -> Dict[str, Any]:
         """Parse data from job result.
@@ -340,9 +421,12 @@ class ValidationProcessor:
         # Build validation notes including enrichment details
         validation_notes: Dict[str, Any] = {}
 
-        # Add enrichment details if available
-        if hasattr(self, "_enrichment_details") and self._enrichment_details:
+        # Always add enrichment details (even if empty) for consistent structure
+        if hasattr(self, "_enrichment_details"):
             validation_notes["enrichment"] = self._enrichment_details
+        else:
+            # Provide default enrichment details if not set
+            validation_notes["enrichment"] = {"locations_enriched": 0, "sources": {}}
 
         # Add enrichment error if occurred
         if hasattr(self, "_enrichment_error") and self._enrichment_error:
@@ -352,14 +436,11 @@ class ValidationProcessor:
         if self._validation_errors:
             validation_notes["errors"] = self._validation_errors
 
-        # Use validation_notes if it has content, otherwise None
-        final_notes = validation_notes if validation_notes else None
-
         return {
             "job_id": job_result.job_id,
             "status": status,
             "data": validated_data,
-            "validation_notes": final_notes,
+            "validation_notes": validation_notes,
             "validation_errors": self._validation_errors,
         }
 
