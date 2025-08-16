@@ -22,13 +22,22 @@ class GeocodingEnricher:
             geocoding_service: Optional geocoding service instance
             config: Optional configuration dictionary
         """
+        from app.core.config import settings
+
         self.geocoding_service = geocoding_service or GeocodingService()
         self.config = config or {}
-        self.enabled = self.config.get("enrichment_enabled", True)
-        self.providers = self.config.get(
-            "geocoding_providers", ["arcgis", "nominatim", "census"]
+
+        # Use centralized settings with config overrides
+        self.enabled = self.config.get(
+            "enrichment_enabled", settings.VALIDATOR_ENRICHMENT_ENABLED
         )
-        self.timeout = self.config.get("enrichment_timeout", 30)
+        self.providers = self.config.get(
+            "geocoding_providers", settings.ENRICHMENT_GEOCODING_PROVIDERS
+        )
+        self.timeout = self.config.get(
+            "enrichment_timeout", settings.ENRICHMENT_TIMEOUT
+        )
+        self.cache_size = self.config.get("cache_size", settings.ENRICHMENT_CACHE_SIZE)
 
         # Track enrichment details for reporting
         self._enrichment_details: Dict[str, Any] = {}
@@ -131,12 +140,13 @@ class GeocodingEnricher:
         address = location_data["addresses"][0]
         address_str = self._format_address(address)
 
-        # Check cache first
-        if address_str in self._cache:
-            return self._cache[address_str], "cache"
-
         # Try each provider in order
         for provider in self.providers:
+            # Check cache with provider-specific key to avoid collisions
+            cache_key = f"{provider}:{address_str}"
+            if cache_key in self._cache:
+                return self._cache[cache_key], provider
+
             try:
                 coords = None
                 if provider == "arcgis" and hasattr(self.geocoding_service, "geocode"):
@@ -148,7 +158,12 @@ class GeocodingEnricher:
                     )
 
                 if coords:
-                    self._cache[address_str] = coords
+                    # Cache with provider-specific key
+                    self._cache[cache_key] = coords
+                    # Limit cache size
+                    if len(self._cache) > self.cache_size:
+                        # Remove oldest entry (FIFO)
+                        self._cache.pop(next(iter(self._cache)))
                     return coords, provider
 
             except (TimeoutError, Exception) as e:

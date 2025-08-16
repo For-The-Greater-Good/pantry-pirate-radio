@@ -168,16 +168,33 @@ class ValidationProcessor:
         return getattr(settings, "VALIDATOR_ENABLED", True)
 
     def process_job_result(self, job_result: JobResult) -> Dict[str, Any]:
-        """Process job result through validation pipeline.
+        """Process job result through validation and enrichment pipeline.
+
+        This method orchestrates the complete validation workflow:
+        1. Parses the job data from the LLM result
+        2. Enriches the data with geocoding information:
+           - Geocodes missing coordinates from addresses
+           - Reverse geocodes missing addresses from coordinates
+           - Enriches missing postal codes
+           - Tracks geocoding sources (arcgis, nominatim, census)
+        3. Validates the enriched data (passthrough currently)
+        4. Updates validation fields in the database
+        5. Updates metrics for monitoring
+        6. Returns the processed result with enrichment details
 
         Args:
-            job_result: Job result to process
+            job_result: Job result from LLM processing containing HSDS data
 
         Returns:
-            Validation result dictionary
+            Dict containing:
+                - job_id: Original job identifier
+                - status: Validation status (passed_validation or validation_failed)
+                - data: Enriched and validated HSDS data
+                - validation_notes: Details about enrichment and validation
+                - validation_errors: List of any validation errors
 
         Raises:
-            Exception: If critical validation error occurs
+            Exception: If critical validation error occurs that prevents processing
         """
         self.logger.info(f"Processing validation job: {job_result.job_id}")
         self._validation_errors = []  # Reset errors for this job
@@ -335,19 +352,14 @@ class ValidationProcessor:
         if self._validation_errors:
             validation_notes["errors"] = self._validation_errors
 
+        # Use validation_notes if it has content, otherwise None
+        final_notes = validation_notes if validation_notes else None
+
         return {
             "job_id": job_result.job_id,
             "status": status,
             "data": validated_data,
-            "validation_notes": (
-                validation_notes
-                if validation_notes
-                else (
-                    "; ".join(self._validation_errors)
-                    if self._validation_errors
-                    else None
-                )
-            ),
+            "validation_notes": final_notes,
             "validation_errors": self._validation_errors,
         }
 
