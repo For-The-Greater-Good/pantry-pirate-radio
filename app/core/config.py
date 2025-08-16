@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     )
     ENRICHMENT_TIMEOUT: int = 30  # Global timeout for enrichment operations in seconds
     ENRICHMENT_CACHE_TTL: int = 86400  # Cache TTL in seconds (24 hours default)
-    
+
     # Provider-specific configuration
     ENRICHMENT_PROVIDER_CONFIG: Dict[str, Dict[str, Any]] = Field(
         default={
