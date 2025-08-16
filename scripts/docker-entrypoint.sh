@@ -6,6 +6,9 @@ set -e
 
 SERVICE="${SERVICE_TYPE:-$1}"
 
+echo "DEBUG: Received SERVICE='$SERVICE'"
+echo "DEBUG: All args: $@"
+
 case "$SERVICE" in
     app|api|fastapi)
         echo "Starting FastAPI application..."
@@ -33,6 +36,11 @@ case "$SERVICE" in
     reconciler)
         echo "Starting reconciler worker..."
         exec rq worker reconciler
+        ;;
+    
+    validator)
+        echo "Starting validator worker..."
+        exec rq worker validator
         ;;
     
     scraper)

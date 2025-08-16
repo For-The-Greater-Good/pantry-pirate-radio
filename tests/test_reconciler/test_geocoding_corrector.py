@@ -22,8 +22,38 @@ class TestGeocodingCorrector:
     @pytest.fixture
     def corrector(self, mock_db):
         """Create a GeocodingCorrector instance for testing."""
-        with patch("app.reconciler.geocoding_corrector.GeocodingValidator"):
-            return GeocodingCorrector(mock_db)
+        with patch("app.core.geocoding.validator.GeocodingValidator") as mock_validator:
+            with patch(
+                "app.core.geocoding.service.get_geocoding_service"
+            ) as mock_service:
+                mock_validator_instance = Mock()
+
+                def is_valid_coordinates_side_effect(lat, lon):
+                    # Check for projected coordinates first
+                    if abs(lat) > 180 or abs(lon) > 180:
+                        return False
+                    return -90 <= lat <= 90 and -180 <= lon <= 180
+
+                mock_validator_instance.is_valid_coordinates = Mock(
+                    side_effect=is_valid_coordinates_side_effect
+                )
+                mock_validator_instance.is_within_us_bounds = Mock(
+                    side_effect=lambda lat, lon: 24 <= lat <= 49 and -125 <= lon <= -67
+                )
+                mock_validator_instance.is_within_state_bounds = Mock(return_value=True)
+                mock_validator_instance.suggest_correction = Mock(
+                    return_value="Coordinates appear to be in a projected coordinate system"
+                )
+                mock_validator_instance.validate_and_correct_coordinates = Mock(
+                    return_value=(38.9, -77.0, "Corrected")
+                )
+                mock_validator.return_value = mock_validator_instance
+
+                mock_service_instance = Mock()
+                mock_service_instance.geocode = Mock(return_value=(38.9, -77.0))
+                mock_service.return_value = mock_service_instance
+
+                return GeocodingCorrector(mock_db)
 
     def test_find_locations_with_invalid_coordinates(self, corrector, mock_db):
         """Test finding locations with invalid coordinates."""
@@ -62,7 +92,11 @@ class TestGeocodingCorrector:
         assert len(invalid_locations) >= 2
         # Check that we found invalid locations
         assert invalid_locations[0]["id"] == "loc1"
-        assert "projected" in invalid_locations[0]["issue"].lower()
+        # Handle both single issue (old format) and issues array (new format)
+        issues_text = invalid_locations[0].get("issue", "") or " ".join(
+            invalid_locations[0].get("issues", [])
+        )
+        assert "projected" in issues_text.lower()
         # The second location might also be flagged as projected given the high latitude
         # or as outside bounds - both are valid issues
 

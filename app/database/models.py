@@ -10,11 +10,12 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Numeric,
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 # Try to import GeoAlchemy2, use fallback if not available
@@ -48,6 +49,19 @@ class OrganizationModel(Base):
     tax_id = Column(Text, nullable=True)
     year_incorporated = Column(Numeric, nullable=True)
     legal_status = Column(Text, nullable=True)
+
+    # Validation fields (Issue #362)
+    confidence_score = Column(Integer, nullable=True, default=50)
+    validation_notes = Column(JSONB, nullable=True)
+    validation_status: Column[str] = Column(  # type: ignore[assignment]
+        Enum(
+            "verified",
+            "needs_review",
+            "rejected",
+            name="organization_validation_status_enum",
+        ),
+        nullable=True,
+    )
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -94,6 +108,20 @@ class LocationModel(Base):
         nullable=False,
         default="physical",
     )
+
+    # Validation fields (Issue #362)
+    confidence_score = Column(Integer, nullable=True, default=50)
+    validation_notes = Column(JSONB, nullable=True)
+    validation_status: Column[str] = Column(  # type: ignore[assignment]
+        Enum(
+            "verified",
+            "needs_review",
+            "rejected",
+            name="location_validation_status_enum",
+        ),
+        nullable=True,
+    )
+    geocoding_source = Column(Text, nullable=True)
 
     # PostGIS geometry column for spatial queries (if GeoAlchemy2 is available)
     if HAS_GEOALCHEMY2:
@@ -174,6 +202,19 @@ class ServiceModel(Base):
         ),
         nullable=False,
         default="active",
+    )
+
+    # Validation fields (Issue #362)
+    confidence_score = Column(Integer, nullable=True, default=50)
+    validation_notes = Column(JSONB, nullable=True)
+    validation_status: Column[str] = Column(  # type: ignore[assignment]
+        Enum(
+            "verified",
+            "needs_review",
+            "rejected",
+            name="service_validation_status_enum",
+        ),
+        nullable=True,
     )
 
     # Timestamps

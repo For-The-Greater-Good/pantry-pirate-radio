@@ -57,10 +57,13 @@ def test_process_llm_job_coroutine_success(
     mock_provider.generate.return_value = mock_generate()
 
     # Mock the queue operations
-    with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-        with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
-            with patch("app.content_store.config.get_content_store", return_value=None):
-                result = process_llm_job(sample_job, mock_provider)
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
+            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+                with patch(
+                    "app.content_store.config.get_content_store", return_value=None
+                ):
+                    result = process_llm_job(sample_job, mock_provider)
 
     # Verify result
     assert result == sample_llm_response
@@ -107,10 +110,13 @@ def test_process_llm_job_async_generator_success(
     mock_provider.generate.return_value = mock_generate()
 
     # Mock the queue operations
-    with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-        with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
-            with patch("app.content_store.config.get_content_store", return_value=None):
-                result = process_llm_job(sample_job, mock_provider)
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
+            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+                with patch(
+                    "app.content_store.config.get_content_store", return_value=None
+                ):
+                    result = process_llm_job(sample_job, mock_provider)
 
     # Verify result
     assert result == sample_llm_response
@@ -427,17 +433,20 @@ def test_process_llm_job_reconciler_failure(
 
     mock_provider.generate.return_value = mock_generate()
 
-    with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
-        with patch("app.llm.queue.processor.recorder_queue"):
-            with patch("app.content_store.config.get_content_store", return_value=None):
-                # Reconciler enqueue fails
-                mock_reconciler.enqueue_call.side_effect = Exception("Queue error")
-
-                # Should raise a ValueError
-                with pytest.raises(
-                    ValueError, match="Failed to enqueue reconciler job"
+    with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
+            with patch("app.llm.queue.processor.recorder_queue"):
+                with patch(
+                    "app.content_store.config.get_content_store", return_value=None
                 ):
-                    process_llm_job(sample_job, mock_provider)
+                    # Reconciler enqueue fails
+                    mock_reconciler.enqueue_call.side_effect = Exception("Queue error")
+
+                    # Should raise a ValueError
+                    with pytest.raises(
+                        ValueError, match="Failed to enqueue reconciler job"
+                    ):
+                        process_llm_job(sample_job, mock_provider)
 
 
 def test_handle_claude_errors_with_non_claude_exception(

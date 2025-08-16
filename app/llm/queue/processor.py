@@ -15,6 +15,56 @@ from app.llm.queue.queues import reconciler_queue, recorder_queue, llm_queue
 logger = logging.getLogger(__name__)
 
 
+def get_next_queue(current_queue: str) -> str:
+    """Get the next queue in the pipeline.
+
+    Args:
+        current_queue: Current queue name
+
+    Returns:
+        Name of the next queue
+    """
+    if current_queue == "llm":
+        if should_use_validator():
+            return "validator"
+        else:
+            return "reconciler"
+    elif current_queue == "validator":
+        return "reconciler"
+    else:
+        return ""  # Return empty string instead of None
+
+
+def should_use_validator() -> bool:
+    """Check if validator should be used.
+
+    Returns:
+        Whether to use validator
+    """
+    return getattr(settings, "VALIDATOR_ENABLED", False)
+
+
+def enqueue_to_validator(job_result: JobResult) -> str:
+    """Enqueue job to validator queue.
+
+    Args:
+        job_result: Job result to enqueue
+
+    Returns:
+        Job ID
+    """
+    from app.validator.queues import get_validator_queue
+
+    validator_queue = get_validator_queue()
+    job = validator_queue.enqueue_call(
+        func="app.validator.job_processor.process_validation_job",
+        args=(job_result,),
+        result_ttl=settings.REDIS_TTL_SECONDS,
+        failure_ttl=settings.REDIS_TTL_SECONDS,
+    )
+    return job.id
+
+
 def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResponse:
     """Process an LLM job.
 
@@ -56,8 +106,12 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     config=None,  # Use default config
                 )
 
-                # Handle coroutine or generator result
-                if asyncio.iscoroutine(result):
+                # Handle different result types
+                llm_result: LLMResponse
+                if isinstance(result, LLMResponse):
+                    # Direct LLMResponse (for testing)
+                    llm_result = result
+                elif asyncio.iscoroutine(result):
                     # For coroutine result
                     coro = cast(Coroutine[Any, Any, LLMResponse], result)
                     llm_result = loop.run_until_complete(coro)
@@ -165,21 +219,38 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         else:
             logger.debug("Content store not configured")
 
-        # Enqueue follow-up jobs for reconciler and recorder
-        try:
-            reconciler_job = reconciler_queue.enqueue_call(
-                func="app.reconciler.job_processor.process_job_result",
-                args=(job_result,),
-                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-            )
-            logger.info(
-                f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to enqueue reconciler job for LLM job {job.id}: {e}")
-            # Re-raise to ensure the LLM job fails and can be retried
-            raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
+        # Check if validator is enabled and route accordingly
+        if should_use_validator():
+            # Route through validator first
+            try:
+                validator_job_id = enqueue_to_validator(job_result)
+                logger.info(
+                    f"Successfully enqueued validator job {validator_job_id} for LLM job {job.id}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to enqueue validator job for LLM job {job.id}: {e}"
+                )
+                # Re-raise to ensure the LLM job fails and can be retried
+                raise ValueError(f"Failed to enqueue validator job: {e}") from e
+        else:
+            # Route directly to reconciler (backward compatibility)
+            try:
+                reconciler_job = reconciler_queue.enqueue_call(
+                    func="app.reconciler.job_processor.process_job_result",
+                    args=(job_result,),
+                    result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
+                    failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
+                )
+                logger.info(
+                    f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to enqueue reconciler job for LLM job {job.id}: {e}"
+                )
+                # Re-raise to ensure the LLM job fails and can be retried
+                raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
 
         try:
             recorder_job = recorder_queue.enqueue_call(
