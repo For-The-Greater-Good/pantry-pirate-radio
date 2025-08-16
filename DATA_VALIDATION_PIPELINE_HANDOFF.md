@@ -335,7 +335,7 @@ Enhanced Based on PR Review (#374):
 ---
 
 ### Issue #366: Implement validation and scoring
-**Status:** ⏳ Not Started  
+**Status:** ✅ COMPLETED  
 **GitHub:** https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues/366  
 **Dependencies:** #362, #363  
 **Description:** Add validation rules and confidence scoring  
@@ -347,17 +347,66 @@ Enhanced Based on PR Review (#374):
 
 **Implementation Notes:**
 ```
-[To be filled during implementation]
+IMPORTANT ARCHITECTURE DECISION:
+- The validator does NOT write to the database directly
+- It only adds confidence_score, validation_status, and validation_notes to the job data
+- The reconciler handles all database persistence
+- This maintains proper separation of concerns in the pipeline
+
+Files Created/Modified:
+- app/validator/scoring.py (NEW) - ConfidenceScorer class
+- app/validator/rules.py (NEW) - ValidationRules class  
+- app/validator/database.py (SIMPLIFIED) - Read-only helper
+- app/validator/job_processor.py (UPDATED) - Integrated new validation logic
+- app/core/config.py (UPDATED) - Added validation settings
+
+Validation Rules Implemented:
+1. check_coordinates_present() - Reject if missing after enrichment (score: 0)
+2. check_zero_coordinates() - Reject if 0,0 or null (score: 0)
+3. check_us_bounds() - Including AK/HI support (score: 0-70)
+4. verify_state_match() - Check coordinates match claimed state (-20 penalty)
+5. detect_test_data() - Flag test patterns (score: 5)
+6. detect_placeholder_addresses() - Flag generic addresses (-75 penalty)
+7. assess_geocoding_confidence() - Rate geocoding source quality
+
+Confidence Scoring Algorithm (Post-Enrichment):
+- 100: Perfect data with verified geocoding
+- 90-100: Valid coordinates, within state bounds, complete address
+- 70-89: Valid coordinates, within US bounds, good address
+- 50-69: Valid coordinates but outside expected state or partial address
+- 30-49: Coordinates present but suspicious
+- 10-29: Major issues (test data patterns, placeholder addresses)
+- 0-9: Invalid/missing coordinates, outside US, or confirmed test data
+
+Configuration Added:
+- VALIDATION_REJECTION_THRESHOLD: 10 (configurable)
+- VALIDATION_TEST_DATA_PATTERNS: List of test indicators
+- VALIDATION_PLACEHOLDER_PATTERNS: Regex patterns for placeholders
+- VALIDATION_RULES_CONFIG: Enable/disable specific rules
 ```
 
 **Tests Created:**
 ```
-[List test files created]
+- tests/test_validator/test_scoring.py (20 tests) - Complete scoring algorithm tests
+- tests/test_validator/test_validation_rules.py (10 tests) - All validation rules
+- tests/test_validator/test_validation_database.py (3 tests) - Verify read-only behavior
+- All tests passing (1818 passed in test suite)
 ```
 
 **Documentation Updated:**
 ```
-[List documentation updated]
+- Updated DATA_VALIDATION_PIPELINE_HANDOFF.md with completion details
+- All acceptance criteria met:
+  ✅ Check coordinates are within US bounds (continental + HI + AK)
+  ✅ Detect 0,0 or near-zero coordinates  
+  ✅ Flag test data (Anytown, Test, Unknown, 00000 postal codes)
+  ✅ Verify coordinates match claimed state
+  ✅ Detect placeholder addresses (123 Main St, etc.)
+  ✅ All locations get confidence scores
+  ✅ Validation notes explain score reasoning
+  ✅ Scores are stored in job data (reconciler saves to DB)
+  ✅ Validation rules are configurable
+  ✅ Locations with confidence < 10 marked as 'rejected' status
 ```
 
 ---
