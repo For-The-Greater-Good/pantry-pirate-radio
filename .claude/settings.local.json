@@ -76,7 +76,8 @@
       "Bash(gh release view:*)",
       "Bash(./bouy exec db psql:*)",
       "Bash(gh issue view:*)",
-      "Bash(./bouy exec app python -m pytest:*)"
+      "Bash(./bouy exec app python -m pytest:*)",
+      "Bash(./bouy exec app python:*)"
     ],
     "deny": [],
     "additionalDirectories": [
