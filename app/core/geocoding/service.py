@@ -85,9 +85,18 @@ class GeocodingService:
                 )
                 logger.info("Set ARCGIS_API_KEY in .env for higher limits")
 
-            # Apply rate limiting
+            # Apply rate limiting for geocoding
             self.arcgis_geocode = RateLimiter(
                 self.arcgis.geocode,
+                min_delay_seconds=arcgis_rate_limit,
+                max_retries=self.max_retries,
+                error_wait_seconds=5,
+                return_value_on_exception=None,
+            )
+
+            # Apply rate limiting for reverse geocoding
+            self.arcgis_reverse = RateLimiter(
+                self.arcgis.reverse,
                 min_delay_seconds=arcgis_rate_limit,
                 max_retries=self.max_retries,
                 error_wait_seconds=5,
@@ -102,6 +111,7 @@ class GeocodingService:
             logger.error(f"Failed to initialize ArcGIS geocoder: {e}")
             self.arcgis = None
             self.arcgis_geocode = None
+            self.arcgis_reverse = None
 
     def _init_nominatim(self):
         """Initialize Nominatim geocoder as fallback."""
@@ -112,9 +122,18 @@ class GeocodingService:
         try:
             self.nominatim = Nominatim(user_agent=user_agent, timeout=self.timeout)
 
-            # Apply rate limiting
+            # Apply rate limiting for geocoding
             self.nominatim_geocode = RateLimiter(
                 self.nominatim.geocode,
+                min_delay_seconds=nominatim_rate_limit,
+                max_retries=self.max_retries,
+                error_wait_seconds=5,
+                return_value_on_exception=None,
+            )
+
+            # Apply rate limiting for reverse geocoding
+            self.nominatim_reverse = RateLimiter(
+                self.nominatim.reverse,
                 min_delay_seconds=nominatim_rate_limit,
                 max_retries=self.max_retries,
                 error_wait_seconds=5,
@@ -129,6 +148,7 @@ class GeocodingService:
             logger.error(f"Failed to initialize Nominatim geocoder: {e}")
             self.nominatim = None
             self.nominatim_geocode = None
+            self.nominatim_reverse = None
 
     def _get_cache_key(self, address: str, provider: str) -> str:
         """Generate cache key for geocoding result.
@@ -343,16 +363,24 @@ class GeocodingService:
             # Determine which provider to use
             use_provider = provider or self.primary_provider
 
-            if use_provider == "arcgis" and self.arcgis_geocode:
+            if (
+                use_provider == "arcgis"
+                and hasattr(self, "arcgis_reverse")
+                and self.arcgis_reverse
+            ):
                 try:
-                    location = ArcGIS().reverse(point, timeout=10)
+                    location = self.arcgis_reverse(point)
                 except Exception as e:
                     logger.debug(f"ArcGIS reverse geocoding failed: {e}")
-                    if self.enable_fallback and self.nominatim_geocode:
-                        location = self.nominatim_geocode.reverse(point)
+                    if (
+                        self.enable_fallback
+                        and hasattr(self, "nominatim_reverse")
+                        and self.nominatim_reverse
+                    ):
+                        location = self.nominatim_reverse(point)
 
-            elif self.nominatim_geocode:
-                location = self.nominatim_geocode.reverse(point)
+            elif hasattr(self, "nominatim_reverse") and self.nominatim_reverse:
+                location = self.nominatim_reverse(point)
 
             if location and location.raw:
                 # Extract address components
