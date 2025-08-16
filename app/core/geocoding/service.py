@@ -569,11 +569,17 @@ class GeocodingService:
             logger.debug(f"Census geocoding found no matches for: {address[:50]}...")
             return None
 
+        except requests.Timeout as e:
+            logger.debug(f"Census geocoding timeout: {e}")
+            return None
         except requests.RequestException as e:
             logger.debug(f"Census geocoding request failed: {e}")
             return None
+        except (ValueError, KeyError) as e:
+            logger.debug(f"Census geocoding data parsing error: {e}")
+            return None
         except Exception as e:
-            logger.warning(f"Census geocoding error: {e}")
+            logger.warning(f"Unexpected Census geocoding error: {e}")
             return None
 
     def get_default_coordinates(
