@@ -25,6 +25,9 @@ class ServiceCreator(BaseReconciler):
         description: str,
         organization_id: uuid.UUID | None,
         metadata: dict[str, Any],
+        confidence_score: int | None = None,
+        validation_status: str | None = None,
+        validation_notes: dict[str, Any] | None = None,
     ) -> uuid.UUID:
         """Create new service.
 
@@ -45,13 +48,19 @@ class ServiceCreator(BaseReconciler):
                 name,
                 description,
                 organization_id,
-                status
+                status,
+                confidence_score,
+                validation_status,
+                validation_notes
             ) VALUES (
                 :id,
                 :name,
                 :description,
                 :organization_id,
-                'active'
+                'active',
+                :confidence_score,
+                :validation_status,
+                :validation_notes
             )
             """
         )
@@ -63,6 +72,9 @@ class ServiceCreator(BaseReconciler):
                 "name": name,
                 "description": description,
                 "organization_id": str(organization_id) if organization_id else None,
+                "confidence_score": confidence_score,
+                "validation_status": validation_status,
+                "validation_notes": json.dumps(validation_notes) if validation_notes else None,
             },
         )
         self.db.commit()
@@ -247,6 +259,9 @@ class ServiceCreator(BaseReconciler):
         description: str,
         organization_id: uuid.UUID | None,
         metadata: dict[str, Any],
+        confidence_score: int | None = None,
+        validation_status: str | None = None,
+        validation_notes: dict[str, Any] | None = None,
     ) -> tuple[uuid.UUID, bool]:
         """Process a service by finding a match or creating a new one.
 
@@ -272,13 +287,18 @@ class ServiceCreator(BaseReconciler):
             query = text(
                 """
                 INSERT INTO service (
-                    id, name, description, organization_id, status
+                    id, name, description, organization_id, status, 
+                    confidence_score, validation_status, validation_notes
                 ) VALUES (
-                    :id, :name, :description, :organization_id, 'active'
+                    :id, :name, :description, :organization_id, 'active',
+                    :confidence_score, :validation_status, :validation_notes
                 )
                 ON CONFLICT (name, organization_id) DO UPDATE SET
                     description = COALESCE(EXCLUDED.description, service.description),
-                    status = 'active'
+                    status = 'active',
+                    confidence_score = COALESCE(EXCLUDED.confidence_score, service.confidence_score),
+                    validation_status = COALESCE(EXCLUDED.validation_status, service.validation_status),
+                    validation_notes = COALESCE(EXCLUDED.validation_notes, service.validation_notes)
                 RETURNING id, (xmax = 0) AS is_new
             """
             )
@@ -292,6 +312,9 @@ class ServiceCreator(BaseReconciler):
                     "organization_id": (
                         str(organization_id) if organization_id else None
                     ),
+                    "confidence_score": confidence_score,
+                    "validation_status": validation_status,
+                    "validation_notes": json.dumps(validation_notes) if validation_notes else None,
                 },
             )
 

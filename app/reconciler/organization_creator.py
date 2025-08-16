@@ -30,6 +30,9 @@ class OrganizationCreator(BaseReconciler):
         tax_id: str | None = None,
         uri: str | None = None,
         parent_organization_id: uuid.UUID | None = None,
+        confidence_score: int | None = None,
+        validation_status: str | None = None,
+        validation_notes: dict[str, Any] | None = None,
     ) -> uuid.UUID:
         """Create new organization.
 
@@ -63,7 +66,10 @@ class OrganizationCreator(BaseReconciler):
                 tax_status,
                 tax_id,
                 uri,
-                parent_organization_id
+                parent_organization_id,
+                confidence_score,
+                validation_status,
+                validation_notes
             ) VALUES (
                 :id,
                 :name,
@@ -75,7 +81,10 @@ class OrganizationCreator(BaseReconciler):
                 :tax_status,
                 :tax_id,
                 :uri,
-                :parent_organization_id
+                :parent_organization_id,
+                :confidence_score,
+                :validation_status,
+                :validation_notes
             )
             """
         )
@@ -96,6 +105,9 @@ class OrganizationCreator(BaseReconciler):
                 "parent_organization_id": (
                     str(parent_organization_id) if parent_organization_id else None
                 ),
+                "confidence_score": confidence_score,
+                "validation_status": validation_status,
+                "validation_notes": json.dumps(validation_notes) if validation_notes else None,
             },
         )
         self.db.commit()
@@ -342,6 +354,9 @@ class OrganizationCreator(BaseReconciler):
         tax_id: str | None = None,
         uri: str | None = None,
         parent_organization_id: str | None = None,
+        confidence_score: int | None = None,
+        validation_status: str | None = None,
+        validation_notes: dict[str, Any] | None = None,
     ) -> tuple[uuid.UUID, bool]:
         """Process an organization by finding a match or creating a new one.
 
@@ -376,10 +391,12 @@ class OrganizationCreator(BaseReconciler):
                 """
                 INSERT INTO organization (
                     id, name, description, website, email, year_incorporated,
-                    legal_status, tax_status, tax_id, uri, parent_organization_id
+                    legal_status, tax_status, tax_id, uri, parent_organization_id,
+                    confidence_score, validation_status, validation_notes
                 ) VALUES (
                     :id, :name, :description, :website, :email, :year_incorporated,
-                    :legal_status, :tax_status, :tax_id, :uri, :parent_organization_id
+                    :legal_status, :tax_status, :tax_id, :uri, :parent_organization_id,
+                    :confidence_score, :validation_status, :validation_notes
                 )
                 ON CONFLICT (normalized_name) DO UPDATE SET
                     description = COALESCE(EXCLUDED.description, organization.description),
@@ -390,7 +407,10 @@ class OrganizationCreator(BaseReconciler):
                     tax_status = COALESCE(EXCLUDED.tax_status, organization.tax_status),
                     tax_id = COALESCE(EXCLUDED.tax_id, organization.tax_id),
                     uri = COALESCE(EXCLUDED.uri, organization.uri),
-                    parent_organization_id = COALESCE(EXCLUDED.parent_organization_id, organization.parent_organization_id)
+                    parent_organization_id = COALESCE(EXCLUDED.parent_organization_id, organization.parent_organization_id),
+                    confidence_score = COALESCE(EXCLUDED.confidence_score, organization.confidence_score),
+                    validation_status = COALESCE(EXCLUDED.validation_status, organization.validation_status),
+                    validation_notes = COALESCE(EXCLUDED.validation_notes, organization.validation_notes)
                 RETURNING id, (xmax = 0) AS is_new
             """
             )
@@ -411,6 +431,9 @@ class OrganizationCreator(BaseReconciler):
                     "tax_id": tax_id,
                     "uri": uri if uri else None,
                     "parent_organization_id": parent_organization_id,
+                    "confidence_score": confidence_score,
+                    "validation_status": validation_status,
+                    "validation_notes": json.dumps(validation_notes) if validation_notes else None,
                 },
             )
 
