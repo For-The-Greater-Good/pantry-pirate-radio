@@ -149,6 +149,8 @@ class ValidationProcessor:
         self.config = config or {}
         self.enabled = self._is_enabled()
         self._validation_errors: list[str] = []
+        self._enrichment_details: Dict[str, Any] = {}
+        self._enrichment_error: Optional[str] = None
 
         self.logger.debug(f"ValidationProcessor initialized (enabled={self.enabled})")
 
@@ -183,8 +185,11 @@ class ValidationProcessor:
         # Parse job data
         data = self._parse_job_data(job_result)
 
+        # Perform enrichment before validation
+        enriched_data = self._enrich_data(job_result, data)
+
         # Perform validation (currently passthrough)
-        validated_data = self.validate_data(data)
+        validated_data = self.validate_data(enriched_data)
 
         # Update validation fields in database
         self.update_validation_fields(job_result, validated_data)
@@ -207,6 +212,11 @@ class ValidationProcessor:
         Returns:
             Parsed data dictionary
         """
+        # First check if job_result.data exists (new format)
+        if hasattr(job_result, "data") and job_result.data:
+            return job_result.data
+
+        # Fall back to parsing result.text (legacy format)
         try:
             if job_result.result and job_result.result.text:
                 return json.loads(job_result.result.text)
@@ -217,6 +227,47 @@ class ValidationProcessor:
             self._validation_errors.append(f"Invalid JSON data: {e}")
 
         return {}
+
+    def _enrich_data(
+        self, job_result: JobResult, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Enrich data with geocoding information.
+
+        Args:
+            job_result: Job result being processed
+            data: Parsed data to enrich
+
+        Returns:
+            Enriched data
+        """
+        # Check if enrichment is enabled
+        from app.core.config import settings
+
+        if not getattr(settings, "VALIDATOR_ENRICHMENT_ENABLED", True):
+            self.logger.debug("Enrichment disabled, skipping")
+            return data
+
+        try:
+            from app.validator.enrichment import GeocodingEnricher
+
+            enricher = GeocodingEnricher()
+            enriched_data = enricher.enrich_job_data(data)
+
+            # Store enrichment details for reporting
+            self._enrichment_details = enricher.get_enrichment_details()
+
+            self.logger.info(
+                f"Enriched {self._enrichment_details.get('locations_enriched', 0)} locations"
+            )
+
+            return enriched_data
+
+        except Exception as e:
+            self.logger.warning(f"Enrichment failed: {e}", exc_info=True)
+            # Store error in validation notes
+            self._enrichment_error = str(e)
+            # Return original data if enrichment fails
+            return data
 
     def _update_metrics(
         self, job_result: JobResult, validated_data: Dict[str, Any]
@@ -269,12 +320,33 @@ class ValidationProcessor:
         """
         status = "validation_failed" if self._validation_errors else "passed_validation"
 
+        # Build validation notes including enrichment details
+        validation_notes: Dict[str, Any] = {}
+
+        # Add enrichment details if available
+        if hasattr(self, "_enrichment_details") and self._enrichment_details:
+            validation_notes["enrichment"] = self._enrichment_details
+
+        # Add enrichment error if occurred
+        if hasattr(self, "_enrichment_error") and self._enrichment_error:
+            validation_notes["enrichment_error"] = self._enrichment_error
+
+        # Add validation errors
+        if self._validation_errors:
+            validation_notes["errors"] = self._validation_errors
+
         return {
             "job_id": job_result.job_id,
             "status": status,
             "data": validated_data,
             "validation_notes": (
-                "; ".join(self._validation_errors) if self._validation_errors else None
+                validation_notes
+                if validation_notes
+                else (
+                    "; ".join(self._validation_errors)
+                    if self._validation_errors
+                    else None
+                )
             ),
             "validation_errors": self._validation_errors,
         }

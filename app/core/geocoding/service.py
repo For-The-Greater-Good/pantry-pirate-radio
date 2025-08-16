@@ -16,6 +16,7 @@ import random
 import re
 import time
 from typing import Optional, Tuple
+import requests
 
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut, GeocoderUnavailable
 from geopy.extra.rate_limiter import RateLimiter
@@ -486,6 +487,94 @@ class GeocodingService:
         # If we get here, all geocoding attempts failed
         error_msg = "; ".join(errors) if errors else "Unknown geocoding error"
         raise ValueError(f"Could not geocode address: {address}. Errors: {error_msg}")
+
+    def geocode_with_provider(
+        self, address: str, provider: str
+    ) -> Optional[Tuple[float, float]]:
+        """Geocode an address using a specific provider.
+
+        Args:
+            address: Address string to geocode
+            provider: Provider to use ('arcgis', 'nominatim', or 'census')
+
+        Returns:
+            Tuple of (latitude, longitude) or None if geocoding fails
+        """
+        if not address or not address.strip():
+            logger.warning("Empty address provided for geocoding")
+            return None
+
+        # Check cache first
+        cached_result = self._get_cached_result(address, provider)
+        if cached_result:
+            return cached_result
+
+        result = None
+
+        if provider == "arcgis":
+            result = self._geocode_with_arcgis(address)
+        elif provider == "nominatim":
+            result = self._geocode_with_nominatim(address)
+        elif provider == "census":
+            result = self._geocode_with_census(address)
+        else:
+            logger.warning(f"Unknown geocoding provider: {provider}")
+            return None
+
+        if result:
+            self._cache_result(address, provider, result[0], result[1])
+
+        return result
+
+    def _geocode_with_census(self, address: str) -> Optional[Tuple[float, float]]:
+        """Geocode using US Census Geocoding API.
+
+        Args:
+            address: Address string to geocode
+
+        Returns:
+            Tuple of (latitude, longitude) or None if geocoding fails
+        """
+        try:
+            # Parse address into components if possible
+            # Census API works better with structured input
+            base_url = (
+                "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
+            )
+
+            params = {"address": address, "benchmark": "2020", "format": "json"}
+
+            response = requests.get(base_url, params=params, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Check if we got results
+            if data.get("result") and data["result"].get("addressMatches"):
+                matches = data["result"]["addressMatches"]
+                if matches:
+                    # Use first match
+                    match = matches[0]
+                    coords = match.get("coordinates")
+                    if coords:
+                        # Census returns x (longitude), y (latitude)
+                        longitude = coords.get("x")
+                        latitude = coords.get("y")
+                        if latitude and longitude:
+                            logger.debug(
+                                f"Census geocoded '{address[:50]}...' to {latitude}, {longitude}"
+                            )
+                            return (float(latitude), float(longitude))
+
+            logger.debug(f"Census geocoding found no matches for: {address[:50]}...")
+            return None
+
+        except requests.RequestException as e:
+            logger.debug(f"Census geocoding request failed: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Census geocoding error: {e}")
+            return None
 
     def get_default_coordinates(
         self, location: str = "US", with_offset: bool = True, offset_range: float = 0.01
