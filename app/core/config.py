@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     VALIDATOR_ONLY_HSDS: bool = True
     VALIDATOR_CONFIDENCE_THRESHOLD: float = 0.7
 
+    # Enrichment Settings
+    VALIDATOR_ENRICHMENT_ENABLED: bool = True  # Enable geocoding enrichment
+    ENRICHMENT_GEOCODING_PROVIDERS: list[str] = Field(
+        default=["arcgis", "nominatim", "census"],
+        description="Geocoding providers in priority order",
+    )
+    ENRICHMENT_TIMEOUT: int = 30  # Timeout for enrichment operations in seconds
+    ENRICHMENT_CACHE_SIZE: int = 1000  # Maximum number of cached geocoding results
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
