@@ -136,6 +136,20 @@ def pytest_configure(config: Config) -> None:
     Args:
         config: Pytest configuration object
     """
+    # Clear Prometheus registry to avoid metric duplication errors
+    try:
+        from prometheus_client import REGISTRY
+
+        # Clear all collectors to avoid duplication errors
+        collectors = list(REGISTRY._collector_to_names.keys())
+        for collector in collectors:
+            try:
+                REGISTRY.unregister(collector)
+            except Exception:  # noqa: S110
+                pass  # Ignore errors when unregistering collectors
+    except ImportError:
+        pass  # prometheus_client not installed
+
     # Configure logging for test environment
     configure_logging(testing=True)
     # Add test markers
@@ -151,7 +165,7 @@ def pytest_configure(config: Config) -> None:
     plugin_manager: Any = getattr(config, "pluginmanager", None)
     if plugin_manager and getattr(plugin_manager, "has_plugin", lambda _: False)(
         "xdist"
-    ):  # noqa: vulture
+    ):  # noqa: F841
         config.option.dist = "loadscope"  # type: ignore[attr-defined]
 
     # These are configured in pyproject.toml
@@ -169,7 +183,7 @@ def pytest_collection_modifyitems(config: Config, items: List[Item]) -> None:
     plugin_manager: Any = getattr(config, "pluginmanager", None)
     if not plugin_manager or not getattr(
         plugin_manager, "has_plugin", lambda _: False
-    )(  # noqa: vulture
+    )(  # noqa: F841
         "xdist"
     ):
         return

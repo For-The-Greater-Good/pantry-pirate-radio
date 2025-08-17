@@ -605,12 +605,21 @@ class JobProcessor:
             if "location" in data:
                 for location in data["location"]:
                     # Extract validation data for this location
-                    loc_confidence_score = None
-                    loc_validation_status = None
-                    loc_validation_notes = None
-                    loc_geocoding_source = None
+                    # First check if validation data is directly on the location (from validator)
+                    loc_confidence_score = location.get("confidence_score")
+                    loc_validation_status = location.get("validation_status")
+                    loc_validation_notes = location.get("validation_notes")
+                    loc_geocoding_source = location.get("geocoding_source")
 
-                    if validation_data and "locations" in validation_data:
+                    # Log if we found validation data directly on location
+                    if loc_confidence_score is not None:
+                        logger.info(
+                            f"Location '{location.get('name')}' has confidence score: {loc_confidence_score}, "
+                            f"status: {loc_validation_status}"
+                        )
+
+                    # If not found directly, look in separate validation_data
+                    elif validation_data and "locations" in validation_data:
                         for val_loc in validation_data["locations"]:
                             # Match by name and coordinates if available
                             if val_loc.get("name") == location.get("name") or (
