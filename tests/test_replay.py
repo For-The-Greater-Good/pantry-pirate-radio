@@ -147,9 +147,9 @@ class TestReplayModule:
         assert create_job_result(data1) is None
         assert create_job_result(data2) is None
 
-    @patch("app.replay.replay.process_job_result")
+    @patch("app.replay.replay.enqueue_to_validator")
     def test_should_enqueue_job_when_replay_single_file(
-        self, mock_process: Mock, tmp_path: Path
+        self, mock_enqueue: Mock, tmp_path: Path
     ) -> None:
         """Test replaying a single file."""
         # Arrange
@@ -172,15 +172,15 @@ class TestReplayModule:
         test_file = tmp_path / "test_job.json"
         test_file.write_text(json.dumps(test_data))
 
-        mock_process.return_value = {"status": "completed"}
+        mock_enqueue.return_value = "validator-job-123"
 
-        # Act
+        # Act (now uses validator by default)
         result = replay_file(str(test_file))
 
         # Assert
         assert result is True
-        mock_process.assert_called_once()
-        call_args = mock_process.call_args[0][0]
+        mock_enqueue.assert_called_once()
+        call_args = mock_enqueue.call_args[0][0]
         assert isinstance(call_args, JobResult)
         assert call_args.job_id == "test-123"
 
