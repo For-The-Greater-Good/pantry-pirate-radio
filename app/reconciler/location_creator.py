@@ -150,6 +150,10 @@ class LocationCreator(BaseReconciler):
         longitude: float,
         metadata: dict[str, Any],
         organization_id: str | None = None,
+        confidence_score: int | None = None,
+        validation_status: str | None = None,
+        validation_notes: dict[str, Any] | None = None,
+        geocoding_source: str | None = None,
     ) -> str:
         """Create new canonical location.
 
@@ -175,7 +179,11 @@ class LocationCreator(BaseReconciler):
                 longitude,
                 organization_id,
                 location_type,
-                is_canonical
+                is_canonical,
+                confidence_score,
+                validation_status,
+                validation_notes,
+                geocoding_source
             ) VALUES (
                 :id,
                 :name,
@@ -184,7 +192,11 @@ class LocationCreator(BaseReconciler):
                 :longitude,
                 :organization_id,
                 'physical',
-                TRUE
+                TRUE,
+                :confidence_score,
+                :validation_status,
+                :validation_notes,
+                :geocoding_source
             )
             """
         )
@@ -198,6 +210,12 @@ class LocationCreator(BaseReconciler):
                 "latitude": latitude,
                 "longitude": longitude,
                 "organization_id": organization_id,
+                "confidence_score": confidence_score,
+                "validation_status": validation_status,
+                "validation_notes": (
+                    json.dumps(validation_notes) if validation_notes else None
+                ),
+                "geocoding_source": geocoding_source,
             },
         )
         self.db.commit()

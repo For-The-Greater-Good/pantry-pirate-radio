@@ -64,6 +64,37 @@ class Settings(BaseSettings):
     VALIDATOR_ONLY_HSDS: bool = True
     VALIDATOR_CONFIDENCE_THRESHOLD: float = 0.7
 
+    # Validation Rules Settings
+    VALIDATION_REJECTION_THRESHOLD: int = 10  # Score below this is rejected
+    VALIDATION_STRICT_MODE: bool = False  # Enable stricter validation in production
+    VALIDATION_TEST_DATA_PATTERNS: list[str] = Field(
+        default_factory=lambda: [
+            "test",
+            "demo",
+            "example",
+            "sample",
+            "dummy",
+            "fake",
+            "anytown",
+            "unknown",
+        ]
+    )
+    VALIDATION_PLACEHOLDER_PATTERNS: list[str] = Field(
+        default_factory=lambda: [
+            r"^\d{1,3}\s+(main|first|second|third|test|example)\s+(st|street|ave|avenue|rd|road)",
+            r"^1\s+.+\s+(street|avenue|road|lane|way|drive|court|place)$",
+        ]
+    )
+    VALIDATION_RULES_CONFIG: dict = Field(
+        default_factory=lambda: {
+            "check_coordinates": True,
+            "check_us_bounds": True,
+            "check_state_match": True,
+            "detect_test_data": True,
+            "detect_placeholders": True,
+        }
+    )
+
     # Enrichment Settings
     VALIDATOR_ENRICHMENT_ENABLED: bool = True  # Enable geocoding enrichment
     ENRICHMENT_GEOCODING_PROVIDERS: list[str] = Field(
