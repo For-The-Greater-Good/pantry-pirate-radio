@@ -1,6 +1,7 @@
 """Tests for reconciler handling of rejected locations."""
 
 import json
+import uuid
 import pytest
 from unittest.mock import Mock, patch, call
 from app.reconciler.job_processor import JobProcessor
@@ -28,6 +29,7 @@ class TestReconcilerRejectionHandling:
         job = Mock(spec=LLMJob)
         job.id = "test-job-123"
         job.type = "validator"
+        job.metadata = {"scraper_id": "test-scraper"}  # Add missing metadata attribute
         job.data = {
             "organization": {
                 "name": "Test Organization",
@@ -78,9 +80,15 @@ class TestReconcilerRejectionHandling:
         job_result.job = job
         job_result.status = JobStatus.COMPLETED
 
-        # For backward compatibility, also set result.text
+        # Convert to HSDS format for result.text
+        hsds_data = {
+            "organization": [job.data["organization"]],
+            "location": job.data["locations"],
+            "service": job.data["services"],
+        }
+
         result = Mock(spec=LLMResponse)
-        result.text = json.dumps(job.data)
+        result.text = json.dumps(hsds_data)
         job_result.result = result
 
         return job_result
@@ -105,11 +113,19 @@ class TestReconcilerRejectionHandling:
             # Setup mocks
             mock_org_creator = Mock()
             MockOrgCreator.return_value = mock_org_creator
-            mock_org_creator.process_organization.return_value = ("org-id", False)
+            mock_org_creator.process_organization.return_value = (
+                str(uuid.uuid4()),
+                False,
+            )
 
             mock_loc_creator = Mock()
             MockLocCreator.return_value = mock_loc_creator
-            mock_loc_creator.create_location.return_value = "loc-id"
+            # Return a new UUID string for each call (accept any arguments)
+            mock_loc_creator.create_location.side_effect = lambda *args, **kwargs: str(
+                uuid.uuid4()
+            )
+            # Mock find_matching_location to return None (no match found)
+            mock_loc_creator.find_matching_location.return_value = None
 
             mock_svc_creator = Mock()
             MockSvcCreator.return_value = mock_svc_creator
@@ -125,10 +141,11 @@ class TestReconcilerRejectionHandling:
             assert mock_loc_creator.create_location.call_count == 2
 
             # Check the locations that were created
-            created_location_names = [
-                call.kwargs.get("name") if call.kwargs else call[1].get("name")
-                for call in mock_loc_creator.create_location.call_args_list
-            ]
+            created_location_names = []
+            for call_obj in mock_loc_creator.create_location.call_args_list:
+                # The first argument is the location name
+                if call_obj.args and len(call_obj.args) > 0:
+                    created_location_names.append(call_obj.args[0])
 
             # Should NOT include rejected locations
             assert "Good Location" in created_location_names
@@ -142,6 +159,7 @@ class TestReconcilerRejectionHandling:
 
         # Create job with locations that have been marked by validator
         job = Mock(spec=LLMJob)
+        job.metadata = {"scraper_id": "test-scraper"}  # Add missing metadata attribute
         job.data = {
             "locations": [
                 {
@@ -173,10 +191,51 @@ class TestReconcilerRejectionHandling:
         job_result.job = job
         job_result.status = JobStatus.COMPLETED
 
-        with patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator:
+        # Convert to HSDS format for result.text
+        hsds_data = {
+            "organization": [],
+            "location": job.data["locations"],
+            "service": [],
+        }
+        result = Mock(spec=LLMResponse)
+        result.text = json.dumps(hsds_data)
+        job_result.result = result
+
+        with patch(
+            "app.reconciler.job_processor.OrganizationCreator"
+        ) as MockOrgCreator, patch(
+            "app.reconciler.job_processor.LocationCreator"
+        ) as MockLocCreator, patch(
+            "app.reconciler.job_processor.ServiceCreator"
+        ) as MockSvcCreator, patch(
+            "app.reconciler.job_processor.VersionTracker"
+        ) as MockVersionTracker:
+
+            # Setup organization creator mock
+            mock_org_creator = Mock()
+            MockOrgCreator.return_value = mock_org_creator
+            mock_org_creator.process_organization.return_value = (
+                str(uuid.uuid4()),
+                False,
+            )
+
+            # Setup location creator mock
             mock_loc_creator = Mock()
             MockLocCreator.return_value = mock_loc_creator
-            mock_loc_creator.create_location.return_value = "loc-id"
+            # Return a new UUID string for each call (accept any arguments)
+            mock_loc_creator.create_location.side_effect = lambda *args, **kwargs: str(
+                uuid.uuid4()
+            )
+            # Mock find_matching_location to return None (no match found)
+            mock_loc_creator.find_matching_location.return_value = None
+
+            # Setup service creator mock
+            mock_svc_creator = Mock()
+            MockSvcCreator.return_value = mock_svc_creator
+
+            # Setup version tracker mock
+            mock_version_tracker = Mock()
+            MockVersionTracker.return_value = mock_version_tracker
 
             # Process the job
             result = processor.process_job_result(job_result)
@@ -186,15 +245,18 @@ class TestReconcilerRejectionHandling:
 
             created_names = [
                 (
-                    call.kwargs.get("name")
-                    if call.kwargs
-                    else call[1].get("name")
+                    call_args.args[0]
+                    if call_args.args and len(call_args.args) > 0
+                    else None
                 )
-                for call in mock_loc_creator.create_location.call_args_list
+                for call_args in mock_loc_creator.create_location.call_args_list
             ]
 
             assert "Score 9 Location" not in created_names  # Rejected
-            assert "Score 10 Location" in created_names or "Score 11 Location" in created_names
+            assert (
+                "Score 10 Location" in created_names
+                or "Score 11 Location" in created_names
+            )
 
     def test_rejection_is_logged_with_details(
         self, mock_db, job_result_with_rejected_locations, caplog
@@ -202,11 +264,33 @@ class TestReconcilerRejectionHandling:
         """Test rejected locations are logged with details."""
         processor = JobProcessor(db=mock_db)
 
-        with patch("app.reconciler.job_processor.OrganizationCreator"), patch(
+        with patch(
+            "app.reconciler.job_processor.OrganizationCreator"
+        ) as MockOrgCreator, patch(
             "app.reconciler.job_processor.LocationCreator"
-        ), patch("app.reconciler.job_processor.ServiceCreator"), patch(
+        ) as MockLocCreator, patch(
+            "app.reconciler.job_processor.ServiceCreator"
+        ) as MockSvcCreator, patch(
             "app.reconciler.job_processor.VersionTracker"
-        ):
+        ) as MockVersionTracker:
+
+            # Setup mocks to return proper values
+            mock_org_creator = Mock()
+            MockOrgCreator.return_value = mock_org_creator
+            mock_org_creator.process_organization.return_value = (
+                str(uuid.uuid4()),
+                False,
+            )
+
+            mock_loc_creator = Mock()
+            MockLocCreator.return_value = mock_loc_creator
+            mock_loc_creator.create_location.side_effect = lambda *args, **kwargs: str(
+                uuid.uuid4()
+            )
+            mock_loc_creator.find_matching_location.return_value = None
+
+            MockSvcCreator.return_value = Mock()
+            MockVersionTracker.return_value = Mock()
 
             # Process with debug logging
             import logging
@@ -240,21 +324,40 @@ class TestReconcilerRejectionHandling:
         # Track database operations
         created_locations = []
 
-        def mock_create_location(**kwargs):
-            created_locations.append(kwargs)
-            return f"loc-{len(created_locations)}"
+        def mock_create_location(*args, **kwargs):
+            # First arg is the name
+            if args:
+                created_locations.append({"name": args[0]})
+            elif kwargs:
+                created_locations.append(kwargs)
+            return str(uuid.uuid4())
 
-        with patch("app.reconciler.job_processor.OrganizationCreator"), patch(
+        with patch(
+            "app.reconciler.job_processor.OrganizationCreator"
+        ) as MockOrgCreator, patch(
             "app.reconciler.job_processor.LocationCreator"
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
-        ), patch(
+        ) as MockSvcCreator, patch(
             "app.reconciler.job_processor.VersionTracker"
-        ):
+        ) as MockVersionTracker:
+
+            # Setup organization creator mock
+            mock_org_creator = Mock()
+            MockOrgCreator.return_value = mock_org_creator
+            mock_org_creator.process_organization.return_value = (
+                str(uuid.uuid4()),
+                False,
+            )
 
             mock_loc_creator = Mock()
             MockLocCreator.return_value = mock_loc_creator
             mock_loc_creator.create_location.side_effect = mock_create_location
+            mock_loc_creator.find_matching_location.return_value = None
+
+            # Setup other mocks
+            MockSvcCreator.return_value = Mock()
+            MockVersionTracker.return_value = Mock()
 
             # Process the job
             processor.process_job_result(job_result_with_rejected_locations)
@@ -273,6 +376,7 @@ class TestReconcilerRejectionHandling:
 
         # Reconciler doesn't use thresholds - only validation_status matters
         job = Mock(spec=LLMJob)
+        job.metadata = {"scraper_id": "test-scraper"}  # Add missing metadata attribute
         job.data = {
             "locations": [
                 {
@@ -297,12 +401,51 @@ class TestReconcilerRejectionHandling:
         job_result.job = job
         job_result.status = JobStatus.COMPLETED
 
+        # Convert to HSDS format for result.text
+        hsds_data = {
+            "organization": [],
+            "location": job.data["locations"],
+            "service": [],
+        }
+        result = Mock(spec=LLMResponse)
+        result.text = json.dumps(hsds_data)
+        job_result.result = result
+
         with patch(
+            "app.reconciler.job_processor.OrganizationCreator"
+        ) as MockOrgCreator, patch(
             "app.reconciler.job_processor.LocationCreator"
-        ) as MockLocCreator:
+        ) as MockLocCreator, patch(
+            "app.reconciler.job_processor.ServiceCreator"
+        ) as MockSvcCreator, patch(
+            "app.reconciler.job_processor.VersionTracker"
+        ) as MockVersionTracker:
+
+            # Setup organization creator mock
+            mock_org_creator = Mock()
+            MockOrgCreator.return_value = mock_org_creator
+            mock_org_creator.process_organization.return_value = (
+                str(uuid.uuid4()),
+                False,
+            )
+
+            # Setup location creator mock
             mock_loc_creator = Mock()
             MockLocCreator.return_value = mock_loc_creator
-            mock_loc_creator.create_location.return_value = "loc-id"
+            # Return a new UUID string for each call (accept any arguments)
+            mock_loc_creator.create_location.side_effect = lambda *args, **kwargs: str(
+                uuid.uuid4()
+            )
+            # Mock find_matching_location to return None (no match found)
+            mock_loc_creator.find_matching_location.return_value = None
+
+            # Setup service creator mock
+            mock_svc_creator = Mock()
+            MockSvcCreator.return_value = mock_svc_creator
+
+            # Setup version tracker mock
+            mock_version_tracker = Mock()
+            MockVersionTracker.return_value = mock_version_tracker
 
             # Process the job
             processor.process_job_result(job_result)
@@ -313,11 +456,11 @@ class TestReconcilerRejectionHandling:
             # Only the non-rejected location should be created (despite low score)
             created_names = [
                 (
-                    call.kwargs.get("name")
-                    if call.kwargs
-                    else call[1].get("name")
+                    call_args.args[0]
+                    if call_args.args and len(call_args.args) > 0
+                    else None
                 )
-                for call in mock_loc_creator.create_location.call_args_list
+                for call_args in mock_loc_creator.create_location.call_args_list
             ]
             assert "Low Score but Not Rejected" in created_names
             assert "High Score but Rejected" not in created_names
@@ -345,19 +488,17 @@ class TestLocationCreatorRejection:
         with patch.object(creator.logger, "info") as mock_log:
             result = creator.create_location(
                 name="Rejected Location",
+                description="Test location",
                 latitude=0.0,
                 longitude=0.0,
+                metadata={},
                 confidence_score=5,
                 validation_status="rejected",
                 validation_notes={"rejection_reason": "Test data detected"},
             )
 
-            # Should return None or skip creation
-            # This behavior needs to be implemented
-            # For now, we're testing the expected behavior
+            # Should return None for rejected locations
+            assert result is None
 
             # Check that it logged the skip
-            if result is None:
-                mock_log.assert_called_with(
-                    "Skipping rejected location: Rejected Location"
-                )
+            mock_log.assert_called_with("Skipping rejected location: Rejected Location")
