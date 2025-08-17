@@ -39,6 +39,23 @@ try:
 
     VALIDATOR_INFO = Info("validator_info", "Validator service information")
 
+    # Rejection metrics
+    VALIDATOR_LOCATIONS_REJECTED = Counter(
+        "validator_locations_rejected_total",
+        "Total number of locations rejected by validator",
+    )
+
+    VALIDATOR_REJECTION_RATE = Gauge(
+        "validator_rejection_rate",
+        "Percentage of locations rejected (0-100)",
+    )
+
+    VALIDATOR_LOCATIONS_REJECTED_BY_REASON = Counter(
+        "validator_locations_rejected_by_reason_total",
+        "Number of locations rejected by reason",
+        ["reason"],
+    )
+
     # Set initial info
     VALIDATOR_INFO.info(
         {
@@ -90,6 +107,9 @@ except ImportError:
     VALIDATOR_QUEUE_SIZE = MockMetric("validator_queue_size")  # type: ignore[assignment]
     VALIDATOR_ACTIVE_WORKERS = MockMetric("validator_active_workers")  # type: ignore[assignment]
     VALIDATOR_INFO = MockMetric("validator_info")  # type: ignore[assignment]
+    VALIDATOR_LOCATIONS_REJECTED = MockMetric("validator_locations_rejected_total")  # type: ignore[assignment]
+    VALIDATOR_REJECTION_RATE = MockMetric("validator_rejection_rate")  # type: ignore[assignment]
+    VALIDATOR_LOCATIONS_REJECTED_BY_REASON = MockMetric("validator_locations_rejected_by_reason_total")  # type: ignore[assignment]
 
     METRICS_AVAILABLE = False
 
@@ -192,6 +212,8 @@ def get_metrics_summary() -> Dict[str, Any]:
                 "jobs_failed": 0,
                 "queue_size": 0,
                 "active_workers": 0,
+                "locations_rejected": 0,
+                "rejection_rate": 0.0,
             }
         )
 

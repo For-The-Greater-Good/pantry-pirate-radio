@@ -65,7 +65,9 @@ class Settings(BaseSettings):
     VALIDATOR_CONFIDENCE_THRESHOLD: float = 0.7
 
     # Validation Rules Settings
-    VALIDATION_REJECTION_THRESHOLD: int = 10  # Score below this is rejected
+    VALIDATION_REJECTION_THRESHOLD: int = Field(
+        default=10, description="Score below this is rejected", ge=0, le=100
+    )  # Score below this is rejected
     VALIDATION_STRICT_MODE: bool = False  # Enable stricter validation in production
     VALIDATION_TEST_DATA_PATTERNS: list[str] = Field(
         default_factory=lambda: [
