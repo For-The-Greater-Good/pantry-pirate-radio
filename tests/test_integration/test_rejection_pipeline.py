@@ -92,17 +92,19 @@ class TestRejectionPipelineIntegration:
         processor = ValidationProcessor(db=mock_validator_db)
 
         # Skip enrichment for test
-        with patch.object(processor, "_enrich_data", side_effect=lambda jr, data: data):
+        with patch.object(
+            processor, "_enrich_data", side_effect=lambda _jr, data: data
+        ):
             result = processor.process_job_result(job_with_mixed_quality_data)
 
         locations = result["data"]["locations"]
 
         # Check each location's validation status
-        good_loc = next(l for l in locations if l["name"] == "Good Location")
+        good_loc = next(loc for loc in locations if loc["name"] == "Good Location")
         assert good_loc["validation_status"] != "rejected"
         assert good_loc["confidence_score"] > 10
 
-        zero_loc = next(l for l in locations if l["name"] == "Zero Coordinates")
+        zero_loc = next(loc for loc in locations if loc["name"] == "Zero Coordinates")
         assert zero_loc["validation_status"] == "rejected"
         assert zero_loc["confidence_score"] == 0
         assert (
@@ -110,7 +112,9 @@ class TestRejectionPipelineIntegration:
             == "Invalid 0,0 coordinates"
         )
 
-        missing_loc = next(l for l in locations if l["name"] == "Missing Coordinates")
+        missing_loc = next(
+            loc for loc in locations if loc["name"] == "Missing Coordinates"
+        )
         assert missing_loc["validation_status"] == "rejected"
         assert missing_loc["confidence_score"] == 0
         assert (
@@ -118,12 +122,12 @@ class TestRejectionPipelineIntegration:
             == "Missing coordinates after enrichment"
         )
 
-        outside_us = next(l for l in locations if l["name"] == "Outside US")
+        outside_us = next(loc for loc in locations if loc["name"] == "Outside US")
         assert outside_us["validation_status"] == "rejected"
         assert outside_us["confidence_score"] < 10
         assert outside_us["validation_notes"]["rejection_reason"] == "Outside US bounds"
 
-        test_data = next(l for l in locations if l["name"] == "Test Data Pattern")
+        test_data = next(loc for loc in locations if loc["name"] == "Test Data Pattern")
         assert test_data["validation_status"] == "rejected"
         assert test_data["confidence_score"] < 10
         assert test_data["validation_notes"]["rejection_reason"] == "Test data detected"
@@ -134,7 +138,9 @@ class TestRejectionPipelineIntegration:
         """Test reconciler skips locations marked as rejected by validator."""
         # First run through validator
         validator = ValidationProcessor(db=mock_validator_db)
-        with patch.object(validator, "_enrich_data", side_effect=lambda jr, data: data):
+        with patch.object(
+            validator, "_enrich_data", side_effect=lambda _jr, data: data
+        ):
             validated_result = validator.process_job_result(job_with_mixed_quality_data)
 
         # Update job with validated data
@@ -198,7 +204,7 @@ class TestRejectionPipelineIntegration:
 
             processor = ValidationProcessor(db=mock_validator_db)
             with patch.object(
-                processor, "_enrich_data", side_effect=lambda jr, data: data
+                processor, "_enrich_data", side_effect=lambda _jr, data: data
             ):
                 processor.process_job_result(job_with_mixed_quality_data)
 
@@ -270,7 +276,7 @@ class TestRejectionPipelineIntegration:
                 mock_scorer.rejection_threshold = 20
 
                 with patch.object(
-                    validator, "_enrich_data", side_effect=lambda jr, data: data
+                    validator, "_enrich_data", side_effect=lambda _jr, data: data
                 ):
                     result = validator.process_job_result(job_result)
 
@@ -317,7 +323,9 @@ class TestRejectionPipelineIntegration:
 
         # Run through validator
         validator = ValidationProcessor(db=mock_validator_db)
-        with patch.object(validator, "_enrich_data", side_effect=lambda jr, data: data):
+        with patch.object(
+            validator, "_enrich_data", side_effect=lambda _jr, data: data
+        ):
             with caplog.at_level(logging.INFO):
                 validated_result = validator.process_job_result(
                     job_with_mixed_quality_data

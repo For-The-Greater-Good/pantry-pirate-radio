@@ -75,17 +75,25 @@ class TestValidatorRejectionLogic:
                     "name": "Good Location",
                     "latitude": 40.7128,
                     "longitude": -74.0060,
-                    "address": [{"street": "123 Real St", "city": "New York", "state": "NY", "postal_code": "10001"}]
+                    "address": "123 Real St",
+                    "city": "New York",
+                    "state": "NY",
+                    "postal_code": "10001"
                 },
                 {
                     "name": "Test Location",
                     "latitude": 0.0,
                     "longitude": 0.0,
-                    "address": [{"street": "123 Test St", "city": "Anytown", "state": "XX", "postal_code": "00000"}]
+                    "address": "123 Test St",
+                    "city": "Anytown",
+                    "state": "XX",
+                    "postal_code": "00000"
                 },
                 {
                     "name": "Missing Coords",
-                    "address": [{"street": "456 Unknown St", "city": "Nowhere", "state": "XX"}]
+                    "address": "456 Unknown St",
+                    "city": "Nowhere",
+                    "state": "XX"
                 }
             ],
             "services": []
@@ -106,24 +114,26 @@ class TestValidatorRejectionLogic:
         processor = ValidationProcessor(db=mock_db)
 
         # Mock enrichment to skip it
-        with patch.object(processor, "_enrich_data", side_effect=lambda jr, data: data):
+        with patch.object(
+            processor, "_enrich_data", side_effect=lambda _jr, data: data
+        ):
             result = processor.process_job_result(sample_job_result)
 
         # Check that low confidence locations are marked as rejected
         locations = result["data"]["locations"]
 
         # Good location should not be rejected
-        good_loc = next(l for l in locations if l["name"] == "Good Location")
+        good_loc = next(loc for loc in locations if loc["name"] == "Good Location")
         assert good_loc["confidence_score"] > 10
         assert good_loc["validation_status"] != "rejected"
 
         # Test location (0,0 coords) should be rejected
-        test_loc = next(l for l in locations if l["name"] == "Test Location")
+        test_loc = next(loc for loc in locations if loc["name"] == "Test Location")
         assert test_loc["confidence_score"] < 10
         assert test_loc["validation_status"] == "rejected"
 
         # Missing coords location should be rejected
-        missing_loc = next(l for l in locations if l["name"] == "Missing Coords")
+        missing_loc = next(loc for loc in locations if loc["name"] == "Missing Coords")
         assert missing_loc["confidence_score"] == 0
         assert missing_loc["validation_status"] == "rejected"
 
@@ -131,19 +141,21 @@ class TestValidatorRejectionLogic:
         """Test rejection reasons are included in validation_notes."""
         processor = ValidationProcessor(db=mock_db)
 
-        with patch.object(processor, "_enrich_data", side_effect=lambda jr, data: data):
+        with patch.object(
+            processor, "_enrich_data", side_effect=lambda _jr, data: data
+        ):
             result = processor.process_job_result(sample_job_result)
 
         locations = result["data"]["locations"]
 
         # Test location should have rejection reason
-        test_loc = next(l for l in locations if l["name"] == "Test Location")
+        test_loc = next(loc for loc in locations if loc["name"] == "Test Location")
         assert "validation_notes" in test_loc
         assert "rejection_reason" in test_loc["validation_notes"]
         assert test_loc["validation_notes"]["rejection_reason"] is not None
 
         # Missing coords should have specific rejection reason
-        missing_loc = next(l for l in locations if l["name"] == "Missing Coords")
+        missing_loc = next(loc for loc in locations if loc["name"] == "Missing Coords")
         assert (
             missing_loc["validation_notes"]["rejection_reason"]
             == "Missing coordinates after enrichment"
@@ -155,7 +167,7 @@ class TestValidatorRejectionLogic:
         processor = ValidationProcessor(db=mock_db, config={"rejection_threshold": 50})
 
         # Mock the scorer to use the custom threshold
-        with patch("app.validator.job_processor.ConfidenceScorer") as MockScorer:
+        with patch("app.validator.scoring.ConfidenceScorer") as MockScorer:
             mock_scorer = Mock()
             MockScorer.return_value = mock_scorer
 
@@ -168,7 +180,9 @@ class TestValidatorRejectionLogic:
             mock_scorer.score_service.return_value = 45
 
             with patch.object(
-                processor, "_enrich_data", side_effect=lambda jr, data: data
+                processor,
+                "_enrich_data",
+                side_effect=lambda _jr, data: data,
             ):
                 result = processor.process_job_result(sample_job_result)
 
@@ -195,37 +209,42 @@ class TestRejectionTracking:
         processor = ValidationProcessor(db=mock_db)
 
         # Create test data with multiple locations
+        # These need to be "raw" locations that will be scored and rejected
         test_data = {
             "locations": [
                 {
                     "name": "Rejected 1",
-                    "confidence_score": 5,
-                    "validation_status": "rejected",
+                    "latitude": 0.0,  # Will get low score for 0,0
+                    "longitude": 0.0,
                 },
                 {
                     "name": "Good 1",
-                    "confidence_score": 80,
-                    "validation_status": "verified",
+                    "latitude": 40.7128,
+                    "longitude": -74.0060,
+                    "address": "123 Real St",
+                    "city": "New York",
+                    "state": "NY",
+                    "postal_code": "10001",
                 },
                 {
                     "name": "Rejected 2",
-                    "confidence_score": 3,
-                    "validation_status": "rejected",
+                    # Missing coordinates will score 0
                 },
                 {
                     "name": "Review 1",
-                    "confidence_score": 30,
-                    "validation_status": "needs_review",
+                    "latitude": 40.7,
+                    "longitude": -74.0,
+                    "address": "456 St",  # Minimal data gets medium score
                 },
                 {
                     "name": "Rejected 3",
-                    "confidence_score": 0,
-                    "validation_status": "rejected",
+                    "latitude": 999,  # Outside bounds
+                    "longitude": 999,
                 },
             ]
         }
 
-        # Process the data
+        # Process the data - the validator will score these and mark rejections
         validated_data = processor.validate_data(test_data)
 
         # Check validation errors includes rejections
@@ -254,7 +273,9 @@ class TestRejectionTracking:
             ]
         }
 
-        with patch.object(processor, "_enrich_data", side_effect=lambda jr, data: data):
+        with patch.object(
+            processor, "_enrich_data", side_effect=lambda _jr, data: data
+        ):
             result = processor.process_job_result(job_result)
 
         # Check validation notes includes rejection summary
@@ -263,7 +284,7 @@ class TestRejectionTracking:
         # Check for rejection information
         locations = result["data"]["locations"]
         rejected_count = sum(
-            1 for l in locations if l.get("validation_status") == "rejected"
+            1 for loc in locations if loc.get("validation_status") == "rejected"
         )
         assert rejected_count >= 2  # At least 2 should be rejected
 

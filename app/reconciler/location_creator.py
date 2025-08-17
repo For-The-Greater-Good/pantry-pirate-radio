@@ -154,7 +154,7 @@ class LocationCreator(BaseReconciler):
         validation_status: str | None = None,
         validation_notes: dict[str, Any] | None = None,
         geocoding_source: str | None = None,
-    ) -> str:
+    ) -> str | None:
         """Create new canonical location.
 
         Args:
@@ -164,10 +164,19 @@ class LocationCreator(BaseReconciler):
             longitude: Location longitude
             metadata: Additional metadata
             organization_id: Optional ID of the parent organization
+            confidence_score: Confidence score from validation
+            validation_status: Validation status (rejected, verified, etc.)
+            validation_notes: Additional validation notes
+            geocoding_source: Source of geocoding data
 
         Returns:
-            Location ID
+            Location ID or None if location was rejected
         """
+        # Skip creating locations marked as rejected
+        if validation_status == "rejected":
+            self.logger.info(f"Skipping rejected location: {name}")
+            return None
+
         location_id = str(uuid.uuid4())
         query = text(
             """
