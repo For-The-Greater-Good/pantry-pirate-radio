@@ -124,7 +124,7 @@ class TestReplayValidationRouting:
         mock_job_result = MagicMock()
         mock_job_result.job_id = "test-789"
 
-        with patch("app.replay.replay.get_validator_queue") as mock_get_queue:
+        with patch("app.validator.queues.get_validator_queue") as mock_get_queue:
             mock_queue = MagicMock()
             mock_queue.enqueue_call.return_value = MagicMock(id="validator-job-789")
             mock_get_queue.return_value = mock_queue
@@ -137,7 +137,10 @@ class TestReplayValidationRouting:
             mock_queue.enqueue_call.assert_called_once()
             # Check the basic call structure
             call_args, call_kwargs = mock_queue.enqueue_call.call_args
-            assert call_kwargs["func"] == "app.validator.job_processor.process_validation_job"
+            assert (
+                call_kwargs["func"]
+                == "app.validator.job_processor.process_validation_job"
+            )
             assert call_kwargs["args"] == (mock_job_result,)
             assert call_kwargs["meta"]["source"] == "replay"
             assert call_kwargs["meta"]["original_job_id"] == "test-789"
