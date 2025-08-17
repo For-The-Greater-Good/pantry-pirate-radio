@@ -412,11 +412,14 @@ open htmlcov/index.html                  # View HTML report
 ```bash
 ./bouy recorder                          # Save job results to JSON
 ./bouy recorder --output-dir /custom/path # Custom output directory
-./bouy replay --file FILE                # Replay single JSON file
-./bouy replay --directory DIR            # Replay all files in directory
-./bouy replay --use-default-output-dir   # Use default outputs directory
+./bouy replay --file FILE                # Replay single JSON file (validates by default)
+./bouy replay --directory DIR            # Replay all files in directory (validates by default)
+./bouy replay --use-default-output-dir   # Use default outputs directory (validates by default)
 ./bouy replay --dry-run                  # Preview without executing
+./bouy replay --skip-validation          # Skip validation service (legacy mode)
 ```
+
+**Note:** As of Issue #369, replay now routes through the validation service by default for data enrichment and confidence scoring. Use `--skip-validation` to bypass validation and route directly to the reconciler (legacy behavior).
 
 ### Claude Authentication
 ```bash

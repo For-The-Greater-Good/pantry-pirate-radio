@@ -49,6 +49,11 @@ def main() -> int:
         help="Perform a dry run without actually processing files",
     )
     parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip validation service and route directly to reconciler (legacy behavior)",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
 
@@ -69,8 +74,14 @@ def main() -> int:
             logger.info(f"Replaying single file: {args.file}")
             if args.dry_run:
                 logger.info("DRY RUN MODE - No actual processing will occur")
+            if args.skip_validation:
+                logger.info("SKIP VALIDATION - Routing directly to reconciler")
 
-            success = replay_file(str(file_path), dry_run=args.dry_run)
+            success = replay_file(
+                str(file_path),
+                dry_run=args.dry_run,
+                skip_validation=args.skip_validation,
+            )
             if success:
                 logger.info("File processed successfully")
                 return 0
@@ -89,9 +100,14 @@ def main() -> int:
             logger.info(f"Using pattern: {args.pattern}")
             if args.dry_run:
                 logger.info("DRY RUN MODE - No actual processing will occur")
+            if args.skip_validation:
+                logger.info("SKIP VALIDATION - Routing directly to reconciler")
 
             stats = replay_directory(
-                str(dir_path), pattern=args.pattern, dry_run=args.dry_run
+                str(dir_path),
+                pattern=args.pattern,
+                dry_run=args.dry_run,
+                skip_validation=args.skip_validation,
             )
 
             # Log summary
@@ -119,9 +135,14 @@ def main() -> int:
             logger.info(f"Using pattern: {args.pattern}")
             if args.dry_run:
                 logger.info("DRY RUN MODE - No actual processing will occur")
+            if args.skip_validation:
+                logger.info("SKIP VALIDATION - Routing directly to reconciler")
 
             stats = replay_directory(
-                str(dir_path), pattern=args.pattern, dry_run=args.dry_run
+                str(dir_path),
+                pattern=args.pattern,
+                dry_run=args.dry_run,
+                skip_validation=args.skip_validation,
             )
 
             # Log summary
