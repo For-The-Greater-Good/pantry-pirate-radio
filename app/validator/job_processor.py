@@ -489,30 +489,144 @@ class ValidationProcessor:
     def validate_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate data according to business rules.
 
-        Currently implements passthrough validation (no rules applied).
-        Future implementations will add actual validation logic.
+        This method runs AFTER enrichment, so it validates the enriched data
+        and calculates confidence scores based on data quality.
 
         Args:
-            data: Data to validate
+            data: Data to validate (already enriched)
 
         Returns:
-            Validated data (currently unchanged)
+            Validated data with confidence scores and validation status
         """
-        self.logger.debug(f"Validating data with {len(data)} keys")
+        self.logger.debug(f"Validating enriched data with {len(data)} keys")
 
         # Perform basic structural validation
         if not isinstance(data, dict):
             self._validation_errors.append("Data must be a dictionary")
             return {}
 
-        # Check for required fields (example, to be expanded)
-        self._check_required_fields(data)
+        # Import validation classes
+        from app.validator.rules import ValidationRules
+        from app.validator.scoring import ConfidenceScorer
 
-        # Validate specific data types (example, to be expanded)
-        self._validate_data_types(data)
+        # Initialize validators
+        validator = ValidationRules()
+        scorer = ConfidenceScorer()
 
-        # Return validated data (currently passthrough)
+        # Process locations with validation and scoring
+        if "locations" in data and isinstance(data["locations"], list):
+            location_scores = []
+
+            for location in data["locations"]:
+                # Run validation rules
+                validation_results = validator.validate_location(location)
+
+                # Calculate confidence score
+                confidence_score = scorer.calculate_score(location, validation_results)
+                validation_status = scorer.get_validation_status(confidence_score)
+
+                # Update location with validation data
+                location["confidence_score"] = confidence_score
+                location["validation_status"] = validation_status
+                location["validation_notes"] = {
+                    "validation_results": validation_results,
+                    "enrichment_source": location.get("geocoding_source"),
+                    "rejection_reason": self._get_rejection_reason(
+                        confidence_score, validation_results
+                    ),
+                }
+
+                location_scores.append(confidence_score)
+
+                # Log validation outcome
+                self.logger.info(
+                    f"Location '{location.get('name', 'unknown')}': "
+                    f"confidence={confidence_score}, status={validation_status}"
+                )
+
+                # Track validation errors for rejected locations
+                if validation_status == "rejected":
+                    self._validation_errors.append(
+                        f"Location '{location.get('name', 'unknown')}' rejected: "
+                        f"confidence score {confidence_score}"
+                    )
+
+            # Calculate organization-level confidence if applicable
+            if "organization" in data and location_scores:
+                org_confidence = scorer.score_organization(
+                    data["organization"], location_scores
+                )
+                org_status = scorer.get_validation_status(org_confidence)
+
+                data["organization"]["confidence_score"] = org_confidence
+                data["organization"]["validation_status"] = org_status
+                data["organization"]["validation_notes"] = {
+                    "location_scores": location_scores,
+                    "average_location_score": sum(location_scores)
+                    / len(location_scores),
+                }
+
+                self.logger.info(
+                    f"Organization '{data['organization'].get('name', 'unknown')}': "
+                    f"confidence={org_confidence}, status={org_status}"
+                )
+
+        # Process services with validation
+        if "services" in data and isinstance(data["services"], list):
+            for service in data["services"]:
+                # Services inherit location confidence
+                location_confidence = 50  # Default if no location
+
+                # Find associated location confidence
+                if location_id := service.get("location_id"):
+                    for location in data.get("locations", []):
+                        if location.get("id") == location_id:
+                            location_confidence = location.get("confidence_score", 50)
+                            break
+
+                service_confidence = scorer.score_service(service, location_confidence)
+                service_status = scorer.get_validation_status(service_confidence)
+
+                service["confidence_score"] = service_confidence
+                service["validation_status"] = service_status
+                service["validation_notes"] = {
+                    "inherited_from_location": location_id,
+                    "base_confidence": location_confidence,
+                }
+
+                self.logger.info(
+                    f"Service '{service.get('name', 'unknown')}': "
+                    f"confidence={service_confidence}, status={service_status}"
+                )
+
         return data
+
+    def _get_rejection_reason(
+        self, confidence_score: int, validation_results: Dict[str, Any]
+    ) -> Optional[str]:
+        """Get human-readable rejection reason.
+
+        Args:
+            confidence_score: Calculated confidence score
+            validation_results: Validation rule results
+
+        Returns:
+            Rejection reason or None if not rejected
+        """
+        if confidence_score >= 10:
+            return None
+
+        # Determine primary rejection reason
+        if not validation_results.get("has_coordinates"):
+            return "Missing coordinates after enrichment"
+        elif validation_results.get("is_zero_coordinates"):
+            return "Invalid 0,0 coordinates"
+        elif not validation_results.get("within_us_bounds"):
+            return "Outside US bounds"
+        elif validation_results.get("is_test_data"):
+            return "Test data detected"
+        else:
+            return "Multiple validation failures"
 
     def _extract_validation_metadata(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract validation metadata from data.
@@ -538,23 +652,3 @@ class ValidationProcessor:
             metadata["confidence_score"] = data["validation_confidence"]
 
         return metadata
-
-    def _check_required_fields(self, data: Dict[str, Any]) -> None:
-        """Check for required fields in data.
-
-        Args:
-            data: Data to check
-        """
-        # This is a placeholder for future required field validation
-        # Currently no fields are required (passthrough mode)
-        pass
-
-    def _validate_data_types(self, data: Dict[str, Any]) -> None:
-        """Validate data types of fields.
-
-        Args:
-            data: Data to validate
-        """
-        # This is a placeholder for future data type validation
-        # Currently no type validation is performed (passthrough mode)
-        pass
