@@ -449,29 +449,77 @@ Data Flow:
 ---
 
 ### Issue #367: Filter worthless data
-**Status:** ⏳ Not Started  
+**Status:** ✅ COMPLETED  
 **GitHub:** https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues/367  
 **Dependencies:** #366  
 **Description:** Discard low-confidence data  
 **Key Requirements:**
-- Configurable threshold (default: 10)
-- Mark as 'rejected' status
-- Skip in reconciler
-- Log rejections
+- ✅ Configurable threshold (default: 10) via VALIDATION_REJECTION_THRESHOLD
+- ✅ Mark as 'rejected' status
+- ✅ Skip in reconciler (with continue statement)
+- ✅ Log rejections with details
+- ✅ Track rejection metrics
 
 **Implementation Notes:**
 ```
-[To be filled during implementation]
+Configuration:
+- Added Field validator to config.py for VALIDATION_REJECTION_THRESHOLD
+- Environment variable support automatic via pydantic_settings
+- Threshold range validated (0-100)
+- Default value: 10
+
+Validator Changes:
+- Updated job_processor.py to track rejections in validation_notes
+- Added rejection counter and rate calculation
+- Track rejection reasons with detailed categorization
+- Log rejection summary after validation
+
+Metrics Added:
+- VALIDATOR_LOCATIONS_REJECTED: Counter for total rejections
+- VALIDATOR_REJECTION_RATE: Gauge showing percentage (0-100)
+- VALIDATOR_LOCATIONS_REJECTED_BY_REASON: Counter by rejection reason
+- Updated get_metrics_summary() to include rejection metrics
+
+Reconciler Changes:
+- Uses configurable threshold from settings
+- Checks both confidence_score < threshold AND validation_status == 'rejected'
+- Logs rejection with threshold value for debugging
+- Actually skips location creation with continue statement
+- No database records created for rejected locations
 ```
 
 **Tests Created:**
 ```
-[List test files created]
+- tests/test_validator/test_filtering.py (30 tests)
+  - TestThresholdConfiguration: Environment variable and config tests
+  - TestValidatorRejectionLogic: Rejection marking tests
+  - TestRejectionTracking: Rejection counting tests
+  - TestEnvironmentVariableIntegration: End-to-end env var tests
+
+- tests/test_reconciler/test_rejection_handling.py (7 tests)
+  - TestReconcilerRejectionHandling: Reconciler skip logic tests
+  - TestLocationCreatorRejection: Creator early return tests
+
+- tests/test_validator/test_rejection_metrics.py (8 tests)
+  - TestRejectionMetrics: Metrics tracking tests
+  - TestRejectionMetricsIntegration: End-to-end metrics tests
+
+- tests/test_integration/test_rejection_pipeline.py (6 tests)
+  - TestRejectionPipelineIntegration: Complete pipeline tests
+  - Custom threshold tests
+  - Logging verification tests
 ```
 
 **Documentation Updated:**
 ```
-[List documentation updated]
+- Updated DATA_VALIDATION_PIPELINE_HANDOFF.md with completion status
+- All acceptance criteria met:
+  ✅ Locations with confidence < threshold don't reach reconciler
+  ✅ Rejection reasons are logged with details  
+  ✅ Can configure threshold via VALIDATION_REJECTION_THRESHOLD env var
+  ✅ Rejected data is marked but not stored in database
+  ✅ Metrics track rejection rate and reasons
+  ✅ Reconciler properly skips rejected locations
 ```
 
 ---
@@ -587,9 +635,9 @@ Data Flow:
 
 ## Overall Progress
 
-**Issues Completed:** 5/10 ✅  
-**Current Issue:** #367 (Filter worthless data) READY TO START  
-**Blockers:** None - validation and reconciler integration complete  
+**Issues Completed:** 6/10 ✅  
+**Current Issue:** #368 (Export confidence to HAARRRvest) READY TO START  
+**Blockers:** None - filtering pipeline complete  
 **Test Status:** 100% pass rate (all tests passing)  
 
 ## Key Decisions and Learnings

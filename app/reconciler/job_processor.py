@@ -639,13 +639,13 @@ class JobProcessor:
                                     )
                                 break
 
-                    # Check for rejection (outside the inner loop)
-                    if loc_confidence_score is not None and loc_confidence_score < 10:
+                    # Skip locations marked as rejected by validator
+                    if loc_validation_status == "rejected":
                         logger.warning(
-                            f"Location '{location.get('name')}' rejected with confidence score {loc_confidence_score}: "
-                            f"status={loc_validation_status}, notes={loc_validation_notes}"
+                            f"Location '{location.get('name')}' rejected: "
+                            f"confidence={loc_confidence_score}, notes={loc_validation_notes}"
                         )
-                        # Skip this location entirely
+                        # Skip this location entirely - it won't be created in the database
                         continue
                     # Check if coordinates are directly on location (from array format)
                     if "coordinates" in location and isinstance(
