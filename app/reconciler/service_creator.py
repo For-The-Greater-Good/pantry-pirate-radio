@@ -74,7 +74,9 @@ class ServiceCreator(BaseReconciler):
                 "organization_id": str(organization_id) if organization_id else None,
                 "confidence_score": confidence_score,
                 "validation_status": validation_status,
-                "validation_notes": json.dumps(validation_notes) if validation_notes else None,
+                "validation_notes": (
+                    json.dumps(validation_notes) if validation_notes else None
+                ),
             },
         )
         self.db.commit()
@@ -287,7 +289,7 @@ class ServiceCreator(BaseReconciler):
             query = text(
                 """
                 INSERT INTO service (
-                    id, name, description, organization_id, status, 
+                    id, name, description, organization_id, status,
                     confidence_score, validation_status, validation_notes
                 ) VALUES (
                     :id, :name, :description, :organization_id, 'active',
@@ -314,7 +316,9 @@ class ServiceCreator(BaseReconciler):
                     ),
                     "confidence_score": confidence_score,
                     "validation_status": validation_status,
-                    "validation_notes": json.dumps(validation_notes) if validation_notes else None,
+                    "validation_notes": (
+                        json.dumps(validation_notes) if validation_notes else None
+                    ),
                 },
             )
 
