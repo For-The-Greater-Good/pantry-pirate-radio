@@ -508,109 +508,114 @@ class ValidationProcessor:
         # Import validation classes
         from app.validator.rules import ValidationRules
         from app.validator.scoring import ConfidenceScorer
-        
+
         # Initialize validators
         validator = ValidationRules()
         scorer = ConfidenceScorer()
-        
+
         # Process locations with validation and scoring
         if "locations" in data and isinstance(data["locations"], list):
             location_scores = []
-            
+
             for location in data["locations"]:
                 # Run validation rules
                 validation_results = validator.validate_location(location)
-                
+
                 # Calculate confidence score
                 confidence_score = scorer.calculate_score(location, validation_results)
                 validation_status = scorer.get_validation_status(confidence_score)
-                
+
                 # Update location with validation data
                 location["confidence_score"] = confidence_score
                 location["validation_status"] = validation_status
                 location["validation_notes"] = {
                     "validation_results": validation_results,
                     "enrichment_source": location.get("geocoding_source"),
-                    "rejection_reason": self._get_rejection_reason(confidence_score, validation_results),
+                    "rejection_reason": self._get_rejection_reason(
+                        confidence_score, validation_results
+                    ),
                 }
-                
+
                 location_scores.append(confidence_score)
-                
+
                 # Log validation outcome
                 self.logger.info(
                     f"Location '{location.get('name', 'unknown')}': "
                     f"confidence={confidence_score}, status={validation_status}"
                 )
-                
+
                 # Track validation errors for rejected locations
                 if validation_status == "rejected":
                     self._validation_errors.append(
                         f"Location '{location.get('name', 'unknown')}' rejected: "
                         f"confidence score {confidence_score}"
                     )
-            
+
             # Calculate organization-level confidence if applicable
             if "organization" in data and location_scores:
-                org_confidence = scorer.score_organization(data["organization"], location_scores)
+                org_confidence = scorer.score_organization(
+                    data["organization"], location_scores
+                )
                 org_status = scorer.get_validation_status(org_confidence)
-                
+
                 data["organization"]["confidence_score"] = org_confidence
                 data["organization"]["validation_status"] = org_status
                 data["organization"]["validation_notes"] = {
                     "location_scores": location_scores,
-                    "average_location_score": sum(location_scores) / len(location_scores),
+                    "average_location_score": sum(location_scores)
+                    / len(location_scores),
                 }
-                
+
                 self.logger.info(
                     f"Organization '{data['organization'].get('name', 'unknown')}': "
                     f"confidence={org_confidence}, status={org_status}"
                 )
-        
+
         # Process services with validation
         if "services" in data and isinstance(data["services"], list):
             for service in data["services"]:
                 # Services inherit location confidence
                 location_confidence = 50  # Default if no location
-                
+
                 # Find associated location confidence
                 if location_id := service.get("location_id"):
                     for location in data.get("locations", []):
                         if location.get("id") == location_id:
                             location_confidence = location.get("confidence_score", 50)
                             break
-                
+
                 service_confidence = scorer.score_service(service, location_confidence)
                 service_status = scorer.get_validation_status(service_confidence)
-                
+
                 service["confidence_score"] = service_confidence
                 service["validation_status"] = service_status
                 service["validation_notes"] = {
                     "inherited_from_location": location_id,
                     "base_confidence": location_confidence,
                 }
-                
+
                 self.logger.info(
                     f"Service '{service.get('name', 'unknown')}': "
                     f"confidence={service_confidence}, status={service_status}"
                 )
-        
+
         return data
-    
+
     def _get_rejection_reason(
         self, confidence_score: int, validation_results: Dict[str, Any]
     ) -> Optional[str]:
         """Get human-readable rejection reason.
-        
+
         Args:
             confidence_score: Calculated confidence score
             validation_results: Validation rule results
-            
+
         Returns:
             Rejection reason or None if not rejected
         """
         if confidence_score >= 10:
             return None
-            
+
         # Determine primary rejection reason
         if not validation_results.get("has_coordinates"):
             return "Missing coordinates after enrichment"

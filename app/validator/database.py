@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 
 class ValidationDatabaseHelper:
     """Helper class for validation-related database operations.
-    
+
     This class is kept for backward compatibility but should NOT
     perform any database writes. The reconciler handles all database persistence.
     """
 
     def __init__(self, session=None):
         """Initialize with optional database session.
-        
+
         Args:
             session: SQLAlchemy database session (not used for writes)
         """

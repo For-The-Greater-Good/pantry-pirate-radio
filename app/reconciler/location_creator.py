@@ -212,7 +212,9 @@ class LocationCreator(BaseReconciler):
                 "organization_id": organization_id,
                 "confidence_score": confidence_score,
                 "validation_status": validation_status,
-                "validation_notes": json.dumps(validation_notes) if validation_notes else None,
+                "validation_notes": (
+                    json.dumps(validation_notes) if validation_notes else None
+                ),
                 "geocoding_source": geocoding_source,
             },
         )

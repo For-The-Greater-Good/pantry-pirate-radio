@@ -63,13 +63,20 @@ class Settings(BaseSettings):
     VALIDATOR_LOG_DATA_FLOW: bool = False
     VALIDATOR_ONLY_HSDS: bool = True
     VALIDATOR_CONFIDENCE_THRESHOLD: float = 0.7
-    
+
     # Validation Rules Settings
     VALIDATION_REJECTION_THRESHOLD: int = 10  # Score below this is rejected
     VALIDATION_STRICT_MODE: bool = False  # Enable stricter validation in production
     VALIDATION_TEST_DATA_PATTERNS: list[str] = Field(
         default_factory=lambda: [
-            "test", "demo", "example", "sample", "dummy", "fake", "anytown", "unknown"
+            "test",
+            "demo",
+            "example",
+            "sample",
+            "dummy",
+            "fake",
+            "anytown",
+            "unknown",
         ]
     )
     VALIDATION_PLACEHOLDER_PATTERNS: list[str] = Field(

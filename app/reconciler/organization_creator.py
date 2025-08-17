@@ -107,7 +107,9 @@ class OrganizationCreator(BaseReconciler):
                 ),
                 "confidence_score": confidence_score,
                 "validation_status": validation_status,
-                "validation_notes": json.dumps(validation_notes) if validation_notes else None,
+                "validation_notes": (
+                    json.dumps(validation_notes) if validation_notes else None
+                ),
             },
         )
         self.db.commit()
@@ -433,7 +435,9 @@ class OrganizationCreator(BaseReconciler):
                     "parent_organization_id": parent_organization_id,
                     "confidence_score": confidence_score,
                     "validation_status": validation_status,
-                    "validation_notes": json.dumps(validation_notes) if validation_notes else None,
+                    "validation_notes": (
+                        json.dumps(validation_notes) if validation_notes else None
+                    ),
                 },
             )
 

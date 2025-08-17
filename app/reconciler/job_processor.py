@@ -284,11 +284,15 @@ class JobProcessor:
         """
         # Check for validation data in job.data (validator enriched path)
         validation_data = None
-        if hasattr(job_result, 'job') and hasattr(job_result.job, 'data') and job_result.job.data:
+        if (
+            hasattr(job_result, "job")
+            and hasattr(job_result.job, "data")
+            and job_result.job.data
+        ):
             # Extract validation data from enriched job
             validation_data = job_result.job.data
             logger.info("Found validation data in job.data (validator enriched)")
-        
+
         # Parse HSDS data
         if not job_result.result:
             raise ValueError("Job result has no result")
@@ -434,12 +438,12 @@ class JobProcessor:
                         )
                     elif not isinstance(year_inc, int | type(None)):
                         year_inc = None
-                    
+
                     # Extract confidence data if available
                     org_confidence_score = None
                     org_validation_status = None
                     org_validation_notes = None
-                    
+
                     if validation_data and "organizations" in validation_data:
                         for val_org in validation_data["organizations"]:
                             if val_org.get("name") == org["name"]:
@@ -447,7 +451,9 @@ class JobProcessor:
                                 org_validation_status = val_org.get("validation_status")
                                 org_validation_notes = val_org.get("validation_notes")
                                 if org_confidence_score:
-                                    logger.info(f"Organization '{org['name']}' has confidence score: {org_confidence_score}")
+                                    logger.info(
+                                        f"Organization '{org['name']}' has confidence score: {org_confidence_score}"
+                                    )
                                 break
 
                     org_id, is_new_org = org_creator.process_organization(
@@ -480,7 +486,7 @@ class JobProcessor:
                     org_confidence_score = None
                     org_validation_status = None
                     org_validation_notes = None
-                    
+
                     if validation_data and "organizations" in validation_data:
                         for val_org in validation_data["organizations"]:
                             if val_org.get("name") == org["name"]:
@@ -488,7 +494,7 @@ class JobProcessor:
                                 org_validation_status = val_org.get("validation_status")
                                 org_validation_notes = val_org.get("validation_notes")
                                 break
-                    
+
                     org_id = org_creator.create_organization(
                         org["name"],
                         description,
@@ -603,26 +609,36 @@ class JobProcessor:
                     loc_validation_status = None
                     loc_validation_notes = None
                     loc_geocoding_source = None
-                    
+
                     if validation_data and "locations" in validation_data:
                         for val_loc in validation_data["locations"]:
                             # Match by name and coordinates if available
-                            if (val_loc.get("name") == location.get("name") or 
-                                (location.get("latitude") and location.get("longitude") and
-                                 abs(float(val_loc.get("latitude", 0)) - float(location.get("latitude", 0))) < 0.0001 and
-                                 abs(float(val_loc.get("longitude", 0)) - float(location.get("longitude", 0))) < 0.0001)):
+                            if val_loc.get("name") == location.get("name") or (
+                                location.get("latitude")
+                                and location.get("longitude")
+                                and abs(
+                                    float(val_loc.get("latitude", 0))
+                                    - float(location.get("latitude", 0))
+                                )
+                                < 0.0001
+                                and abs(
+                                    float(val_loc.get("longitude", 0))
+                                    - float(location.get("longitude", 0))
+                                )
+                                < 0.0001
+                            ):
                                 loc_confidence_score = val_loc.get("confidence_score")
                                 loc_validation_status = val_loc.get("validation_status")
                                 loc_validation_notes = val_loc.get("validation_notes")
                                 loc_geocoding_source = val_loc.get("geocoding_source")
-                                    
+
                                 if loc_confidence_score:
                                     logger.info(
                                         f"Location '{location.get('name')}' has confidence score: {loc_confidence_score}, "
                                         f"status: {loc_validation_status}"
                                     )
                                 break
-                    
+
                     # Check for rejection (outside the inner loop)
                     if loc_confidence_score is not None and loc_confidence_score < 10:
                         logger.warning(
@@ -1242,7 +1258,7 @@ class JobProcessor:
                 svc_confidence_score = None
                 svc_validation_status = None
                 svc_validation_notes = None
-                
+
                 if validation_data and "services" in validation_data:
                     for val_svc in validation_data["services"]:
                         if val_svc.get("name") == service["name"]:
@@ -1250,7 +1266,9 @@ class JobProcessor:
                             svc_validation_status = val_svc.get("validation_status")
                             svc_validation_notes = val_svc.get("validation_notes")
                             if svc_confidence_score:
-                                logger.info(f"Service '{service['name']}' has confidence score: {svc_confidence_score}")
+                                logger.info(
+                                    f"Service '{service['name']}' has confidence score: {svc_confidence_score}"
+                                )
                             break
 
                 # Check if process_service method exists (for source-specific handling)

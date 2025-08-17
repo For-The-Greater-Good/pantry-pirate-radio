@@ -12,7 +12,7 @@ class TestConfidenceScorer:
     def setup_method(self):
         """Set up test fixtures."""
         self.scorer = ConfidenceScorer()
-        
+
         # Base location with good data (should score high)
         self.good_location = {
             "name": "Community Food Bank",
@@ -24,7 +24,7 @@ class TestConfidenceScorer:
             "postal_code": "10001",
             "geocoding_source": "arcgis",
         }
-        
+
         # Location missing coordinates after enrichment (should score 0)
         self.no_coords_location = {
             "name": "Food Pantry",
@@ -34,7 +34,7 @@ class TestConfidenceScorer:
             "city": "Brooklyn",
             "state": "NY",
         }
-        
+
         # Location with 0,0 coordinates (should score 0)
         self.zero_coords_location = {
             "name": "Food Bank",
@@ -56,7 +56,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(self.good_location, validation_results)
         assert score == 100
 
@@ -71,7 +71,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "failed",
         }
-        
+
         score = self.scorer.calculate_score(self.no_coords_location, validation_results)
         assert score == 0
 
@@ -86,8 +86,10 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "low",
         }
-        
-        score = self.scorer.calculate_score(self.zero_coords_location, validation_results)
+
+        score = self.scorer.calculate_score(
+            self.zero_coords_location, validation_results
+        )
         assert score == 0
 
     def test_outside_us_bounds_scores_five(self):
@@ -106,7 +108,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 5
 
@@ -128,7 +130,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 5
 
@@ -147,7 +149,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": True,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 25  # 100 - 75
 
@@ -166,7 +168,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 80  # 100 - 20
 
@@ -185,7 +187,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "medium",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 90  # 100 - 10
 
@@ -204,7 +206,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "fallback",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 85  # 100 - 15
 
@@ -224,7 +226,7 @@ class TestConfidenceScorer:
             "geocoding_confidence": "high",
             "missing_postal": True,
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 95  # 100 - 5
 
@@ -244,7 +246,7 @@ class TestConfidenceScorer:
             "geocoding_confidence": "high",
             "missing_city": True,
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 90  # 100 - 10
 
@@ -267,7 +269,7 @@ class TestConfidenceScorer:
             "geocoding_confidence": "medium",
             "missing_postal": True,
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         # 100 - 75 - 20 - 10 - 5 = -10, but should be clamped to 0
         assert score == 0
@@ -293,7 +295,7 @@ class TestConfidenceScorer:
             "missing_postal": True,
             "missing_city": True,
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 0  # Should be 0, not negative
 
@@ -309,7 +311,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(self.good_location, validation_results)
         assert score == 100
 
@@ -331,7 +333,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 100
 
@@ -353,7 +355,7 @@ class TestConfidenceScorer:
             "has_placeholder_address": False,
             "geocoding_confidence": "high",
         }
-        
+
         score = self.scorer.calculate_score(location, validation_results)
         assert score == 100
 
@@ -383,7 +385,7 @@ class TestConfidenceScorer:
             "is_zero_coordinates": False,
             "within_us_bounds": True,
         }
-        
+
         score = self.scorer.calculate_score(self.good_location, validation_results)
         # Should handle missing keys without error
         assert isinstance(score, int)
