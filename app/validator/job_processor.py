@@ -505,17 +505,28 @@ class ValidationProcessor:
             self._validation_errors.append("Data must be a dictionary")
             return {}
 
-        # Import validation classes
+        # Import validation classes and metrics
         from app.validator.rules import ValidationRules
         from app.validator.scoring import ConfidenceScorer
+        from app.validator.metrics import (
+            VALIDATOR_LOCATIONS_REJECTED,
+            VALIDATOR_REJECTION_RATE,
+            VALIDATOR_LOCATIONS_REJECTED_BY_REASON,
+        )
 
         # Initialize validators
         validator = ValidationRules()
         scorer = ConfidenceScorer()
 
+        # Track rejection statistics
+        total_locations = 0
+        rejected_locations = 0
+        rejection_reasons: Dict[str, int] = {}
+
         # Process locations with validation and scoring
         if "locations" in data and isinstance(data["locations"], list):
             location_scores = []
+            total_locations = len(data["locations"])
 
             for location in data["locations"]:
                 # Run validation rules
@@ -525,15 +536,18 @@ class ValidationProcessor:
                 confidence_score = scorer.calculate_score(location, validation_results)
                 validation_status = scorer.get_validation_status(confidence_score)
 
+                # Get rejection reason if applicable
+                rejection_reason = self._get_rejection_reason(
+                    confidence_score, validation_results
+                )
+
                 # Update location with validation data
                 location["confidence_score"] = confidence_score
                 location["validation_status"] = validation_status
                 location["validation_notes"] = {
                     "validation_results": validation_results,
                     "enrichment_source": location.get("geocoding_source"),
-                    "rejection_reason": self._get_rejection_reason(
-                        confidence_score, validation_results
-                    ),
+                    "rejection_reason": rejection_reason,
                 }
 
                 location_scores.append(confidence_score)
@@ -544,12 +558,28 @@ class ValidationProcessor:
                     f"confidence={confidence_score}, status={validation_status}"
                 )
 
-                # Track validation errors for rejected locations
+                # Track validation errors and metrics for rejected locations
                 if validation_status == "rejected":
+                    rejected_locations += 1
                     self._validation_errors.append(
                         f"Location '{location.get('name', 'unknown')}' rejected: "
                         f"confidence score {confidence_score}"
                     )
+
+                    # Track rejection reason
+                    if rejection_reason:
+                        reason_key = rejection_reason.lower().replace(" ", "_")
+                        rejection_reasons[reason_key] = (
+                            rejection_reasons.get(reason_key, 0) + 1
+                        )
+
+                        # Update rejection reason metric
+                        VALIDATOR_LOCATIONS_REJECTED_BY_REASON.labels(
+                            reason=reason_key
+                        ).inc()
+
+                    # Update rejection counter
+                    VALIDATOR_LOCATIONS_REJECTED.inc()
 
             # Calculate organization-level confidence if applicable
             if "organization" in data and location_scores:
@@ -598,6 +628,20 @@ class ValidationProcessor:
                     f"Service '{service.get('name', 'unknown')}': "
                     f"confidence={service_confidence}, status={service_status}"
                 )
+
+        # Update rejection rate metric if we processed locations
+        if total_locations > 0:
+            rejection_rate = (rejected_locations / total_locations) * 100
+            VALIDATOR_REJECTION_RATE.set(rejection_rate)
+
+            self.logger.info(
+                f"Validation complete: {rejected_locations}/{total_locations} locations rejected "
+                f"({rejection_rate:.1f}% rejection rate)"
+            )
+
+            # Log rejection reasons summary
+            if rejection_reasons:
+                self.logger.info(f"Rejection reasons: {rejection_reasons}")
 
         return data
 
