@@ -558,7 +558,7 @@ class ValidationProcessor:
                     f"confidence={confidence_score}, status={validation_status}"
                 )
 
-                # Track validation errors and metrics for rejected locations
+                # Track validation errors for rejected locations
                 if validation_status == "rejected":
                     rejected_locations += 1
                     self._validation_errors.append(
@@ -566,20 +566,12 @@ class ValidationProcessor:
                         f"confidence score {confidence_score}"
                     )
 
-                    # Track rejection reason
+                    # Track rejection reason locally
                     if rejection_reason:
                         reason_key = rejection_reason.lower().replace(" ", "_")
                         rejection_reasons[reason_key] = (
                             rejection_reasons.get(reason_key, 0) + 1
                         )
-
-                        # Update rejection reason metric
-                        VALIDATOR_LOCATIONS_REJECTED_BY_REASON.labels(
-                            reason=reason_key
-                        ).inc()
-
-                    # Update rejection counter
-                    VALIDATOR_LOCATIONS_REJECTED.inc()
 
             # Calculate organization-level confidence if applicable
             if "organization" in data and location_scores:
@@ -629,10 +621,22 @@ class ValidationProcessor:
                     f"confidence={service_confidence}, status={service_status}"
                 )
 
-        # Update rejection rate metric if we processed locations
+        # Update rejection metrics in batch if we processed locations
         if total_locations > 0:
             rejection_rate = (rejected_locations / total_locations) * 100
             VALIDATOR_REJECTION_RATE.set(rejection_rate)
+
+            # Update rejection counter in batch
+            if rejected_locations > 0:
+                for _ in range(rejected_locations):
+                    VALIDATOR_LOCATIONS_REJECTED.inc()
+
+                # Update rejection reason metrics
+                for reason, count in rejection_reasons.items():
+                    for _ in range(count):
+                        VALIDATOR_LOCATIONS_REJECTED_BY_REASON.labels(
+                            reason=reason
+                        ).inc()
 
             self.logger.info(
                 f"Validation complete: {rejected_locations}/{total_locations} locations rejected "
