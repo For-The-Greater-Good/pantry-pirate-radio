@@ -29,7 +29,9 @@ class TestReplayCLI:
 
         # Assert
         assert exit_code == 0
-        mock_replay_file.assert_called_once_with(str(test_file), dry_run=False)
+        mock_replay_file.assert_called_once_with(
+            str(test_file), dry_run=False, skip_validation=False
+        )
 
     def test_should_return_error_when_file_not_found(self) -> None:
         """Test error handling for missing file."""
@@ -59,7 +61,7 @@ class TestReplayCLI:
         # Assert
         assert exit_code == 0
         mock_replay_directory.assert_called_once_with(
-            str(tmp_path), pattern="*.json", dry_run=False
+            str(tmp_path), pattern="*.json", dry_run=False, skip_validation=False
         )
 
     @patch("app.replay.__main__.replay_directory")
@@ -85,7 +87,7 @@ class TestReplayCLI:
         # Assert
         assert exit_code == 0
         mock_replay_directory.assert_called_once_with(
-            str(tmp_path), pattern="job_*.json", dry_run=False
+            str(tmp_path), pattern="job_*.json", dry_run=False, skip_validation=False
         )
 
     @patch("app.replay.__main__.replay_file")
@@ -106,7 +108,9 @@ class TestReplayCLI:
 
         # Assert
         assert exit_code == 0
-        mock_replay_file.assert_called_once_with(str(test_file), dry_run=True)
+        mock_replay_file.assert_called_once_with(
+            str(test_file), dry_run=True, skip_validation=False
+        )
 
     @patch("app.replay.__main__.replay_directory")
     def test_should_return_error_when_files_fail(
@@ -150,7 +154,7 @@ class TestReplayCLI:
         # Assert
         assert exit_code == 0
         mock_replay_directory.assert_called_once_with(
-            str(output_dir), pattern="*.json", dry_run=False
+            str(output_dir), pattern="*.json", dry_run=False, skip_validation=False
         )
 
     def test_should_show_help_when_no_arguments(
