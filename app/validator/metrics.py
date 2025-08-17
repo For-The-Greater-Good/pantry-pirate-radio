@@ -1,220 +1,283 @@
-"""Metrics for validator service."""
+"""Metrics collection for validator service."""
 
 import logging
-from typing import Optional, Dict, Any
+import os
+from typing import Any, Dict, Optional
 
+logger = logging.getLogger(__name__)
+
+# Detect if we're in testing mode
+TESTING = os.environ.get("TESTING", "false").lower() == "true"
+
+
+# Define a test/dummy metric class that doesn't use Prometheus
+class TestMetric:
+    """Test metric that doesn't register with Prometheus."""
+
+    def __init__(self, name=None, description=None, labels=None):
+        self._name = name
+        self._value = 0
+        self._labels = labels or []
+
+    def inc(self, amount=1):
+        """Increment counter."""
+        self._value += amount
+
+    def dec(self, amount=1):
+        """Decrement counter."""
+        self._value -= amount
+
+    def set(self, value):
+        """Set gauge value."""
+        self._value = value
+
+    def observe(self, value):
+        """Observe histogram value."""
+        pass
+
+    def info(self, value):
+        """Set info value."""
+        pass
+
+    def labels(self, **kwargs):
+        """Return self for chaining."""
+        return self
+
+
+# Initialize metric variables with proper types
+VALIDATOR_JOBS_TOTAL: Any
+VALIDATOR_JOBS_PASSED: Any
+VALIDATOR_JOBS_FAILED: Any
+VALIDATOR_PROCESSING_TIME: Any
+VALIDATOR_QUEUE_SIZE: Any
+VALIDATOR_ACTIVE_WORKERS: Any
+VALIDATOR_INFO: Any
+VALIDATOR_LOCATIONS_REJECTED: Any
+VALIDATOR_REJECTION_RATE: Any
+VALIDATOR_LOCATIONS_REJECTED_BY_REASON: Any
+METRICS_AVAILABLE: bool
+
+# Try to import and create metrics
 try:
-    from prometheus_client import Counter, Histogram, Gauge, Info
-
-    # Define metrics
-    VALIDATOR_JOBS_TOTAL = Counter(
-        "validator_jobs_total",
-        "Total number of validation jobs processed",
+    from prometheus_client import (
+        REGISTRY,
+        CollectorRegistry,
+        Counter,
+        Gauge,
+        Histogram,
+        Info,
     )
 
-    VALIDATOR_JOBS_PASSED = Counter(
-        "validator_jobs_passed",
-        "Number of validation jobs that passed",
-    )
+    # Create dummy metrics for testing to avoid registration issues
+    if TESTING:
+        # Use test metrics when testing
+        VALIDATOR_JOBS_TOTAL = TestMetric("validator_jobs_total")
+        VALIDATOR_JOBS_PASSED = TestMetric("validator_jobs_passed")
+        VALIDATOR_JOBS_FAILED = TestMetric("validator_jobs_failed")
+        VALIDATOR_PROCESSING_TIME = TestMetric("validator_processing_seconds")
+        VALIDATOR_QUEUE_SIZE = TestMetric("validator_queue_size")
+        VALIDATOR_ACTIVE_WORKERS = TestMetric("validator_active_workers")
+        VALIDATOR_INFO = TestMetric("validator_info")
+        VALIDATOR_LOCATIONS_REJECTED = TestMetric("validator_locations_rejected_total")
+        VALIDATOR_REJECTION_RATE = TestMetric("validator_rejection_rate")
+        VALIDATOR_LOCATIONS_REJECTED_BY_REASON = TestMetric(
+            "validator_locations_rejected_by_reason_total", labels=["reason"]
+        )
 
-    VALIDATOR_JOBS_FAILED = Counter(
-        "validator_jobs_failed",
-        "Number of validation jobs that failed",
-    )
+    else:
+        # Production mode - create real metrics
+        # Function to safely get or create a metric
+        def get_or_create_counter(name: str, description: str, labels=None):
+            """Get existing counter from registry or create new one."""
+            # Check if metric already exists
+            for collector in list(REGISTRY._collector_to_names.keys()):
+                if hasattr(collector, "_name") and collector._name == name:
+                    return collector
+            # Create new metric
+            if labels:
+                return Counter(name, description, labels)
+            return Counter(name, description)
 
-    VALIDATOR_PROCESSING_TIME = Histogram(
-        "validator_processing_time_seconds",
-        "Time spent processing validation jobs",
-        ["job_type"],
-        buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
-    )
+        def get_or_create_gauge(name: str, description: str):
+            """Get existing gauge from registry or create new one."""
+            # Check if metric already exists
+            for collector in list(REGISTRY._collector_to_names.keys()):
+                if hasattr(collector, "_name") and collector._name == name:
+                    return collector
+            # Create new metric
+            return Gauge(name, description)
 
-    VALIDATOR_QUEUE_SIZE = Gauge(
-        "validator_queue_size", "Current size of the validation queue"
-    )
+        def get_or_create_histogram(name: str, description: str, buckets=None):
+            """Get existing histogram from registry or create new one."""
+            # Check if metric already exists
+            for collector in list(REGISTRY._collector_to_names.keys()):
+                if hasattr(collector, "_name") and collector._name == name:
+                    return collector
+            # Create new metric
+            if buckets:
+                return Histogram(name, description, buckets=buckets)
+            return Histogram(name, description)
 
-    VALIDATOR_ACTIVE_WORKERS = Gauge(
-        "validator_active_workers", "Number of active validation workers"
-    )
+        def get_or_create_info(name: str, description: str):
+            """Get existing info from registry or create new one."""
+            # Check if metric already exists
+            for collector in list(REGISTRY._collector_to_names.keys()):
+                if hasattr(collector, "_name") and collector._name == name:
+                    return collector
+            # Create new metric
+            return Info(name, description)
 
-    VALIDATOR_INFO = Info("validator_info", "Validator service information")
+        # Create all metrics using the safe functions
+        VALIDATOR_JOBS_TOTAL = get_or_create_counter(
+            "validator_jobs_total",
+            "Total number of validation jobs processed",
+        )
 
-    # Rejection metrics
-    VALIDATOR_LOCATIONS_REJECTED = Counter(
-        "validator_locations_rejected_total",
-        "Total number of locations rejected by validator",
-    )
+        VALIDATOR_JOBS_PASSED = get_or_create_counter(
+            "validator_jobs_passed",
+            "Number of validation jobs that passed",
+        )
 
-    VALIDATOR_REJECTION_RATE = Gauge(
-        "validator_rejection_rate",
-        "Percentage of locations rejected (0-100)",
-    )
+        VALIDATOR_JOBS_FAILED = get_or_create_counter(
+            "validator_jobs_failed",
+            "Number of validation jobs that failed",
+        )
 
-    VALIDATOR_LOCATIONS_REJECTED_BY_REASON = Counter(
-        "validator_locations_rejected_by_reason_total",
-        "Number of locations rejected by reason",
-        ["reason"],
-    )
+        VALIDATOR_PROCESSING_TIME = get_or_create_histogram(
+            "validator_processing_seconds",
+            "Time spent processing validation jobs",
+            buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+        )
 
-    # Set initial info
-    VALIDATOR_INFO.info(
-        {
-            "version": "1.0.0",
-            "enabled": "true",
-        }
-    )
+        VALIDATOR_QUEUE_SIZE = get_or_create_gauge(
+            "validator_queue_size",
+            "Number of jobs waiting in validation queue",
+        )
+
+        VALIDATOR_ACTIVE_WORKERS = get_or_create_gauge(
+            "validator_active_workers",
+            "Number of active validation workers",
+        )
+
+        VALIDATOR_INFO = get_or_create_info(
+            "validator_info",
+            "Validator service information",
+        )
+
+        # Rejection metrics
+        VALIDATOR_LOCATIONS_REJECTED = get_or_create_counter(
+            "validator_locations_rejected_total",
+            "Total number of locations rejected by validator",
+        )
+
+        VALIDATOR_REJECTION_RATE = get_or_create_gauge(
+            "validator_rejection_rate",
+            "Percentage of locations rejected (0-100)",
+        )
+
+        VALIDATOR_LOCATIONS_REJECTED_BY_REASON = get_or_create_counter(
+            "validator_locations_rejected_by_reason_total",
+            "Number of locations rejected by reason",
+            ["reason"],
+        )
 
     METRICS_AVAILABLE = True
 
 except ImportError:
-    # Create mock metrics for when prometheus_client is not available
-    class MockMetric:
-        """Mock metric for when prometheus is not available."""
-
-        def __init__(self, name: str):
-            self.name = name
-            self.logger = logging.getLogger(__name__)
-
-        def inc(self, value: float = 1, **labels: Any) -> None:
-            """Increment counter (no-op)."""
-            self.logger.debug(f"Mock metric {self.name}.inc({value}, {labels})")
-
-        def dec(self, value: float = 1, **labels: Any) -> None:
-            """Decrement gauge (no-op)."""
-            self.logger.debug(f"Mock metric {self.name}.dec({value}, {labels})")
-
-        def set(self, value: float, **labels: Any) -> None:
-            """Set gauge value (no-op)."""
-            self.logger.debug(f"Mock metric {self.name}.set({value}, {labels})")
-
-        def observe(self, value: float, **labels: Any) -> None:
-            """Observe histogram value (no-op)."""
-            self.logger.debug(f"Mock metric {self.name}.observe({value}, {labels})")
-
-        def info(self, value: Dict[str, str]) -> None:
-            """Set info value (no-op)."""
-            self.logger.debug(f"Mock metric {self.name}.info({value})")
-
-        def labels(self, **_labelkwargs: Any) -> "MockMetric":
-            """Return self for label chaining."""
-            return self
-
-    # Create mock metrics
-    VALIDATOR_JOBS_TOTAL = MockMetric("validator_jobs_total")  # type: ignore[assignment]
-    VALIDATOR_JOBS_PASSED = MockMetric("validator_jobs_passed")  # type: ignore[assignment]
-    VALIDATOR_JOBS_FAILED = MockMetric("validator_jobs_failed")  # type: ignore[assignment]
-    VALIDATOR_PROCESSING_TIME = MockMetric("validator_processing_time_seconds")  # type: ignore[assignment]
-    VALIDATOR_QUEUE_SIZE = MockMetric("validator_queue_size")  # type: ignore[assignment]
-    VALIDATOR_ACTIVE_WORKERS = MockMetric("validator_active_workers")  # type: ignore[assignment]
-    VALIDATOR_INFO = MockMetric("validator_info")  # type: ignore[assignment]
-    VALIDATOR_LOCATIONS_REJECTED = MockMetric("validator_locations_rejected_total")  # type: ignore[assignment]
-    VALIDATOR_REJECTION_RATE = MockMetric("validator_rejection_rate")  # type: ignore[assignment]
-    VALIDATOR_LOCATIONS_REJECTED_BY_REASON = MockMetric("validator_locations_rejected_by_reason_total")  # type: ignore[assignment]
-
+    # Prometheus client not installed
+    logger.warning("Prometheus client not installed, metrics disabled")
     METRICS_AVAILABLE = False
 
-    logger = logging.getLogger(__name__)
-    logger.debug("Prometheus metrics not available, using mock metrics")
+    # Use test metrics when prometheus_client is not available
+    VALIDATOR_JOBS_TOTAL = TestMetric("validator_jobs_total")
+    VALIDATOR_JOBS_PASSED = TestMetric("validator_jobs_passed")
+    VALIDATOR_JOBS_FAILED = TestMetric("validator_jobs_failed")
+    VALIDATOR_PROCESSING_TIME = TestMetric("validator_processing_seconds")
+    VALIDATOR_QUEUE_SIZE = TestMetric("validator_queue_size")
+    VALIDATOR_ACTIVE_WORKERS = TestMetric("validator_active_workers")
+    VALIDATOR_INFO = TestMetric("validator_info")
+    VALIDATOR_LOCATIONS_REJECTED = TestMetric("validator_locations_rejected_total")
+    VALIDATOR_REJECTION_RATE = TestMetric("validator_rejection_rate")
+    VALIDATOR_LOCATIONS_REJECTED_BY_REASON = TestMetric(
+        "validator_locations_rejected_by_reason_total", labels=["reason"]
+    )
 
 
-def update_queue_metrics() -> None:
-    """Update queue-related metrics."""
-    if not METRICS_AVAILABLE:
-        return
-
-    try:
-        from app.validator.queues import get_validator_queue
-
-        queue = get_validator_queue()
-        if queue:
-            VALIDATOR_QUEUE_SIZE.set(len(queue))
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to update queue metrics: {e}")
-
-
-def update_worker_metrics(active_workers: int) -> None:
-    """Update worker-related metrics.
+def update_job_metrics(status: str) -> None:
+    """Update job metrics based on validation status.
 
     Args:
-        active_workers: Number of currently active workers
+        status: Job status (passed/failed)
     """
     if not METRICS_AVAILABLE:
         return
 
-    VALIDATOR_ACTIVE_WORKERS.set(active_workers)
-
-
-def record_job_processing(
-    job_type: str,
-    source: str,
-    success: bool,
-    processing_time: float,
-    _failure_reason: Optional[str] = None,
-) -> None:
-    """Record metrics for a processed job.
-
-    Args:
-        job_type: Type of job processed
-        source: Source of the job
-        success: Whether processing was successful
-        processing_time: Time taken to process (seconds)
-        failure_reason: Reason for failure if not successful
-    """
-    if not METRICS_AVAILABLE:
-        return
-
-    # Increment total counter
     VALIDATOR_JOBS_TOTAL.inc()
-
-    # Increment success/failure counter
-    if success:
+    if status == "passed":
         VALIDATOR_JOBS_PASSED.inc()
     else:
         VALIDATOR_JOBS_FAILED.inc()
 
-    # Record processing time
-    VALIDATOR_PROCESSING_TIME.labels(job_type=job_type).observe(processing_time)
+
+def update_queue_metrics(queue_size: int, active_workers: int) -> None:
+    """Update queue metrics.
+
+    Args:
+        queue_size: Current queue size
+        active_workers: Number of active workers
+    """
+    if not METRICS_AVAILABLE:
+        return
+
+    VALIDATOR_QUEUE_SIZE.set(queue_size)
+    VALIDATOR_ACTIVE_WORKERS.set(active_workers)
 
 
-def get_metrics() -> Dict[str, Any]:
-    """Get metrics for the validator service.
+def update_info_metrics(version: str, enabled: bool) -> None:
+    """Update service info metrics.
+
+    Args:
+        version: Service version
+        enabled: Whether validation is enabled
+    """
+    if not METRICS_AVAILABLE:
+        return
+
+    VALIDATOR_INFO.info({"version": version, "enabled": str(enabled)})
+
+
+def get_metrics() -> Optional[bytes]:
+    """Get current metrics in Prometheus format.
 
     Returns:
-        Dictionary containing current metrics
+        Metrics data or None if not available
     """
-    return {
-        "jobs_total": 0,  # Would be actual value in production
-        "jobs_passed": 0,
-        "jobs_failed": 0,
-        "processing_time_avg": 0.0,
-        "queue_size": 0,
-    }
+    if not METRICS_AVAILABLE or TESTING:
+        return None
+
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return generate_latest(REGISTRY)
 
 
 def get_metrics_summary() -> Dict[str, Any]:
     """Get a summary of current metrics.
 
     Returns:
-        Dictionary containing metrics summary
+        Dictionary with metric summaries
     """
-    summary: Dict[str, Any] = {
-        "metrics_available": METRICS_AVAILABLE,
+    if not METRICS_AVAILABLE:
+        return {"metrics_available": False}
+
+    # This would need actual metric collection logic
+    # For now, return a placeholder
+    return {
+        "metrics_available": True,
+        "jobs_total": 0,
+        "jobs_passed": 0,
+        "jobs_failed": 0,
+        "queue_size": 0,
+        "active_workers": 0,
+        "locations_rejected": 0,
+        "rejection_rate": 0.0,
     }
-
-    if METRICS_AVAILABLE:
-        # In a real implementation, we would query the actual metric values
-        # For now, return a placeholder
-        summary.update(
-            {
-                "jobs_total": 0,
-                "jobs_passed": 0,
-                "jobs_failed": 0,
-                "queue_size": 0,
-                "active_workers": 0,
-                "locations_rejected": 0,
-                "rejection_rate": 0.0,
-            }
-        )
-
-    return summary
