@@ -145,7 +145,7 @@ The system consists of the following containerized services:
 ```mermaid
 flowchart TB
     %% Data Collection
-    Scrapers[Scrapers<br/>12+ sources]
+    Scrapers[Scrapers<br/>30+ sources]
     ContentStore{Content Store<br/>Deduplication}
 
     Scrapers --> ContentStore
