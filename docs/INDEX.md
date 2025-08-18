@@ -13,6 +13,7 @@ Welcome to the Pantry Pirate Radio documentation hub! This index provides a comp
 - **Development Setup:** [CLAUDE.md](../CLAUDE.md) - Development workflow with Claude Code
 - **Architecture:** [System Architecture](architecture.md) - Technical design and components
 - **API Reference:** [API Documentation](../API_DOCUMENTATION.md) - Complete API endpoints
+- **Data Validation:** [Validator Service](validator.md) - Quality control and enrichment
 
 ### For System Administrators
 - **Deployment:** [Deployment Guide](deployment.md) - Production deployment
@@ -57,6 +58,7 @@ Welcome to the Pantry Pirate Radio documentation hub! This index provides a comp
 | [multi-worker-support.md](multi-worker-support.md) | Distributed worker architecture | Advanced |
 | [worker.md](worker.md) | Background job processing system | Advanced |
 | [reconciler.md](reconciler.md) | Data reconciliation and deduplication | Advanced |
+| [validator.md](validator.md) | Data validation and enrichment service | Advanced |
 | [llm.md](llm.md) | LLM integration and configuration | Advanced |
 
 ### 📡 API & Data Standards
@@ -89,6 +91,7 @@ Welcome to the Pantry Pirate Radio documentation hub! This index provides a comp
 | [database-backup.md](database-backup.md) | Backup and restore procedures | Admin |
 | [datasette.md](datasette.md) | Datasette data viewer configuration | Developer |
 | [recorder.md](recorder.md) | Data recording and replay system | Developer |
+| [validator.md](validator.md) | Validation pipeline and confidence scoring | Advanced |
 | [haarrrvest-publisher.md](haarrrvest-publisher.md) | HAARRRvest repository publisher | Advanced |
 | [haarrvest-quickstart.md](haarrvest-quickstart.md) | HAARRRvest quick setup | Intermediate |
 
@@ -180,9 +183,10 @@ scrapers.md (Collection)
     ├── scraper-patterns.md (Patterns)
     ├── scrapers/* (Individual Scrapers)
     └── recorder.md (Recording)
-        └── reconciler.md (Processing)
-            └── haarrrvest-publisher.md (Publishing)
-                └── datasette.md (Viewing)
+        └── validator.md (Validation & Enrichment)
+            └── reconciler.md (Processing)
+                └── haarrrvest-publisher.md (Publishing)
+                    └── datasette.md (Viewing)
 ```
 
 ---
@@ -244,6 +248,20 @@ Individual scraper documentation in [scrapers/](scrapers/):
 
 ---
 
+## 🆕 Recent Features and Updates
+
+### Data Validation Pipeline (Issues #362-#369)
+The new **[Validator Service](validator.md)** provides comprehensive data quality control:
+- **Confidence Scoring:** Multi-factor scoring based on data completeness and quality
+- **Data Enrichment:** Automatic field enhancement and standardization
+- **Quality Metrics:** Tracking of validation outcomes and patterns
+- **Pipeline Integration:** Seamless integration between scrapers and reconciler
+- **Replay Tool Integration:** Enhanced data replay with validation support
+
+See the [Validator Service Documentation](validator.md) for complete details on the validation pipeline, confidence scoring algorithm, and integration points.
+
+---
+
 ## 📈 Documentation Maintenance
 
 This index is maintained as part of the project documentation. When adding new documentation:
@@ -252,4 +270,4 @@ This index is maintained as part of the project documentation. When adding new d
 3. Add to documentation relationships if applicable
 4. Update "Most Important Documents" if relevant
 
-Last Updated: 2025-08-07
+Last Updated: 2025-08-17

@@ -70,19 +70,22 @@ class TestQueueTTLConfiguration:
         mock_provider.generate = mock_generate
 
         # Mock the queues to capture enqueue_call arguments
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-            with patch("app.llm.queue.processor.recorder_queue"):
-                with patch(
-                    "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
-                ):
-                    # Act
-                    process_llm_job(sample_llm_job, mock_provider)
+        with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+            with patch(
+                "app.llm.queue.processor.reconciler_queue"
+            ) as mock_reconciler_queue:
+                with patch("app.llm.queue.processor.recorder_queue"):
+                    with patch(
+                        "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
+                    ):
+                        # Act
+                        process_llm_job(sample_llm_job, mock_provider)
 
-                    # Assert
-                    mock_reconciler_queue.enqueue_call.assert_called_once()
-                    call_args = mock_reconciler_queue.enqueue_call.call_args
-                    assert call_args[1]["result_ttl"] == custom_ttl
-                    assert call_args[1]["failure_ttl"] == custom_ttl
+                        # Assert
+                        mock_reconciler_queue.enqueue_call.assert_called_once()
+                        call_args = mock_reconciler_queue.enqueue_call.call_args
+                        assert call_args[1]["result_ttl"] == custom_ttl
+                        assert call_args[1]["failure_ttl"] == custom_ttl
 
     def test_should_use_configured_ttl_for_recorder_queue(
         self,
@@ -102,19 +105,22 @@ class TestQueueTTLConfiguration:
         mock_provider.generate = mock_generate
 
         # Mock the queues to capture enqueue_call arguments
-        with patch("app.llm.queue.processor.reconciler_queue"):
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+        with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+            with patch("app.llm.queue.processor.reconciler_queue"):
                 with patch(
-                    "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
-                ):
-                    # Act
-                    process_llm_job(sample_llm_job, mock_provider)
+                    "app.llm.queue.processor.recorder_queue"
+                ) as mock_recorder_queue:
+                    with patch(
+                        "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
+                    ):
+                        # Act
+                        process_llm_job(sample_llm_job, mock_provider)
 
-                    # Assert
-                    mock_recorder_queue.enqueue_call.assert_called_once()
-                    call_args = mock_recorder_queue.enqueue_call.call_args
-                    assert call_args[1]["result_ttl"] == custom_ttl
-                    assert call_args[1]["failure_ttl"] == custom_ttl
+                        # Assert
+                        mock_recorder_queue.enqueue_call.assert_called_once()
+                        call_args = mock_recorder_queue.enqueue_call.call_args
+                        assert call_args[1]["result_ttl"] == custom_ttl
+                        assert call_args[1]["failure_ttl"] == custom_ttl
 
     def test_should_use_default_ttl_when_environment_not_set(
         self,
@@ -134,19 +140,24 @@ class TestQueueTTLConfiguration:
         mock_provider.generate = mock_generate
 
         # Mock the queues to capture enqueue_call arguments
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
-                # Act - should use the default TTL without any special patching
-                process_llm_job(sample_llm_job, mock_provider)
+        with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+            with patch(
+                "app.llm.queue.processor.reconciler_queue"
+            ) as mock_reconciler_queue:
+                with patch(
+                    "app.llm.queue.processor.recorder_queue"
+                ) as mock_recorder_queue:
+                    # Act - should use the default TTL without any special patching
+                    process_llm_job(sample_llm_job, mock_provider)
 
-                # Assert
-                reconciler_call_args = mock_reconciler_queue.enqueue_call.call_args
-                recorder_call_args = mock_recorder_queue.enqueue_call.call_args
+                    # Assert
+                    reconciler_call_args = mock_reconciler_queue.enqueue_call.call_args
+                    recorder_call_args = mock_recorder_queue.enqueue_call.call_args
 
-                assert reconciler_call_args[1]["result_ttl"] == default_ttl
-                assert reconciler_call_args[1]["failure_ttl"] == default_ttl
-                assert recorder_call_args[1]["result_ttl"] == default_ttl
-                assert recorder_call_args[1]["failure_ttl"] == default_ttl
+                    assert reconciler_call_args[1]["result_ttl"] == default_ttl
+                    assert reconciler_call_args[1]["failure_ttl"] == default_ttl
+                    assert recorder_call_args[1]["result_ttl"] == default_ttl
+                    assert recorder_call_args[1]["failure_ttl"] == default_ttl
 
     def test_should_use_configured_ttl_for_auth_errors(
         self,
@@ -234,16 +245,22 @@ class TestQueueTTLConsistency:
         mock_provider.generate = mock_generate
 
         # Mock the queues to capture enqueue_call arguments
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+        with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+            with patch(
+                "app.llm.queue.processor.reconciler_queue"
+            ) as mock_reconciler_queue:
                 with patch(
-                    "app.content_store.config.get_content_store", return_value=None
-                ):
+                    "app.llm.queue.processor.recorder_queue"
+                ) as mock_recorder_queue:
                     with patch(
-                        "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", custom_ttl
+                        "app.content_store.config.get_content_store", return_value=None
                     ):
-                        # Act
-                        process_llm_job(sample_llm_job, mock_provider)
+                        with patch(
+                            "app.llm.queue.processor.settings.REDIS_TTL_SECONDS",
+                            custom_ttl,
+                        ):
+                            # Act
+                            process_llm_job(sample_llm_job, mock_provider)
 
                     # Assert
                     # Check reconciler queue
@@ -280,19 +297,26 @@ class TestQueueTTLConsistency:
         mock_provider.generate = mock_generate
 
         # Mock the queues to capture enqueue_call arguments
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+        with patch("app.llm.queue.processor.should_use_validator", return_value=False):
+            with patch(
+                "app.llm.queue.processor.reconciler_queue"
+            ) as mock_reconciler_queue:
                 with patch(
-                    "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", zero_ttl
-                ):
-                    # Act
-                    process_llm_job(sample_llm_job, mock_provider)
+                    "app.llm.queue.processor.recorder_queue"
+                ) as mock_recorder_queue:
+                    with patch(
+                        "app.llm.queue.processor.settings.REDIS_TTL_SECONDS", zero_ttl
+                    ):
+                        # Act
+                        process_llm_job(sample_llm_job, mock_provider)
 
-                    # Assert
-                    reconciler_call_args = mock_reconciler_queue.enqueue_call.call_args
-                    recorder_call_args = mock_recorder_queue.enqueue_call.call_args
+                        # Assert
+                        reconciler_call_args = (
+                            mock_reconciler_queue.enqueue_call.call_args
+                        )
+                        recorder_call_args = mock_recorder_queue.enqueue_call.call_args
 
-                    assert reconciler_call_args[1]["result_ttl"] == zero_ttl
-                    assert reconciler_call_args[1]["failure_ttl"] == zero_ttl
-                    assert recorder_call_args[1]["result_ttl"] == zero_ttl
-                    assert recorder_call_args[1]["failure_ttl"] == zero_ttl
+                        assert reconciler_call_args[1]["result_ttl"] == zero_ttl
+                        assert reconciler_call_args[1]["failure_ttl"] == zero_ttl
+                        assert recorder_call_args[1]["result_ttl"] == zero_ttl
+                        assert recorder_call_args[1]["failure_ttl"] == zero_ttl

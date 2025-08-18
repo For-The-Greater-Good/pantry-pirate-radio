@@ -62,6 +62,7 @@ class MapDataExporter:
                       AND latitude BETWEEN -90 AND 90
                       AND longitude BETWEEN -180 AND 180
                       AND is_canonical = true
+                      AND (validation_status IS NULL OR validation_status != 'rejected')
                 """
                 )
                 total_count = cursor.fetchone()[0]
@@ -140,7 +141,12 @@ class MapDataExporter:
                     o.email as email,
                     COALESCE(o.description, l.description) as description,
                     a.address_1,
-                    a.address_2
+                    a.address_2,
+                    -- Add confidence and validation fields
+                    l.confidence_score,
+                    l.validation_status,
+                    l.validation_notes,
+                    l.geocoding_source
                 FROM location l
                 LEFT JOIN address a ON a.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id
@@ -150,6 +156,8 @@ class MapDataExporter:
                   AND l.latitude BETWEEN -90 AND 90
                   AND l.longitude BETWEEN -180 AND 180
                   AND l.is_canonical = true
+                  -- Exclude rejected locations from export
+                  AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
                 ORDER BY a.state_province, a.city, l.name
             """
             )
@@ -176,6 +184,18 @@ class MapDataExporter:
                         "website": row["website"] or "",
                         "email": row["email"] or "",
                         "description": row["description"] or "",
+                        # Add confidence and validation fields
+                        "confidence_score": (
+                            row["confidence_score"]
+                            if row["confidence_score"] is not None
+                            else 50
+                        ),
+                        "validation_status": row["validation_status"] or "needs_review",
+                        "geocoding_source": row["geocoding_source"] or "",
+                        # Parse validation_notes if it's a JSON object
+                        "validation_notes": (
+                            row["validation_notes"] if row["validation_notes"] else {}
+                        ),
                     }
                     locations.append(location)
 
@@ -194,14 +214,29 @@ class MapDataExporter:
 
             # Create metadata
             states = set(loc["state"] for loc in locations if loc["state"])
+
+            # Calculate confidence statistics for metadata
+            confidence_scores = [loc.get("confidence_score", 50) for loc in locations]
+            avg_confidence = (
+                sum(confidence_scores) / len(confidence_scores)
+                if confidence_scores
+                else 0
+            )
+            high_confidence_count = sum(1 for score in confidence_scores if score >= 80)
+
             metadata = {
                 "generated": datetime.now(UTC).isoformat(),
                 "total_locations": len(locations),
                 "states_covered": len(states),
                 "coverage": f"{len(states)} US states/territories",
                 "source": "HAARRRvest - Pantry Pirate Radio Database",
-                "format_version": "1.0",
+                "format_version": "2.0",  # Updated version to indicate confidence fields
                 "export_method": "PostgreSQL Direct Export",
+                "confidence_metrics": {
+                    "average_confidence": round(avg_confidence, 1),
+                    "high_confidence_locations": high_confidence_count,
+                    "includes_validation_data": True,
+                },
             }
 
             # Write main locations file
@@ -528,15 +563,53 @@ class MapDataExporter:
         no_description = sum(1 for loc in locations if not loc["description"])
 
         print("\n=== Data Quality ===")
-        print(
-            f"Locations missing phone: {no_phone} ({no_phone/len(locations)*100:.1f}%)"
-        )
-        print(
-            f"Locations missing website: {no_website} ({no_website/len(locations)*100:.1f}%)"
-        )
-        print(
-            f"Locations missing description: {no_description} ({no_description/len(locations)*100:.1f}%)"
-        )
+        if locations:
+            print(
+                f"Locations missing phone: {no_phone} ({no_phone/len(locations)*100:.1f}%)"
+            )
+            print(
+                f"Locations missing website: {no_website} ({no_website/len(locations)*100:.1f}%)"
+            )
+            print(
+                f"Locations missing description: {no_description} ({no_description/len(locations)*100:.1f}%)"
+            )
+        else:
+            print("No locations to analyze")
+
+        # Confidence score metrics
+        if locations and len(locations) > 0:
+            confidence_scores = [loc.get("confidence_score", 50) for loc in locations]
+            avg_confidence = sum(confidence_scores) / len(confidence_scores)
+            high_confidence = sum(1 for score in confidence_scores if score >= 80)
+            medium_confidence = sum(
+                1 for score in confidence_scores if 50 <= score < 80
+            )
+            low_confidence = sum(1 for score in confidence_scores if score < 50)
+
+            # Validation status breakdown
+            verified = sum(
+                1 for loc in locations if loc.get("validation_status") == "verified"
+            )
+            needs_review = sum(
+                1 for loc in locations if loc.get("validation_status") == "needs_review"
+            )
+
+            print("\n=== Confidence Metrics ===")
+            print(f"Average confidence score: {avg_confidence:.1f}")
+            print(
+                f"High confidence (80-100): {high_confidence} ({high_confidence/len(locations)*100:.1f}%)"
+            )
+            print(
+                f"Medium confidence (50-79): {medium_confidence} ({medium_confidence/len(locations)*100:.1f}%)"
+            )
+            print(
+                f"Low confidence (<50): {low_confidence} ({low_confidence/len(locations)*100:.1f}%)"
+            )
+            print("\n=== Validation Status ===")
+            print(f"Verified: {verified} ({verified/len(locations)*100:.1f}%)")
+            print(
+                f"Needs review: {needs_review} ({needs_review/len(locations)*100:.1f}%)"
+            )
 
 
 def main():

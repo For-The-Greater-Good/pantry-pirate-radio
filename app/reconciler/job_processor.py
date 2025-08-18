@@ -282,6 +282,17 @@ class JobProcessor:
             ValueError: If job result has no result
             json.JSONDecodeError: If result text is not valid JSON
         """
+        # Check for validation data in job.data (validator enriched path)
+        validation_data = None
+        if (
+            hasattr(job_result, "job")
+            and hasattr(job_result.job, "data")
+            and job_result.job.data
+        ):
+            # Extract validation data from enriched job
+            validation_data = job_result.job.data
+            logger.info("Found validation data in job.data (validator enriched)")
+
         # Parse HSDS data
         if not job_result.result:
             raise ValueError("Job result has no result")
@@ -428,6 +439,23 @@ class JobProcessor:
                     elif not isinstance(year_inc, int | type(None)):
                         year_inc = None
 
+                    # Extract confidence data if available
+                    org_confidence_score = None
+                    org_validation_status = None
+                    org_validation_notes = None
+
+                    if validation_data and "organizations" in validation_data:
+                        for val_org in validation_data["organizations"]:
+                            if val_org.get("name") == org["name"]:
+                                org_confidence_score = val_org.get("confidence_score")
+                                org_validation_status = val_org.get("validation_status")
+                                org_validation_notes = val_org.get("validation_notes")
+                                if org_confidence_score:
+                                    logger.info(
+                                        f"Organization '{org['name']}' has confidence score: {org_confidence_score}"
+                                    )
+                                break
+
                     org_id, is_new_org = org_creator.process_organization(
                         org["name"],
                         description,
@@ -437,6 +465,9 @@ class JobProcessor:
                         year_incorporated=year_inc,
                         legal_status=org.get("legal_status") or None,
                         uri=org.get("uri") or None,
+                        confidence_score=org_confidence_score,
+                        validation_status=org_validation_status,
+                        validation_notes=org_validation_notes,
                     )
                 else:
                     # Fall back to old method for backward compatibility with tests
@@ -451,6 +482,19 @@ class JobProcessor:
                     elif not isinstance(year_inc, int | type(None)):
                         year_inc = None
 
+                    # Extract confidence data if available (for backward compatibility)
+                    org_confidence_score = None
+                    org_validation_status = None
+                    org_validation_notes = None
+
+                    if validation_data and "organizations" in validation_data:
+                        for val_org in validation_data["organizations"]:
+                            if val_org.get("name") == org["name"]:
+                                org_confidence_score = val_org.get("confidence_score")
+                                org_validation_status = val_org.get("validation_status")
+                                org_validation_notes = val_org.get("validation_notes")
+                                break
+
                     org_id = org_creator.create_organization(
                         org["name"],
                         description,
@@ -460,6 +504,9 @@ class JobProcessor:
                         year_incorporated=year_inc,
                         legal_status=org.get("legal_status") or None,
                         uri=org.get("uri") or None,
+                        confidence_score=org_confidence_score,
+                        validation_status=org_validation_status,
+                        validation_notes=org_validation_notes,
                     )
 
                 # Store organization name mapping (ignore LLM-provided IDs)
@@ -557,6 +604,58 @@ class JobProcessor:
             # Process locations
             if "location" in data:
                 for location in data["location"]:
+                    # Extract validation data for this location
+                    # First check if validation data is directly on the location (from validator)
+                    loc_confidence_score = location.get("confidence_score")
+                    loc_validation_status = location.get("validation_status")
+                    loc_validation_notes = location.get("validation_notes")
+                    loc_geocoding_source = location.get("geocoding_source")
+
+                    # Log if we found validation data directly on location
+                    if loc_confidence_score is not None:
+                        logger.info(
+                            f"Location '{location.get('name')}' has confidence score: {loc_confidence_score}, "
+                            f"status: {loc_validation_status}"
+                        )
+
+                    # If not found directly, look in separate validation_data
+                    elif validation_data and "locations" in validation_data:
+                        for val_loc in validation_data["locations"]:
+                            # Match by name and coordinates if available
+                            if val_loc.get("name") == location.get("name") or (
+                                location.get("latitude")
+                                and location.get("longitude")
+                                and abs(
+                                    float(val_loc.get("latitude", 0))
+                                    - float(location.get("latitude", 0))
+                                )
+                                < 0.0001
+                                and abs(
+                                    float(val_loc.get("longitude", 0))
+                                    - float(location.get("longitude", 0))
+                                )
+                                < 0.0001
+                            ):
+                                loc_confidence_score = val_loc.get("confidence_score")
+                                loc_validation_status = val_loc.get("validation_status")
+                                loc_validation_notes = val_loc.get("validation_notes")
+                                loc_geocoding_source = val_loc.get("geocoding_source")
+
+                                if loc_confidence_score:
+                                    logger.info(
+                                        f"Location '{location.get('name')}' has confidence score: {loc_confidence_score}, "
+                                        f"status: {loc_validation_status}"
+                                    )
+                                break
+
+                    # Skip locations marked as rejected by validator
+                    if loc_validation_status == "rejected":
+                        logger.warning(
+                            f"Location '{location.get('name')}' rejected: "
+                            f"confidence={loc_confidence_score}, notes={loc_validation_notes}"
+                        )
+                        # Skip this location entirely - it won't be created in the database
+                        continue
                     # Check if coordinates are directly on location (from array format)
                     if "coordinates" in location and isinstance(
                         location["coordinates"], dict
@@ -617,227 +716,25 @@ class JobProcessor:
                             if "coordinates" in addr:
                                 del addr["coordinates"]
 
-                    # Check that latitude and longitude exist and are not None
-                    # Note: 0,0 coordinates are invalid (ocean off Africa) and should be geocoded
-                    has_valid_coords = False
-                    needs_regeocode = False
-
+                    # Trust the validator's coordinates - no geocoding needed here
+                    # The validator has already enriched and validated coordinates
                     if (
                         "latitude" in location
                         and "longitude" in location
                         and location["latitude"] is not None
                         and location["longitude"] is not None
                     ):
-                        # Check if coordinates are invalid
-                        lat = float(location["latitude"])
-                        lon = float(location["longitude"])
-
-                        # Import geocoding validator for comprehensive validation
-                        from app.llm.utils.geocoding_validator import GeocodingValidator
-
-                        validator = GeocodingValidator()
-
-                        # Check for 0,0 coordinates
-                        if lat == 0.0 and lon == 0.0:
-                            logger.warning(
-                                f"Location '{location.get('name', 'Unknown')}' has invalid 0,0 coordinates, will attempt geocoding"
-                            )
-                            needs_regeocode = True
-                        # Check if coordinates are within US bounds (including Alaska and Hawaii)
-                        elif not (-179.15 <= lon <= -67 and 18.91 <= lat <= 71.54):
-                            logger.warning(
-                                f"Location '{location.get('name', 'Unknown')}' has coordinates outside US bounds: {lat}, {lon}"
-                            )
-                            needs_regeocode = True
-                        else:
-                            # Coordinates are within general US bounds, now check state-specific bounds
-                            state = None
-                            if location.get("address"):
-                                addr = (
-                                    location["address"][0]
-                                    if isinstance(location["address"], list)
-                                    else location["address"]
-                                )
-                                state = addr.get("state_province")
-
-                            if state:
-                                # Use validator to check state-specific bounds
-                                if not validator.is_within_state_bounds(
-                                    lat, lon, state
-                                ):
-                                    logger.warning(
-                                        f"Coordinates {lat}, {lon} don't match state {state} bounds, will re-geocode"
-                                    )
-                                    needs_regeocode = True
-                                else:
-                                    has_valid_coords = True
-                            else:
-                                # No state to validate against, accept if within US bounds
-                                has_valid_coords = True
-
-                    if has_valid_coords and not needs_regeocode:
                         # Check for existing location by coordinates
                         match_id = location_creator.find_matching_location(
                             float(location["latitude"]), float(location["longitude"])
                         )
                     else:
-                        # Try to geocode if we have address information OR if coordinates need re-geocoding
+                        # No coordinates from validator - this location should have been rejected
                         location_name = location.get("name", "Unknown")
-                        geocoded_coords = None
-                        match_id = None
-
-                        # Force re-geocoding if coordinates were invalid
-                        if needs_regeocode:
-                            logger.info(
-                                f"Re-geocoding location '{location_name}' due to invalid coordinates"
-                            )
-
-                        # Check if we have address information
-                        if location.get("address"):
-                            # Build address string from first address
-                            address_data = (
-                                location["address"][0]
-                                if isinstance(location["address"], list)
-                                else location["address"]
-                            )
-                            address_parts = []
-
-                            if address_data.get("address_1"):
-                                address_parts.append(address_data["address_1"])
-                            if address_data.get("city"):
-                                address_parts.append(address_data["city"])
-                            if address_data.get("state_province"):
-                                address_parts.append(address_data["state_province"])
-                            if address_data.get("postal_code"):
-                                address_parts.append(address_data["postal_code"])
-                            if address_data.get("country"):
-                                address_parts.append(address_data["country"])
-
-                            if address_parts:
-                                address_string = ", ".join(address_parts)
-                                logger.info(
-                                    f"Attempting to geocode location '{location_name}' with address: {address_string}"
-                                )
-
-                                try:
-                                    # Use the geocoding service directly
-                                    from app.core.geocoding import get_geocoding_service
-
-                                    geocoding_service = get_geocoding_service()
-
-                                    # Try primary provider first (usually ArcGIS)
-                                    geocoded_coords = geocoding_service.geocode(
-                                        address_string
-                                    )
-
-                                    # If primary failed and we have fallback, try all providers explicitly
-                                    if not geocoded_coords:
-                                        logger.info(
-                                            f"Primary geocoding failed for '{location_name}', trying all providers"
-                                        )
-
-                                        # Try ArcGIS explicitly
-                                        geocoded_coords = geocoding_service.geocode(
-                                            address_string, force_provider="arcgis"
-                                        )
-
-                                        # If ArcGIS failed, try Nominatim
-                                        if not geocoded_coords:
-                                            geocoded_coords = geocoding_service.geocode(
-                                                address_string,
-                                                force_provider="nominatim",
-                                            )
-
-                                    if geocoded_coords:
-                                        logger.info(
-                                            f"Successfully geocoded '{location_name}' to {geocoded_coords}"
-                                        )
-                                        # Update the location data with geocoded coordinates
-                                        location["latitude"] = geocoded_coords[0]
-                                        location["longitude"] = geocoded_coords[1]
-                                        # Continue processing with the new coordinates
-                                        match_id = (
-                                            location_creator.find_matching_location(
-                                                float(location["latitude"]),
-                                                float(location["longitude"]),
-                                            )
-                                        )
-                                    else:
-                                        logger.error(
-                                            f"All geocoding providers failed for location '{location_name}' with address: {address_string}"
-                                        )
-                                        # Mark this as a critical failure
-                                        raise ValueError(
-                                            f"Unable to geocode location '{location_name}' - all providers failed"
-                                        )
-                                except ValueError:
-                                    # Re-raise ValueError to handle as job failure
-                                    raise
-                                except Exception as e:
-                                    logger.error(
-                                        f"Error geocoding location '{location_name}': {e}"
-                                    )
-
-                        # If geocoding failed or no address available
-                        if not geocoded_coords:
-                            missing_fields = []
-                            if (
-                                "latitude" not in location
-                                or location.get("latitude") is None
-                            ):
-                                missing_fields.append("latitude")
-                            if (
-                                "longitude" not in location
-                                or location.get("longitude") is None
-                            ):
-                                missing_fields.append("longitude")
-
-                            # Check if we have meaningful address data
-                            has_address_data = False
-                            # Check both address and addresses since conversion might not have happened yet
-                            for addr_field in ["address", "addresses"]:
-                                if location.get(addr_field):
-                                    first_address = (
-                                        location[addr_field][0]
-                                        if isinstance(location[addr_field], list)
-                                        else location[addr_field]
-                                    )
-                                    # Check if address has meaningful data (not just empty strings)
-                                    # Check multiple possible address field names
-                                    addr_1 = (
-                                        first_address.get("address_1")
-                                        or first_address.get("street_address_1")
-                                        or first_address.get("address1")
-                                    )
-                                    city = first_address.get("city")
-                                    if (addr_1 and str(addr_1).strip()) or (
-                                        city and str(city).strip()
-                                    ):
-                                        has_address_data = True
-                                        # Normalize address field names
-                                        if (
-                                            "street_address_1" in first_address
-                                            and "address_1" not in first_address
-                                        ):
-                                            first_address["address_1"] = (
-                                                first_address.pop("street_address_1")
-                                            )
-                                        break
-
-                            if has_address_data:
-                                # We have address data - use default coordinates (0,0) and let geocoding fix it later
-                                logger.warning(
-                                    f"Location '{location_name}' has address data but no coordinates - using defaults"
-                                )
-                                location["latitude"] = location.get("latitude", 0.0)
-                                location["longitude"] = location.get("longitude", 0.0)
-                                # Continue processing with default coordinates
-                            else:
-                                # No meaningful address data and no coordinates - skip this location
-                                logger.warning(
-                                    f"Skipping location '{location_name}' - no address data and missing coordinates: {', '.join(missing_fields)}"
-                                )
-                                continue
+                        logger.warning(
+                            f"Skipping location '{location_name}' - no coordinates after validation"
+                        )
+                        continue
 
                     location_id = None
                     if match_id:
@@ -926,6 +823,10 @@ class JobProcessor:
                             float(location["longitude"]),
                             job_result.job.metadata,
                             str(org_id) if org_id else None,
+                            confidence_score=loc_confidence_score,
+                            validation_status=loc_validation_status,
+                            validation_notes=loc_validation_notes,
+                            geocoding_source=loc_geocoding_source,
                         )
                         location_id = uuid.UUID(location_id_str)
 
@@ -947,56 +848,12 @@ class JobProcessor:
                             # Only create addresses if none exist
                             if address_count == 0:
                                 for address in location["address"]:
-                                    # Check if we need to geocode missing fields
-                                    needs_geocoding = False
-                                    missing_fields = []
-
-                                    # Check for missing critical address fields
-                                    if (
-                                        not address.get("postal_code")
-                                        or address.get("postal_code") == ""
-                                    ):
-                                        needs_geocoding = True
-                                        missing_fields.append("postal_code")
-                                    if (
-                                        not address.get("city")
-                                        or address.get("city") == ""
-                                    ):
-                                        needs_geocoding = True
-                                        missing_fields.append("city")
-
-                                    # Check if coordinates are invalid (0,0) or outside US bounds
-                                    lat = location.get("latitude")
-                                    lon = location.get("longitude")
-                                    if lat and lon:
-                                        lat_f, lon_f = float(lat), float(lon)
-                                        # Check for (0,0) coordinates
-                                        if abs(lat_f) < 0.01 and abs(lon_f) < 0.01:
-                                            logger.warning(
-                                                f"Invalid (0,0) coordinates detected for {location.get('name')}, will attempt geocoding"
-                                            )
-                                            needs_geocoding = True
-                                        # Check if outside US bounds (including Alaska and Hawaii)
-                                        elif not (
-                                            18.91 <= lat_f <= 71.54
-                                            and -179.15 <= lon_f <= -67
-                                        ):
-                                            logger.warning(
-                                                f"Coordinates outside US bounds: {lat_f}, {lon_f} for {location.get('name')}, will attempt geocoding"
-                                            )
-                                            needs_geocoding = True
-
-                                    if needs_geocoding and missing_fields:
-                                        logger.info(
-                                            f"Will attempt geocoding to fill missing fields: {', '.join(missing_fields)} for {address.get('address_1', 'unknown address')}"
-                                        )
-
                                     # Ensure country defaults to US if not provided
                                     country = address.get("country", "US")
                                     if not country or country == "":
                                         country = "US"
 
-                                    # Pass coordinates for reverse geocoding if postal code is missing
+                                    # Create address without any geocoding - validator already enriched the data
                                     location_creator.create_address(
                                         address_1=address.get("address_1", ""),
                                         city=address.get("city", ""),
@@ -1010,8 +867,6 @@ class JobProcessor:
                                         ),
                                         location_id=location_id_str,
                                         metadata=job_result.job.metadata,
-                                        latitude=location.get("latitude"),
-                                        longitude=location.get("longitude"),
                                     )
 
                         # Try to extract phone numbers from location text if none provided
@@ -1160,6 +1015,23 @@ class JobProcessor:
                         f"Missing description for service {service['name']}, using generated description"
                     )
 
+                # Extract validation data for this service
+                svc_confidence_score = None
+                svc_validation_status = None
+                svc_validation_notes = None
+
+                if validation_data and "services" in validation_data:
+                    for val_svc in validation_data["services"]:
+                        if val_svc.get("name") == service["name"]:
+                            svc_confidence_score = val_svc.get("confidence_score")
+                            svc_validation_status = val_svc.get("validation_status")
+                            svc_validation_notes = val_svc.get("validation_notes")
+                            if svc_confidence_score:
+                                logger.info(
+                                    f"Service '{service['name']}' has confidence score: {svc_confidence_score}"
+                                )
+                            break
+
                 # Check if process_service method exists (for source-specific handling)
                 if hasattr(service_creator, "process_service"):
                     # Process service to find a match or create a new one
@@ -1168,6 +1040,9 @@ class JobProcessor:
                         service_description,
                         org_id,
                         job_result.job.metadata,
+                        confidence_score=svc_confidence_score,
+                        validation_status=svc_validation_status,
+                        validation_notes=svc_validation_notes,
                     )
                 else:
                     # Fall back to old method for backward compatibility with tests
@@ -1176,6 +1051,9 @@ class JobProcessor:
                         service_description,
                         org_id,
                         job_result.job.metadata,
+                        confidence_score=svc_confidence_score,
+                        validation_status=svc_validation_status,
+                        validation_notes=svc_validation_notes,
                     )
                     is_new_service = True  # Assume new service for simplicity
 

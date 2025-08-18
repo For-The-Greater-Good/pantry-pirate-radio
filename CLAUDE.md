@@ -76,6 +76,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy pull                 # Pull all latest container images
 ./bouy pull v1.2.3          # Pull specific version tags
 
+# Validator Service Commands
+./bouy validator status     # Check validator service status
+./bouy logs validator       # View validator service logs
+./bouy shell validator      # Debug in validator container
+
 # Global Flags (work with all commands)
 ./bouy --help               # Show help
 ./bouy --version            # Show version
@@ -105,6 +110,42 @@ The setup wizard will:
 - Handle Claude authentication options (API key vs Claude Code CLI)
 - Configure HAARRRvest repository tokens (or 'skip' for read-only mode)
 - Create timestamped backups of existing `.env` files
+
+## Environment Configuration
+
+### Required Environment Variables
+
+The setup wizard configures these automatically, but you can also set them manually:
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/pantry_pirate_radio
+REDIS_URL=redis://localhost:6379/0
+
+# LLM Provider (choose one)
+LLM_PROVIDER=claude  # or "openai"
+ANTHROPIC_API_KEY=your_key  # For Claude
+OPENROUTER_API_KEY=your_key  # For OpenAI
+
+# Validator Service Configuration
+VALIDATOR_ENABLED=true  # Enable/disable validation service
+VALIDATION_REJECTION_THRESHOLD=10  # Confidence threshold for rejection (default: 10)
+ENRICHMENT_CACHE_TTL=86400  # Cache TTL for enrichment in seconds (default: 24 hours)
+
+# HAARRRvest Publisher
+DATA_REPO_URL=https://github.com/For-The-Greater-Good/HAARRRvest.git
+DATA_REPO_TOKEN=github_pat_xxx  # GitHub PAT with repo access
+
+# Content Store
+CONTENT_STORE_PATH=/path/to/content-store
+```
+
+### Test Environment
+```bash
+# .env.test required for testing
+TEST_DATABASE_URL=postgresql://postgres:password@db:5432/test_pantry_pirate_radio
+TEST_REDIS_URL=redis://cache:6379/1
+```
 
 ## Development Commands
 
@@ -224,6 +265,7 @@ touch tests/test_new_feature.py
 
 # Multiple files
 ./bouy test --pytest tests/test_api.py tests/test_reconciler.py
+./bouy test --pytest tests/test_validator/  # Test validator module
 ```
 
 ### Passing Additional Arguments to Tests
@@ -412,11 +454,14 @@ open htmlcov/index.html                  # View HTML report
 ```bash
 ./bouy recorder                          # Save job results to JSON
 ./bouy recorder --output-dir /custom/path # Custom output directory
-./bouy replay --file FILE                # Replay single JSON file
-./bouy replay --directory DIR            # Replay all files in directory
-./bouy replay --use-default-output-dir   # Use default outputs directory
+./bouy replay --file FILE                # Replay single JSON file (validates by default)
+./bouy replay --directory DIR            # Replay all files in directory (validates by default)
+./bouy replay --use-default-output-dir   # Use default outputs directory (validates by default)
 ./bouy replay --dry-run                  # Preview without executing
+./bouy replay --skip-validation          # Skip validation service (legacy mode)
 ```
+
+**Note:** As of Issue #369, replay now routes through the validation service by default for data enrichment and confidence scoring. Use `--skip-validation` to bypass validation and route directly to the reconciler (legacy behavior).
 
 ### Claude Authentication
 ```bash
@@ -444,6 +489,42 @@ Datasette provides:
 - SQL interface to explore published HAARRRvest data
 - Read-only access to the SQLite database
 - Data export in various formats (CSV, JSON)
+
+## Architecture Overview
+
+### System Flow
+```
+Web Sources → Scrapers → Content Store → Redis Queue → LLM Workers
+                ↓                                           ↓
+            Dedup Check                                 HSDS Alignment
+                                                           ↓
+                                                      Validator Service
+                                                           ↓
+                                                    Confidence Scoring
+                                                           ↓
+PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
+    ↓                          ↓
+FastAPI → Clients         JSON Archives → HAARRRvest Repository
+                                              ↓
+                                        GitHub Pages → Public Access
+```
+
+### Key Components
+
+#### Pantry Pirate Radio Core Services
+- **Scrapers**: 12+ food source scrapers inheriting from `ScraperJob`
+- **Content Store**: SHA-256 deduplication preventing duplicate processing
+- **LLM Workers**: HSDS schema alignment with OpenAI/Claude providers
+- **Validator Service**: Confidence scoring, data enrichment, and quality control
+- **Reconciler**: Creates canonical records with version tracking
+- **API**: Read-only HSDS v3.1.1 compliant REST endpoints
+- **HAARRRvest Publisher**: Syncs processed data to public repository
+
+#### Data Validation Pipeline
+- **Confidence Scoring**: Evaluates data quality on 0-100 scale
+- **Enrichment**: Enhances incomplete data using geocoding services
+- **Rejection**: Filters out test data and low-quality records
+- **Caching**: Redis-based caching for performance optimization
 
 ## Troubleshooting Common Issues
 
@@ -505,7 +586,14 @@ psql -U postgres -d pantry_pirate_radio -c "SELECT 1;"
 
 ## Recent Updates and Features
 
-### Geocoding Improvements (Latest)
+### Data Validation Pipeline (Latest - Issues #362-#369)
+- **Confidence Scoring System**: All locations scored 0-100 for quality assessment
+- **Automated Data Enrichment**: Enhances incomplete data using geocoding services
+- **Quality Rejection**: Automatically rejects test addresses and placeholder data
+- **Redis-Based Service**: Distributed validation with caching for performance
+- **Configurable Thresholds**: Customizable rejection threshold (default: 30)
+
+### Geocoding Improvements
 - **0,0 Coordinate Detection**: Automatic detection and correction of invalid (0,0) coordinates
 - **Exhaustive Provider Fallback**: System now tries ALL available geocoding providers before accepting failure
 - **Multi-Provider Support**: ArcGIS, Google Maps, Nominatim, and Census geocoding providers

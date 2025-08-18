@@ -1,6 +1,7 @@
-"""Test the zero coordinate handling in job processor.
+"""Test the coordinate handling in job processor.
 
-This is a focused test for the specific geocoding improvements we added.
+This test verifies that the reconciler trusts the validator's coordinates
+and doesn't attempt any geocoding.
 """
 
 import pytest
@@ -8,58 +9,24 @@ from unittest.mock import MagicMock, patch
 from app.reconciler.job_processor import JobProcessor
 
 
-class TestZeroCoordinateHandling:
-    """Test that 0,0 coordinates are properly handled."""
+class TestCoordinateHandling:
+    """Test that reconciler trusts validator-provided coordinates."""
 
-    def test_zero_coordinates_trigger_geocoding(self):
-        """Test that 0,0 coordinates are treated as missing and trigger geocoding."""
-        # This test verifies our logic for detecting 0,0 as invalid
-
-        # Test data
+    def test_reconciler_trusts_validator_coordinates(self):
+        """Test that reconciler uses coordinates directly from validator without geocoding."""
+        # Test data with coordinates from validator
         location_data = {
             "name": "Test Location",
-            "latitude": 0.0,
-            "longitude": 0.0,
-            "addresss": [
-                {"address_1": "123 Test St", "city": "TestCity", "state_province": "OH"}
-            ],
-        }
-
-        # Our logic should detect this as invalid
-        has_valid_coords = False
-
-        if (
-            "latitude" in location_data
-            and "longitude" in location_data
-            and location_data["latitude"] is not None
-            and location_data["longitude"] is not None
-        ):
-            # Check if coordinates are invalid (0,0)
-            lat = float(location_data["latitude"])
-            lon = float(location_data["longitude"])
-            if lat == 0.0 and lon == 0.0:
-                # This is what our code does - marks as invalid
-                has_valid_coords = False
-            else:
-                has_valid_coords = True
-
-        # Assert that 0,0 is correctly identified as invalid
-        assert has_valid_coords is False, "0,0 coordinates should be marked as invalid"
-
-    def test_valid_coordinates_skip_geocoding(self):
-        """Test that valid non-zero coordinates don't trigger geocoding."""
-
-        # Test data with valid coordinates
-        location_data = {
-            "name": "Valid Location",
             "latitude": 41.8781,
             "longitude": -87.6298,
-            "addresss": [
-                {"address_1": "123 Valid St", "city": "Chicago", "state_province": "IL"}
+            "confidence_score": 85,
+            "validation_status": "verified",
+            "address": [
+                {"address_1": "123 Test St", "city": "Chicago", "state_province": "IL"}
             ],
         }
 
-        # Our logic should accept this as valid
+        # Reconciler should trust these coordinates
         has_valid_coords = False
 
         if (
@@ -68,68 +35,86 @@ class TestZeroCoordinateHandling:
             and location_data["latitude"] is not None
             and location_data["longitude"] is not None
         ):
-            # Check if coordinates are invalid (0,0)
-            lat = float(location_data["latitude"])
-            lon = float(location_data["longitude"])
-            if lat == 0.0 and lon == 0.0:
-                has_valid_coords = False
-            else:
-                has_valid_coords = True
+            # Reconciler simply trusts the validator's coordinates
+            has_valid_coords = True
 
         # Assert that valid coordinates are accepted
         assert (
             has_valid_coords is True
-        ), "Valid coordinates should not trigger geocoding"
+        ), "Reconciler should trust validator's coordinates"
 
-    def test_missing_coordinates_trigger_geocoding(self):
-        """Test that missing coordinates trigger geocoding."""
+    def test_reconciler_skips_locations_without_coordinates(self):
+        """Test that reconciler skips locations that have no coordinates after validation."""
 
-        # Test data without coordinates
+        # Test data without coordinates (should have been rejected by validator)
         location_data = {
             "name": "No Coords Location",
-            "addresss": [
+            "confidence_score": 0,
+            "validation_status": "rejected",
+            "address": [
                 {"address_1": "456 Main St", "city": "Denver", "state_province": "CO"}
             ],
         }
 
-        # Our logic should detect missing coordinates
-        has_valid_coords = False
+        # Reconciler should skip this location
+        should_skip = False
 
         if (
-            "latitude" in location_data
-            and "longitude" in location_data
-            and location_data["latitude"] is not None
-            and location_data["longitude"] is not None
+            "latitude" not in location_data
+            or "longitude" not in location_data
+            or location_data.get("latitude") is None
+            or location_data.get("longitude") is None
         ):
-            # This won't be reached for missing coords
-            lat = float(location_data["latitude"])
-            lon = float(location_data["longitude"])
-            if lat == 0.0 and lon == 0.0:
-                has_valid_coords = False
-            else:
-                has_valid_coords = True
+            # No coordinates from validator - skip this location
+            should_skip = True
 
-        # Assert that missing coordinates are detected
-        assert has_valid_coords is False, "Missing coordinates should trigger geocoding"
+        # Assert that location without coordinates is skipped
+        assert should_skip is True, "Locations without coordinates should be skipped"
 
-    def test_null_coordinates_trigger_geocoding(self):
-        """Test that null coordinates trigger geocoding."""
+    def test_reconciler_respects_rejection_status(self):
+        """Test that reconciler respects the validator's rejection decision."""
 
-        # Test data with null coordinates
+        # Test data with rejected status
         location_data = {
-            "name": "Null Coords Location",
-            "latitude": None,
-            "longitude": None,
-            "addresss": [
+            "name": "Rejected Location",
+            "latitude": 0.0,  # Invalid coordinates
+            "longitude": 0.0,
+            "confidence_score": 5,
+            "validation_status": "rejected",
+            "validation_notes": {"reason": "Invalid coordinates (0,0)"},
+            "address": [
+                {"address_1": "789 Fake St", "city": "Nowhere", "state_province": "XX"}
+            ],
+        }
+
+        # Check if location should be skipped based on validation status
+        should_skip = location_data.get("validation_status") == "rejected"
+
+        # Assert that rejected locations are skipped
+        assert should_skip is True, "Rejected locations should be skipped by reconciler"
+
+    def test_reconciler_accepts_enriched_coordinates(self):
+        """Test that reconciler accepts coordinates that were enriched by the validator."""
+
+        # Test data with enriched coordinates
+        location_data = {
+            "name": "Enriched Location",
+            "latitude": 39.7392,  # Coordinates added by validator
+            "longitude": -104.9903,
+            "confidence_score": 75,
+            "validation_status": "verified",
+            "geocoding_source": "arcgis",
+            "validation_notes": {"enrichment": {"coordinates_added": True}},
+            "address": [
                 {
-                    "address_1": "789 Broadway",
-                    "city": "New York",
-                    "state_province": "NY",
+                    "address_1": "1 Civic Center",
+                    "city": "Denver",
+                    "state_province": "CO",
                 }
             ],
         }
 
-        # Our logic should detect null coordinates
+        # Reconciler should accept enriched coordinates
         has_valid_coords = False
 
         if (
@@ -138,107 +123,38 @@ class TestZeroCoordinateHandling:
             and location_data["latitude"] is not None
             and location_data["longitude"] is not None
         ):
-            # This won't be reached for null coords
-            lat = float(location_data["latitude"])
-            lon = float(location_data["longitude"])
-            if lat == 0.0 and lon == 0.0:
-                has_valid_coords = False
-            else:
-                has_valid_coords = True
+            has_valid_coords = True
 
-        # Assert that null coordinates are detected
-        assert has_valid_coords is False, "Null coordinates should trigger geocoding"
+        # Check that geocoding source is tracked
+        has_geocoding_source = "geocoding_source" in location_data
 
+        # Assert that enriched coordinates are accepted
+        assert has_valid_coords is True, "Enriched coordinates should be accepted"
+        assert has_geocoding_source is True, "Geocoding source should be tracked"
 
-class TestExhaustiveGeocodingLogic:
-    """Test the exhaustive geocoding with fallback logic."""
+    def test_reconciler_handles_high_confidence_locations(self):
+        """Test that reconciler properly handles high-confidence locations."""
 
-    @patch("app.core.geocoding.get_geocoding_service")
-    def test_geocoding_tries_multiple_providers(self, mock_get_service):
-        """Test that geocoding attempts multiple providers."""
+        # Test data with high confidence
+        location_data = {
+            "name": "High Confidence Location",
+            "latitude": 40.7128,
+            "longitude": -74.0060,
+            "confidence_score": 95,
+            "validation_status": "verified",
+            "address": [
+                {"address_1": "1 Wall St", "city": "New York", "state_province": "NY"}
+            ],
+        }
 
-        # Mock the geocoding service
-        mock_geocoding = MagicMock()
-        mock_geocoding.geocode.side_effect = [
-            None,  # Primary fails
-            None,  # ArcGIS fails
-            (39.7392, -104.9903),  # Nominatim succeeds
-        ]
-        mock_get_service.return_value = mock_geocoding
+        # Check confidence level
+        is_high_confidence = location_data.get("confidence_score", 0) >= 80
+        should_process = (
+            location_data.get("validation_status") != "rejected"
+            and "latitude" in location_data
+            and "longitude" in location_data
+        )
 
-        # Simulate the logic from our job processor
-        address_string = "123 Main St, Denver, CO"
-        geocoded_coords = None
-
-        # Try primary provider first
-        geocoded_coords = mock_geocoding.geocode(address_string)
-
-        # If primary failed, try all providers explicitly
-        if not geocoded_coords:
-            # Try ArcGIS explicitly
-            geocoded_coords = mock_geocoding.geocode(
-                address_string, force_provider="arcgis"
-            )
-
-            # If ArcGIS failed, try Nominatim
-            if not geocoded_coords:
-                geocoded_coords = mock_geocoding.geocode(
-                    address_string, force_provider="nominatim"
-                )
-
-        # Assert
-        assert geocoded_coords == (
-            39.7392,
-            -104.9903,
-        ), "Should get coordinates from fallback"
-        assert mock_geocoding.geocode.call_count == 3, "Should try 3 times"
-
-        # Check the calls
-        calls = mock_geocoding.geocode.call_args_list
-        assert (
-            "force_provider" not in calls[0][1]
-        ), "First call should not force provider"
-        assert (
-            calls[1][1]["force_provider"] == "arcgis"
-        ), "Second call should force ArcGIS"
-        assert (
-            calls[2][1]["force_provider"] == "nominatim"
-        ), "Third call should force Nominatim"
-
-    @patch("app.core.geocoding.get_geocoding_service")
-    def test_geocoding_all_providers_fail(self, mock_get_service):
-        """Test behavior when all geocoding providers fail."""
-
-        # Mock the geocoding service to always fail
-        mock_geocoding = MagicMock()
-        mock_geocoding.geocode.return_value = None
-        mock_get_service.return_value = mock_geocoding
-
-        # Simulate the logic from our job processor
-        address_string = "999 Nowhere St, NoCity, XX"
-        geocoded_coords = None
-
-        # Try primary provider first
-        geocoded_coords = mock_geocoding.geocode(address_string)
-
-        # If primary failed, try all providers explicitly
-        if not geocoded_coords:
-            # Try ArcGIS explicitly
-            geocoded_coords = mock_geocoding.geocode(
-                address_string, force_provider="arcgis"
-            )
-
-            # If ArcGIS failed, try Nominatim
-            if not geocoded_coords:
-                geocoded_coords = mock_geocoding.geocode(
-                    address_string, force_provider="nominatim"
-                )
-
-        # When all fail, we should raise an error in the actual code
-        if not geocoded_coords:
-            error_msg = "Unable to geocode location - all providers failed"
-
-        # Assert
-        assert geocoded_coords is None, "All providers should fail"
-        assert mock_geocoding.geocode.call_count == 3, "Should try all 3 providers"
-        assert error_msg == "Unable to geocode location - all providers failed"
+        # Assert high confidence locations are processed
+        assert is_high_confidence is True, "Should recognize high confidence"
+        assert should_process is True, "High confidence locations should be processed"

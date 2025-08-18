@@ -1,5 +1,7 @@
 """Application configuration."""
 
+from typing import Any, Dict
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -53,6 +55,90 @@ class Settings(BaseSettings):
     CLAUDE_QUOTA_RETRY_DELAY: int = 3600  # 1 hour initial delay when quota exceeded
     CLAUDE_QUOTA_MAX_DELAY: int = 14400  # 4 hours max delay
     CLAUDE_QUOTA_BACKOFF_MULTIPLIER: float = 1.5  # Exponential backoff multiplier
+
+    # Validator Settings
+    VALIDATOR_ENABLED: bool = True  # Enable validator service by default
+    VALIDATOR_QUEUE_NAME: str = "validator"
+    VALIDATOR_REDIS_TTL: int = 3600
+    VALIDATOR_LOG_DATA_FLOW: bool = False
+    VALIDATOR_ONLY_HSDS: bool = True
+    VALIDATOR_CONFIDENCE_THRESHOLD: float = 0.7
+
+    # Validation Rules Settings
+    VALIDATION_REJECTION_THRESHOLD: int = Field(
+        default=10,
+        description="Confidence score below this threshold triggers rejection. "
+        "Default of 10 filters out clearly invalid data (0,0 coords, missing data) "
+        "while preserving borderline cases for review",
+        ge=0,
+        le=100,
+    )
+    VALIDATION_STRICT_MODE: bool = False  # Enable stricter validation in production
+    VALIDATION_TEST_DATA_PATTERNS: list[str] = Field(
+        default_factory=lambda: [
+            "test",
+            "demo",
+            "example",
+            "sample",
+            "dummy",
+            "fake",
+            "anytown",
+            "unknown",
+        ]
+    )
+    VALIDATION_PLACEHOLDER_PATTERNS: list[str] = Field(
+        default_factory=lambda: [
+            r"^\d{1,3}\s+(main|first|second|third|test|example)\s+(st|street|ave|avenue|rd|road)",
+            r"^1\s+.+\s+(street|avenue|road|lane|way|drive|court|place)$",
+        ]
+    )
+    VALIDATION_RULES_CONFIG: dict = Field(
+        default_factory=lambda: {
+            "check_coordinates": True,
+            "check_us_bounds": True,
+            "check_state_match": True,
+            "detect_test_data": True,
+            "detect_placeholders": True,
+        }
+    )
+
+    # Enrichment Settings
+    VALIDATOR_ENRICHMENT_ENABLED: bool = True  # Enable geocoding enrichment
+    ENRICHMENT_GEOCODING_PROVIDERS: list[str] = Field(
+        default=["arcgis", "nominatim", "census"],
+        description="Geocoding providers in priority order. ArcGIS is fastest and most reliable, "
+        "Nominatim is open-source but rate-limited, Census is US government data.",
+    )
+    ENRICHMENT_TIMEOUT: int = 30  # Global timeout for enrichment operations in seconds
+    ENRICHMENT_CACHE_TTL: int = 86400  # Cache TTL in seconds (24 hours default)
+
+    # Provider-specific configuration
+    ENRICHMENT_PROVIDER_CONFIG: Dict[str, Dict[str, Any]] = Field(
+        default={
+            "arcgis": {
+                "timeout": 10,  # Fast commercial service
+                "max_retries": 3,
+                "rate_limit": 100,  # requests per second
+                "circuit_breaker_threshold": 5,  # failures before opening circuit
+                "circuit_breaker_cooldown": 300,  # cooldown in seconds
+            },
+            "nominatim": {
+                "timeout": 15,  # Open-source, can be slower
+                "max_retries": 2,
+                "rate_limit": 1,  # strict rate limit for free tier
+                "circuit_breaker_threshold": 3,
+                "circuit_breaker_cooldown": 600,  # longer cooldown for rate-limited service
+            },
+            "census": {
+                "timeout": 10,  # US government service
+                "max_retries": 3,
+                "rate_limit": 50,  # moderate rate limit
+                "circuit_breaker_threshold": 5,
+                "circuit_breaker_cooldown": 300,
+            },
+        },
+        description="Per-provider configuration for timeouts, retries, and circuit breaker settings",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

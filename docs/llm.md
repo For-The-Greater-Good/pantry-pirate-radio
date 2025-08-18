@@ -14,7 +14,7 @@ The LLM module provides HSDS (Human Services Data Specification) data alignment 
 │      HSDS Alignment          │
 │ ┌────────────────────────┐   │
 │ │    Provider System     │   │
-│ │     (OpenAI)           │   │
+│ │     (OpenAI/Claude)    │   │
 │ └────────────────────────┘   │
 │ ┌────────────────────────┐   │
 │ │    Validation Loop     │   │
@@ -23,16 +23,35 @@ The LLM module provides HSDS (Human Services Data Specification) data alignment 
                │
                ▼
 ┌─────────────────────────────┐
-│       Redis Queue           │
+│       LLM Queue             │
 ├─────────────────────────────┤
-│ - Job Management            │
-│ - Status Tracking           │
-│ - Result Storage            │
-└─────────────┬───────────────┘
-              │
-              ▼
+│ - Job Processing            │
+│ - Content Store Integration │
+│ - Result Routing            │
+└──────────────┬───────────────┘
+               │
+               ▼ (when VALIDATOR_ENABLED=true)
 ┌─────────────────────────────┐
-│      Results & Stats        │
+│      Validator Service      │
+├─────────────────────────────┤
+│ - Data Enrichment           │
+│ - Quality Validation        │
+│ - Confidence Scoring        │
+│ - Geocoding Enhancement     │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│      Reconciler Service     │
+├─────────────────────────────┤
+│ - Database Persistence      │
+│ - Deduplication             │
+│ - Version Tracking          │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│      HAARRRvest Publisher   │
 └─────────────────────────────┘
 ```
 
@@ -745,15 +764,235 @@ CLAUDE_QUOTA_MAX_DELAY=14400         # 4 hour max delay
 CLAUDE_QUOTA_BACKOFF_MULTIPLIER=1.5  # Exponential factor
 ```
 
+## Queue Integration and Job Routing
+
+### Job Flow with Validator Service
+
+The LLM module integrates with the validator service for enhanced data quality and enrichment. The routing is controlled by the `VALIDATOR_ENABLED` environment variable:
+
+```python
+# When VALIDATOR_ENABLED=true (default)
+Scrapers → LLM Queue → Validator Queue → Reconciler Queue → Database
+
+# When VALIDATOR_ENABLED=false
+Scrapers → LLM Queue → Reconciler Queue → Database
+```
+
+### Routing Implementation
+
+The routing decision is made in `app/llm/queue/processor.py`:
+
+```python
+def should_use_validator() -> bool:
+    """Check if validator should be used."""
+    return getattr(settings, "VALIDATOR_ENABLED", False)
+
+def process_llm_job(job: LLMJob, provider: BaseLLMProvider) -> LLMResponse:
+    # Process LLM job and generate HSDS data
+    llm_result = provider.generate(prompt=job.prompt, format=job.format)
+    
+    # Create job result
+    job_result = JobResult(
+        job_id=job.id,
+        job=job,
+        status=JobStatus.COMPLETED,
+        result=llm_result,
+    )
+    
+    # Route based on validator configuration
+    if should_use_validator():
+        # Route through validator for enrichment and validation
+        validator_job_id = enqueue_to_validator(job_result)
+        logger.info(f"Enqueued to validator: {validator_job_id}")
+    else:
+        # Route directly to reconciler (legacy behavior)
+        reconciler_job_id = enqueue_to_reconciler(job_result)
+        logger.info(f"Enqueued to reconciler: {reconciler_job_id}")
+```
+
+### Validator Integration Benefits
+
+When the validator service is enabled, data benefits from:
+
+1. **Geocoding Enrichment**: Missing coordinates or addresses are automatically populated
+2. **Data Quality Validation**: Test data, invalid coordinates, and geographic inconsistencies are detected
+3. **Confidence Scoring**: Each record receives a quality score (0-100) for filtering
+4. **Multi-Provider Fallback**: Failed geocoding attempts automatically try alternative providers
+5. **Caching and Rate Limiting**: Geocoding results are cached to reduce API calls
+
+### Configuration
+
+```bash
+# Enable/disable validator routing
+VALIDATOR_ENABLED=true  # Default: routes through validator
+VALIDATOR_ENABLED=false # Legacy: routes directly to reconciler
+
+# Validator configuration (when enabled)
+VALIDATION_REJECTION_THRESHOLD=30    # Confidence below this is rejected
+ENRICHMENT_CACHE_TTL=3600           # Cache TTL for enrichment results
+```
+
+### Replay Tool Integration
+
+As of Issue #369, the replay tool also routes through the validator by default when replaying recorded job results:
+
+```bash
+# Default: Routes through validator for enrichment
+./bouy replay --file job.json
+
+# Skip validation: Direct to reconciler (legacy mode)
+./bouy replay --skip-validation --file job.json
+
+# Replay entire directory with validation
+./bouy replay --directory outputs/
+
+# Dry run to preview what would be processed
+./bouy replay --dry-run --directory outputs/
+```
+
+This ensures that replayed data receives the same enrichment and quality validation as live data, maintaining consistency across all data ingestion paths.
+
 ## LLM Usage in Reconciler
 
 ### Integration Flow
 
 ```
+# With Validator (VALIDATOR_ENABLED=true)
+Scraper Data → LLM Alignment → Validator → Reconciler → Database
+      ↓              ↓              ↓           ↓           ↓
+  Raw JSON    HSDS Format    Enriched     Validated   PostgreSQL
+                             + Scored      + Dedupe
+
+# Without Validator (VALIDATOR_ENABLED=false)
 Scraper Data → LLM Alignment → Reconciler → Database
       ↓              ↓              ↓           ↓
   Raw JSON    HSDS Format    Validation   PostgreSQL
 ```
+
+## Validator Service Integration
+
+### Overview
+
+The validator service acts as an optional quality control layer between the LLM and reconciler. When enabled, it enriches data with geocoding, validates quality, and assigns confidence scores before persistence.
+
+### Key Features
+
+1. **Data Enrichment**
+   - Geocodes missing coordinates from addresses
+   - Reverse geocodes addresses from coordinates
+   - Fills missing postal codes and city names
+   - Normalizes address formats
+
+2. **Quality Validation**
+   - Detects invalid (0,0) coordinates
+   - Identifies test/placeholder data patterns
+   - Validates geographic boundaries (US states)
+   - Checks coordinate-state consistency
+
+3. **Confidence Scoring**
+   - Assigns quality scores (0-100) to each record
+   - Factors in geocoding quality, data completeness
+   - Enables downstream filtering of low-quality data
+   - Tracks validation notes for transparency
+
+4. **Provider Management**
+   - Multi-provider geocoding fallback chain
+   - Circuit breaker pattern for reliability
+   - Redis-based caching with TTL
+   - Rate limiting per provider
+
+### Data Flow
+
+```python
+# LLM Output Structure
+{
+    "organization": [...],
+    "service": [...],
+    "location": [
+        {
+            "name": "Food Bank",
+            "latitude": 0,  # Invalid coordinate
+            "longitude": 0,
+            "addresses": [{"address_1": "123 Main St", ...}]
+        }
+    ]
+}
+
+# After Validator Enrichment
+{
+    "organization": [...],
+    "service": [...],
+    "location": [
+        {
+            "name": "Food Bank",
+            "latitude": 40.7128,  # Geocoded from address
+            "longitude": -74.0060,
+            "addresses": [{"address_1": "123 Main St", ...}],
+            "_validation": {
+                "confidence_score": 85,
+                "validation_status": "verified",
+                "geocoding_source": "arcgis",
+                "validation_notes": {
+                    "geocoded": true,
+                    "original_coords": [0, 0]
+                }
+            }
+        }
+    ]
+}
+```
+
+### Configuration
+
+The validator integration is controlled by environment variables:
+
+```bash
+# Core Settings
+VALIDATOR_ENABLED=true                # Enable validator service (default)
+VALIDATOR_QUEUE_NAME=validator        # RQ queue name
+VALIDATOR_REDIS_TTL=3600             # Redis TTL for cached results
+
+# Validation Settings
+VALIDATION_REJECTION_THRESHOLD=10    # Min confidence to accept (0-100)
+VALIDATOR_LOG_DATA_FLOW=false       # Enable detailed logging
+
+# Geocoding Settings (used by validator)
+GEOCODING_PROVIDER=arcgis           # Primary geocoding provider
+GEOCODING_FALLBACK_PROVIDERS=google,nominatim,census
+GEOCODING_CACHE_TTL=2592000         # 30 days cache
+GEOCODING_RATE_LIMIT=1.0            # Requests per second
+```
+
+### Handoff Points
+
+1. **LLM to Validator**: The LLM worker checks `VALIDATOR_ENABLED` and routes accordingly:
+   ```python
+   if should_use_validator():
+       enqueue_to_validator(job_result)  # Enrichment path
+   else:
+       enqueue_to_reconciler(job_result)  # Direct path
+   ```
+
+2. **Validator to Reconciler**: After enrichment, validator always forwards to reconciler:
+   ```python
+   # Validator enriches data
+   enriched_data = validator.process(job_result)
+   # Forward to reconciler with enrichments
+   enqueue_to_reconciler(enriched_data)
+   ```
+
+3. **Data Passed Between Services**:
+   - **LLM → Validator**: HSDS-formatted JSON with potential quality issues
+   - **Validator → Reconciler**: Enriched HSDS with validation metadata
+   - **Reconciler → Database**: Filtered, deduplicated records
+
+### Benefits of Validation
+
+1. **Improved Data Quality**: Catches and fixes common data issues before persistence
+2. **Reduced API Calls**: Caching prevents redundant geocoding requests
+3. **Better User Experience**: HAARRRvest maps show accurate locations
+4. **Operational Insights**: Confidence scores enable quality monitoring
+5. **Flexible Filtering**: Downstream services can filter by confidence
 
 ### Reconciler Processing
 
@@ -761,25 +1000,24 @@ Scraper Data → LLM Alignment → Reconciler → Database
 # app/reconciler/job_processor.py
 
 def process_job_result(job_result: JobResult):
-    """Process LLM-aligned HSDS data."""
+    """Process HSDS data (potentially enriched by validator)."""
     
-    # 1. Extract HSDS data from LLM response
+    # 1. Extract HSDS data from response
     hsds_data = job_result.result.parsed or json.loads(job_result.result.text)
     
-    # 2. Validate HSDS compliance
-    validator = HSDSValidator()
-    if not validator.validate(hsds_data):
-        raise ValidationError("Invalid HSDS format")
+    # 2. Check for validation metadata (if from validator)
+    if "_validation" in hsds_data.get("location", [{}])[0]:
+        # Use pre-validated coordinates and confidence scores
+        confidence = hsds_data["location"][0]["_validation"]["confidence_score"]
+        if confidence < settings.VALIDATION_REJECTION_THRESHOLD:
+            logger.warning(f"Rejecting low-confidence location: {confidence}")
+            return
     
-    # 3. Geocode addresses
-    geocoder = GeocodeCorrector()
-    hsds_data = geocoder.correct_coordinates(hsds_data)
-    
-    # 4. Create/update database records
+    # 3. Create/update database records
     reconciler = Reconciler()
     reconciler.reconcile(hsds_data)
     
-    # 5. Track data lineage
+    # 4. Track data lineage
     version_tracker = VersionTracker()
     version_tracker.track_changes(hsds_data)
 ```
@@ -791,21 +1029,54 @@ def process_job_result(job_result: JobResult):
 ./bouy scraper food_bank_scraper
 
 # 2. LLM processes automatically via worker
-# Check processing status
-./bouy exec worker rq info
+# Check LLM processing status
+./bouy exec worker rq info --queue llm
 
-# 3. View results in database
+# 3. Validator enriches data (if VALIDATOR_ENABLED=true)
+# Check validator processing
+./bouy exec worker rq info --queue validator
+
+# 4. Reconciler persists to database
+# Check reconciler processing
+./bouy exec worker rq info --queue reconciler
+
+# 5. View enriched results in database
 ./bouy shell app
 python -c "
-from app.database.repositories import OrganizationRepository
-repo = OrganizationRepository()
-orgs = repo.get_all()
-for org in orgs:
-    print(f'{org.name}: {org.description[:50]}...')
+from app.database.repositories import LocationRepository
+repo = LocationRepository()
+locations = repo.get_all()
+for loc in locations:
+    print(f'{loc.name}: ({loc.latitude}, {loc.longitude})')
+    if hasattr(loc, 'confidence_score'):
+        print(f'  Confidence: {loc.confidence_score}')
+        print(f'  Validation: {loc.validation_status}')
 "
 
-# 4. Check reconciler logs
-./bouy logs reconciler --tail 50
+# 6. Check logs for each service
+./bouy logs worker --tail 20      # LLM processing
+./bouy logs validator --tail 20   # Validation/enrichment
+./bouy logs reconciler --tail 20  # Database persistence
+```
+
+### Monitoring Validator Impact
+
+```bash
+# Check how many jobs went through validator
+./bouy exec worker python -c "
+from app.validator.metrics import get_metrics_summary
+print(get_metrics_summary())
+"
+
+# Compare coordinates before/after validation
+./bouy exec reconciler python -c "
+from app.reconciler.geocoding_corrector import GeocodingCorrector
+from app.database import get_db
+gc = GeocodingCorrector(next(get_db()))
+stats = gc.get_correction_statistics()
+print(f'Invalid coords found: {stats['invalid_count']}')
+print(f'Coords corrected: {stats['corrected_count']}')
+"
 ```
 
 ## Debugging LLM Processing
@@ -813,6 +1084,7 @@ for org in orgs:
 ### Common Issues
 
 #### 1. LLM Not Processing Jobs
+
 ```bash
 # Check worker is running
 ./bouy ps | grep worker
@@ -825,6 +1097,7 @@ for org in orgs:
 ```
 
 #### 2. Authentication Failures
+
 ```bash
 # For Claude
 ./bouy claude-auth status
@@ -836,6 +1109,7 @@ grep OPENROUTER_API_KEY .env
 ```
 
 #### 3. Structured Output Errors
+
 ```bash
 # Check job details in RQ dashboard
 # http://localhost:9181
@@ -848,6 +1122,7 @@ grep OPENROUTER_API_KEY .env
 ```
 
 #### 4. Rate Limiting / Quota Issues
+
 ```bash
 # Check logs for quota messages
 ./bouy logs worker | grep -i quota
@@ -859,30 +1134,35 @@ grep OPENROUTER_API_KEY .env
 ## Best Practices
 
 ### 1. Provider Selection
+
 - **Development**: Use Claude CLI for better quotas
 - **Production**: Use API keys for predictability
 - **Testing**: Use mock provider to avoid costs
 - **Fallback**: Configure secondary provider
 
 ### 2. Job Configuration
+
 - Include content hashes for deduplication
 - Set appropriate token limits
 - Use structured output for consistency
 - Include known fields to reduce hallucination
 
 ### 3. Error Handling
+
 - Let workers handle retries automatically
 - Monitor failed job queue regularly
 - Use validation loops for quality
 - Log with sufficient context
 
 ### 4. Performance
+
 - Use content store for caching
 - Batch similar requests when possible
 - Scale workers based on queue size
 - Monitor token usage and costs
 
 ### 5. Development Workflow
+
 ```bash
 # 1. Test LLM alignment locally
 ./bouy shell worker
