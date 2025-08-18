@@ -67,11 +67,12 @@ class TestBackwardCompatibility:
 
         assert GeocodingValidator is not None
 
-    def test_old_corrector_import(self):
-        """Test that old corrector import path still works."""
-        from app.reconciler.geocoding_corrector import GeocodingCorrector
-
-        assert GeocodingCorrector is not None
+    def test_corrector_not_in_reconciler(self):
+        """Test that corrector was removed from reconciler (no more redundant geocoding)."""
+        # This test verifies that we've removed geocoding from reconciler
+        # The corrector should only be available from core.geocoding now
+        with pytest.raises(ImportError):
+            from app.reconciler.geocoding_corrector import GeocodingCorrector
 
     def test_validator_bounds_backward_compat(self):
         """Test that bounds are still available in old location."""
@@ -224,9 +225,8 @@ class TestImportOptimization:
             get_geocoding_service,
         )
         from app.core.geocoding.constants import US_BOUNDS, STATE_BOUNDS
-        from app.reconciler.geocoding_corrector import (
-            GeocodingCorrector as OldCorrector,
-        )
+
+        # Note: app.reconciler.geocoding_corrector has been removed as reconciler no longer does geocoding
         from app.llm.utils.geocoding_validator import GeocodingValidator as OldValidator
 
         assert all(
@@ -237,7 +237,6 @@ class TestImportOptimization:
                 get_geocoding_service,
                 US_BOUNDS,
                 STATE_BOUNDS,
-                OldCorrector,
-                OldValidator,
+                OldValidator,  # LLM utils still has the shim for compatibility
             ]
         )

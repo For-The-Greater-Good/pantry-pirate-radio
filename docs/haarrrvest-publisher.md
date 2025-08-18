@@ -14,6 +14,8 @@ The HAARRRvest Publisher Service is a dedicated service that monitors recorder o
 - **Map Data Generation**: Runs HAARRRvest's location export for web maps
 - **State Tracking**: Remembers processed files to avoid duplicates
 - **Repository Sync**: Always pulls latest changes before processing
+- **Confidence Score Export**: Includes validation confidence scores and status in all exported data
+- **Automatic Data Filtering**: Excludes low-confidence locations (< 10) from public data
 
 ## Usage
 
@@ -102,19 +104,22 @@ PUBLISHER_PUSH_ENABLED=false  # Set to 'true' ONLY for production deployments
 - Syncs content store to `content_store/` directory for durability
 - Updates repository metadata (README.md, STATS.md)
 - Includes content store statistics in repository metadata
+- **Confidence Score Metrics**: README.md automatically includes average confidence scores and high-confidence location counts
 
-### 4. Database Operations
+### 5. Database Operations
 - Creates PostgreSQL SQL dumps for fast initialization
 - Runs database rebuild if script is available
 - Exports PostgreSQL to SQLite using `db-to-sqlite` or Python fallback
 - Creates metadata.json for Datasette
 
-### 5. Map Data Generation
+### 6. Map Data Generation
 - Runs HAARRRvest's `export-locations.py` script
 - Generates JSON files in `data/` directory
 - Creates state-specific files for performance
+- **Data Filtering**: Automatically excludes rejected locations (confidence_score < 10) from exports
+- **Validation Data Export**: Includes confidence scores and validation metadata in exported data
 
-### 6. Git Operations
+### 7. Git Operations
 - Commits all changes to the feature branch
 - Merges to main with `--no-ff` (creates merge commit)
 - Pushes to remote repository
@@ -188,6 +193,72 @@ The `db-init` service automatically detects and uses SQL dumps:
 
 **Note**: JSON replay has been removed for consistency. Use SQL dumps for database initialization.
 
+## Confidence Score Export
+
+The HAARRRvest publisher includes comprehensive validation and confidence data in all exports (implemented in Issue #368):
+
+### How Confidence Scores Work
+
+1. **Score Range**: 0-100, where higher scores indicate more reliable data
+2. **Automatic Filtering**: Locations with confidence_score < 10 are rejected and excluded from exports
+3. **Validation Status**: Each location has one of three statuses:
+   - `verified`: High confidence, validated data
+   - `needs_review`: Medium confidence, may need manual review
+   - `rejected`: Low confidence, excluded from exports
+
+### Exported Validation Fields
+
+Each location in the exported data includes:
+
+- **confidence_score**: Numeric score from 0-100 indicating data reliability
+- **validation_status**: Current validation state (verified/needs_review/rejected)
+- **validation_notes**: Detailed notes about validation decisions and data quality issues
+- **geocoding_source**: The geocoding provider used (ArcGIS, Google Maps, Nominatim, Census)
+
+### Data Format Example
+
+```json
+{
+  "metadata": {
+    "generated": "2025-01-17T10:00:00Z",
+    "total_locations": 1523,
+    "high_confidence_locations": 1205,
+    "average_confidence": 78.5,
+    "validation_summary": {
+      "verified": 1205,
+      "needs_review": 318,
+      "rejected": 47
+    }
+  },
+  "locations": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Community Food Pantry",
+      "lat": 40.7128,
+      "lng": -74.0060,
+      "confidence_score": 95,
+      "validation_status": "verified",
+      "validation_notes": {
+        "geocoding": "High accuracy match",
+        "data_completeness": "All required fields present"
+      },
+      "geocoding_source": "google_maps",
+      ...
+    }
+  ]
+}
+```
+
+### Repository Metadata Updates
+
+The HAARRRvest README.md is automatically updated with confidence metrics:
+
+- Total locations exported
+- Average confidence score across all locations
+- Number of high-confidence locations (score ≥ 80)
+- Breakdown by validation status
+- Data quality trends over time
+
 ## Content Store Integration
 
 The HAARRRvest publisher automatically syncs the content deduplication store:
@@ -219,6 +290,48 @@ HAARRRvest/
 - **History**: Git tracks all changes to content store
 - **Recovery**: Can restore content store from HAARRRvest
 - **Analytics**: Track deduplication effectiveness over time
+
+## Map Integration
+
+The HAARRRvest web map interface displays confidence scores with visual indicators:
+
+### Confidence Score Color Coding
+
+Locations on the map are color-coded based on their confidence scores:
+
+- **High Confidence (80-100)**: Green markers with ✅ icon
+  - Verified, high-quality data
+  - Accurate geocoding from reliable sources
+  - Complete information available
+
+- **Medium Confidence (50-79)**: Orange markers with ⚡ icon  
+  - Generally reliable but may need review
+  - Some data fields may be missing
+  - Geocoding confidence is moderate
+
+- **Low Confidence (< 50)**: Red markers with ⚠️ icon
+  - Data quality concerns identified
+  - May have geocoding issues
+  - Requires manual verification
+
+### Location Popups
+
+Each location popup on the map displays:
+- Organization and location name
+- Full address
+- Contact information (phone, website, email)
+- **Confidence score with color indicator**
+- **Validation status icon**
+- **Geocoding source** (when available)
+- Description of services
+
+### Data Filtering
+
+The map interface allows users to:
+- Filter locations by confidence score range
+- Show only verified locations
+- Hide locations needing review
+- Search within high-confidence locations only
 
 ## Directory Structure
 
@@ -273,9 +386,16 @@ pantry-pirate-radio/
 The publisher works with the existing scraper → recorder → reconciler pipeline:
 
 1. **Scrapers** generate data → saved by **Recorder** to `outputs/`
-2. **HAARRRvest Publisher** picks up new files from `outputs/`
-3. Creates branch, syncs data, generates SQLite/map data
-4. Merges and pushes to HAARRRvest repository
-5. HAARRRvest serves data via GitHub Pages
+2. **Validator** enriches data with confidence scores and validation status (Issue #368)
+3. **HAARRRvest Publisher** picks up new files from `outputs/`
+4. Creates branch, syncs data, generates SQLite/map data
+5. Filters out rejected locations (confidence < 10) automatically
+6. Exports validation metadata with all locations
+7. Merges and pushes to HAARRRvest repository
+8. HAARRRvest serves data via GitHub Pages with confidence indicators
 
 This replaces the previous GitHub Actions workflow with a local, container-based solution that gives you more control over the publishing process.
+
+## Implementation Notes
+
+**Confidence Score Export (Issue #368)**: The validation and confidence scoring functionality was implemented as part of Issue #368. The export functionality automatically includes all validation fields in the database and filters out low-confidence locations to ensure data quality in public datasets.

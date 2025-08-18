@@ -70,6 +70,7 @@ Our mission is to break down information barriers in food security by making pub
 - PostGIS-optimized spatial queries
 - **Unified Geocoding Service**: Multi-provider with intelligent fallback (ArcGIS, Google Maps, Nominatim, Census)
 - **0,0 Coordinate Detection**: Automatic detection and correction of invalid coordinates
+- **State Boundary Verification**: Validates coordinates against US state boundaries
 - **Exhaustive Provider Fallback**: Tries all available providers before accepting failure
 - **Intelligent Caching**: TTL-based caching with rate limiting for geocoding requests
 - Automatic request partitioning for extensive areas
@@ -82,6 +83,14 @@ Our mission is to break down information barriers in food security by making pub
 - **Authentication Management**: Shared authentication across scaled workers
 - **Failsafe System**: Automatic retry with quota management and exponential backoff
 - **Structured Output**: Native structured output support for high-quality responses
+
+### Data Validation & Quality Assurance
+- **Confidence Scoring**: 0-100 scale for all location data quality assessment
+- **Automated Data Enrichment**: Enhances incomplete data using geocoding and field validation
+- **Validation Rules**: Rejects low-quality data (test addresses, placeholder names)
+- **Redis-Based Validation**: Distributed validation service with caching for performance
+- **Quality Thresholds**: Configurable rejection threshold (default: 30) for automatic data filtering
+- **Field Coherence**: Validates relationships between fields (e.g., city/state/ZIP alignment)
 
 ### Data Processing Pipeline
 - Redis-based distributed job processing
@@ -147,8 +156,11 @@ flowchart TB
     Queue --> Workers[LLM Workers]
     Workers <--> LLM[LLM Providers]
 
+    %% Validation
+    Workers --> Validator[Validator<br/>Quality checks]
+    Validator --> Jobs{Create Jobs}
+
     %% Job Distribution
-    Workers --> Jobs{Create Jobs}
     Jobs --> ReconcilerQ[Reconciler Queue]
     Jobs --> RecorderQ[Recorder Queue]
 
@@ -172,7 +184,7 @@ flowchart TB
     classDef external fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
     classDef queue fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
 
-    class Scrapers,Workers,Reconciler,Recorder,API,Publisher service
+    class Scrapers,Workers,Validator,Reconciler,Recorder,API,Publisher service
     class ContentStore,DB,Files storage
     class LLM,GitHub external
     class Queue,ReconcilerQ,RecorderQ,Skip,Jobs queue
@@ -669,11 +681,12 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 ### Data Pipeline Flow
 1. **Scrapers** → Collect raw data → **Content Store** (deduplication check)
 2. **Content Store** → New content only → **Redis Queue**
-3. **Workers** → Process with LLM → **Database** (source-specific records)
-4. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
-5. **Recorder** → Archive results → **Compressed archives**
-6. **API** → Serve HSDS-compliant data → **Client applications**
-7. **HAARRRvest Publisher** → Sync content store → **Durable backup**
+3. **Workers** → Process with LLM → **Validator** (quality checks & enrichment)
+4. **Validator** → High-confidence data only → **Database** (source-specific records)
+5. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
+6. **Recorder** → Archive results → **Compressed archives**
+7. **API** → Serve HSDS-compliant data → **Client applications**
+8. **HAARRRvest Publisher** → Sync content store → **Durable backup**
 
 ## 🔍 Explore the Data
 
@@ -734,6 +747,11 @@ CONTENT_STORE_ENABLED=true           # Enable/disable content store (default: en
 DATA_REPO_TOKEN=your_github_pat      # GitHub PAT with repo scope for HAARRRvest
 DATA_REPO_OWNER=For-The-Greater-Good # Repository owner
 DATA_REPO_NAME=HAARRRvest           # Repository name
+
+# Validation Configuration
+VALIDATOR_ENABLED=true                # Enable validation service
+VALIDATION_REJECTION_THRESHOLD=30    # Confidence score below this is rejected
+ENRICHMENT_CACHE_TTL=3600           # Cache TTL for enrichment in seconds
 
 # Geocoding Configuration
 GEOCODING_PROVIDER=arcgis            # Primary provider (arcgis, google, nominatim, census)
@@ -798,6 +816,8 @@ This project follows Test-Driven Development (TDD) principles:
 - **Code Style**: Black formatting (88 char lines)
 - **Security**: Bandit scanning for vulnerabilities
 - **Documentation**: Docstrings for all public functions
+- **Data Quality**: Confidence scoring (0-100) for all locations
+- **Validation**: Automatic rejection of test/placeholder data
 
 ## Contributing
 
