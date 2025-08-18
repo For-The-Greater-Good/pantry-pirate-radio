@@ -1,5 +1,6 @@
 """Tests for validator service configuration."""
 
+import os
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -27,54 +28,109 @@ class TestValidatorConfiguration:
         assert config.only_hsds is True  # Only validate HSDS jobs by default
         assert config.confidence_threshold == 0.7  # 70% confidence threshold
 
+    @patch.dict(os.environ, {}, clear=True)  # Clear environment variables
     def test_validator_config_from_settings(self):
         """Test loading validator config from settings."""
-        with patch("app.core.config.settings") as mock_settings:
-            mock_settings.VALIDATOR_ENABLED = False
-            mock_settings.VALIDATOR_QUEUE_NAME = "custom_validator"
-            mock_settings.VALIDATOR_REDIS_TTL = 7200
-            mock_settings.VALIDATOR_LOG_DATA_FLOW = True
-            mock_settings.VALIDATOR_ONLY_HSDS = False
-            mock_settings.VALIDATOR_CONFIDENCE_THRESHOLD = 0.8
+        # Use MagicMock which automatically handles hasattr
+        mock_settings = MagicMock()
+        mock_settings.VALIDATOR_ENABLED = False
+        mock_settings.VALIDATOR_QUEUE_NAME = "custom_validator"
+        mock_settings.VALIDATOR_REDIS_TTL = 7200
+        mock_settings.VALIDATOR_LOG_DATA_FLOW = True
+        mock_settings.VALIDATOR_ONLY_HSDS = False
+        mock_settings.VALIDATOR_CONFIDENCE_THRESHOLD = 0.8
+        mock_settings.VALIDATOR_MAX_RETRIES = 5
+        mock_settings.VALIDATOR_RETRY_DELAY = 2
+        mock_settings.VALIDATOR_BATCH_SIZE = 50
+        mock_settings.VALIDATOR_TIMEOUT = 300
 
-            # Also mock hasattr to return True for these attributes
-            def has_attr(name):
-                return name in [
-                    "VALIDATOR_ENABLED",
-                    "VALIDATOR_QUEUE_NAME",
-                    "VALIDATOR_REDIS_TTL",
-                    "VALIDATOR_LOG_DATA_FLOW",
-                    "VALIDATOR_ONLY_HSDS",
-                    "VALIDATOR_CONFIDENCE_THRESHOLD",
-                ]
+        # Patch where settings is imported inside get_validator_config
+        with patch("app.core.config.settings", mock_settings):
+            config = get_validator_config()
 
-            with patch(
-                "app.validator.config.hasattr",
-                side_effect=lambda obj, name: has_attr(name),
-            ):
-                config = get_validator_config()
+            assert config.enabled is False
+            assert config.queue_name == "custom_validator"
+            assert config.redis_ttl == 7200
+            assert config.log_data_flow is True
+            assert config.only_hsds is False
+            assert config.confidence_threshold == 0.8
+            assert config.max_retries == 5
+            assert config.retry_delay == 2
+            assert config.batch_size == 50
+            assert config.timeout == 300
 
-                assert config.enabled is False
-                assert config.queue_name == "custom_validator"
-                assert config.redis_ttl == 7200
-                assert config.log_data_flow is True
-                assert config.only_hsds is False
-                assert config.confidence_threshold == 0.8
-
+    @patch.dict(os.environ, {}, clear=True)  # Clear environment variables
     def test_is_validator_enabled(self):
         """Test checking if validator is enabled."""
-        with patch("app.core.config.settings.VALIDATOR_ENABLED", True):
+        # Test with enabled = True
+        mock_settings = MagicMock()
+        mock_settings.VALIDATOR_ENABLED = True
+        # Set all other required attributes to defaults
+        mock_settings.VALIDATOR_QUEUE_NAME = "validator"
+        mock_settings.VALIDATOR_REDIS_TTL = 3600
+        mock_settings.VALIDATOR_LOG_DATA_FLOW = False
+        mock_settings.VALIDATOR_ONLY_HSDS = True
+        mock_settings.VALIDATOR_CONFIDENCE_THRESHOLD = 0.7
+        mock_settings.VALIDATOR_MAX_RETRIES = 3
+        mock_settings.VALIDATOR_RETRY_DELAY = 1
+        mock_settings.VALIDATOR_BATCH_SIZE = 100
+        mock_settings.VALIDATOR_TIMEOUT = 600
+
+        with patch("app.core.config.settings", mock_settings):
             assert is_validator_enabled() is True
 
-        with patch("app.core.config.settings.VALIDATOR_ENABLED", False):
+        # Test with enabled = False
+        mock_settings = MagicMock()
+        mock_settings.VALIDATOR_ENABLED = False
+        # Set all other required attributes to defaults
+        mock_settings.VALIDATOR_QUEUE_NAME = "validator"
+        mock_settings.VALIDATOR_REDIS_TTL = 3600
+        mock_settings.VALIDATOR_LOG_DATA_FLOW = False
+        mock_settings.VALIDATOR_ONLY_HSDS = True
+        mock_settings.VALIDATOR_CONFIDENCE_THRESHOLD = 0.7
+        mock_settings.VALIDATOR_MAX_RETRIES = 3
+        mock_settings.VALIDATOR_RETRY_DELAY = 1
+        mock_settings.VALIDATOR_BATCH_SIZE = 100
+        mock_settings.VALIDATOR_TIMEOUT = 600
+
+        with patch("app.core.config.settings", mock_settings):
             assert is_validator_enabled() is False
 
+    @patch.dict(os.environ, {}, clear=True)  # Clear environment variables
     def test_should_log_data_flow(self):
         """Test checking if data flow logging is enabled."""
-        with patch("app.core.config.settings.VALIDATOR_LOG_DATA_FLOW", True):
+        # Test with log_data_flow = True
+        mock_settings = MagicMock()
+        mock_settings.VALIDATOR_LOG_DATA_FLOW = True
+        # Set all other required attributes to defaults
+        mock_settings.VALIDATOR_ENABLED = True
+        mock_settings.VALIDATOR_QUEUE_NAME = "validator"
+        mock_settings.VALIDATOR_REDIS_TTL = 3600
+        mock_settings.VALIDATOR_ONLY_HSDS = True
+        mock_settings.VALIDATOR_CONFIDENCE_THRESHOLD = 0.7
+        mock_settings.VALIDATOR_MAX_RETRIES = 3
+        mock_settings.VALIDATOR_RETRY_DELAY = 1
+        mock_settings.VALIDATOR_BATCH_SIZE = 100
+        mock_settings.VALIDATOR_TIMEOUT = 600
+
+        with patch("app.core.config.settings", mock_settings):
             assert should_log_data_flow() is True
 
-        with patch("app.core.config.settings.VALIDATOR_LOG_DATA_FLOW", False):
+        # Test with log_data_flow = False
+        mock_settings = MagicMock()
+        mock_settings.VALIDATOR_LOG_DATA_FLOW = False
+        # Set all other required attributes to defaults
+        mock_settings.VALIDATOR_ENABLED = True
+        mock_settings.VALIDATOR_QUEUE_NAME = "validator"
+        mock_settings.VALIDATOR_REDIS_TTL = 3600
+        mock_settings.VALIDATOR_ONLY_HSDS = True
+        mock_settings.VALIDATOR_CONFIDENCE_THRESHOLD = 0.7
+        mock_settings.VALIDATOR_MAX_RETRIES = 3
+        mock_settings.VALIDATOR_RETRY_DELAY = 1
+        mock_settings.VALIDATOR_BATCH_SIZE = 100
+        mock_settings.VALIDATOR_TIMEOUT = 600
+
+        with patch("app.core.config.settings", mock_settings):
             assert should_log_data_flow() is False
 
     def test_get_validation_thresholds(self):
