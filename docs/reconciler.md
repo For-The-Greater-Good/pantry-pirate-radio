@@ -4,9 +4,24 @@ The reconciler service is responsible for processing HSDS data from LLM outputs 
 
 ## Overview
 
-The reconciler takes completed jobs from the LLM queue, processes their output to extract HSDS entities, and either creates new records or updates existing ones based on matching criteria. It maintains a complete version history of all changes and tracks various metrics about the reconciliation process.
+The reconciler takes completed jobs from either the validation service (when `VALIDATOR_ENABLED=true`) or directly from the LLM queue, processes their output to extract HSDS entities, and either creates new records or updates existing ones based on matching criteria. When receiving data from the validator, it leverages pre-calculated confidence scores and validation statuses to make intelligent processing decisions, including rejecting low-confidence locations entirely. It maintains a complete version history of all changes and tracks various metrics about the reconciliation process.
 
 The reconciler now supports source-specific records, allowing it to maintain multiple views of the same entity from different scrapers. This enables the API to provide both a merged view of all data and individual views from each scraper, with clear attribution of which scraper provided each piece of data.
+
+## Data Pipeline Integration
+
+The reconciler's position in the data pipeline depends on the `VALIDATOR_ENABLED` configuration:
+
+**With Validator (default, `VALIDATOR_ENABLED=true`):**
+```
+Scrapers → Content Store → LLM Queue → LLM Workers → Validator Queue → 
+Validator Service (enrichment & scoring) → Reconciler Queue → Reconciler → Database
+```
+
+**Without Validator (`VALIDATOR_ENABLED=false`):**
+```
+Scrapers → Content Store → LLM Queue → LLM Workers → Reconciler Queue → Reconciler → Database
+```
 
 ## Architecture
 
@@ -29,21 +44,26 @@ The reconciler is built on a hierarchical component structure:
 ## Data Flow
 
 1. **Job Processing**
-   - Polls Redis queue for completed LLM jobs
+   - Receives jobs from validator queue (when `VALIDATOR_ENABLED=true`) or LLM queue directly
    - Validates job completion status and required fields
+   - Extracts validation data (confidence_score, validation_status, validation_notes) from job.data when available
    - Extracts and validates HSDS data using TypedDict schemas
+   - Rejects entities with confidence_score below threshold (default: 10)
    - Processes entities in order: organizations → locations → services
    - Creates service-to-location links with schedules
    - Handles phone numbers and languages for all entity types
 
 2. **Location Matching and Geocoding**
+   - **Pre-enriched Data from Validator**: When data comes from validator, locations arrive with:
+     * Pre-validated and enriched coordinates
+     * Confidence scores for quality assessment
+     * Validation status (verified/needs_review/rejected)
+     * Geocoding source tracking
    - Uses coordinate-based matching with 4-decimal precision (~11m radius)
-   - **Geocoding Quality Improvements**:
-     * Detects invalid 0,0 coordinates (null island)
-     * Validates coordinates against state boundaries
-     * Exhaustive provider fallback (tries all providers before giving up)
-     * Automatic conversion of projected coordinates to WGS84
-     * Pre-creation validation to catch issues early
+   - **Low-confidence Location Handling**:
+     * Locations marked as "rejected" by validator are skipped entirely
+     * Locations with confidence_score < 10 are not created in database
+     * Reconciler trusts validator's coordinate enrichment - no additional geocoding
    - When match found:
      * Creates or updates source-specific record for the current scraper
      * Merges all source records to update the canonical record
@@ -56,6 +76,7 @@ The reconciler is built on a hierarchical component structure:
      * Creates accessibility records
      * Creates phone records with languages
      * Creates initial version
+     * Stores validation metadata (confidence_score, validation_status, validation_notes, geocoding_source)
 
 3. **Organization Processing**
    - Matches organizations by name
@@ -73,6 +94,75 @@ The reconciler is built on a hierarchical component structure:
    - Handles phone numbers and languages
    - Creates schedules for service locations
    - Maintains versions for all records
+
+## Validation Data Integration
+
+The reconciler integrates validation data from the validator service (Issue #366):
+
+1. **Data Extraction**:
+   - Checks for validation data in `JobResult.job.data` (enriched by validator)
+   - Extracts confidence_score, validation_status, validation_notes for each entity
+   - Matches validation data to entities by name and/or coordinates
+
+2. **Entity Matching**:
+   - **Organizations**: Matched by exact name
+   - **Locations**: Matched by name or coordinates (within 0.0001 tolerance)
+   - **Services**: Matched by exact name
+
+3. **Confidence-Based Processing**:
+   - **Rejected Status**: Entities with `validation_status = "rejected"` are skipped entirely
+   - **Low Confidence**: Default rejection threshold is 10 (configurable via `VALIDATION_REJECTION_THRESHOLD`)
+   - **Database Persistence**: All validation fields are stored in the database for future reference
+
+4. **Database Fields**:
+   - `confidence_score` (INTEGER 0-100): Data quality confidence score
+   - `validation_status` (TEXT): Status can be "verified", "needs_review", or "rejected"
+   - `validation_notes` (JSONB): Structured validation results and notes
+   - `geocoding_source` (TEXT): Source of geocoding (arcgis, google, nominatim, census, original)
+
+5. **Creator Method Integration**:
+   All creator methods (`create_location`, `create_organization`, `create_service`) accept optional validation parameters:
+   ```python
+   def create_location(
+       self,
+       name: str,
+       description: str,
+       latitude: float,
+       longitude: float,
+       metadata: dict[str, Any],
+       organization_id: str | None = None,
+       confidence_score: int | None = None,
+       validation_status: str | None = None,
+       validation_notes: dict[str, Any] | None = None,
+       geocoding_source: str | None = None,
+   ) -> str | None:
+   ```
+
+6. **Example Data Flow**:
+   ```python
+   # Validator enriches job with validation data
+   job.data = {
+       "locations": [
+           {
+               "name": "Food Bank",
+               "confidence_score": 85,
+               "validation_status": "verified",
+               "validation_notes": {"geocoding": "enriched", "address": "validated"},
+               "geocoding_source": "arcgis"
+           },
+           {
+               "name": "Low Quality Location",
+               "confidence_score": 5,
+               "validation_status": "rejected",
+               "validation_notes": {"reason": "invalid_address"}
+           }
+       ]
+   }
+   
+   # Reconciler processes validation data
+   # - First location: Created with confidence_score=85, status="verified"
+   # - Second location: Skipped entirely (rejected status)
+   ```
 
 ## Source-Specific Records
 
@@ -368,13 +458,23 @@ The reconciler implements comprehensive error handling:
 
 The reconciler can be configured through environment variables:
 
+### Core Settings
 - `REDIS_URL`: Queue connection string (required)
 - `DATABASE_URL`: PostgreSQL connection string
 - `LOCATION_MATCH_TOLERANCE`: Coordinate matching precision (default: 0.0001)
+
+### Validation Integration
+- `VALIDATOR_ENABLED`: Enable validator service integration (default: true)
+- `VALIDATION_REJECTION_THRESHOLD`: Minimum confidence score to accept data (default: 10)
+- When `VALIDATOR_ENABLED=true`, reconciler receives pre-validated data from validator queue
+- When `VALIDATOR_ENABLED=false`, reconciler processes LLM output directly without validation
+
+### Geocoding Settings
 - `GEOCODING_PROVIDER`: Primary geocoding provider (nominatim, google, mapbox)
 - `GEOCODING_RATE_LIMIT`: Requests per second (default: 1.0)
 - `GEOCODING_CACHE_TTL`: Cache TTL in seconds (default: 2592000 - 30 days)
 - `GEOCODING_FALLBACK_ENABLED`: Enable automatic provider fallback (default: true)
+- Note: When receiving data from validator, geocoding is typically already done
 
 Redis client configuration:
 ```python

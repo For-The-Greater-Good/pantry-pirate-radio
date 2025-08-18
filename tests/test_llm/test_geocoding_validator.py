@@ -12,9 +12,7 @@ class TestGeocodingValidator:
     @pytest.fixture
     def validator(self):
         """Create a GeocodingValidator instance for testing."""
-        with patch("app.llm.utils.geocoding_validator.Nominatim"), patch(
-            "app.llm.utils.geocoding_validator.ArcGIS"
-        ):
+        with patch("app.core.geocoding.service.get_geocoding_service"):
             return GeocodingValidator()
 
     def test_is_valid_lat_long(self, validator):
@@ -131,12 +129,9 @@ class TestGeocodingValidator:
 
     def test_validate_and_correct_coordinates_wrong_state(self, validator):
         """Test correction of coordinates in wrong state."""
-        with patch.object(validator, "nominatim_geocode") as mock_geocode:
+        with patch.object(validator.geocoding_service, "geocode") as mock_geocode:
             # Mock successful re-geocoding
-            mock_location = Mock()
-            mock_location.latitude = 35.7596
-            mock_location.longitude = -79.0193
-            mock_geocode.return_value = mock_location
+            mock_geocode.return_value = (35.7596, -79.0193)
 
             # Thomasville, NC geocoded to UK coordinates
             lat, lon, note = validator.validate_and_correct_coordinates(

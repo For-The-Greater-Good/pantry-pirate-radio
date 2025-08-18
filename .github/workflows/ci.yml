@@ -184,6 +184,11 @@ jobs:
             sed -i 's/your_api_key_here/${{ secrets.OPENROUTER_API_KEY }}/' .env.test
           fi
 
+          # Set ArcGIS API key from GitHub secret if available
+          if [ -n "${{ secrets.ARCGIS_API_KEY }}" ]; then
+            echo "ARCGIS_API_KEY=${{ secrets.ARCGIS_API_KEY }}" >> .env.test
+          fi
+
           # Disable HAARRRvest push for tests
           sed -i 's/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=false/' .env.test
 

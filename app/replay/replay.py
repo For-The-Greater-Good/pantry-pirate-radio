@@ -221,6 +221,61 @@ def create_job_result(data: dict[str, Any]) -> JobResult | None:
         return None
 
 
+def enqueue_to_validator(job_result: JobResult) -> str:
+    """Enqueue job to validator queue for enrichment and confidence scoring.
+
+    Args:
+        job_result: Job result to enqueue
+
+    Returns:
+        Job ID of the enqueued validator job
+
+    Raises:
+        Exception: If enqueueing fails
+    """
+    from app.core.config import settings
+    from app.validator.queues import get_validator_queue
+
+    try:
+        validator_queue = get_validator_queue()
+        job = validator_queue.enqueue_call(
+            func="app.validator.job_processor.process_validation_job",
+            args=(job_result,),
+            result_ttl=settings.REDIS_TTL_SECONDS,
+            failure_ttl=settings.REDIS_TTL_SECONDS,
+            meta={
+                "source": "replay",
+                "original_job_id": job_result.job_id,
+            },
+        )
+
+        logger.debug(
+            f"Successfully enqueued job {job_result.job_id} to validator as {job.id}"
+        )
+        return job.id
+
+    except Exception as e:
+        logger.error(f"Failed to enqueue job {job_result.job_id} to validator: {e}")
+        raise
+
+
+def should_use_validator(skip_validation: bool = False) -> bool:
+    """Check if validator should be used for replay.
+
+    Args:
+        skip_validation: Flag to explicitly skip validation
+
+    Returns:
+        Whether to use validator
+    """
+    if skip_validation:
+        return False
+
+    from app.core.config import settings
+
+    return getattr(settings, "VALIDATOR_ENABLED", True)
+
+
 def should_process_job(data: dict[str, Any]) -> bool:
     """Determine if a job should be processed.
 
@@ -242,7 +297,10 @@ def should_process_job(data: dict[str, Any]) -> bool:
 
 
 def replay_file(
-    file_path: str, dry_run: bool = False, allowed_dirs: list[str] | None = None
+    file_path: str,
+    dry_run: bool = False,
+    allowed_dirs: list[str] | None = None,
+    skip_validation: bool = False,
 ) -> bool:
     """Replay a single JSON file.
 
@@ -250,6 +308,7 @@ def replay_file(
         file_path: Path to the JSON file
         dry_run: If True, only validate without processing
         allowed_dirs: List of allowed directories for security
+        skip_validation: If True, skip validation and route directly to reconciler
 
     Returns:
         True if successful, False otherwise
@@ -275,12 +334,29 @@ def replay_file(
 
     # Process or log based on dry_run
     if dry_run:
-        logger.info(f"[DRY RUN] Would process job {job_result.job_id}")
+        validation_mode = "validation" if not skip_validation else "direct reconciler"
+        logger.info(
+            f"[DRY RUN] Would process job {job_result.job_id} via {validation_mode}"
+        )
     else:
         try:
-            # Send to reconciler for processing
-            result = process_job_result(job_result)
-            logger.info(f"Successfully processed job {job_result.job_id}: {result}")
+            # Determine routing based on validation settings
+            if should_use_validator(skip_validation):
+                # Route through validator for enrichment and confidence scoring
+                logger.info(
+                    f"Sending job {job_result.job_id} to validator for enrichment"
+                )
+                validator_job_id = enqueue_to_validator(job_result)
+                logger.info(
+                    f"Successfully enqueued to validator as job {validator_job_id}"
+                )
+            else:
+                # Send directly to reconciler (legacy behavior)
+                logger.info(
+                    f"Sending job {job_result.job_id} directly to reconciler (validation skipped)"
+                )
+                result = process_job_result(job_result)
+                logger.info(f"Successfully processed job {job_result.job_id}: {result}")
         except Exception as e:
             logger.error(f"Failed to process job {job_result.job_id}: {e}")
             return False
@@ -289,7 +365,10 @@ def replay_file(
 
 
 def replay_directory(
-    directory: str, pattern: str = "*.json", dry_run: bool = False
+    directory: str,
+    pattern: str = "*.json",
+    dry_run: bool = False,
+    skip_validation: bool = False,
 ) -> dict[str, int]:
     """Replay all matching files in a directory.
 
@@ -297,6 +376,7 @@ def replay_directory(
         directory: Directory containing JSON files
         pattern: Glob pattern for files (default: *.json)
         dry_run: If True, only validate without processing
+        skip_validation: If True, skip validation and route directly to reconciler
 
     Returns:
         Dictionary with processing statistics
@@ -313,6 +393,12 @@ def replay_directory(
     files = list(dir_path.rglob(pattern))
     logger.info(f"Found {len(files)} files matching pattern '{pattern}'")
 
+    # Log validation mode
+    if skip_validation:
+        logger.info("Validation skipped - routing directly to reconciler")
+    else:
+        logger.info("Validation enabled - routing through validator for enrichment")
+
     stats = {"total_files": len(files), "successful": 0, "failed": 0}
 
     # Process each file
@@ -321,7 +407,12 @@ def replay_directory(
         if i % 500 == 0 or i == 1 or i == len(files):
             logger.info(f"Progress: {i}/{len(files)} files ({(i/len(files)*100):.1f}%)")
         try:
-            if replay_file(str(file_path), dry_run=dry_run, allowed_dirs=allowed_dirs):
+            if replay_file(
+                str(file_path),
+                dry_run=dry_run,
+                allowed_dirs=allowed_dirs,
+                skip_validation=skip_validation,
+            ):
                 stats["successful"] += 1
             else:
                 stats["failed"] += 1

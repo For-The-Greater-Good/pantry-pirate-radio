@@ -99,6 +99,27 @@ services:
       cache:
         condition: service_started
 
+  validator:
+    image: pantry-pirate-radio:latest
+    command: ["validator"]
+    env_file: ../../.env
+    environment:
+      # Enable debug logging for validator
+      - LOG_LEVEL=DEBUG
+      - VALIDATOR_LOG_DATA_FLOW=true
+      - VALIDATOR_ENRICHMENT_ENABLED=true
+    # All environment variables are loaded from .env file
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+
   haarrrvest-publisher:
     image: pantry-pirate-radio:latest
     command: ["publisher"]

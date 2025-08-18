@@ -70,6 +70,7 @@ Our mission is to break down information barriers in food security by making pub
 - PostGIS-optimized spatial queries
 - **Unified Geocoding Service**: Multi-provider with intelligent fallback (ArcGIS, Google Maps, Nominatim, Census)
 - **0,0 Coordinate Detection**: Automatic detection and correction of invalid coordinates
+- **State Boundary Verification**: Validates coordinates against US state boundaries
 - **Exhaustive Provider Fallback**: Tries all available providers before accepting failure
 - **Intelligent Caching**: TTL-based caching with rate limiting for geocoding requests
 - Automatic request partitioning for extensive areas
@@ -82,6 +83,14 @@ Our mission is to break down information barriers in food security by making pub
 - **Authentication Management**: Shared authentication across scaled workers
 - **Failsafe System**: Automatic retry with quota management and exponential backoff
 - **Structured Output**: Native structured output support for high-quality responses
+
+### Data Validation & Quality Assurance
+- **Confidence Scoring**: 0-100 scale for all location data quality assessment
+- **Automated Data Enrichment**: Enhances incomplete data using geocoding and field validation
+- **Validation Rules**: Rejects low-quality data (test addresses, placeholder names)
+- **Redis-Based Validation**: Distributed validation service with caching for performance
+- **Quality Thresholds**: Configurable rejection threshold (default: 30) for automatic data filtering
+- **Field Coherence**: Validates relationships between fields (e.g., city/state/ZIP alignment)
 
 ### Data Processing Pipeline
 - Redis-based distributed job processing
@@ -136,46 +145,48 @@ The system consists of the following containerized services:
 ```mermaid
 flowchart TB
     %% Data Collection
-    Scrapers[Scrapers<br/>12+ sources]
-    ContentStore{Content Store<br/>Deduplication}
-
+    Scrapers[Scrapers<br/>30+ sources]
+    ContentStore[(Content Store)]
+    
     Scrapers --> ContentStore
-    ContentStore -->|New content| Queue[Redis Queue]
-    ContentStore -->|Duplicate| Skip[Return existing]
-
+    ContentStore -->|new| Queue[Redis Queue]
+    ContentStore -.->|duplicate| Skip[Skip]
+    
     %% Processing
     Queue --> Workers[LLM Workers]
     Workers <--> LLM[LLM Providers]
-
+    Workers --> Validator[Validator]
+    
     %% Job Distribution
-    Workers --> Jobs{Create Jobs}
+    Validator --> Jobs{Job Router}
     Jobs --> ReconcilerQ[Reconciler Queue]
     Jobs --> RecorderQ[Recorder Queue]
-
+    
     %% Services
-    ReconcilerQ --> Reconciler[Reconciler<br/>Location matching]
-    RecorderQ --> Recorder[Recorder<br/>Archive JSON]
-
+    ReconcilerQ --> Reconciler[Reconciler<br/>Locations]
+    RecorderQ --> Recorder[Recorder<br/>Archive]
+    
     %% Storage
-    Reconciler --> DB[(PostgreSQL<br/>PostGIS)]
-    Recorder --> Files[JSON Files]
-
+    Reconciler --> DB[(PostgreSQL)]
+    Recorder --> Files[(JSON Files)]
+    
     %% Output
     DB --> API[FastAPI]
-    DB --> Publisher[HAARRRvest<br/>Publisher]
+    DB --> Publisher[Publisher]
     Files --> Publisher
-    Publisher --> GitHub[HAARRRvest<br/>Repository]
-
-    %% Style
-    classDef service fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
-    classDef storage fill:#ffe0b2,stroke:#ef6c00,stroke-width:2px,color:#000
-    classDef external fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
-    classDef queue fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
-
-    class Scrapers,Workers,Reconciler,Recorder,API,Publisher service
+    Publisher --> GitHub[GitHub]
+    
+    %% Minimal styling
+    classDef service fill:#f8f9fa,stroke:#495057,stroke-width:1px
+    classDef storage fill:#fff8dc,stroke:#795548,stroke-width:2px
+    classDef external fill:#f0f0f0,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5
+    classDef queue fill:#e8f4f8,stroke:#0288d1,stroke-width:1px
+    
+    class Scrapers,Workers,Validator,Reconciler,Recorder,API,Publisher service
     class ContentStore,DB,Files storage
     class LLM,GitHub external
-    class Queue,ReconcilerQ,RecorderQ,Skip,Jobs queue
+    class Queue,ReconcilerQ,RecorderQ,Jobs queue
+    class Skip queue
 ```
 
 ### Service Components
@@ -197,6 +208,27 @@ flowchart TB
 - **Validation Pipeline**: Field coherence validation and hallucination detection
 - **Retry Logic**: Intelligent failsafe system with quota management
 - **Structured Output**: Native support for JSON schema validation
+
+#### **Data Validation Pipeline** (`app/validator/`)
+- **Confidence Scoring**: Evaluates data quality on a 0-100 scale based on field completeness and accuracy
+- **Data Enrichment**: 
+  - Enhances incomplete location data using multi-provider geocoding (ArcGIS → Nominatim → Census)
+  - Corrects invalid coordinates (0,0 detection and US bounds validation)
+  - Fills missing postal codes and normalizes addresses
+- **Quality Control Rules**:
+  - Rejects test/placeholder data (e.g., "123 Test St", "Example Organization")
+  - Validates coordinates are within US boundaries (including Alaska and Hawaii)
+  - Verifies state/coordinate consistency
+  - Detects and flags suspicious patterns
+- **Redis-Based Caching**: 
+  - SHA256-hashed cache keys with configurable TTL (default: 24 hours)
+  - Circuit breaker pattern for geocoding provider failures
+  - Distributed caching for horizontal scalability
+- **Configurable Thresholds**: 
+  - Rejection threshold for low-confidence data (default: score < 10)
+  - Per-rule enable/disable flags for customization
+  - Provider-specific retry and timeout settings
+- **Backward Compatibility**: Can be completely disabled via `VALIDATOR_ENABLED=false` for legacy behavior
 
 #### **Reconciler Service** (`app/reconciler/`)
 - **Version Tracker**: Maintains complete version history for all records
@@ -669,11 +701,12 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 ### Data Pipeline Flow
 1. **Scrapers** → Collect raw data → **Content Store** (deduplication check)
 2. **Content Store** → New content only → **Redis Queue**
-3. **Workers** → Process with LLM → **Database** (source-specific records)
-4. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
-5. **Recorder** → Archive results → **Compressed archives**
-6. **API** → Serve HSDS-compliant data → **Client applications**
-7. **HAARRRvest Publisher** → Sync content store → **Durable backup**
+3. **Workers** → Process with LLM → **Validator** (quality checks & enrichment)
+4. **Validator** → High-confidence data only → **Database** (source-specific records)
+5. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
+6. **Recorder** → Archive results → **Compressed archives**
+7. **API** → Serve HSDS-compliant data → **Client applications**
+8. **HAARRRvest Publisher** → Sync content store → **Durable backup**
 
 ## 🔍 Explore the Data
 
@@ -734,6 +767,22 @@ CONTENT_STORE_ENABLED=true           # Enable/disable content store (default: en
 DATA_REPO_TOKEN=your_github_pat      # GitHub PAT with repo scope for HAARRRvest
 DATA_REPO_OWNER=For-The-Greater-Good # Repository owner
 DATA_REPO_NAME=HAARRRvest           # Repository name
+
+# Validation Configuration
+VALIDATOR_ENABLED=true                # Enable validation service (default: true)
+VALIDATION_REJECTION_THRESHOLD=10    # Confidence score below this is rejected (0-100, default: 10)
+
+# Validation Enrichment Settings
+ENRICHMENT_CACHE_TTL=86400           # Cache TTL for enrichment in seconds (default: 24 hours)
+ENRICHMENT_MAX_RETRIES=3             # Maximum retry attempts per provider (default: 3)
+ENRICHMENT_CIRCUIT_BREAKER_THRESHOLD=5  # Failures before circuit opens (default: 5)
+ENRICHMENT_CIRCUIT_BREAKER_COOLDOWN=300 # Circuit breaker cooldown in seconds (default: 5 minutes)
+
+# Validation Rules Configuration
+VALIDATION_ENABLE_US_BOUNDS_CHECK=true      # Check if coordinates are within US boundaries
+VALIDATION_ENABLE_TEST_DATA_DETECTION=true  # Detect and flag test/placeholder data
+VALIDATION_ENABLE_STATE_VERIFICATION=true   # Verify coordinates match claimed state
+VALIDATION_ENABLE_PLACEHOLDER_DETECTION=true # Detect generic/placeholder addresses
 
 # Geocoding Configuration
 GEOCODING_PROVIDER=arcgis            # Primary provider (arcgis, google, nominatim, census)
@@ -798,6 +847,8 @@ This project follows Test-Driven Development (TDD) principles:
 - **Code Style**: Black formatting (88 char lines)
 - **Security**: Bandit scanning for vulnerabilities
 - **Documentation**: Docstrings for all public functions
+- **Data Quality**: Confidence scoring (0-100) for all locations
+- **Validation**: Automatic rejection of test/placeholder data
 
 ## Contributing
 

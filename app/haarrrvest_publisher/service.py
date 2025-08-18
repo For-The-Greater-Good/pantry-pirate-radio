@@ -495,7 +495,23 @@ class HAARRRvestPublisher:
         # Update README - preserve existing content, only update harvester section
         readme_path = self.data_repo_path / "README.md"
 
-        # Harvester-generated section content
+        # Harvester-generated section content with confidence metrics
+        confidence_section = ""
+        if "confidence_metrics" in stats:
+            cm = stats["confidence_metrics"]
+            confidence_section = f"""
+## Data Quality Metrics
+
+- **Average Confidence Score**: {cm.get('average_confidence', 0)}/100
+- **High Confidence Locations**: {cm.get('high_confidence_count', 0)} (80-100 score)
+- **Medium Confidence Locations**: {cm.get('medium_confidence_count', 0)} (50-79 score)
+- **Low Confidence Locations**: {cm.get('low_confidence_count', 0)} (<50 score)
+- **Verification Status**:
+  - Verified: {cm.get('verified_count', 0)}
+  - Needs Review: {cm.get('needs_review_count', 0)}
+  - Rejected: {cm.get('rejected_count', 0)} (excluded from exports)
+"""
+
         harvester_section = f"""<!-- HARVESTER AUTO-GENERATED SECTION START -->
 ## Last Update
 
@@ -503,7 +519,7 @@ class HAARRRvestPublisher:
 - **Total Records**: {stats['total_records']}
 - **Data Sources**: {stats['sources']}
 - **Date Range**: {stats['date_range']}
-
+{confidence_section}
 ## Data Structure
 
 - `daily/` - Historical data organized by date
@@ -511,10 +527,12 @@ class HAARRRvestPublisher:
 - `sql_dumps/` - PostgreSQL dumps for fast initialization
 - `sqlite/` - SQLite database exports for Datasette
 - `content_store/` - Content deduplication store (if configured)
+- `data/` - Location data with confidence scores for mapping
 
 ## Usage
 
 This data follows the OpenReferral Human Services Data Specification (HSDS).
+All location data includes confidence scores and validation status to help identify data quality.
 
 For more information, visit the [Pantry Pirate Radio project](https://github.com/For-The-Greater-Good/pantry-pirate-radio).
 <!-- HARVESTER AUTO-GENERATED SECTION END -->"""
@@ -620,6 +638,57 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                 stats["content_store_pending"] = cs_stats["pending_content"]
         except Exception as e:
             logger.debug(f"Could not get content store statistics: {e}")
+
+        # Add confidence metrics from database
+        try:
+            import psycopg2
+
+            # Get database connection info from environment
+            db_host = os.getenv("POSTGRES_HOST", "db")
+            db_port = os.getenv("POSTGRES_PORT", "5432")
+            db_user = os.getenv("POSTGRES_USER", "pantry_pirate_radio")
+            db_name = os.getenv("POSTGRES_DB", "pantry_pirate_radio")
+            db_password = os.getenv("POSTGRES_PASSWORD")
+
+            conn_string = (
+                f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+            )
+            conn = psycopg2.connect(conn_string)
+
+            with conn.cursor() as cursor:
+                # Get confidence score statistics
+                cursor.execute(
+                    """
+                    SELECT
+                        AVG(confidence_score) as avg_confidence,
+                        COUNT(*) FILTER (WHERE confidence_score >= 80) as high_confidence,
+                        COUNT(*) FILTER (WHERE confidence_score >= 50 AND confidence_score < 80) as medium_confidence,
+                        COUNT(*) FILTER (WHERE confidence_score < 50) as low_confidence,
+                        COUNT(*) FILTER (WHERE validation_status = 'verified') as verified,
+                        COUNT(*) FILTER (WHERE validation_status = 'needs_review') as needs_review,
+                        COUNT(*) FILTER (WHERE validation_status = 'rejected') as rejected,
+                        COUNT(*) as total_locations
+                    FROM location
+                    WHERE is_canonical = true
+                """
+                )
+
+                result = cursor.fetchone()
+                if result:
+                    stats["confidence_metrics"] = {
+                        "average_confidence": round(result[0], 1) if result[0] else 0,
+                        "high_confidence_count": result[1] or 0,
+                        "medium_confidence_count": result[2] or 0,
+                        "low_confidence_count": result[3] or 0,
+                        "verified_count": result[4] or 0,
+                        "needs_review_count": result[5] or 0,
+                        "rejected_count": result[6] or 0,
+                        "total_validated_locations": result[7] or 0,
+                    }
+
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Could not get confidence metrics from database: {e}")
 
         return stats
 

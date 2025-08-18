@@ -74,13 +74,18 @@
       "Bash(git tag:*)",
       "WebFetch(domain:for-the-greater-good.github.io)",
       "Bash(gh release view:*)",
-      "Bash(./bouy exec db psql:*)"
+      "Bash(./bouy exec db psql:*)",
+      "Bash(gh issue view:*)",
+      "Bash(./bouy exec app python -m pytest:*)",
+      "Bash(./bouy exec app python:*)",
+      "Bash(./bouy:*)"
     ],
     "deny": [],
     "additionalDirectories": [
       "/home/bryan/HAARRRvest/",
       "/Users/bryanmoran/code/for-the-greater-good/HAARRRvest/",
-      "/Users/bryanmoran/code/for-the-greater-good"
+      "/Users/bryanmoran/code/for-the-greater-good",
+      "/"
     ]
   }
 }

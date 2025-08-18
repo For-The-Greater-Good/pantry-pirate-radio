@@ -103,6 +103,38 @@ All API responses follow a consistent paginated structure:
   - **prev**: Link to previous page (null if on first page)
 - **data**: Array of resource objects
 
+## Data Quality Fields
+
+As of Issues #362-#369, all organization, location, and service records include data quality and validation fields to ensure high-quality food security information:
+
+### Confidence Score
+- **confidence_score** (integer, 0-100): Indicates the data quality confidence level
+  - **80-100**: High confidence - verified data with complete information
+  - **50-79**: Medium confidence - partial data or needs verification
+  - **0-49**: Low confidence - minimal data or significant issues
+  - **< 10**: Rejected - data deemed unreliable (not returned by default in API responses)
+
+### Validation Fields
+- **validation_status** (string): Current validation state of the record
+  - `"verified"`: Data has been validated and confirmed
+  - `"needs_review"`: Data requires manual review or additional verification
+  - `"rejected"`: Data failed validation (confidence score < 10)
+
+- **validation_notes** (object): Additional validation details and metadata
+  - May include reasons for rejection, verification sources, or review notes
+  - Structure varies based on validation type and issues found
+
+### Location-Specific Fields
+- **geocoding_source** (string, locations only): Provider used for geocoding
+  - Indicates which service validated the location coordinates
+  - Examples: `"arcgis"`, `"google_maps"`, `"nominatim"`, `"census"`
+  - Helps track geocoding accuracy and reliability
+
+### API Behavior
+- Records with confidence scores below 10 are automatically filtered from standard API responses
+- This ensures only reliable data is served to API consumers
+- Future API versions may support filtering by confidence score ranges
+
 ## Geographic Search Features
 
 ### Radius Search
@@ -143,6 +175,20 @@ GET /api/v1/organizations/
 - `name` (string): Filter by organization name
 - `include_services` (bool): Include service details in response
 
+**Response Fields:**
+Each organization in the response includes:
+- `id` (UUID): Unique identifier
+- `name` (string): Organization name
+- `description` (string): Organization description
+- `url` (string): Organization website
+- `email` (string): Contact email
+- `confidence_score` (integer): Data quality score (0-100)
+- `validation_status` (string): Validation state (verified/needs_review/rejected)
+- `validation_notes` (object): Additional validation metadata
+- `services` (array): Associated services (if include_services=true)
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
 **Example Response:**
 ```json
 {
@@ -165,6 +211,9 @@ GET /api/v1/organizations/
       "url": "https://example.com",
       "email": "info@example.com",
       "services": null,
+      "confidence_score": 85,
+      "validation_status": "verified",
+      "validation_notes": {"source": "manual_review", "verified_date": "2024-01-15"},
       "created_at": "2024-01-01T00:00:00Z",
       "updated_at": "2024-01-01T00:00:00Z"
     }
@@ -205,6 +254,22 @@ GET /api/v1/locations/
 - `organization_id` (UUID): Filter by organization ID
 - `include_services` (bool): Include service details in response
 
+**Response Fields:**
+Each location in the response includes:
+- `id` (UUID): Unique identifier
+- `name` (string): Location name
+- `description` (string): Location description
+- `latitude` (float): Geographic latitude
+- `longitude` (float): Geographic longitude
+- `confidence_score` (integer): Data quality score (0-100)
+- `validation_status` (string): Validation state (verified/needs_review/rejected)
+- `validation_notes` (object): Additional validation metadata
+- `geocoding_source` (string): Provider used for geocoding (e.g., arcgis, google_maps)
+- `distance` (string): Distance from search point (only in geographic searches)
+- `services` (array): Associated services (if include_services=true)
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
 #### Geographic Search
 ```
 GET /api/v1/locations/search
@@ -244,6 +309,10 @@ GET /api/v1/locations/search
       "longitude": -74.0060,
       "distance": "2.3mi",
       "services": null,
+      "confidence_score": 92,
+      "validation_status": "verified",
+      "validation_notes": {"geocoding_confidence": "high"},
+      "geocoding_source": "arcgis",
       "created_at": "2024-01-01T00:00:00Z",
       "updated_at": "2024-01-01T00:00:00Z"
     }
@@ -274,6 +343,22 @@ GET /api/v1/services/
 - `organization_id` (UUID): Filter by organization ID
 - `status` (string): Filter by service status (active, inactive, defunct, temporarily closed)
 - `include_locations` (bool): Include location details in response
+
+**Response Fields:**
+Each service in the response includes:
+- `id` (UUID): Unique identifier
+- `organization_id` (UUID): Parent organization ID
+- `name` (string): Service name
+- `description` (string): Service description
+- `url` (string): Service-specific URL
+- `email` (string): Service contact email
+- `status` (string): Service status (active/inactive/defunct/temporarily closed)
+- `confidence_score` (integer): Data quality score (0-100)
+- `validation_status` (string): Validation state (verified/needs_review/rejected)
+- `validation_notes` (object): Additional validation metadata
+- `locations` (array): Associated locations (if include_locations=true)
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime): Last update timestamp
 
 #### Get Service
 ```
@@ -331,6 +416,9 @@ GET /api/v1/services/search?q=food+pantry
       "email": "pantry@example.com",
       "status": "active",
       "locations": null,
+      "confidence_score": 75,
+      "validation_status": "needs_review",
+      "validation_notes": {"missing_fields": ["phone", "hours"]},
       "created_at": "2024-01-01T00:00:00Z",
       "updated_at": "2024-01-01T00:00:00Z"
     }
@@ -488,10 +576,11 @@ The API covers the continental United States (coordinates: 25°N-49°N, -125°W 
 ### Geocoding Service
 
 The application includes a unified geocoding service for address resolution:
-- Supports multiple providers (ArcGIS, Nominatim)
-- Implements caching to reduce API calls
-- Enforces rate limiting to respect API quotas
-- Provides fallback mechanisms for reliability
+- Supports multiple providers (ArcGIS, Google Maps, Nominatim, Census)
+- Implements intelligent fallback - tries ALL providers before accepting failure
+- Detects and corrects invalid (0,0) coordinates automatically
+- TTL-based caching with rate limiting to respect API quotas
+- Tracks geocoding source in `geocoding_source` field for transparency
 - Configurable via environment variables
 
 ## Performance Considerations
