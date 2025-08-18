@@ -2,6 +2,8 @@
 
 The replay module allows you to recreate database records from JSON files saved by the recorder service. This is essential for recovering from database resets, migrations, or replaying historical data without re-running expensive LLM processing.
 
+**Important Update (Issue #369):** As of this update, the replay tool now routes through the validation service by default for data enrichment and quality control, ensuring consistency with the production pipeline. Use the `--skip-validation` flag to bypass validation and route directly to the reconciler (legacy behavior).
+
 ## Purpose and Benefits
 
 The replay system provides critical capabilities for data management and debugging:
@@ -18,8 +20,9 @@ The replay system provides critical capabilities for data management and debuggi
 The replay system works in conjunction with the recorder service:
 
 1. **Recorder Service**: Automatically saves all job results to JSON files organized by date and scraper
-2. **Replay Module**: Reads these JSON files and recreates database records through the reconciler
-3. **Reconciler**: Processes replayed jobs exactly as if they were new, maintaining data integrity
+2. **Replay Module**: Reads these JSON files and routes them through the validation service (default) or directly to the reconciler (with `--skip-validation`)
+3. **Validation Service** (default path): Enriches data with confidence scores, quality checks, and geocoding corrections before sending to the reconciler
+4. **Reconciler**: Processes validated jobs, creating database records with enhanced data quality
 
 ## Data Recording Process
 
@@ -54,14 +57,17 @@ Recording happens automatically when:
 ### Basic Replay Operations
 
 ```bash
-# Replay all recorded data from default outputs directory
+# Replay all recorded data from default outputs directory (validates by default)
 ./bouy replay --use-default-output-dir
 
-# Replay specific directory
+# Replay specific directory (validates by default)
 ./bouy replay --directory outputs/daily/2025-08-07
 
-# Replay single file
+# Replay single file (validates by default)
 ./bouy replay --file outputs/daily/2025-08-07/processed/job_123.json
+
+# Skip validation - route directly to reconciler (legacy mode)
+./bouy replay --file outputs/daily/2025-08-07/processed/job_123.json --skip-validation
 
 # Dry run - preview what would be processed
 ./bouy replay --use-default-output-dir --dry-run
@@ -73,17 +79,20 @@ Recording happens automatically when:
 ### Advanced Replay Scenarios
 
 ```bash
-# Replay only today's scraper results
+# Replay only today's scraper results (with validation)
 ./bouy replay --directory outputs/daily/$(date +%Y-%m-%d)/scrapers
 
-# Replay specific scraper's data
+# Replay specific scraper's data (with validation)
 ./bouy replay --directory outputs/daily/2025-08-07/scrapers/freshtrak
 
 # Replay with custom pattern (e.g., specific job IDs)
 ./bouy replay --directory outputs --pattern "f0b82a5e*.json"
 
-# Replay processed LLM results only
+# Replay processed LLM results only (with validation)
 ./bouy replay --directory outputs/daily/2025-08-07/processed
+
+# Legacy mode - bypass validation for debugging
+./bouy replay --directory outputs/daily/2025-08-07 --skip-validation
 ```
 
 ## JSON Format Documentation
@@ -179,6 +188,40 @@ Recording happens automatically when:
 }
 ```
 
+## Validation Integration
+
+### Why Validation is Now Default
+
+As of Issue #369, the replay tool routes through the validation service by default to ensure:
+
+1. **Data Enrichment**: Adds confidence scores, quality metrics, and data completeness checks
+2. **Geocoding Correction**: Fixes invalid coordinates (0,0) and enhances location accuracy
+3. **Consistency**: Replayed data receives the same processing as live data
+4. **Quality Control**: Identifies and flags problematic data before database insertion
+
+### When to Use --skip-validation
+
+Use the `--skip-validation` flag in these scenarios:
+
+- **Testing Reconciler Logic**: When debugging reconciler-specific issues
+- **Performance Testing**: To measure reconciler performance without validation overhead
+- **Emergency Recovery**: When validation service is unavailable but data recovery is critical
+- **Legacy Compatibility**: For systems expecting direct reconciler routing
+
+### Data Flow Comparison
+
+**Default Flow (with validation):**
+```
+JSON Files → Replay Tool → Validation Service → Reconciler → Database
+                              ↓
+                     (Enrichment & QC)
+```
+
+**Legacy Flow (with --skip-validation):**
+```
+JSON Files → Replay Tool → Reconciler → Database
+```
+
 ## Practical Use Cases
 
 ### 1. Database Recovery After Migration
@@ -186,17 +229,20 @@ Recording happens automatically when:
 ```bash
 # After database migration or reset
 ./bouy up --with-init                    # Initialize new database
-./bouy replay --use-default-output-dir   # Restore all data
+./bouy replay --use-default-output-dir   # Restore all data (with validation)
 ```
 
 ### 2. Debugging Scraper Issues
 
 ```bash
-# Replay specific scraper's data to debug processing
+# Replay specific scraper's data to debug processing (with validation)
 ./bouy replay --directory outputs/daily/2025-08-07/scrapers/problematic-scraper --verbose
 
 # Test changes with dry run first
 ./bouy replay --file outputs/daily/2025-08-07/scrapers/test-case.json --dry-run
+
+# Debug without validation to isolate reconciler issues
+./bouy replay --file outputs/daily/2025-08-07/scrapers/test-case.json --skip-validation --verbose
 ```
 
 ### 3. Data Recovery from Specific Date Range
@@ -212,10 +258,13 @@ done
 ### 4. Testing Database Changes
 
 ```bash
-# Test database schema changes with real data
+# Test database schema changes with real data (with validation)
 ./bouy replay --directory outputs/daily/2025-08-07 --dry-run
 # If dry run succeeds, run actual replay
 ./bouy replay --directory outputs/daily/2025-08-07
+
+# Test without validation if focusing on schema compatibility
+./bouy replay --directory outputs/daily/2025-08-07 --skip-validation --dry-run
 ```
 
 ## Integration with System Components
@@ -230,23 +279,34 @@ Scrapers automatically record their results through the recorder service:
 
 ### Reconciler Integration
 
-The replay module uses the same reconciler pipeline as live data:
+The replay module integrates with the data pipeline:
+
+**Default Path (with validation):**
 1. Reads saved JobResult from JSON
 2. Reconstructs LLMJob and LLMResponse objects
-3. Sends to `process_job_result()` in reconciler
+3. Sends to validation service for enrichment
+4. Validator adds confidence scores and quality metrics
+5. Validated data sent to reconciler
+6. Reconciler creates/updates database records
+
+**Legacy Path (with --skip-validation):**
+1. Reads saved JobResult from JSON
+2. Reconstructs LLMJob and LLMResponse objects
+3. Sends directly to `process_job_result()` in reconciler
 4. Reconciler creates/updates database records
-5. Maintains same data quality and validation
 
 ### HAARRRvest Publisher Integration
 
 After replaying data:
 ```bash
-# Replay data first
+# Replay data first (with validation for best quality)
 ./bouy replay --use-default-output-dir
 
 # Then publish to HAARRRvest
 ./bouy haarrrvest run
 ```
+
+Note: Using validation ensures HAARRRvest receives enriched data with confidence scores and corrected geocoding.
 
 ## Troubleshooting
 
@@ -329,7 +389,9 @@ The replay system is idempotent - running multiple times is safe:
 
 1. **Regular Backups**: Keep outputs directory backed up for disaster recovery
 2. **Dry Run First**: Always test with `--dry-run` before actual replay
-3. **Monitor Logs**: Use `--verbose` flag when debugging issues
-4. **Batch by Date**: Process one day at a time for large datasets
-5. **Verify Results**: Check database after replay to confirm data integrity
-6. **Clean Old Data**: Archive old JSON files to manage disk space
+3. **Use Validation**: Keep default validation enabled for best data quality
+4. **Monitor Logs**: Use `--verbose` flag when debugging issues
+5. **Batch by Date**: Process one day at a time for large datasets
+6. **Verify Results**: Check database after replay to confirm data integrity
+7. **Clean Old Data**: Archive old JSON files to manage disk space
+8. **Skip Validation Sparingly**: Only use `--skip-validation` for specific debugging needs
