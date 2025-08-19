@@ -23,6 +23,8 @@ from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import ArcGIS, Nominatim
 from redis import Redis
 
+from app.core.state_mapping import normalize_state_to_code
+
 logger = logging.getLogger(__name__)
 
 
@@ -394,13 +396,21 @@ class GeocodingService:
                     result["city"] = (
                         addr.get("city") or addr.get("town") or addr.get("village", "")
                     )
-                    result["state"] = addr.get("state", "")
+                    # Normalize state to 2-letter code
+                    state_value = addr.get("state", "")
+                    result["state"] = (
+                        normalize_state_to_code(state_value) or state_value
+                    )
                     result["country"] = addr.get("country_code", "").upper()
                 elif "attributes" in raw:  # ArcGIS format
                     attrs = raw["attributes"]
                     result["postal_code"] = attrs.get("Postal", "")
                     result["city"] = attrs.get("City", "")
-                    result["state"] = attrs.get("Region", "")
+                    # Normalize state to 2-letter code
+                    state_value = attrs.get("Region", "")
+                    result["state"] = (
+                        normalize_state_to_code(state_value) or state_value
+                    )
                     result["country"] = attrs.get("Country", "")
                 else:
                     # Try to extract from address string

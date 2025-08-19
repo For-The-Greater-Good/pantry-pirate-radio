@@ -16,6 +16,8 @@ from psycopg2.extras import RealDictCursor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
+from app.core.state_mapping import normalize_state_to_code, VALID_STATE_CODES
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,6 +115,49 @@ class MapDataExporter:
                         MIN(p.number || COALESCE(' x' || p.extension, '')) as phone_number
                     FROM phone p
                     GROUP BY p.location_id, p.organization_id
+                ),
+                location_scrapers AS (
+                    -- Aggregate scrapers that found this location
+                    SELECT
+                        location_id,
+                        STRING_AGG(DISTINCT scraper_id, ', ' ORDER BY scraper_id) as scrapers,
+                        COUNT(DISTINCT scraper_id) as scraper_count,
+                        MIN(created_at) as first_seen,
+                        MAX(updated_at) as last_updated
+                    FROM location_source
+                    GROUP BY location_id
+                ),
+                location_services AS (
+                    -- Aggregate services at this location
+                    SELECT
+                        sal.location_id,
+                        STRING_AGG(DISTINCT s.name, ', ' ORDER BY s.name) as services
+                    FROM service_at_location sal
+                    JOIN service s ON s.id = sal.service_id
+                    GROUP BY sal.location_id
+                ),
+                location_languages AS (
+                    -- Aggregate languages spoken at location
+                    SELECT
+                        l.location_id,
+                        STRING_AGG(DISTINCT l.name, ', ' ORDER BY l.name) as languages
+                    FROM language l
+                    WHERE l.location_id IS NOT NULL
+                    GROUP BY l.location_id
+                ),
+                location_schedules AS (
+                    -- Get regular schedule for locations through service_at_location
+                    SELECT DISTINCT ON (sal.location_id)
+                        sal.location_id,
+                        s.opens_at,
+                        s.closes_at,
+                        s.byday,
+                        s.description as schedule_description
+                    FROM schedule s
+                    JOIN service_at_location sal ON s.service_id = sal.service_id
+                    WHERE sal.location_id IS NOT NULL
+                      AND (s.opens_at IS NOT NULL OR s.closes_at IS NOT NULL OR s.description IS NOT NULL)
+                    ORDER BY sal.location_id, s.opens_at, s.closes_at
                 )
                 SELECT
                     l.id,
@@ -129,12 +174,8 @@ class MapDataExporter:
                         NULLIF(a.postal_code, '')
                     ) as address,
                     a.city,
-                    -- Clean state codes at query level
-                    CASE
-                        WHEN LENGTH(a.state_province) <= 2 THEN a.state_province
-                        WHEN a.state_province IS NULL THEN NULL
-                        ELSE SUBSTRING(a.state_province, 1, 2)
-                    END as state,
+                    -- State codes should already be normalized to 2-letter codes
+                    a.state_province as state,
                     a.postal_code as zip,
                     lp.phone_number as phone,
                     o.website as website,
@@ -146,11 +187,27 @@ class MapDataExporter:
                     l.confidence_score,
                     l.validation_status,
                     l.validation_notes,
-                    l.geocoding_source
+                    l.geocoding_source,
+                    l.location_type,
+                    -- Add new fields
+                    lscr.scrapers,
+                    lscr.scraper_count,
+                    lscr.first_seen,
+                    lscr.last_updated,
+                    lsrv.services,
+                    llang.languages,
+                    lsch.opens_at,
+                    lsch.closes_at,
+                    lsch.byday,
+                    lsch.schedule_description
                 FROM location l
                 LEFT JOIN address a ON a.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id
                 LEFT JOIN location_phones lp ON (lp.location_id = l.id OR (lp.location_id IS NULL AND lp.organization_id = o.id))
+                LEFT JOIN location_scrapers lscr ON lscr.location_id = l.id
+                LEFT JOIN location_services lsrv ON lsrv.location_id = l.id
+                LEFT JOIN location_languages llang ON llang.location_id = l.id
+                LEFT JOIN location_schedules lsch ON lsch.location_id = l.id
                 WHERE l.latitude IS NOT NULL
                   AND l.longitude IS NOT NULL
                   AND l.latitude BETWEEN -90 AND 90
@@ -170,6 +227,24 @@ class MapDataExporter:
                     break
 
                 for row in rows:
+                    # Format schedule if available
+                    schedule = None
+                    if (
+                        row["opens_at"]
+                        or row["closes_at"]
+                        or row["schedule_description"]
+                    ):
+                        schedule = {
+                            "opens_at": (
+                                str(row["opens_at"]) if row["opens_at"] else None
+                            ),
+                            "closes_at": (
+                                str(row["closes_at"]) if row["closes_at"] else None
+                            ),
+                            "byday": row["byday"] or "",
+                            "description": row["schedule_description"] or "",
+                        }
+
                     location = {
                         "id": row["id"],
                         "lat": float(row["lat"]),
@@ -196,6 +271,21 @@ class MapDataExporter:
                         "validation_notes": (
                             row["validation_notes"] if row["validation_notes"] else {}
                         ),
+                        # Add new fields
+                        "location_type": row["location_type"] or "",
+                        "scrapers": row["scrapers"] or "",
+                        "scraper_count": row["scraper_count"] or 0,
+                        "first_seen": (
+                            row["first_seen"].isoformat() if row["first_seen"] else None
+                        ),
+                        "last_updated": (
+                            row["last_updated"].isoformat()
+                            if row["last_updated"]
+                            else None
+                        ),
+                        "services": row["services"] or "",
+                        "languages": row["languages"] or "",
+                        "schedule": schedule,
                     }
                     locations.append(location)
 
@@ -230,7 +320,7 @@ class MapDataExporter:
                 "states_covered": len(states),
                 "coverage": f"{len(states)} US states/territories",
                 "source": "HAARRRvest - Pantry Pirate Radio Database",
-                "format_version": "2.0",  # Updated version to indicate confidence fields
+                "format_version": "3.0",  # Updated version to include scrapers, services, languages, schedules
                 "export_method": "PostgreSQL Direct Export",
                 "confidence_metrics": {
                     "average_confidence": round(avg_confidence, 1),
@@ -265,245 +355,38 @@ class MapDataExporter:
         self, locations: List[Dict[str, Any]], base_metadata: Dict, data_dir: Path
     ):
         """Generate state-specific files using parallel processing."""
-        # Valid US state codes
-        VALID_STATES = {
-            "AL",
-            "AK",
-            "AZ",
-            "AR",
-            "CA",
-            "CO",
-            "CT",
-            "DE",
-            "FL",
-            "GA",
-            "HI",
-            "ID",
-            "IL",
-            "IN",
-            "IA",
-            "KS",
-            "KY",
-            "LA",
-            "ME",
-            "MD",
-            "MA",
-            "MI",
-            "MN",
-            "MS",
-            "MO",
-            "MT",
-            "NE",
-            "NV",
-            "NH",
-            "NJ",
-            "NM",
-            "NY",
-            "NC",
-            "ND",
-            "OH",
-            "OK",
-            "OR",
-            "PA",
-            "RI",
-            "SC",
-            "SD",
-            "TN",
-            "TX",
-            "UT",
-            "VT",
-            "VA",
-            "WA",
-            "WV",
-            "WI",
-            "WY",
-            "DC",
-            "PR",
-            "VI",
-            "GU",
-            "AS",
-            "MP",  # Include territories
-        }
-
-        # Full state name to code mapping
-        STATE_NAME_TO_CODE = {
-            # States
-            "ALABAMA": "AL",
-            "ALASKA": "AK",
-            "ARIZONA": "AZ",
-            "ARKANSAS": "AR",
-            "CALIFORNIA": "CA",
-            "COLORADO": "CO",
-            "CONNECTICUT": "CT",
-            "DELAWARE": "DE",
-            "FLORIDA": "FL",
-            "GEORGIA": "GA",
-            "HAWAII": "HI",
-            "IDAHO": "ID",
-            "ILLINOIS": "IL",
-            "INDIANA": "IN",
-            "IOWA": "IA",
-            "KANSAS": "KS",
-            "KENTUCKY": "KY",
-            "LOUISIANA": "LA",
-            "MAINE": "ME",
-            "MARYLAND": "MD",
-            "MASSACHUSETTS": "MA",
-            "MICHIGAN": "MI",
-            "MINNESOTA": "MN",
-            "MISSISSIPPI": "MS",
-            "MISSOURI": "MO",
-            "MONTANA": "MT",
-            "NEBRASKA": "NE",
-            "NEVADA": "NV",
-            "NEW HAMPSHIRE": "NH",
-            "NEW JERSEY": "NJ",
-            "NEW MEXICO": "NM",
-            "NEW YORK": "NY",
-            "NORTH CAROLINA": "NC",
-            "NORTH DAKOTA": "ND",
-            "OHIO": "OH",
-            "OKLAHOMA": "OK",
-            "OREGON": "OR",
-            "PENNSYLVANIA": "PA",
-            "RHODE ISLAND": "RI",
-            "SOUTH CAROLINA": "SC",
-            "SOUTH DAKOTA": "SD",
-            "TENNESSEE": "TN",
-            "TEXAS": "TX",
-            "UTAH": "UT",
-            "VERMONT": "VT",
-            "VIRGINIA": "VA",
-            "WASHINGTON": "WA",
-            "WEST VIRGINIA": "WV",
-            "WISCONSIN": "WI",
-            "WYOMING": "WY",
-            # Federal District and Territories
-            "DISTRICT OF COLUMBIA": "DC",
-            "WASHINGTON DC": "DC",
-            "WASHINGTON D.C.": "DC",
-            "PUERTO RICO": "PR",
-            "VIRGIN ISLANDS": "VI",
-            "US VIRGIN ISLANDS": "VI",
-            "GUAM": "GU",
-            "AMERICAN SAMOA": "AS",
-            "NORTHERN MARIANA ISLANDS": "MP",
-        }
-
-        def normalize_state(state_str: str) -> str:
-            """
-            Normalize state string to valid 2-letter code.
-
-            Logic:
-            1. If already a valid 2-letter code, use it
-            2. If it's a full state name, map it to code
-            3. Extract first word(s) and try to match to state name
-            4. For multi-word states (New/North/South/West), take first two words
-            5. Default to UNKNOWN for unrecognizable values
-            """
-            if not state_str:
-                return "UNKNOWN"
-
-            # Clean the input
-            state_upper = state_str.strip().upper()
-
-            # Check if it's already a valid 2-letter code
-            if state_upper in VALID_STATES:
-                return state_upper
-
-            # Try exact match with full state names
-            if state_upper in STATE_NAME_TO_CODE:
-                return STATE_NAME_TO_CODE[state_upper]
-
-            # Handle very long garbage values (LLM errors)
-            if len(state_str) > 100:
-                # Try to extract meaningful words from the beginning
-                words = state_upper.split()[:3]  # Take first 3 words max
-                state_upper = " ".join(words)
-
-            # Split into words and try to match
-            words = state_upper.split()
-            if not words:
-                return "UNKNOWN"
-
-            # Check if first word indicates a multi-word state
-            multi_word_prefixes = {
-                "NEW",
-                "NORTH",
-                "SOUTH",
-                "WEST",
-                "RHODE",
-                "DISTRICT",
-                "AMERICAN",
-                "NORTHERN",
-                "VIRGIN",
-                "US",
-            }
-
-            if words[0] in multi_word_prefixes and len(words) > 1:
-                # Try two-word combination
-                two_word = " ".join(words[:2])
-                if two_word in STATE_NAME_TO_CODE:
-                    return STATE_NAME_TO_CODE[two_word]
-
-                # Special case for "District of Columbia"
-                if words[0] == "DISTRICT" and len(words) > 2:
-                    three_word = " ".join(words[:3])
-                    if three_word in STATE_NAME_TO_CODE:
-                        return STATE_NAME_TO_CODE[three_word]
-
-            # Try single word match
-            first_word = words[0]
-            if first_word in STATE_NAME_TO_CODE:
-                return STATE_NAME_TO_CODE[first_word]
-
-            # Check if it's a 2-letter code at the beginning
-            if len(first_word) >= 2:
-                two_letter = first_word[:2]
-                if two_letter in VALID_STATES:
-                    return two_letter
-
-            # No match found
-            return "UNKNOWN"
 
         # Group locations by state with validation
         locations_by_state: dict[str, list[dict[str, Any]]] = {}
-        invalid_states = set()
-        state_mapping_stats: dict[str, int] = {}  # Track how states were mapped
+        invalid_states = []
 
         for location in locations:
-            original_state = location["state"] or ""
-            normalized_state = normalize_state(original_state)
+            state = location["state"] or ""
 
-            # Track mapping for debugging
-            if original_state and normalized_state != original_state:
-                if normalized_state == "UNKNOWN" and len(original_state) < 100:
-                    invalid_states.add(original_state)
-                    if len(invalid_states) <= 10:  # Only log first 10
-                        logger.warning(f"Could not map state: {original_state[:50]}")
+            # States should already be normalized to 2-letter codes
+            # Just validate and warn about any non-standard ones
+            if state and state not in VALID_STATE_CODES:
+                # Try to normalize if it's not already a valid code
+                normalized = normalize_state_to_code(state)
+                if normalized:
+                    state = normalized
                 else:
-                    mapping_key = f"{original_state[:30]} -> {normalized_state}"
-                    state_mapping_stats[mapping_key] = (
-                        state_mapping_stats.get(mapping_key, 0) + 1
-                    )
+                    invalid_states.append(state)
+                    if len(invalid_states) <= 10:
+                        logger.warning(f"Invalid state code found: {state}")
+                    state = "UNKNOWN"
 
-            if normalized_state not in locations_by_state:
-                locations_by_state[normalized_state] = []
-            locations_by_state[normalized_state].append(location)
+            if not state:
+                state = "UNKNOWN"
+
+            if state not in locations_by_state:
+                locations_by_state[state] = []
+            locations_by_state[state].append(location)
 
         if invalid_states:
             logger.warning(
-                f"Found {len(invalid_states)} unique unmappable state values"
+                f"Found {len(invalid_states)} locations with invalid state codes"
             )
-
-        if state_mapping_stats:
-            logger.info(
-                f"Successfully mapped {len(state_mapping_stats)} non-standard state values"
-            )
-            # Log a few examples
-            examples = list(state_mapping_stats.items())[:5]
-            for mapping, count in examples:
-                logger.info(f"  Mapped: {mapping} ({count} locations)")
 
         # Create states directory
         states_dir = data_dir / "states"
@@ -511,7 +394,7 @@ class MapDataExporter:
 
         # Write state files in parallel
         def write_state_file(state: str, state_locations: List[Dict]):
-            if state and state != "UNKNOWN" and state in VALID_STATES:
+            if state and state != "UNKNOWN" and state in VALID_STATE_CODES:
                 try:
                     state_metadata = base_metadata.copy()
                     state_metadata["total_locations"] = len(state_locations)
