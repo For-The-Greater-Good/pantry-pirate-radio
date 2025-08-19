@@ -56,8 +56,26 @@ class ValidationRules:
             ),
         )
 
-        # Test postal codes
-        self.test_postal_codes = {"00000", "99999", "12345", "11111", "22222"}
+        # Test/invalid postal codes - these are clearly not real
+        self.test_postal_codes = {
+            "00000",
+            "0000",
+            "000",  # All zeros
+            "99999",
+            "12345",
+            "11111",
+            "22222",
+            "33333",
+            "44444",
+            "55555",
+            "66666",
+            "77777",
+            "88888",  # Repeated digits
+            "54321",
+            "00001",
+            "00002",
+            "00003",  # Sequential/test patterns
+        }
 
     def check_coordinates_present(
         self, location: Dict[str, Any]
@@ -159,7 +177,7 @@ class ValidationRules:
         """
         lat = location.get("latitude")
         lon = location.get("longitude")
-        
+
         # State might be in the address array in HSDS format
         state = None
         if location.get("state"):
@@ -209,21 +227,30 @@ class ValidationRules:
         elif location.get("address") and isinstance(location["address"], list):
             if len(location["address"]) > 0:
                 city = location["address"][0].get("city", "").lower()
-        
+
         for pattern in self.test_patterns:
             if pattern in city:
                 return (False, -95, "Test data detected in city")
 
         # Check address for test patterns
-        # In HSDS format, address is an array of address objects
+        # Handle both HSDS array format and flat format
         address_text = ""
-        if location.get("address") and isinstance(location["address"], list):
-            if len(location["address"]) > 0:
-                first_addr = location["address"][0]
-                address_text = (first_addr.get("address_1", "") + " " + 
-                               first_addr.get("city", "") + " " + 
-                               first_addr.get("state_province", "")).lower()
-        
+        if location.get("address"):
+            if isinstance(location["address"], list):
+                # HSDS format - address is an array
+                if len(location["address"]) > 0:
+                    first_addr = location["address"][0]
+                    address_text = (
+                        first_addr.get("address_1", "")
+                        + " "
+                        + first_addr.get("city", "")
+                        + " "
+                        + first_addr.get("state_province", "")
+                    ).lower()
+            else:
+                # Flat format - address is a string
+                address_text = str(location["address"]).lower()
+
         for pattern in self.test_patterns:
             if pattern in address_text:
                 return (False, -95, "Test data detected in address")
@@ -236,9 +263,23 @@ class ValidationRules:
         elif location.get("address") and isinstance(location["address"], list):
             if len(location["address"]) > 0:
                 postal = location["address"][0].get("postal_code", "")
-        
+
         if postal in self.test_postal_codes:
             return (False, -95, f"Test postal code: {postal}")
+
+        # Additional check for obviously invalid zip codes
+        if postal:
+            # Check for all zeros with any length
+            if set(postal) == {"0"}:
+                return (False, -95, f"Invalid all-zero postal code: {postal}")
+
+            # Check for too short zip codes (less than 5 digits for US)
+            if len(postal) < 5 and postal.isdigit():
+                return (False, -85, f"Invalid short postal code: {postal}")
+
+            # Check for repeated single digit (beyond our explicit list)
+            if len(set(postal)) == 1 and postal.isdigit() and len(postal) == 5:
+                return (False, -85, f"Invalid repeated digit postal code: {postal}")
 
         return (True, 0, "No test data indicators")
 
@@ -253,12 +294,17 @@ class ValidationRules:
         Returns:
             Tuple of (is_valid, confidence_impact, reason)
         """
-        # Extract address_1 from HSDS format address array
+        # Extract address - handle both HSDS array and flat format
         address = ""
-        if location.get("address") and isinstance(location["address"], list):
-            if len(location["address"]) > 0:
-                address = location["address"][0].get("address_1", "")
-        
+        if location.get("address"):
+            if isinstance(location["address"], list):
+                # HSDS format - address is an array
+                if len(location["address"]) > 0:
+                    address = location["address"][0].get("address_1", "")
+            else:
+                # Flat format - address is a string
+                address = str(location.get("address", ""))
+
         if not address:
             return (True, -10, "No address provided")
 
@@ -338,7 +384,7 @@ class ValidationRules:
         has_postal = bool(location.get("postal_code"))
         has_city = bool(location.get("city"))
         has_address = bool(location.get("address"))
-        
+
         # Check in address array if not found at top level
         if not has_postal or not has_city:
             if location.get("address") and isinstance(location["address"], list):
@@ -348,7 +394,7 @@ class ValidationRules:
                         has_postal = bool(addr.get("postal_code"))
                     if not has_city:
                         has_city = bool(addr.get("city"))
-        
+
         results: Dict[str, Any] = {
             "missing_postal": not has_postal,
             "missing_city": not has_city,

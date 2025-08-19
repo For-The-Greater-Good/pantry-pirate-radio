@@ -103,7 +103,7 @@ def process_validation_job(job_result: JobResult) -> Dict[str, Any]:
         # Create a copy of job_result with enriched/validated data
         enriched_job_result = job_result.model_copy()
         enriched_job_result.data = result.get("data", {})
-        
+
         # Enqueue enriched job_result to reconciler
         reconciler_job_id = enqueue_to_reconciler(enriched_job_result)
         logger.info(
@@ -528,12 +528,13 @@ class ValidationProcessor:
         rejection_reasons: Dict[str, int] = {}
 
         # Process locations with validation and scoring
-        # HSDS uses singular "location" not plural "locations"
-        if "location" in data and isinstance(data["location"], list):
+        # Handle both HSDS format ("location") and flat format ("locations")
+        locations_key = "location" if "location" in data else "locations"
+        if locations_key in data and isinstance(data[locations_key], list):
             location_scores = []
-            total_locations = len(data["location"])
+            total_locations = len(data[locations_key])
 
-            for location in data["location"]:
+            for location in data[locations_key]:
                 # Run validation rules
                 validation_results = validator.validate_location(location)
 
@@ -579,12 +580,11 @@ class ValidationProcessor:
                         )
 
             # Calculate organization-level confidence if applicable
-            # HSDS uses "organization" as an array
-            if "organization" in data and isinstance(data["organization"], list) and location_scores:
-                for org in data["organization"]:
-                    org_confidence = scorer.score_organization(
-                        org, location_scores
-                    )
+            # Handle both HSDS format ("organization") and flat format
+            org_key = "organization" if "organization" in data else None
+            if org_key and isinstance(data[org_key], list) and location_scores:
+                for org in data[org_key]:
+                    org_confidence = scorer.score_organization(org, location_scores)
                     org_status = scorer.get_validation_status(org_confidence)
 
                     org["confidence_score"] = org_confidence
@@ -601,15 +601,16 @@ class ValidationProcessor:
                     )
 
         # Process services with validation
-        # HSDS uses singular "service" not plural "services"
-        if "service" in data and isinstance(data["service"], list):
-            for service in data["service"]:
+        # Handle both HSDS format ("service") and flat format ("services")
+        services_key = "service" if "service" in data else "services"
+        if services_key in data and isinstance(data[services_key], list):
+            for service in data[services_key]:
                 # Services inherit location confidence
                 location_confidence = 50  # Default if no location
 
                 # Find associated location confidence
                 if location_id := service.get("location_id"):
-                    for location in data.get("location", []):
+                    for location in data.get(locations_key, []):
                         if location.get("id") == location_id:
                             location_confidence = location.get("confidence_score", 50)
                             break

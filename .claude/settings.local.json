@@ -78,7 +78,8 @@
       "Bash(gh issue view:*)",
       "Bash(./bouy exec app python -m pytest:*)",
       "Bash(./bouy exec app python:*)",
-      "Bash(./bouy:*)"
+      "Bash(gh release list:*)",
+      "Bash(gh issue close:*)"
     ],
     "deny": [],
     "additionalDirectories": [
