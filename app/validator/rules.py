@@ -122,7 +122,15 @@ class ValidationRules:
         if lat is None or lon is None:
             return (False, -95, "Missing coordinates")
 
-        state = location.get("state", "").upper()
+        # State might be in the address array in HSDS format
+        state = ""
+        if location.get("state"):
+            state = location.get("state", "").upper()
+        elif location.get("state_province"):
+            state = location.get("state_province", "").upper()
+        elif location.get("address") and isinstance(location["address"], list):
+            if len(location["address"]) > 0:
+                state = location["address"][0].get("state_province", "").upper()
 
         # Special handling for Alaska and Hawaii
         if state == "AK":
@@ -151,7 +159,16 @@ class ValidationRules:
         """
         lat = location.get("latitude")
         lon = location.get("longitude")
-        state = location.get("state", "").upper() if location.get("state") else None
+        
+        # State might be in the address array in HSDS format
+        state = None
+        if location.get("state"):
+            state = location.get("state", "").upper()
+        elif location.get("state_province"):
+            state = location.get("state_province", "").upper()
+        elif location.get("address") and isinstance(location["address"], list):
+            if len(location["address"]) > 0:
+                state = location["address"][0].get("state_province", "").upper()
 
         if lat is None or lon is None:
             return (True, 0, "Coordinates not available for verification")
@@ -185,19 +202,41 @@ class ValidationRules:
                 return (False, -95, "Test data detected in name")
 
         # Check city for test patterns
-        city = (location.get("city") or "").lower()
+        # City might be in the address array in HSDS format
+        city = ""
+        if location.get("city"):
+            city = location.get("city", "").lower()
+        elif location.get("address") and isinstance(location["address"], list):
+            if len(location["address"]) > 0:
+                city = location["address"][0].get("city", "").lower()
+        
         for pattern in self.test_patterns:
             if pattern in city:
                 return (False, -95, "Test data detected in city")
 
         # Check address for test patterns
-        address = (location.get("address") or "").lower()
+        # In HSDS format, address is an array of address objects
+        address_text = ""
+        if location.get("address") and isinstance(location["address"], list):
+            if len(location["address"]) > 0:
+                first_addr = location["address"][0]
+                address_text = (first_addr.get("address_1", "") + " " + 
+                               first_addr.get("city", "") + " " + 
+                               first_addr.get("state_province", "")).lower()
+        
         for pattern in self.test_patterns:
-            if pattern in address:
+            if pattern in address_text:
                 return (False, -95, "Test data detected in address")
 
         # Check for test postal codes
-        postal = location.get("postal_code", "")
+        # Postal code might be in the address array in HSDS format
+        postal = ""
+        if location.get("postal_code"):
+            postal = location.get("postal_code", "")
+        elif location.get("address") and isinstance(location["address"], list):
+            if len(location["address"]) > 0:
+                postal = location["address"][0].get("postal_code", "")
+        
         if postal in self.test_postal_codes:
             return (False, -95, f"Test postal code: {postal}")
 
@@ -214,8 +253,12 @@ class ValidationRules:
         Returns:
             Tuple of (is_valid, confidence_impact, reason)
         """
-        address = location.get("address", "")
-
+        # Extract address_1 from HSDS format address array
+        address = ""
+        if location.get("address") and isinstance(location["address"], list):
+            if len(location["address"]) > 0:
+                address = location["address"][0].get("address_1", "")
+        
         if not address:
             return (True, -10, "No address provided")
 
@@ -291,10 +334,25 @@ class ValidationRules:
         Returns:
             Dictionary with missing field indicators
         """
+        # Check for fields that might be in address array
+        has_postal = bool(location.get("postal_code"))
+        has_city = bool(location.get("city"))
+        has_address = bool(location.get("address"))
+        
+        # Check in address array if not found at top level
+        if not has_postal or not has_city:
+            if location.get("address") and isinstance(location["address"], list):
+                if len(location["address"]) > 0:
+                    addr = location["address"][0]
+                    if not has_postal:
+                        has_postal = bool(addr.get("postal_code"))
+                    if not has_city:
+                        has_city = bool(addr.get("city"))
+        
         results: Dict[str, Any] = {
-            "missing_postal": not bool(location.get("postal_code")),
-            "missing_city": not bool(location.get("city")),
-            "missing_address": not bool(location.get("address")),
+            "missing_postal": not has_postal,
+            "missing_city": not has_city,
+            "missing_address": not has_address,
         }
 
         # Calculate field completeness score
