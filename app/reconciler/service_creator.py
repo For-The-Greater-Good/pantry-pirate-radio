@@ -788,3 +788,98 @@ class ServiceCreator(BaseReconciler):
         self.db.commit()
 
         return schedule_id
+
+    def delete_schedules_for_service_at_location(
+        self, service_at_location_id: uuid.UUID
+    ) -> int:
+        """Delete all schedules for a specific service_at_location.
+
+        Args:
+            service_at_location_id: Service at location ID
+
+        Returns:
+            Number of schedules deleted
+        """
+        query = text(
+            """
+            DELETE FROM schedule
+            WHERE service_at_location_id = :service_at_location_id
+            """
+        )
+
+        result = self.db.execute(
+            query,
+            {"service_at_location_id": str(service_at_location_id)},
+        )
+
+        self.db.commit()
+        deleted_count = result.rowcount
+        
+        if deleted_count > 0:
+            self.logger.info(
+                f"Deleted {deleted_count} existing schedules for service_at_location {service_at_location_id}"
+            )
+        
+        return deleted_count
+
+    def delete_schedules_for_service(self, service_id: uuid.UUID) -> int:
+        """Delete all schedules for a specific service.
+
+        Args:
+            service_id: Service ID
+
+        Returns:
+            Number of schedules deleted
+        """
+        query = text(
+            """
+            DELETE FROM schedule
+            WHERE service_id = :service_id
+            """
+        )
+
+        result = self.db.execute(
+            query,
+            {"service_id": str(service_id)},
+        )
+
+        self.db.commit()
+        deleted_count = result.rowcount
+        
+        if deleted_count > 0:
+            self.logger.info(
+                f"Deleted {deleted_count} existing schedules for service {service_id}"
+            )
+        
+        return deleted_count
+
+    def delete_schedules_for_location(self, location_id: uuid.UUID) -> int:
+        """Delete all schedules for a specific location.
+
+        Args:
+            location_id: Location ID
+
+        Returns:
+            Number of schedules deleted
+        """
+        query = text(
+            """
+            DELETE FROM schedule
+            WHERE location_id = :location_id
+            """
+        )
+
+        result = self.db.execute(
+            query,
+            {"location_id": str(location_id)},
+        )
+
+        self.db.commit()
+        deleted_count = result.rowcount
+        
+        if deleted_count > 0:
+            self.logger.info(
+                f"Deleted {deleted_count} existing schedules for location {location_id}"
+            )
+        
+        return deleted_count

@@ -1194,21 +1194,37 @@ class JobProcessor:
                                             if not exists:
                                                 schedules_to_create.append(loc_schedule)
 
+                                    # Delete existing schedules for this service_at_location to prevent duplicates
+                                    service_creator.delete_schedules_for_service_at_location(sal_id)
+                                    
                                     # Create unique schedules for this service_at_location
                                     for schedule in schedules_to_create:
-                                        # For weekly schedules, set byday to the same as wkst
-                                        # This ensures the schedule shows up in the correct day
-                                        byday = (
-                                            schedule["wkst"]
-                                            if schedule["freq"] == "WEEKLY"
-                                            else None
-                                        )
-
+                                        # Get byday from the schedule data if available
+                                        byday = schedule.get("byday")
+                                        
                                         # Create a human-readable description of the schedule
-                                        description = (
-                                            f"Open {schedule['opens_at']} to {schedule['closes_at']} "
-                                            f"every {schedule['wkst']}"
-                                        )
+                                        if byday:
+                                            # Convert RRULE format to readable format
+                                            day_map = {
+                                                "MO": "Monday",
+                                                "TU": "Tuesday", 
+                                                "WE": "Wednesday",
+                                                "TH": "Thursday",
+                                                "FR": "Friday",
+                                                "SA": "Saturday",
+                                                "SU": "Sunday"
+                                            }
+                                            days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
+                                            days_str = ", ".join(days)
+                                            description = (
+                                                f"Open {schedule['opens_at']} to {schedule['closes_at']} "
+                                                f"on {days_str}"
+                                            )
+                                        else:
+                                            description = (
+                                                f"Open {schedule['opens_at']} to {schedule['closes_at']} "
+                                                f"every {schedule['wkst']}"
+                                            )
 
                                         service_creator.create_schedule(
                                             freq=schedule["freq"],
@@ -1349,6 +1365,16 @@ class JobProcessor:
                             "Schedule has no valid entity references, skipping"
                         )
                         continue
+
+                    # Delete existing schedules to prevent duplicates
+                    if service_at_location_id_for_schedule:
+                        service_creator.delete_schedules_for_service_at_location(
+                            service_at_location_id_for_schedule
+                        )
+                    elif service_id_for_schedule:
+                        service_creator.delete_schedules_for_service(service_id_for_schedule)
+                    elif location_id_for_schedule:
+                        service_creator.delete_schedules_for_location(location_id_for_schedule)
 
                     # Parse schedule fields
                     byday = schedule.get("byday")
