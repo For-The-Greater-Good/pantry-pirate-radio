@@ -99,7 +99,15 @@ class TestValidatorJobRouting:
                 call_args[1]["func"]
                 == "app.reconciler.job_processor.process_job_result"
             )
-            assert call_args[1]["args"][0] == sample_hsds_job
+            # Check that an enriched copy was passed (with data field populated)
+            enriched_job_result = call_args[1]["args"][0]
+            assert enriched_job_result.job_id == sample_hsds_job.job_id
+            assert enriched_job_result.job == sample_hsds_job.job
+            assert enriched_job_result.status == sample_hsds_job.status
+            assert enriched_job_result.result == sample_hsds_job.result
+            # Most importantly, check that data field was populated with validated data
+            assert enriched_job_result.data is not None
+            assert "organization" in enriched_job_result.data
 
     def test_job_data_preserved_through_validator(self, sample_hsds_job):
         """Test that job data is preserved unchanged through validator."""

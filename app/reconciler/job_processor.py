@@ -282,16 +282,12 @@ class JobProcessor:
             ValueError: If job result has no result
             json.JSONDecodeError: If result text is not valid JSON
         """
-        # Check for validation data in job.data (validator enriched path)
+        # Check for validation data in job_result.data (from validator)
         validation_data = None
-        if (
-            hasattr(job_result, "job")
-            and hasattr(job_result.job, "data")
-            and job_result.job.data
-        ):
-            # Extract validation data from enriched job
-            validation_data = job_result.job.data
-            logger.info("Found validation data in job.data (validator enriched)")
+        if hasattr(job_result, "data") and job_result.data:
+            # Extract validation data from enriched job_result
+            validation_data = job_result.data
+            logger.info(f"Found validation data in job_result.data with {len(validation_data)} keys")
 
         # Parse HSDS data
         if not job_result.result:
@@ -444,8 +440,8 @@ class JobProcessor:
                     org_validation_status = None
                     org_validation_notes = None
 
-                    if validation_data and "organizations" in validation_data:
-                        for val_org in validation_data["organizations"]:
+                    if validation_data and "organization" in validation_data:
+                        for val_org in validation_data["organization"]:
                             if val_org.get("name") == org["name"]:
                                 org_confidence_score = val_org.get("confidence_score")
                                 org_validation_status = val_org.get("validation_status")
@@ -487,8 +483,8 @@ class JobProcessor:
                     org_validation_status = None
                     org_validation_notes = None
 
-                    if validation_data and "organizations" in validation_data:
-                        for val_org in validation_data["organizations"]:
+                    if validation_data and "organization" in validation_data:
+                        for val_org in validation_data["organization"]:
                             if val_org.get("name") == org["name"]:
                                 org_confidence_score = val_org.get("confidence_score")
                                 org_validation_status = val_org.get("validation_status")
@@ -619,8 +615,8 @@ class JobProcessor:
                         )
 
                     # If not found directly, look in separate validation_data
-                    elif validation_data and "locations" in validation_data:
-                        for val_loc in validation_data["locations"]:
+                    elif validation_data and "location" in validation_data:
+                        for val_loc in validation_data["location"]:
                             # Match by name and coordinates if available
                             if val_loc.get("name") == location.get("name") or (
                                 location.get("latitude")
@@ -1020,8 +1016,8 @@ class JobProcessor:
                 svc_validation_status = None
                 svc_validation_notes = None
 
-                if validation_data and "services" in validation_data:
-                    for val_svc in validation_data["services"]:
+                if validation_data and "service" in validation_data:
+                    for val_svc in validation_data["service"]:
                         if val_svc.get("name") == service["name"]:
                             svc_confidence_score = val_svc.get("confidence_score")
                             svc_validation_status = val_svc.get("validation_status")
