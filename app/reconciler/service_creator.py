@@ -814,12 +814,12 @@ class ServiceCreator(BaseReconciler):
 
         self.db.commit()
         deleted_count = result.rowcount
-        
+
         if deleted_count > 0:
             self.logger.info(
                 f"Deleted {deleted_count} existing schedules for service_at_location {service_at_location_id}"
             )
-        
+
         return deleted_count
 
     def delete_schedules_for_service(self, service_id: uuid.UUID) -> int:
@@ -845,12 +845,12 @@ class ServiceCreator(BaseReconciler):
 
         self.db.commit()
         deleted_count = result.rowcount
-        
+
         if deleted_count > 0:
             self.logger.info(
                 f"Deleted {deleted_count} existing schedules for service {service_id}"
             )
-        
+
         return deleted_count
 
     def delete_schedules_for_location(self, location_id: uuid.UUID) -> int:
@@ -876,10 +876,10 @@ class ServiceCreator(BaseReconciler):
 
         self.db.commit()
         deleted_count = result.rowcount
-        
+
         if deleted_count > 0:
             self.logger.info(
                 f"Deleted {deleted_count} existing schedules for location {location_id}"
             )
-        
+
         return deleted_count
