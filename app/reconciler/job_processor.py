@@ -287,7 +287,9 @@ class JobProcessor:
         if hasattr(job_result, "data") and job_result.data:
             # Extract validation data from enriched job_result
             validation_data = job_result.data
-            logger.info(f"Found validation data in job_result.data with {len(validation_data)} keys")
+            logger.info(
+                f"Found validation data in job_result.data with {len(validation_data)} keys"
+            )
 
         # Parse HSDS data
         if not job_result.result:

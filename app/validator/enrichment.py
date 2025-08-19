@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import redis
 
 from app.core.geocoding.service import GeocodingService
+from app.core.state_mapping import normalize_state_to_code
 
 logger = logging.getLogger(__name__)
 
@@ -165,11 +166,19 @@ class GeocodingEnricher:
                             f"✅ ENRICHER: Successfully reverse geocoded '{location_name}' using {source}"
                         )
                         logger.info(f"✅ ENRICHER: Address data: {address_data}")
+                        # Normalize state to 2-letter code
+                        state_value = address_data.get("state", "")
+                        normalized_state = normalize_state_to_code(state_value)
+                        if not normalized_state and state_value:
+                            logger.warning(
+                                f"Could not normalize state '{state_value}' to 2-letter code"
+                            )
+
                         enriched["addresses"] = [
                             {
                                 "address_1": address_data.get("address", ""),
                                 "city": address_data.get("city", ""),
-                                "state_province": address_data.get("state", ""),
+                                "state_province": normalized_state or state_value,
                                 "postal_code": address_data.get("postal_code", ""),
                                 "country": "US",
                                 "address_type": "physical",

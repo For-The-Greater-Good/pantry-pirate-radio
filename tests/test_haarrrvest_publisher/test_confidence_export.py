@@ -72,6 +72,18 @@ class TestConfidenceExport:
             "validation_status": "verified",
             "validation_notes": {"source": "automated"},
             "geocoding_source": "ArcGIS",
+            # Add new fields that export expects
+            "location_type": None,
+            "scrapers": "test_scraper",
+            "scraper_count": 1,
+            "first_seen": None,
+            "last_updated": None,
+            "services": None,
+            "languages": None,
+            "opens_at": None,
+            "closes_at": None,
+            "byday": None,
+            "schedule_description": None,
         }
 
         # Setup mock responses - need at least 1 location for query to execute
@@ -120,6 +132,18 @@ class TestConfidenceExport:
             "validation_status": "verified",
             "validation_notes": {"source": "automated"},
             "geocoding_source": "ArcGIS",
+            # Add new fields that export expects
+            "location_type": None,
+            "scrapers": "test_scraper",
+            "scraper_count": 1,
+            "first_seen": None,
+            "last_updated": None,
+            "services": None,
+            "languages": None,
+            "opens_at": None,
+            "closes_at": None,
+            "byday": None,
+            "schedule_description": None,
         }
 
         # Setup mock responses
@@ -176,6 +200,18 @@ class TestConfidenceExport:
                 "validation_status": ["verified", "needs_review"][i % 2],
                 "validation_notes": {},
                 "geocoding_source": "Census",
+                # Add new fields that export expects
+                "location_type": None,
+                "scrapers": "test_scraper",
+                "scraper_count": 1,
+                "first_seen": None,
+                "last_updated": None,
+                "services": None,
+                "languages": None,
+                "opens_at": None,
+                "closes_at": None,
+                "byday": None,
+                "schedule_description": None,
             }
             for i in range(5)
         ]
@@ -240,6 +276,18 @@ class TestConfidenceExport:
             "validation_status": None,  # NULL in database
             "validation_notes": None,  # NULL in database
             "geocoding_source": None,  # NULL in database
+            # Add new fields that export expects
+            "location_type": None,
+            "scrapers": None,
+            "scraper_count": None,
+            "first_seen": None,
+            "last_updated": None,
+            "services": None,
+            "languages": None,
+            "opens_at": None,
+            "closes_at": None,
+            "byday": None,
+            "schedule_description": None,
         }
 
         # Setup mock responses
