@@ -32,12 +32,18 @@ CRITICAL DATA MAPPING RULES:
 
 📅 SCHEDULE HANDLING:
 - Attach schedules to service_at_location when they're specific to a location
-- Recurring patterns should use RRULE format (RFC 5545):
+- CRITICAL: Always populate the byday field with days of week when mentioned!
+- Recurring patterns MUST use RRULE format (RFC 5545):
   • "Every Tuesday" → freq: "WEEKLY", byday: "TU"
+  • "Monday, Wednesday, Friday" → freq: "WEEKLY", byday: "MO,WE,FR"
   • "First Saturday of month" → freq: "MONTHLY", byday: "1SA"
+  • "2nd and 4th Tuesday" → freq: "MONTHLY", byday: "2TU,4TU"
   • "Weekdays" → freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"
+  • "Daily" → freq: "WEEKLY", byday: "MO,TU,WE,TH,FR,SA,SU"
+  • "Monday through Friday" → freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"
 - Use opens_at/closes_at for time ranges (HH:MM format)
 - Set valid_from/valid_to for schedule validity periods
+- The byday field is ESSENTIAL for showing which days services are available
 
 FORMAT REQUIREMENTS:
 • State codes: 2 letters (e.g., CA, NY, TX) - must be valid US state codes
@@ -138,19 +144,23 @@ ENTITY EXTRACTION GUIDELINES:
 🔄 RRULE SCHEDULE PATTERNS (RFC 5545):
 Use these fields for recurring schedules:
 - freq: "WEEKLY" or "MONTHLY" (required for patterns)
-- byday: Day codes (MO,TU,WE,TH,FR,SA,SU) with optional position prefix for monthly
+- byday: Day codes (MO,TU,WE,TH,FR,SA,SU) with optional position prefix for monthly - ALWAYS POPULATE THIS!
 - interval: Frequency interval (e.g., 2 for bi-weekly)
 - dtstart: First occurrence date (YYYY-MM-DD)
 - until: End date for recurrence (YYYY-MM-DD)
 - opens_at/closes_at: Time range (HH:MM format)
 
-Examples:
+Examples (ALWAYS include byday when days are mentioned):
 - "Every Tuesday 10am-2pm":
   {freq: "WEEKLY", byday: "TU", opens_at: "10:00", closes_at: "14:00"}
 - "1st and 3rd Saturday of each month":
   {freq: "MONTHLY", byday: "1SA,3SA"}
 - "Monday through Friday":
   {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+- "Monday, Tuesday, Wednesday, Thursday, Sunday hours":
+  {freq: "WEEKLY", byday: "MO,TU,WE,TH,SU", opens_at: "09:00", closes_at: "12:00"}
+- "Open weekdays 9-5":
+  {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR", opens_at: "09:00", closes_at: "17:00"}
 
 💡 PRACTICAL EXAMPLES:
 
