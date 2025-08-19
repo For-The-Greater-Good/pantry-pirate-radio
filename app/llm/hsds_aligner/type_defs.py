@@ -45,6 +45,12 @@ class ScheduleDict(TypedDict):
     wkst: Required[str]  # MO, TU, WE, TH, FR, SA, SU
     opens_at: Required[str]  # HH:MM format
     closes_at: Required[str]  # HH:MM format
+    byday: NotRequired[str | None]  # MO,TU,WE,TH,FR,SA,SU
+    bymonthday: NotRequired[str | None]  # Comma-separated day numbers
+    byweekno: NotRequired[str | None]  # Comma-separated week numbers
+    byyearday: NotRequired[str | None]  # Comma-separated day numbers
+    interval: NotRequired[int | None]  # Frequency interval
+    count: NotRequired[int | None]  # Number of occurrences
     valid_from: NotRequired[str | None]
     valid_to: NotRequired[str | None]
     dtstart: NotRequired[str | None]
