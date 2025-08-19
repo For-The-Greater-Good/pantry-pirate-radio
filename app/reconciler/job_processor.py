@@ -1195,26 +1195,31 @@ class JobProcessor:
                                                 schedules_to_create.append(loc_schedule)
 
                                     # Delete existing schedules for this service_at_location to prevent duplicates
-                                    service_creator.delete_schedules_for_service_at_location(sal_id)
-                                    
+                                    service_creator.delete_schedules_for_service_at_location(
+                                        sal_id
+                                    )
+
                                     # Create unique schedules for this service_at_location
                                     for schedule in schedules_to_create:
                                         # Get byday from the schedule data if available
                                         byday = schedule.get("byday")
-                                        
+
                                         # Create a human-readable description of the schedule
                                         if byday:
                                             # Convert RRULE format to readable format
                                             day_map = {
                                                 "MO": "Monday",
-                                                "TU": "Tuesday", 
+                                                "TU": "Tuesday",
                                                 "WE": "Wednesday",
                                                 "TH": "Thursday",
                                                 "FR": "Friday",
                                                 "SA": "Saturday",
-                                                "SU": "Sunday"
+                                                "SU": "Sunday",
                                             }
-                                            days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
+                                            days = [
+                                                day_map.get(d.strip(), d.strip())
+                                                for d in byday.split(",")
+                                            ]
                                             days_str = ", ".join(days)
                                             description = (
                                                 f"Open {schedule['opens_at']} to {schedule['closes_at']} "
@@ -1372,9 +1377,13 @@ class JobProcessor:
                             service_at_location_id_for_schedule
                         )
                     elif service_id_for_schedule:
-                        service_creator.delete_schedules_for_service(service_id_for_schedule)
+                        service_creator.delete_schedules_for_service(
+                            service_id_for_schedule
+                        )
                     elif location_id_for_schedule:
-                        service_creator.delete_schedules_for_location(location_id_for_schedule)
+                        service_creator.delete_schedules_for_location(
+                            location_id_for_schedule
+                        )
 
                     # Parse schedule fields
                     byday = schedule.get("byday")
