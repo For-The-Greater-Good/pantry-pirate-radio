@@ -1,6 +1,5 @@
 """Tests for schedule update and versioning functionality."""
 
-import uuid
 from datetime import time
 from unittest.mock import MagicMock, patch
 
@@ -38,7 +37,7 @@ class TestScheduleUpdateOrCreate:
 
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name=f"Test Organization Create {uuid.uuid4().hex[:8]}",
+            name="Test Organization Create",
             description="Test Description",
             metadata={"source": "test"},
         )
@@ -83,7 +82,7 @@ class TestScheduleUpdateOrCreate:
 
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name=f"Test Organization Update {uuid.uuid4().hex[:8]}",
+            name="Test Organization Update",
             description="Test Description",
             metadata={"source": "test"},
         )
@@ -137,7 +136,7 @@ class TestScheduleUpdateOrCreate:
 
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name=f"Test Organization NoChanges {uuid.uuid4().hex[:8]}",
+            name="Test Organization NoChanges",
             description="Test Description",
             metadata={"source": "test"},
         )
@@ -185,7 +184,7 @@ class TestScheduleUpdateOrCreate:
 
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name=f"Test Organization Separate {uuid.uuid4().hex[:8]}",
+            name="Test Organization Separate",
             description="Test Description",
             metadata={"source": "test"},
         )
@@ -236,7 +235,7 @@ class TestScheduleUpdateOrCreate:
 
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name=f"Test Organization Version {uuid.uuid4().hex[:8]}",
+            name="Test Organization Version",
             description="Test Description",
             metadata={"source": "test"},
         )
@@ -302,7 +301,7 @@ class TestScheduleUpdateOrCreate:
 
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name=f"Test Organization Priority {uuid.uuid4().hex[:8]}",
+            name="Test Organization Priority",
             description="Test Description",
             metadata={"source": "test"},
         )

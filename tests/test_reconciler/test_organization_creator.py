@@ -458,9 +458,7 @@ def test_process_organization_no_result(
     mock_db.execute.return_value = result
 
     with patch.object(org_creator, "create_organization_source"):
-        with pytest.raises(
-            RuntimeError, match="INSERT...ON CONFLICT failed to return a row"
-        ):
+        with pytest.raises(RuntimeError, match="INSERT failed to return a row"):
             org_creator.process_organization(
                 test_org_data["name"],
                 test_org_data["description"],

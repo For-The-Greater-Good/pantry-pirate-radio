@@ -454,6 +454,46 @@ class JobProcessor:
                                     )
                                 break
 
+                    # Extract first location's coordinates for proximity matching
+                    first_latitude = None
+                    first_longitude = None
+                    if "location" in data and len(data["location"]) > 0:
+                        first_location = data["location"][0]
+                        # Try to get coordinates from various possible structures
+                        if (
+                            "latitude" in first_location
+                            and "longitude" in first_location
+                        ):
+                            first_latitude = (
+                                float(first_location["latitude"])
+                                if first_location["latitude"]
+                                else None
+                            )
+                            first_longitude = (
+                                float(first_location["longitude"])
+                                if first_location["longitude"]
+                                else None
+                            )
+                        elif "coordinates" in first_location and isinstance(
+                            first_location["coordinates"], dict
+                        ):
+                            coords = first_location["coordinates"]
+                            first_latitude = (
+                                float(coords["latitude"])
+                                if coords.get("latitude")
+                                else None
+                            )
+                            first_longitude = (
+                                float(coords["longitude"])
+                                if coords.get("longitude")
+                                else None
+                            )
+
+                        if first_latitude and first_longitude:
+                            logger.debug(
+                                f"Using location ({first_latitude}, {first_longitude}) for organization proximity matching"
+                            )
+
                     org_id, is_new_org = org_creator.process_organization(
                         org["name"],
                         description,
@@ -466,6 +506,8 @@ class JobProcessor:
                         confidence_score=org_confidence_score,
                         validation_status=org_validation_status,
                         validation_notes=org_validation_notes,
+                        latitude=first_latitude,
+                        longitude=first_longitude,
                     )
                 else:
                     # Fall back to old method for backward compatibility with tests

@@ -359,12 +359,14 @@ class OrganizationCreator(BaseReconciler):
         confidence_score: int | None = None,
         validation_status: str | None = None,
         validation_notes: dict[str, Any] | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> tuple[uuid.UUID, bool]:
         """Process an organization by finding a match or creating a new one.
 
-        This method implements race-condition-safe reconciliation logic for organizations.
-        It uses INSERT...ON CONFLICT to atomically handle organization creation and
-        includes retry logic for constraint violations.
+        This method implements proximity-based deduplication for organizations.
+        Organizations with the same name can exist in different geographic locations
+        (e.g., "Food Bank" in NYC and LA are separate entities).
 
         Args:
             name: Organization name
@@ -378,17 +380,75 @@ class OrganizationCreator(BaseReconciler):
             tax_id: Tax ID number
             uri: Persistent identifier
             parent_organization_id: Parent org ID if any
+            confidence_score: Confidence score from validation
+            validation_status: Validation status
+            validation_notes: Validation notes
+            latitude: Latitude of organization's primary location (for proximity matching)
+            longitude: Longitude of organization's primary location (for proximity matching)
 
         Returns:
             Tuple of (organization_id, is_new) where is_new indicates if a new organization was created
         """
         scraper_id = metadata.get("scraper_id", "unknown")
 
+        # Proximity threshold for considering organizations as the same
+        # 0.01 degrees is approximately 0.7 miles
+        PROXIMITY_THRESHOLD = 0.01
+
+        # If we have location data, check for proximity-based matches
+        if latitude is not None and longitude is not None:
+            proximity_check = text(
+                """
+                SELECT find_matching_organization(:name, :lat, :lon, :threshold)
+                """
+            )
+
+            result = self.db.execute(
+                proximity_check,
+                {
+                    "name": name,
+                    "lat": latitude,
+                    "lon": longitude,
+                    "threshold": PROXIMITY_THRESHOLD,
+                },
+            )
+
+            matched_org_id = result.scalar()
+            if matched_org_id:
+                # Found an organization with same name at this location
+                self.logger.info(
+                    f"Found existing organization '{name}' at location ({latitude}, {longitude})"
+                )
+
+                # Update the source record
+                self.create_organization_source(
+                    str(matched_org_id),
+                    scraper_id,
+                    name,
+                    description,
+                    metadata,
+                    website=website,
+                    email=email,
+                    year_incorporated=year_incorporated,
+                    legal_status=legal_status,
+                    tax_status=tax_status,
+                    tax_id=tax_id,
+                    uri=uri,
+                    parent_organization_id=parent_organization_id,
+                )
+
+                # Merge source records to update canonical record
+                merge_strategy = MergeStrategy(self.db)
+                merge_strategy.merge_organization(str(matched_org_id))
+
+                return uuid.UUID(str(matched_org_id)), False
+
         def _create_or_find_organization():
-            # Use INSERT...ON CONFLICT to atomically create or find organization
+            # No proximity match found or no location provided
+            # Create new organization (allowing same names in different locations)
             org_id = uuid.uuid4()
 
-            # First, try to insert new organization
+            # Insert new organization without name conflict checking
             query = text(
                 """
                 INSERT INTO organization (
@@ -400,20 +460,7 @@ class OrganizationCreator(BaseReconciler):
                     :legal_status, :tax_status, :tax_id, :uri, :parent_organization_id,
                     :confidence_score, :validation_status, :validation_notes
                 )
-                ON CONFLICT (normalized_name) DO UPDATE SET
-                    description = COALESCE(EXCLUDED.description, organization.description),
-                    website = COALESCE(EXCLUDED.website, organization.website),
-                    email = COALESCE(EXCLUDED.email, organization.email),
-                    year_incorporated = COALESCE(EXCLUDED.year_incorporated, organization.year_incorporated),
-                    legal_status = COALESCE(EXCLUDED.legal_status, organization.legal_status),
-                    tax_status = COALESCE(EXCLUDED.tax_status, organization.tax_status),
-                    tax_id = COALESCE(EXCLUDED.tax_id, organization.tax_id),
-                    uri = COALESCE(EXCLUDED.uri, organization.uri),
-                    parent_organization_id = COALESCE(EXCLUDED.parent_organization_id, organization.parent_organization_id),
-                    confidence_score = COALESCE(EXCLUDED.confidence_score, organization.confidence_score),
-                    validation_status = COALESCE(EXCLUDED.validation_status, organization.validation_status),
-                    validation_notes = COALESCE(EXCLUDED.validation_notes, organization.validation_notes)
-                RETURNING id, (xmax = 0) AS is_new
+                RETURNING id, TRUE AS is_new
             """
             )
 
@@ -443,10 +490,19 @@ class OrganizationCreator(BaseReconciler):
 
             row = result.first()
             if not row:
-                raise RuntimeError("INSERT...ON CONFLICT failed to return a row")
+                raise RuntimeError("INSERT failed to return a row")
 
             org_uuid = uuid.UUID(row[0])
             is_new = row[1]
+
+            self.logger.info(
+                f"Created new organization '{name}' with ID {org_uuid}"
+                + (
+                    f" at location ({latitude}, {longitude})"
+                    if latitude and longitude
+                    else ""
+                )
+            )
 
             return org_uuid, is_new
 
