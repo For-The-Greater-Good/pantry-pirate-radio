@@ -536,6 +536,17 @@ class LocationCreator(BaseReconciler):
         Returns:
             Address ID
         """
+        # Validate state_province to prevent corruption
+        if state_province:
+            # Ensure state is exactly 2 uppercase letters
+            if len(state_province) != 2 or not state_province.isalpha():
+                self.logger.error(
+                    f"Invalid state_province '{state_province[:50]}' (length: {len(state_province)}). Using empty string."
+                )
+                state_province = ""
+            else:
+                state_province = state_province.upper()
+        
         # Trust the validator's data - no geocoding needed here
         # If still no postal code after validation, use a default based on state
         if postal_code is None or postal_code == "":

@@ -173,12 +173,20 @@ class GeocodingEnricher:
                             logger.warning(
                                 f"Could not normalize state '{state_value}' to 2-letter code"
                             )
+                            # Prevent corrupted state data - only use if it's 2 chars
+                            if len(state_value) == 2 and state_value.isalpha():
+                                normalized_state = state_value.upper()
+                            else:
+                                logger.error(
+                                    f"Rejecting invalid state value with length {len(state_value)}: '{state_value[:50]}...'"
+                                )
+                                normalized_state = ""  # Use empty string rather than corrupted data
 
                         enriched["addresses"] = [
                             {
                                 "address_1": address_data.get("address", ""),
                                 "city": address_data.get("city", ""),
-                                "state_province": normalized_state or state_value,
+                                "state_province": normalized_state or "",
                                 "postal_code": address_data.get("postal_code", ""),
                                 "country": "US",
                                 "address_type": "physical",

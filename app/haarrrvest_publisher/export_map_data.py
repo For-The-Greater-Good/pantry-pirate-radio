@@ -245,6 +245,18 @@ class MapDataExporter:
                             "description": row["schedule_description"] or "",
                         }
 
+                    # Defensive validation of state field
+                    state_value = row["state"] or ""
+                    if len(state_value) > 2:
+                        logger.warning(
+                            f"Location {row['id']} has invalid state '{state_value[:50]}' (length: {len(state_value)})"
+                        )
+                        # Try to extract a valid 2-letter code
+                        if len(state_value) >= 2 and state_value[:2].isalpha():
+                            state_value = state_value[:2].upper()
+                        else:
+                            state_value = ""
+                    
                     location = {
                         "id": row["id"],
                         "lat": float(row["lat"]),
@@ -253,7 +265,7 @@ class MapDataExporter:
                         "org": row["org"] or "Community Organization",
                         "address": row["address"] or "Address not available",
                         "city": row["city"] or "",
-                        "state": row["state"] or "",
+                        "state": state_value,
                         "zip": row["zip"] or "",
                         "phone": row["phone"] or "",
                         "website": row["website"] or "",
