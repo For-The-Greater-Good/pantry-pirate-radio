@@ -1208,15 +1208,15 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             # Don't raise the exception as this shouldn't block the publishing pipeline
 
     def _run_location_export(self):
-        """Run optimized PostgreSQL-based location export for map data."""
-        logger.info("Running optimized location export for map data")
+        """Run aggregated location export for map data."""
+        logger.info("Running aggregated location export for map data")
 
         try:
-            # Use the new optimized PostgreSQL-based exporter
-            from app.haarrrvest_publisher.export_map_data import MapDataExporter
+            # Use the new aggregated exporter that groups nearby locations
+            from app.haarrrvest_publisher.export_map_data_aggregated import AggregatedMapDataExporter
 
             start_time = time.time()
-            exporter = MapDataExporter(self.data_repo_path)
+            exporter = AggregatedMapDataExporter(self.data_repo_path)
             success = exporter.export()
             elapsed = time.time() - start_time
 
@@ -1241,7 +1241,7 @@ This repository contains food resource data collected by Pantry Pirate Radio.
                     logger.error("No fallback export script available")
 
         except ImportError as e:
-            logger.error(f"Could not import MapDataExporter: {e}")
+            logger.error(f"Could not import AggregatedMapDataExporter: {e}")
             # Fall back to old method
             export_script = self.data_repo_path / "scripts" / "export-locations.py"
             if export_script.exists():
