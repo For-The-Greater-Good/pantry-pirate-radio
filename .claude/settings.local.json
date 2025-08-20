@@ -84,10 +84,6 @@
     ],
     "deny": [],
     "additionalDirectories": [
-      "/home/bryan/HAARRRvest/",
-      "/Users/bryanmoran/code/for-the-greater-good/HAARRRvest/",
-      "/Users/bryanmoran/code/for-the-greater-good",
-      "/"
     ]
   }
 }

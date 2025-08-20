@@ -23,11 +23,16 @@ logger = logging.getLogger(__name__)
 
 
 class AggregatedMapDataExporter:
-    def __init__(self, data_repo_path: Path, pg_conn_string: Optional[str] = None):
+    def __init__(self, data_repo_path: Path, pg_conn_string: Optional[str] = None, grouping_radius_meters: Optional[int] = None):
         self.data_repo_path = data_repo_path
         self.pg_conn_string = pg_conn_string or self._get_connection_string()
         # Radius in meters for grouping nearby locations
-        self.grouping_radius_meters = 150  # About 150 meters / 500 feet
+        # Can be configured via environment variable or parameter
+        if grouping_radius_meters is not None:
+            self.grouping_radius_meters = grouping_radius_meters
+        else:
+            # Get from environment variable, default to 150 meters
+            self.grouping_radius_meters = int(os.getenv("MAP_GROUPING_RADIUS_METERS", "150"))
 
     def _get_connection_string(self) -> str:
         """Build PostgreSQL connection string from environment variables."""
