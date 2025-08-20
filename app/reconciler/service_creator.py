@@ -850,7 +850,6 @@ class ServiceCreator(BaseReconciler):
                 (service_id = :service_id AND :service_id IS NOT NULL AND service_at_location_id IS NULL) OR
                 (location_id = :location_id AND :location_id IS NOT NULL AND service_at_location_id IS NULL AND service_id IS NULL)
             )
-            ORDER BY created_at DESC
             LIMIT 1
             """
         )
@@ -858,7 +857,9 @@ class ServiceCreator(BaseReconciler):
         result = self.db.execute(
             existing_query,
             {
-                "service_at_location_id": str(service_at_location_id) if service_at_location_id else None,
+                "service_at_location_id": (
+                    str(service_at_location_id) if service_at_location_id else None
+                ),
                 "service_id": str(service_id) if service_id else None,
                 "location_id": str(location_id) if location_id else None,
             },
@@ -868,20 +869,22 @@ class ServiceCreator(BaseReconciler):
         if existing:
             # Check if schedule data has actually changed
             needs_update = False
-            
+
             # Compare relevant fields
-            if (existing.freq != freq or 
-                existing.wkst != wkst or
-                existing.opens_at != opens_at_time or
-                existing.closes_at != closes_at_time or
-                existing.byday != byday or
-                existing.description != description or
-                existing.valid_from != valid_from or
-                existing.valid_to != valid_to or
-                existing.dtstart != dtstart or
-                existing.until != until or
-                existing.count != count or
-                existing.interval != interval):
+            if (
+                existing.freq != freq
+                or existing.wkst != wkst
+                or existing.opens_at != opens_at_time
+                or existing.closes_at != closes_at_time
+                or existing.byday != byday
+                or existing.description != description
+                or existing.valid_from != valid_from
+                or existing.valid_to != valid_to
+                or existing.dtstart != dtstart
+                or existing.until != until
+                or existing.count != count
+                or existing.interval != interval
+            ):
                 needs_update = True
 
             if needs_update:
@@ -900,8 +903,7 @@ class ServiceCreator(BaseReconciler):
                         dtstart = :dtstart,
                         until = :until,
                         count = :count,
-                        interval = :interval,
-                        updated_at = CURRENT_TIMESTAMP
+                        interval = :interval
                     WHERE id = :id
                     """
                 )
@@ -938,7 +940,9 @@ class ServiceCreator(BaseReconciler):
                         "service_id": str(service_id) if service_id else None,
                         "location_id": str(location_id) if location_id else None,
                         "service_at_location_id": (
-                            str(service_at_location_id) if service_at_location_id else None
+                            str(service_at_location_id)
+                            if service_at_location_id
+                            else None
                         ),
                         "valid_from": valid_from,
                         "valid_to": valid_to,
@@ -961,13 +965,11 @@ class ServiceCreator(BaseReconciler):
                 return uuid.UUID(str(existing.id)), True
             else:
                 # No changes needed
-                self.logger.debug(
-                    f"Schedule {existing.id} unchanged, skipping update"
-                )
+                self.logger.debug(f"Schedule {existing.id} unchanged, skipping update")
                 return uuid.UUID(str(existing.id)), False
         else:
             # Create new schedule
-            return self.create_schedule(
+            schedule_id = self.create_schedule(
                 freq=freq,
                 wkst=wkst,
                 opens_at=opens_at,
@@ -984,4 +986,5 @@ class ServiceCreator(BaseReconciler):
                 interval=interval,
                 byday=byday,
                 description=description,
-            ), False
+            )
+            return schedule_id, False  # False = not updated (newly created)

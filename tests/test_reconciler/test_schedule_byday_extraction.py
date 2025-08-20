@@ -25,9 +25,9 @@ class TestScheduleBydayExtraction:
             "opens_at": "09:00",
             "closes_at": "17:00",
             "byday": "MO,TU,WE,TH,FR",
-            "description": "Weekdays only"
+            "description": "Weekdays only",
         }
-        
+
         # The job processor should extract byday correctly
         # In the old buggy code, it would set byday = schedule["wkst"] = "MO"
         # In the fixed code, it should use schedule.get("byday") = "MO,TU,WE,TH,FR"
@@ -43,7 +43,7 @@ class TestScheduleBydayExtraction:
         else:
             byday = None
         assert byday is None
-        
+
         # Test with non-dict
         schedule = "not a dict"
         if schedule and isinstance(schedule, dict):
@@ -51,7 +51,7 @@ class TestScheduleBydayExtraction:
         else:
             byday = None
         assert byday is None
-        
+
         # Test with empty dict
         schedule = {}
         if schedule and isinstance(schedule, dict):
@@ -71,25 +71,25 @@ class TestScheduleBydayExtraction:
             "SA": "Saturday",
             "SU": "Sunday",
         }
-        
+
         # Test single day
         byday = "MO"
         days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
         days_str = ", ".join(days)
         assert days_str == "Monday"
-        
+
         # Test multiple days
         byday = "MO,WE,FR"
         days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
         days_str = ", ".join(days)
         assert days_str == "Monday, Wednesday, Friday"
-        
+
         # Test all weekdays
         byday = "MO,TU,WE,TH,FR"
         days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
         days_str = ", ".join(days)
         assert days_str == "Monday, Tuesday, Wednesday, Thursday, Friday"
-        
+
         # Test with spaces
         byday = "MO, TU, WE"
         days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
@@ -98,18 +98,16 @@ class TestScheduleBydayExtraction:
 
     def test_description_generation_without_byday(self):
         """Test that fallback descriptions are generated when byday is missing."""
-        schedule = {
-            "opens_at": "09:00",
-            "closes_at": "17:00",
-            "wkst": "MO"
-        }
-        
+        schedule = {"opens_at": "09:00", "closes_at": "17:00", "wkst": "MO"}
+
         byday = None
         if byday:
-            description = f"Open {schedule['opens_at']} to {schedule['closes_at']} on {byday}"
+            description = (
+                f"Open {schedule['opens_at']} to {schedule['closes_at']} on {byday}"
+            )
         else:
             description = f"Open {schedule['opens_at']} to {schedule['closes_at']} every {schedule['wkst']}"
-        
+
         assert description == "Open 09:00 to 17:00 every MO"
 
     def test_complete_schedule_description(self):
@@ -117,9 +115,9 @@ class TestScheduleBydayExtraction:
         schedule = {
             "opens_at": "09:00",
             "closes_at": "17:00",
-            "byday": "MO,TU,WE,TH,FR"
+            "byday": "MO,TU,WE,TH,FR",
         }
-        
+
         day_map = {
             "MO": "Monday",
             "TU": "Tuesday",
@@ -129,15 +127,17 @@ class TestScheduleBydayExtraction:
             "SA": "Saturday",
             "SU": "Sunday",
         }
-        
+
         byday = schedule.get("byday")
         if byday:
             days = [day_map.get(d.strip(), d.strip()) for d in byday.split(",")]
             days_str = ", ".join(days)
-            description = f"Open {schedule['opens_at']} to {schedule['closes_at']} on {days_str}"
+            description = (
+                f"Open {schedule['opens_at']} to {schedule['closes_at']} on {days_str}"
+            )
         else:
             description = f"Open {schedule['opens_at']} to {schedule['closes_at']}"
-        
+
         expected = "Open 09:00 to 17:00 on Monday, Tuesday, Wednesday, Thursday, Friday"
         assert description == expected
 
@@ -145,11 +145,22 @@ class TestScheduleBydayExtraction:
         """Test that job processor properly validates schedule data before extraction."""
         # Simulate the job processor's schedule processing
         schedules_to_create = [
-            {"freq": "WEEKLY", "wkst": "MO", "opens_at": "09:00", "closes_at": "17:00", "byday": "MO,TU,WE"},
+            {
+                "freq": "WEEKLY",
+                "wkst": "MO",
+                "opens_at": "09:00",
+                "closes_at": "17:00",
+                "byday": "MO,TU,WE",
+            },
             None,  # Invalid schedule
-            {"freq": "WEEKLY", "wkst": "SU", "opens_at": "10:00", "closes_at": "14:00"},  # No byday
+            {
+                "freq": "WEEKLY",
+                "wkst": "SU",
+                "opens_at": "10:00",
+                "closes_at": "14:00",
+            },  # No byday
         ]
-        
+
         results = []
         for schedule in schedules_to_create:
             if schedule and isinstance(schedule, dict):
@@ -157,5 +168,5 @@ class TestScheduleBydayExtraction:
             else:
                 byday = None
             results.append(byday)
-        
+
         assert results == ["MO,TU,WE", None, None]

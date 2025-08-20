@@ -1202,7 +1202,9 @@ class JobProcessor:
                                             byday = schedule.get("byday")
                                         else:
                                             byday = None
-                                            logger.warning("Invalid schedule data, skipping byday extraction")
+                                            logger.warning(
+                                                "Invalid schedule data, skipping byday extraction"
+                                            )
 
                                         # Create a human-readable description of the schedule
                                         if byday:
@@ -1231,18 +1233,22 @@ class JobProcessor:
                                                 f"every {schedule['wkst']}"
                                             )
 
-                                        schedule_id, was_updated = service_creator.update_or_create_schedule(
-                                            freq=schedule["freq"],
-                                            wkst=schedule["wkst"],
-                                            opens_at=schedule["opens_at"],
-                                            closes_at=schedule["closes_at"],
-                                            service_at_location_id=sal_id,
-                                            metadata=job_result.job.metadata,
-                                            byday=byday,
-                                            description=description,
+                                        schedule_id, was_updated = (
+                                            service_creator.update_or_create_schedule(
+                                                freq=schedule["freq"],
+                                                wkst=schedule["wkst"],
+                                                opens_at=schedule["opens_at"],
+                                                closes_at=schedule["closes_at"],
+                                                service_at_location_id=sal_id,
+                                                metadata=job_result.job.metadata,
+                                                byday=byday,
+                                                description=description,
+                                            )
                                         )
                                         if was_updated:
-                                            logger.info(f"Updated schedule {schedule_id} with new data including byday: {byday}")
+                                            logger.info(
+                                                f"Updated schedule {schedule_id} with new data including byday: {byday}"
+                                            )
 
             # Log available top-level keys for debugging
             logger.debug(f"Available top-level keys in data: {list(data.keys())}")
@@ -1379,26 +1385,32 @@ class JobProcessor:
                     else:
                         byday = None
                         logger.warning("Invalid schedule data in top-level array")
-                    
+
                     description = schedule.get("description", "") if schedule else ""
 
                     # Update or create schedule record
-                    schedule_id, was_updated = service_creator.update_or_create_schedule(
-                        freq=schedule.get("freq"),
-                        wkst=schedule.get("wkst"),
-                        opens_at=schedule.get("opens_at"),
-                        closes_at=schedule.get("closes_at"),
-                        service_id=service_id_for_schedule,
-                        location_id=location_id_for_schedule,
-                        service_at_location_id=service_at_location_id_for_schedule,
-                        metadata=job_result.job.metadata,
-                        byday=byday,
-                        description=description,
+                    schedule_id, was_updated = (
+                        service_creator.update_or_create_schedule(
+                            freq=schedule.get("freq"),
+                            wkst=schedule.get("wkst"),
+                            opens_at=schedule.get("opens_at"),
+                            closes_at=schedule.get("closes_at"),
+                            service_id=service_id_for_schedule,
+                            location_id=location_id_for_schedule,
+                            service_at_location_id=service_at_location_id_for_schedule,
+                            metadata=job_result.job.metadata,
+                            byday=byday,
+                            description=description,
+                        )
                     )
                     if was_updated:
-                        logger.info(f"Updated schedule {schedule_id} from top-level array with byday: {byday}")
+                        logger.info(
+                            f"Updated schedule {schedule_id} from top-level array with byday: {byday}"
+                        )
                     else:
-                        logger.debug(f"Schedule {schedule_id} from top-level array unchanged or newly created")
+                        logger.debug(
+                            f"Schedule {schedule_id} from top-level array unchanged or newly created"
+                        )
 
             # Update success metric and return result
             scraper_id = job_result.job.metadata.get("scraper_id", "unknown")
