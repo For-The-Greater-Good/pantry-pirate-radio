@@ -35,14 +35,14 @@ class TestScheduleUpdateOrCreate:
         """Test creating a new schedule when none exists."""
         # First create an organization and service that the schedule can reference
         from app.reconciler.organization_creator import OrganizationCreator
-        
+
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name="Test Organization",
+            name=f"Test Organization Create {uuid.uuid4().hex[:8]}",
             description="Test Description",
             metadata={"source": "test"},
         )
-        
+
         service_id = service_creator.create_service(
             name="Test Service",
             description="Test Description",
@@ -80,14 +80,14 @@ class TestScheduleUpdateOrCreate:
         """Test updating an existing schedule when data changes."""
         # First create an organization and service that the schedule can reference
         from app.reconciler.organization_creator import OrganizationCreator
-        
+
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name="Test Organization",
+            name=f"Test Organization Update {uuid.uuid4().hex[:8]}",
             description="Test Description",
             metadata={"source": "test"},
         )
-        
+
         service_id = service_creator.create_service(
             name="Test Service",
             description="Test Description",
@@ -134,14 +134,14 @@ class TestScheduleUpdateOrCreate:
         """Test that schedule is not updated when data is unchanged."""
         # First create an organization and service that the schedule can reference
         from app.reconciler.organization_creator import OrganizationCreator
-        
+
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name="Test Organization",
+            name=f"Test Organization NoChanges {uuid.uuid4().hex[:8]}",
             description="Test Description",
             metadata={"source": "test"},
         )
-        
+
         service_id = service_creator.create_service(
             name="Test Service",
             description="Test Description",
@@ -182,14 +182,14 @@ class TestScheduleUpdateOrCreate:
         """Test that different entities get separate schedules."""
         # Create organization and two services
         from app.reconciler.organization_creator import OrganizationCreator
-        
+
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name="Test Organization",
+            name=f"Test Organization Separate {uuid.uuid4().hex[:8]}",
             description="Test Description",
             metadata={"source": "test"},
         )
-        
+
         service_id_1 = service_creator.create_service(
             name="Test Service 1",
             description="Test Description 1",
@@ -233,14 +233,14 @@ class TestScheduleUpdateOrCreate:
         """Test that version records are created on update."""
         # First create an organization and service that the schedule can reference
         from app.reconciler.organization_creator import OrganizationCreator
-        
+
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name="Test Organization",
+            name=f"Test Organization Version {uuid.uuid4().hex[:8]}",
             description="Test Description",
             metadata={"source": "test"},
         )
-        
+
         service_id = service_creator.create_service(
             name="Test Service",
             description="Test Description",
@@ -285,9 +285,9 @@ class TestScheduleUpdateOrCreate:
         """Test that service_at_location takes priority over service or location."""
         # Create the necessary entities
         from app.reconciler.location_creator import LocationCreator
-        
+
         location_creator = LocationCreator(service_creator.db)
-        
+
         # Create a location
         location_id = location_creator.create_location(
             name="Test Location",
@@ -296,24 +296,24 @@ class TestScheduleUpdateOrCreate:
             longitude=-74.0060,
             metadata={"source": "test"},
         )
-        
+
         # Create an organization and service
         from app.reconciler.organization_creator import OrganizationCreator
-        
+
         org_creator = OrganizationCreator(service_creator.db)
         org_id = org_creator.create_organization(
-            name="Test Organization",
+            name=f"Test Organization Priority {uuid.uuid4().hex[:8]}",
             description="Test Description",
             metadata={"source": "test"},
         )
-        
+
         service_id = service_creator.create_service(
             name="Test Service",
             description="Test Description",
             organization_id=org_id,
             metadata={"source": "test"},
         )
-        
+
         # Create service_at_location
         service_at_location_id = service_creator.create_service_at_location(
             service_id=service_id,
