@@ -79,7 +79,8 @@
       "Bash(./bouy exec app python -m pytest:*)",
       "Bash(./bouy exec app python:*)",
       "Bash(gh release list:*)",
-      "Bash(gh issue close:*)"
+      "Bash(gh issue close:*)",
+      "Bash(./bouy exec app pytest:*)"
     ],
     "deny": [],
     "additionalDirectories": [

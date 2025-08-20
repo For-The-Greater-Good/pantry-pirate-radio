@@ -788,3 +788,203 @@ class ServiceCreator(BaseReconciler):
         self.db.commit()
 
         return schedule_id
+
+    def update_or_create_schedule(
+        self,
+        freq: str,
+        wkst: str,
+        opens_at: str,
+        closes_at: str,
+        metadata: dict[str, Any],
+        service_id: uuid.UUID | None = None,
+        location_id: uuid.UUID | None = None,
+        service_at_location_id: uuid.UUID | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        dtstart: str | None = None,
+        until: str | None = None,
+        count: str | None = None,
+        interval: int | None = None,
+        byday: str | None = None,
+        description: str | None = None,
+    ) -> tuple[uuid.UUID, bool]:
+        """Update existing schedule or create new one with versioning.
+
+        Args:
+            freq: Frequency(WEEKLY/MONTHLY)
+            wkst: Week start day
+            opens_at: Opening time
+            closes_at: Closing time
+            metadata: Additional metadata
+            service_id: Service ID if applicable
+            location_id: Location ID if applicable
+            service_at_location_id: Service at location ID if applicable
+            valid_from: Start date of validity
+            valid_to: End date of validity
+            dtstart: First event date
+            until: Last event date
+            count: Number of occurrences
+            interval: Frequency interval
+            byday: Days of week
+            description: Additional description
+
+        Returns:
+            Tuple of (Schedule ID, was_updated)
+        """
+        # Convert time strings to time objects
+        opens_at_time = (
+            datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
+        )
+        closes_at_time = (
+            datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
+        )
+
+        # Check for existing schedule with same entity relationship
+        existing_query = text(
+            """
+            SELECT id, freq, wkst, opens_at, closes_at, byday, description,
+                   valid_from, valid_to, dtstart, until, count, interval
+            FROM schedule
+            WHERE (
+                (service_at_location_id = :service_at_location_id AND :service_at_location_id IS NOT NULL) OR
+                (service_id = :service_id AND :service_id IS NOT NULL AND service_at_location_id IS NULL) OR
+                (location_id = :location_id AND :location_id IS NOT NULL AND service_at_location_id IS NULL AND service_id IS NULL)
+            )
+            LIMIT 1
+            """
+        )
+
+        result = self.db.execute(
+            existing_query,
+            {
+                "service_at_location_id": (
+                    str(service_at_location_id) if service_at_location_id else None
+                ),
+                "service_id": str(service_id) if service_id else None,
+                "location_id": str(location_id) if location_id else None,
+            },
+        )
+        existing = result.first()
+
+        if existing:
+            # Check if schedule data has actually changed
+            needs_update = False
+
+            # Compare relevant fields
+            if (
+                existing.freq != freq
+                or existing.wkst != wkst
+                or existing.opens_at != opens_at_time
+                or existing.closes_at != closes_at_time
+                or existing.byday != byday
+                or existing.description != description
+                or existing.valid_from != valid_from
+                or existing.valid_to != valid_to
+                or existing.dtstart != dtstart
+                or existing.until != until
+                or existing.count != count
+                or existing.interval != interval
+            ):
+                needs_update = True
+
+            if needs_update:
+                # Update existing schedule
+                update_query = text(
+                    """
+                    UPDATE schedule
+                    SET freq = :freq,
+                        wkst = :wkst,
+                        opens_at = :opens_at,
+                        closes_at = :closes_at,
+                        byday = :byday,
+                        description = :description,
+                        valid_from = :valid_from,
+                        valid_to = :valid_to,
+                        dtstart = :dtstart,
+                        until = :until,
+                        count = :count,
+                        interval = :interval
+                    WHERE id = :id
+                    """
+                )
+
+                self.db.execute(
+                    update_query,
+                    {
+                        "id": str(existing.id),
+                        "freq": freq,
+                        "wkst": wkst,
+                        "opens_at": opens_at_time,
+                        "closes_at": closes_at_time,
+                        "byday": byday,
+                        "description": description,
+                        "valid_from": valid_from,
+                        "valid_to": valid_to,
+                        "dtstart": dtstart,
+                        "until": until,
+                        "count": count,
+                        "interval": interval,
+                    },
+                )
+
+                # Create version record for the update
+                version_tracker = VersionTracker(self.db)
+                version_tracker.create_version(
+                    str(existing.id),
+                    "schedule",
+                    {
+                        "freq": freq,
+                        "wkst": wkst,
+                        "opens_at": opens_at,
+                        "closes_at": closes_at,
+                        "service_id": str(service_id) if service_id else None,
+                        "location_id": str(location_id) if location_id else None,
+                        "service_at_location_id": (
+                            str(service_at_location_id)
+                            if service_at_location_id
+                            else None
+                        ),
+                        "valid_from": valid_from,
+                        "valid_to": valid_to,
+                        "dtstart": dtstart,
+                        "until": until,
+                        "count": count,
+                        "interval": interval,
+                        "byday": byday,
+                        "description": description,
+                        **metadata,
+                    },
+                    "reconciler",
+                    commit=False,
+                )
+
+                self.db.commit()
+                self.logger.info(
+                    f"Updated existing schedule {existing.id} with new data"
+                )
+                return uuid.UUID(str(existing.id)), True
+            else:
+                # No changes needed
+                self.logger.debug(f"Schedule {existing.id} unchanged, skipping update")
+                return uuid.UUID(str(existing.id)), False
+        else:
+            # Create new schedule
+            schedule_id = self.create_schedule(
+                freq=freq,
+                wkst=wkst,
+                opens_at=opens_at,
+                closes_at=closes_at,
+                metadata=metadata,
+                service_id=service_id,
+                location_id=location_id,
+                service_at_location_id=service_at_location_id,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                dtstart=dtstart,
+                until=until,
+                count=count,
+                interval=interval,
+                byday=byday,
+                description=description,
+            )
+            return schedule_id, False  # False = not updated (newly created)
