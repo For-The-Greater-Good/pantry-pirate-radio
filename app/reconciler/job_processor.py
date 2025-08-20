@@ -669,12 +669,12 @@ class JobProcessor:
                                     float(val_loc.get("latitude", 0))
                                     - float(location.get("latitude", 0))
                                 )
-                                < 0.0001
+                                < settings.RECONCILER_LOCATION_TOLERANCE
                                 and abs(
                                     float(val_loc.get("longitude", 0))
                                     - float(location.get("longitude", 0))
                                 )
-                                < 0.0001
+                                < settings.RECONCILER_LOCATION_TOLERANCE
                             ):
                                 loc_confidence_score = val_loc.get("confidence_score")
                                 loc_validation_status = val_loc.get("validation_status")

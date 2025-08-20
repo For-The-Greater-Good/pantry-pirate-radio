@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, Union
 
@@ -44,7 +45,7 @@ class GenerateConfig:
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 40
-    max_tokens: int = 64768
+    max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "8192"))
     stop: list[str] | None = None
     stream: bool = False
     format: dict[str, Any] | None = None

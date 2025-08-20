@@ -56,6 +56,17 @@ class Settings(BaseSettings):
     CLAUDE_QUOTA_MAX_DELAY: int = 14400  # 4 hours max delay
     CLAUDE_QUOTA_BACKOFF_MULTIPLIER: float = 1.5  # Exponential backoff multiplier
 
+    # Reconciler Settings
+    RECONCILER_LOCATION_TOLERANCE: float = Field(
+        default=0.0001,
+        description="Coordinate matching tolerance in degrees for location deduplication. "
+        "0.0001 = ~11 meters (default, good for precise matching), "
+        "0.001 = ~111 meters (looser matching for sparse areas), "
+        "0.00001 = ~1.1 meters (very precise, may create duplicates)",
+        ge=0.00001,  # ~1.1 meters minimum
+        le=0.01,     # ~1.1 km maximum
+    )
+
     # Validator Settings
     VALIDATOR_ENABLED: bool = True  # Enable validator service by default
     VALIDATOR_QUEUE_NAME: str = "validator"

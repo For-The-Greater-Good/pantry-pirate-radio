@@ -4,6 +4,8 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+
 
 class BaseReconciler:
     """Base class for reconciler utilities."""
@@ -16,6 +18,8 @@ class BaseReconciler:
         """
         self.db = db
         self.logger = logging.getLogger(__name__)
+        # Get location tolerance from settings
+        self.location_tolerance = settings.RECONCILER_LOCATION_TOLERANCE
 
     def __enter__(self) -> "BaseReconciler":
         """Enter context."""
