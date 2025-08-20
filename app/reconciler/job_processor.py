@@ -1194,15 +1194,15 @@ class JobProcessor:
                                             if not exists:
                                                 schedules_to_create.append(loc_schedule)
 
-                                    # Delete existing schedules for this service_at_location to prevent duplicates
-                                    service_creator.delete_schedules_for_service_at_location(
-                                        sal_id
-                                    )
-
-                                    # Create unique schedules for this service_at_location
+                                    # Create or update schedules for this service_at_location
                                     for schedule in schedules_to_create:
                                         # Get byday from the schedule data if available
-                                        byday = schedule.get("byday")
+                                        # Validate schedule exists and is a dict
+                                        if schedule and isinstance(schedule, dict):
+                                            byday = schedule.get("byday")
+                                        else:
+                                            byday = None
+                                            logger.warning("Invalid schedule data, skipping byday extraction")
 
                                         # Create a human-readable description of the schedule
                                         if byday:
@@ -1231,7 +1231,7 @@ class JobProcessor:
                                                 f"every {schedule['wkst']}"
                                             )
 
-                                        service_creator.create_schedule(
+                                        schedule_id, was_updated = service_creator.update_or_create_schedule(
                                             freq=schedule["freq"],
                                             wkst=schedule["wkst"],
                                             opens_at=schedule["opens_at"],
@@ -1241,6 +1241,8 @@ class JobProcessor:
                                             byday=byday,
                                             description=description,
                                         )
+                                        if was_updated:
+                                            logger.info(f"Updated schedule {schedule_id} with new data including byday: {byday}")
 
             # Log available top-level keys for debugging
             logger.debug(f"Available top-level keys in data: {list(data.keys())}")
@@ -1371,26 +1373,17 @@ class JobProcessor:
                         )
                         continue
 
-                    # Delete existing schedules to prevent duplicates
-                    if service_at_location_id_for_schedule:
-                        service_creator.delete_schedules_for_service_at_location(
-                            service_at_location_id_for_schedule
-                        )
-                    elif service_id_for_schedule:
-                        service_creator.delete_schedules_for_service(
-                            service_id_for_schedule
-                        )
-                    elif location_id_for_schedule:
-                        service_creator.delete_schedules_for_location(
-                            location_id_for_schedule
-                        )
+                    # Parse schedule fields with validation
+                    if schedule and isinstance(schedule, dict):
+                        byday = schedule.get("byday")
+                    else:
+                        byday = None
+                        logger.warning("Invalid schedule data in top-level array")
+                    
+                    description = schedule.get("description", "") if schedule else ""
 
-                    # Parse schedule fields
-                    byday = schedule.get("byday")
-                    description = schedule.get("description", "")
-
-                    # Create schedule record (no 'name' parameter)
-                    service_creator.create_schedule(
+                    # Update or create schedule record
+                    schedule_id, was_updated = service_creator.update_or_create_schedule(
                         freq=schedule.get("freq"),
                         wkst=schedule.get("wkst"),
                         opens_at=schedule.get("opens_at"),
@@ -1402,7 +1395,10 @@ class JobProcessor:
                         byday=byday,
                         description=description,
                     )
-                    logger.debug("Created schedule from top-level array")
+                    if was_updated:
+                        logger.info(f"Updated schedule {schedule_id} from top-level array with byday: {byday}")
+                    else:
+                        logger.debug(f"Schedule {schedule_id} from top-level array unchanged or newly created")
 
             # Update success metric and return result
             scraper_id = job_result.job.metadata.get("scraper_id", "unknown")
