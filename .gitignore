@@ -107,3 +107,6 @@ pantry_pirate_radio.sqlite
 sql_dumps/*.sql
 sql_dumps/*.sql.gz
 sql_dumps/*.sql.bz2
+
+# Claude
+.claude/settings.local.json
