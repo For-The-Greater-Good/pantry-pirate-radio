@@ -836,6 +836,18 @@ class JobProcessor:
                             commit=True,
                         )
 
+                        # Create/update location_source entry for this scraper
+                        # This ensures every scraper that finds a location is recorded
+                        location_creator.create_location_source(
+                            str(location_id),
+                            job_result.job.metadata.get("scraper_id", "unknown"),
+                            location["name"],
+                            update_description,
+                            float(location["latitude"]),
+                            float(location["longitude"]),
+                            job_result.job.metadata,
+                        )
+
                     else:
                         # Create new location with all fields
                         # Ensure location has a name

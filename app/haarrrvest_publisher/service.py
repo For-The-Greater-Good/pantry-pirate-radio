@@ -1213,7 +1213,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 
         try:
             # Use the new aggregated exporter that groups nearby locations
-            from app.haarrrvest_publisher.export_map_data_aggregated import AggregatedMapDataExporter
+            from app.haarrrvest_publisher.export_map_data_aggregated import (
+                AggregatedMapDataExporter,
+            )
 
             start_time = time.time()
             exporter = AggregatedMapDataExporter(self.data_repo_path)

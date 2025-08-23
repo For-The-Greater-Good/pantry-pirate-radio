@@ -64,7 +64,7 @@ class Settings(BaseSettings):
         "0.001 = ~111 meters (looser matching for sparse areas), "
         "0.00001 = ~1.1 meters (very precise, may create duplicates)",
         ge=0.00001,  # ~1.1 meters minimum
-        le=0.01,     # ~1.1 km maximum
+        le=0.01,  # ~1.1 km maximum
     )
 
     # Validator Settings
