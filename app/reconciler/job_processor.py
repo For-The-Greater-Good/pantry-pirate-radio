@@ -900,8 +900,6 @@ class JobProcessor:
                                 # Check if description has a better name pattern
                                 if location.get("description"):
                                     # Look for patterns like "Food service location: [Real Name]"
-                                    import re
-
                                     match = re.search(
                                         r"Food service location:\s*(.+)",
                                         location.get("description", ""),
