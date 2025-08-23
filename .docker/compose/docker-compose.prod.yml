@@ -9,7 +9,7 @@ services:
     command: ["app"]
     ports:
       - "8000:8000"
-    env_file: .env
+    env_file: ../../.env
     depends_on:
       - db
       - cache
@@ -23,7 +23,9 @@ services:
     command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
-    env_file: .env
+    env_file: ../../.env
+    networks:
+      - backend
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -52,7 +54,7 @@ services:
   recorder:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["recorder"]
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -60,6 +62,8 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - backend
     volumes:
       - ../../outputs:/app/outputs
       - ../../archives:/app/archives
@@ -67,17 +71,19 @@ services:
   reconciler:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["reconciler"]
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
     depends_on:
       - db
       - cache
+    networks:
+      - backend
 
   db:
     image: postgis/postgis:15-3.3
-    env_file: .env
+    env_file: ../../.env
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -85,30 +91,36 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../../init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - backend
     # NO PORTS EXPOSED - access only through Docker network for security
 
   cache:
     image: redis:7-alpine
     # NO PORTS EXPOSED - access only through Docker network for security
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --protected-mode yes
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --protected-mode no
     volumes:
       - redis_data:/data
+    networks:
+      - backend
 
   rq-dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["rq-dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 9181:rq-dashboard:9181 user@server
-    env_file: .env
+    env_file: ../../.env
     environment:
       - REDIS_URL=${REDIS_URL}
     depends_on:
       - cache
+    networks:
+      - backend
 
   content-store-dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 5050:content-store-dashboard:5050 user@server
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -120,11 +132,13 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - backend
 
   haarrrvest-publisher:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["publisher"]
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - DATA_REPO_PATH=/data-repo
@@ -140,6 +154,8 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - backend
 
   datasette:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-${DOCKER_TAG:-latest}
@@ -169,7 +185,6 @@ services:
       - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - frontend
-      - backend
     depends_on:
       - app
       - datasette
