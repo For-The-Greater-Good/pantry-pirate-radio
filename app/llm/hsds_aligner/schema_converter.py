@@ -1027,6 +1027,7 @@ class SchemaConverter:
                 "schema": schema,
                 "strict": True,
                 "temperature": 0.4,  # Ensure deterministic outputs
+                "max_tokens": 64768,  # Maximum tokens for structured output
             },
         }
 
@@ -1241,6 +1242,7 @@ class SchemaConverter:
                 "schema": hsds_core_schema,
                 "strict": True,
                 "temperature": 0.4,
+                "max_tokens": 64768,  # Maximum tokens for structured output
             },
         }
 
@@ -1435,5 +1437,6 @@ class SchemaConverter:
                 "schema": hsds_full_schema,
                 "strict": True,
                 "temperature": 0.4,  # Ensure deterministic outputs
+                "max_tokens": 64768,  # Maximum tokens for structured output
             },
         }

@@ -109,7 +109,7 @@ MAJOR_CITIES_TO_STATE = {
     "dothan": "AL",
     "auburn": "AL",
     "decatur": "AL",
-    "madison": "AL",  # Note: Also in WI, context matters
+    # Note: madison is mapped to WI (more common)
     # California
     "los angeles": "CA",
     "san diego": "CA",

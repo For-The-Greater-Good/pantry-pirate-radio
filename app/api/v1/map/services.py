@@ -151,7 +151,7 @@ class MapDataService:
 
         # Add filters
         conditions = []
-        params = {}
+        params: Dict[str, Any] = {}
 
         if bbox:
             min_lat, min_lng, max_lat, max_lng = bbox
@@ -188,7 +188,7 @@ class MapDataService:
         rows = result.fetchall()
 
         # Process and group locations
-        locations_dict = {}
+        locations_dict: Dict[str, Dict[str, Any]] = {}
         for row in rows:
             location_id = str(row.id)
 
@@ -272,8 +272,8 @@ class MapDataService:
 
         # Generate metadata
         states = set(loc["state"] for loc in locations if loc["state"])
-        total_sources = sum(loc["source_count"] for loc in locations)
-        multi_source = sum(1 for loc in locations if loc["source_count"] > 1)
+        total_sources = sum(int(loc["source_count"]) for loc in locations)
+        multi_source = sum(1 for loc in locations if int(loc["source_count"]) > 1)
 
         metadata = MapMetadata(
             generated=datetime.now(UTC).isoformat(),

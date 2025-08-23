@@ -15,6 +15,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+
 # PostGIS handles distance calculations now, math imports not needed
 
 from app.core.state_mapping import normalize_state_to_code, VALID_STATE_CODES
@@ -61,7 +62,7 @@ class AggregatedMapDataExporter:
 
     def _get_eps_for_meters(self, meters: int) -> float:
         """Convert meters to approximate degrees for ST_ClusterDBSCAN.
-        
+
         At the equator, 1 degree latitude = ~111,000 meters.
         This is an approximation that works reasonably well for clustering.
         """
@@ -110,14 +111,14 @@ class AggregatedMapDataExporter:
     def _fetch_all_locations_with_sources(self, conn) -> List[Dict[str, Any]]:
         """Fetch all locations with their source scraper information, pre-clustered using PostGIS."""
         locations = []
-        
+
         # Calculate epsilon value for ST_ClusterDBSCAN based on desired radius
         eps = self._get_eps_for_meters(self.grouping_radius_meters)
 
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             # Get ALL locations with PostGIS clustering
-            cursor.execute(
-                f"""
+            cursor.execute(  # nosec B608 - Parameterized query, safe from SQL injection
+                """
                 WITH location_phones AS (
                     SELECT
                         COALESCE(p.location_id, p.organization_id) as ref_id,
@@ -199,7 +200,7 @@ class AggregatedMapDataExporter:
                     -- PostGIS clustering
                     ST_ClusterDBSCAN(
                         ST_SetSRID(ST_MakePoint(l.longitude, l.latitude), 4326),
-                        eps := {eps},
+                        eps := %s,
                         minpoints := 1
                     ) OVER() as cluster_id
                 FROM location l
@@ -217,27 +218,34 @@ class AggregatedMapDataExporter:
                   -- Include all locations, not just rejected ones
                   AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
                 ORDER BY cluster_id, ls.scraper_id
-            """
+            """,
+                (eps,),
             )
 
             for row in cursor:
                 locations.append(dict(row))
 
-        logger.info(f"Fetched {len(locations)} location records from database with PostGIS clustering")
+        logger.info(
+            f"Fetched {len(locations)} location records from database with PostGIS clustering"
+        )
         return locations
 
-    def _group_locations_by_cluster(self, locations: List[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
+    def _group_locations_by_cluster(
+        self, locations: List[Dict[str, Any]]
+    ) -> Dict[int, List[Dict[str, Any]]]:
         """Group pre-clustered locations by their cluster_id from PostGIS."""
-        groups = {}
-        
+        groups: Dict[int, List[Dict[str, Any]]] = {}
+
         for location in locations:
-            cluster_id = location.get('cluster_id')
+            cluster_id = location.get("cluster_id")
             if cluster_id is not None:
                 if cluster_id not in groups:
                     groups[cluster_id] = []
                 groups[cluster_id].append(location)
-        
-        logger.info(f"Grouped {len(locations)} locations into {len(groups)} clusters using PostGIS")
+
+        logger.info(
+            f"Grouped {len(locations)} locations into {len(groups)} clusters using PostGIS"
+        )
         return groups
 
     def _create_aggregated_locations(
@@ -246,7 +254,7 @@ class AggregatedMapDataExporter:
         """Create aggregated location entries from PostGIS-clustered groups."""
         aggregated = []
 
-        for cluster_id, group in location_groups.items():
+        for _, group in location_groups.items():
             # Use the first canonical location as the primary, or just the first one
             primary = next((loc for loc in group if loc.get("is_canonical")), group[0])
 
@@ -403,7 +411,7 @@ class AggregatedMapDataExporter:
     ):
         """Generate state-specific files."""
         # Group locations by state
-        locations_by_state = {}
+        locations_by_state: Dict[str, List[Dict[str, Any]]] = {}
 
         for location in locations:
             state = location.get("state") or "UNKNOWN"
@@ -449,7 +457,7 @@ class AggregatedMapDataExporter:
         print(f"Output file: {output_file}")
 
         # Source distribution
-        source_counts = {}
+        source_counts: Dict[str, int] = {}
         for loc in locations:
             for source in loc.get("sources", []):
                 scraper = source.get("scraper", "unknown")
