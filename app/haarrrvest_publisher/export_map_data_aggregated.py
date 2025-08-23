@@ -15,7 +15,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
-from math import radians, cos, sin, asin, sqrt
+# PostGIS handles distance calculations now, math imports not needed
 
 from app.core.state_mapping import normalize_state_to_code, VALID_STATE_CODES
 
@@ -59,22 +59,15 @@ class AggregatedMapDataExporter:
 
         return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
-    def haversine_distance(
-        self, lat1: float, lon1: float, lat2: float, lon2: float
-    ) -> float:
-        """Calculate the great circle distance between two points in meters."""
-        # Radius of earth in meters
-        R = 6371000
-
-        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-
-        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
-        c = 2 * asin(sqrt(a))
-
-        return R * c
+    def _get_eps_for_meters(self, meters: int) -> float:
+        """Convert meters to approximate degrees for ST_ClusterDBSCAN.
+        
+        At the equator, 1 degree latitude = ~111,000 meters.
+        This is an approximation that works reasonably well for clustering.
+        """
+        # Approximate conversion: meters to degrees
+        # This will be less accurate at higher latitudes but sufficient for clustering
+        return meters / 111000.0
 
     def export(self) -> bool:
         """Main export function that generates aggregated map data files."""
@@ -92,8 +85,8 @@ class AggregatedMapDataExporter:
                 logger.warning("No locations found to export")
                 return False
 
-            # Group nearby locations
-            location_groups = self._group_nearby_locations(locations_data)
+            # Group locations by PostGIS cluster_id
+            location_groups = self._group_locations_by_cluster(locations_data)
 
             # Create aggregated location entries
             aggregated_locations = self._create_aggregated_locations(location_groups)
@@ -115,13 +108,16 @@ class AggregatedMapDataExporter:
             return False
 
     def _fetch_all_locations_with_sources(self, conn) -> List[Dict[str, Any]]:
-        """Fetch all locations with their source scraper information."""
+        """Fetch all locations with their source scraper information, pre-clustered using PostGIS."""
         locations = []
+        
+        # Calculate epsilon value for ST_ClusterDBSCAN based on desired radius
+        eps = self._get_eps_for_meters(self.grouping_radius_meters)
 
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            # Get ALL locations, not just canonical ones, with their source info
+            # Get ALL locations with PostGIS clustering
             cursor.execute(
-                """
+                f"""
                 WITH location_phones AS (
                     SELECT
                         COALESCE(p.location_id, p.organization_id) as ref_id,
@@ -199,7 +195,13 @@ class AggregatedMapDataExporter:
                     l.validation_notes,
                     l.geocoding_source,
                     l.location_type,
-                    l.is_canonical
+                    l.is_canonical,
+                    -- PostGIS clustering
+                    ST_ClusterDBSCAN(
+                        ST_SetSRID(ST_MakePoint(l.longitude, l.latitude), 4326),
+                        eps := {eps},
+                        minpoints := 1
+                    ) OVER() as cluster_id
                 FROM location l
                 JOIN location_source ls ON ls.location_id = l.id
                 LEFT JOIN address a ON a.location_id = l.id
@@ -214,57 +216,37 @@ class AggregatedMapDataExporter:
                   AND l.longitude BETWEEN -180 AND 180
                   -- Include all locations, not just rejected ones
                   AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
-                ORDER BY l.latitude, l.longitude, ls.scraper_id
+                ORDER BY cluster_id, ls.scraper_id
             """
             )
 
             for row in cursor:
                 locations.append(dict(row))
 
-        logger.info(f"Fetched {len(locations)} location records from database")
+        logger.info(f"Fetched {len(locations)} location records from database with PostGIS clustering")
         return locations
 
-    def _group_nearby_locations(
-        self, locations: List[Dict[str, Any]]
-    ) -> List[List[Dict[str, Any]]]:
-        """Group locations that are within the grouping radius of each other."""
-        groups = []
-        used_indices = set()
-
-        for i, loc1 in enumerate(locations):
-            if i in used_indices:
-                continue
-
-            # Start a new group with this location
-            group = [loc1]
-            used_indices.add(i)
-
-            # Find all nearby locations
-            for j, loc2 in enumerate(locations):
-                if j <= i or j in used_indices:
-                    continue
-
-                # Check distance
-                distance = self.haversine_distance(
-                    loc1["lat"], loc1["lng"], loc2["lat"], loc2["lng"]
-                )
-
-                if distance <= self.grouping_radius_meters:
-                    group.append(loc2)
-                    used_indices.add(j)
-
-            groups.append(group)
-
-        logger.info(f"Grouped {len(locations)} locations into {len(groups)} groups")
+    def _group_locations_by_cluster(self, locations: List[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
+        """Group pre-clustered locations by their cluster_id from PostGIS."""
+        groups = {}
+        
+        for location in locations:
+            cluster_id = location.get('cluster_id')
+            if cluster_id is not None:
+                if cluster_id not in groups:
+                    groups[cluster_id] = []
+                groups[cluster_id].append(location)
+        
+        logger.info(f"Grouped {len(locations)} locations into {len(groups)} clusters using PostGIS")
         return groups
 
     def _create_aggregated_locations(
-        self, location_groups: List[List[Dict[str, Any]]]
+        self, location_groups: Dict[int, List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
-        """Create aggregated location entries from groups."""
+        """Create aggregated location entries from PostGIS-clustered groups."""
         aggregated = []
 
-        for group in location_groups:
+        for cluster_id, group in location_groups.items():
             # Use the first canonical location as the primary, or just the first one
             primary = next((loc for loc in group if loc.get("is_canonical")), group[0])
 
