@@ -112,7 +112,7 @@ async def get_map_locations(
 
         # Create location
         location = MapLocation(
-            id=loc_data["id"],
+            id=UUID(loc_data["id"]),
             lat=loc_data["lat"],
             lng=loc_data["lng"],
             name=loc_data["name"],
@@ -319,15 +319,31 @@ async def get_map_metadata(
     """
 
     multi_result = await session.execute(text(multi_query))
-    multi_count = multi_result.fetchone().multi_source_count
+    multi_row = multi_result.fetchone()
+    multi_count = multi_row.multi_source_count if multi_row else 0
+
+    if not stats:
+        # Return default values if no stats available
+        return MapMetadata(
+            generated=datetime.now(UTC).isoformat(),
+            total_locations=0,
+            total_source_records=0,
+            multi_source_locations=0,
+            states_covered=0,
+            coverage="0 US states/territories",
+            source="Pantry Pirate Radio HSDS API",
+            format_version="4.0",
+            export_method="API Query",
+            aggregation_radius_meters=150,
+        )
 
     return MapMetadata(
         generated=datetime.now(UTC).isoformat(),
-        total_locations=stats.total_locations,
-        total_source_records=stats.total_sources,
+        total_locations=stats.total_locations or 0,
+        total_source_records=stats.total_sources or 0,
         multi_source_locations=multi_count,
-        states_covered=stats.states_covered,
-        coverage=f"{stats.states_covered} US states/territories",
+        states_covered=stats.states_covered or 0,
+        coverage=f"{stats.states_covered or 0} US states/territories",
         source="Pantry Pirate Radio HSDS API",
         format_version="4.0",
         export_method="API Query",

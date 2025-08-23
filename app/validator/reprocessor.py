@@ -47,6 +47,10 @@ class NeedsReviewReprocessor:
         Returns:
             List of location records with address and validation data
         """
+        if not self.session:
+            logger.error("No database session available")
+            return []
+
         query = """
             SELECT
                 l.id,
@@ -202,6 +206,10 @@ class NeedsReviewReprocessor:
                       AND state_province = :old_state
                 """
 
+            if not self.session:
+                logger.error("No database session available")
+                return False
+
             result = await self.session.execute(
                 text(update_query),
                 {
@@ -212,7 +220,7 @@ class NeedsReviewReprocessor:
                 },
             )
 
-            if result.rowcount > 0:
+            if hasattr(result, "rowcount") and result.rowcount > 0:
                 logger.info(
                     f"Corrected state for address {address_id}: "
                     f"'{old_state}' -> '{new_state}' (reason: {reason})"
@@ -238,6 +246,10 @@ class NeedsReviewReprocessor:
             True if successful
         """
         try:
+            if not self.session:
+                logger.error("No database session available")
+                return False
+
             # Get current validation notes
             query = "SELECT validation_notes FROM location WHERE id = :location_id"
             result = await self.session.execute(
@@ -307,6 +319,10 @@ class NeedsReviewReprocessor:
         Returns:
             New confidence score
         """
+        if not self.session:
+            logger.error("No database session available")
+            return 50
+
         # Get current score
         query = "SELECT confidence_score FROM location WHERE id = :location_id"
         result = await self.session.execute(text(query), {"location_id": location_id})
@@ -422,14 +438,16 @@ class NeedsReviewReprocessor:
             self.stats["total_processed"] += 1
 
             # Commit after each successful location
-            await self.session.commit()
+            if self.session:
+                await self.session.commit()
 
             return result
 
         except Exception as e:
             logger.error(f"Error processing location {location['id']}: {e}")
             # Rollback the failed transaction
-            await self.session.rollback()
+            if self.session:
+                await self.session.rollback()
             self.stats["errors"] += 1
             return {"location_id": location["id"], "error": str(e)}
 

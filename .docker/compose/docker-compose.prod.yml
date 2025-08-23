@@ -162,6 +162,19 @@ services:
     depends_on:
       - haarrrvest-publisher
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - app
+      - datasette
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
