@@ -783,6 +783,31 @@ class JobProcessor:
                         # Convert string ID to UUID
                         location_id = uuid.UUID(match_id)
 
+                        # Check if location name is just the city name (common LLM issue)
+                        if "address" in location and location["address"]:
+                            first_addr = (
+                                location["address"][0]
+                                if isinstance(location["address"], list)
+                                else location["address"]
+                            )
+                            city = first_addr.get("city", "")
+
+                            # If the location name equals the city name, it's likely wrong
+                            if location["name"] == city and city:
+                                # Don't update the name to the city - keep existing name
+                                # Get the current name from database
+                                query = text("SELECT name FROM location WHERE id = :id")
+                                result = self.db.execute(
+                                    query, {"id": str(location_id)}
+                                )
+                                row = result.first()
+                                if row and row[0] and row[0] != city:
+                                    # Keep existing name if it's not the city name
+                                    logger.info(
+                                        f"Keeping existing location name '{row[0]}' instead of city name '{city}'"
+                                    )
+                                    location["name"] = row[0]
+
                         # Update location record
                         # Ensure description is never null
                         update_description = location.get("description")
@@ -856,6 +881,45 @@ class JobProcessor:
                             logger.warning(
                                 f"Missing name for location, using default: {location['name']}"
                             )
+
+                        # Check if location name is just the city name (common LLM issue)
+                        # If so, try to use a better name from the original data
+                        if "address" in location and location["address"]:
+                            first_addr = (
+                                location["address"][0]
+                                if isinstance(location["address"], list)
+                                else location["address"]
+                            )
+                            city = first_addr.get("city", "")
+
+                            # If the location name equals the city name, it's likely wrong
+                            if location["name"] == city and city:
+                                # Try to extract a better name from description or other fields
+                                better_name = None
+
+                                # Check if description has a better name pattern
+                                if location.get("description"):
+                                    # Look for patterns like "Food service location: [Real Name]"
+                                    import re
+
+                                    match = re.search(
+                                        r"Food service location:\s*(.+)",
+                                        location.get("description", ""),
+                                    )
+                                    if match:
+                                        better_name = match.group(1).strip()
+
+                                # If we found a better name, use it
+                                if better_name and better_name != city:
+                                    logger.info(
+                                        f"Fixing location name from '{location['name']}' to '{better_name}' (was using city name)"
+                                    )
+                                    location["name"] = better_name
+                                else:
+                                    # Log warning but keep the city name for now
+                                    logger.warning(
+                                        f"Location name '{location['name']}' matches city name, may be incorrect"
+                                    )
 
                         # Ensure description is never null
                         loc_description = location.get("description")
