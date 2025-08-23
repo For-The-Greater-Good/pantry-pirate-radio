@@ -16,6 +16,11 @@ services:
     networks:
       - frontend
       - backend
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     restart: unless-stopped
 
   worker:
@@ -46,6 +51,9 @@ services:
       - CLAUDE_QUOTA_BACKOFF_MULTIPLIER=${CLAUDE_QUOTA_BACKOFF_MULTIPLIER}
       - CLAUDE_HEALTH_SERVER=true
     volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
       - claude_config:/root/.config/claude  # Shared Claude authentication
     depends_on:
       - db
@@ -75,6 +83,51 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+    depends_on:
+      - db
+      - cache
+    networks:
+      - backend
+
+  scraper:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["scraper"]
+    env_file: ../../.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
+    depends_on:
+      - db
+      - cache
+    networks:
+      - backend
+
+  validator:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["validator"]
+    env_file: ../../.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - LOG_LEVEL=INFO
+      - VALIDATOR_LOG_DATA_FLOW=false
+      - VALIDATOR_ENRICHMENT_ENABLED=true
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     depends_on:
       - db
       - cache
@@ -201,5 +254,5 @@ networks:
   frontend:
     # Public-facing network for API and datasette
   backend:
-    # Internal network for service communication
-    internal: true
+    # Backend network for service communication
+    # Services need internet access for GitHub, geocoding APIs, etc.
