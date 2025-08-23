@@ -784,7 +784,7 @@ class JobProcessor:
                         location_id = uuid.UUID(match_id)
 
                         # Check if location name is just the city name (common LLM issue)
-                        if "address" in location and location["address"]:
+                        if location.get("address"):
                             first_addr = (
                                 location["address"][0]
                                 if isinstance(location["address"], list)
@@ -884,7 +884,7 @@ class JobProcessor:
 
                         # Check if location name is just the city name (common LLM issue)
                         # If so, try to use a better name from the original data
-                        if "address" in location and location["address"]:
+                        if location.get("address"):
                             first_addr = (
                                 location["address"][0]
                                 if isinstance(location["address"], list)
