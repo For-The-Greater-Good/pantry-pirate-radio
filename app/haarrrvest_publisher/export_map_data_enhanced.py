@@ -48,24 +48,26 @@ class EnhancedMapDataExporter:
 
         try:
             conn = psycopg2.connect(self.pg_conn_string)
-            
+
             # Get canonical locations first
             locations = self._fetch_canonical_locations(conn)
-            
+
             # Enrich each location with scraper-specific data
             for location in locations:
-                location["scraper_data"] = self._fetch_scraper_data(conn, location["id"])
-            
+                location["scraper_data"] = self._fetch_scraper_data(
+                    conn, location["id"]
+                )
+
             # Generate output files
             success = self._generate_output_files(locations)
-            
+
             conn.close()
-            
+
             elapsed = time.time() - start_time
             logger.info(f"Enhanced map data export completed in {elapsed:.2f} seconds")
-            
+
             return success
-            
+
         except Exception as e:
             logger.error(f"Enhanced map data export failed: {e}")
             return False
@@ -73,9 +75,10 @@ class EnhancedMapDataExporter:
     def _fetch_canonical_locations(self, conn) -> List[Dict[str, Any]]:
         """Fetch canonical location data with basic info."""
         locations = []
-        
+
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                     l.id,
                     l.latitude as lat,
@@ -100,12 +103,13 @@ class EnhancedMapDataExporter:
                   AND l.longitude BETWEEN -180 AND 180
                   AND l.is_canonical = true
                   AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
-                GROUP BY l.id, l.latitude, l.longitude, l.name, o.name, 
+                GROUP BY l.id, l.latitude, l.longitude, l.name, o.name,
                          a.address_1, a.city, a.state_province, a.postal_code,
                          l.confidence_score, l.validation_status, l.is_canonical
                 ORDER BY a.state_province, a.city, l.name
-            """)
-            
+            """
+            )
+
             for row in cursor:
                 # Validate state
                 state_value = row["state"] or ""
@@ -114,33 +118,41 @@ class EnhancedMapDataExporter:
                         state_value = state_value[:2].upper()
                     else:
                         state_value = ""
-                
+
                 location = {
                     "id": row["id"],
                     "lat": float(row["lat"]),
                     "lng": float(row["lng"]),
-                    "canonical_name": row["canonical_name"] or "Food Assistance Location",
+                    "canonical_name": row["canonical_name"]
+                    or "Food Assistance Location",
                     "canonical_org": row["canonical_org"] or "Community Organization",
-                    "address": f"{row['address_1'] or ''}, {row['city'] or ''}, {state_value} {row['zip'] or ''}".strip(", "),
+                    "address": f"{row['address_1'] or ''}, {row['city'] or ''}, {state_value} {row['zip'] or ''}".strip(
+                        ", "
+                    ),
                     "city": row["city"] or "",
                     "state": state_value,
                     "zip": row["zip"] or "",
-                    "confidence_score": row["confidence_score"] if row["confidence_score"] is not None else 50,
+                    "confidence_score": (
+                        row["confidence_score"]
+                        if row["confidence_score"] is not None
+                        else 50
+                    ),
                     "validation_status": row["validation_status"] or "needs_review",
                     "scraper_count": row["scraper_count"] or 0,
-                    "scraper_data": []  # Will be populated next
+                    "scraper_data": [],  # Will be populated next
                 }
                 locations.append(location)
-        
+
         logger.info(f"Fetched {len(locations)} canonical locations")
         return locations
 
     def _fetch_scraper_data(self, conn, location_id: str) -> List[Dict[str, Any]]:
         """Fetch all scraper-specific data for a location."""
         scraper_data = []
-        
+
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT DISTINCT ON (ls.scraper_id)
                     ls.scraper_id,
                     ls.name as location_name,
@@ -186,12 +198,14 @@ class EnhancedMapDataExporter:
                 FROM location l
                 JOIN location_source ls ON ls.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id
-                LEFT JOIN organization_source os ON os.organization_id = o.id 
+                LEFT JOIN organization_source os ON os.organization_id = o.id
                     AND os.scraper_id = ls.scraper_id
                 WHERE l.id = %s
                 ORDER BY ls.scraper_id, ls.updated_at DESC
-            """, (location_id,))
-            
+            """,
+                (location_id,),
+            )
+
             for row in cursor:
                 data = {
                     "scraper_id": row["scraper_id"],
@@ -204,11 +218,15 @@ class EnhancedMapDataExporter:
                     "phone": row["phone"] or "",
                     "services": row["services"],
                     "schedule": row["schedule"] if row["schedule"] else None,
-                    "first_seen": row["created_at"].isoformat() if row["created_at"] else None,
-                    "last_updated": row["updated_at"].isoformat() if row["updated_at"] else None
+                    "first_seen": (
+                        row["created_at"].isoformat() if row["created_at"] else None
+                    ),
+                    "last_updated": (
+                        row["updated_at"].isoformat() if row["updated_at"] else None
+                    ),
                 }
                 scraper_data.append(data)
-        
+
         return scraper_data
 
     def _generate_output_files(self, locations: List[Dict[str, Any]]) -> bool:
@@ -216,47 +234,50 @@ class EnhancedMapDataExporter:
         try:
             data_dir = self.data_repo_path / "data"
             data_dir.mkdir(exist_ok=True)
-            
+
             # Create metadata
             metadata = {
                 "generated": datetime.now(UTC).isoformat(),
                 "total_locations": len(locations),
                 "format_version": "4.0",  # New version for enhanced data
                 "includes_scraper_data": True,
-                "source": "HAARRRvest - Pantry Pirate Radio Enhanced Export"
+                "source": "HAARRRvest - Pantry Pirate Radio Enhanced Export",
             }
-            
+
             # Calculate statistics
-            locations_with_multiple_scrapers = sum(1 for loc in locations if loc["scraper_count"] > 1)
+            locations_with_multiple_scrapers = sum(
+                1 for loc in locations if loc["scraper_count"] > 1
+            )
             total_scraper_records = sum(len(loc["scraper_data"]) for loc in locations)
-            
+
             metadata["statistics"] = {
                 "locations_with_multiple_scrapers": locations_with_multiple_scrapers,
                 "total_scraper_records": total_scraper_records,
-                "average_scrapers_per_location": total_scraper_records / len(locations) if locations else 0
+                "average_scrapers_per_location": (
+                    total_scraper_records / len(locations) if locations else 0
+                ),
             }
-            
+
             # Write enhanced locations file
-            output_data = {
-                "metadata": metadata,
-                "locations": locations
-            }
-            
+            output_data = {"metadata": metadata, "locations": locations}
+
             output_file = data_dir / "locations_enhanced.json"
             logger.info(f"Writing {len(locations)} enhanced locations to {output_file}")
-            
+
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(output_data, f, separators=(",", ":"), ensure_ascii=False)
-            
+
             # Print summary
             print("\n=== Enhanced Export Summary ===")
             print(f"Total locations: {len(locations)}")
-            print(f"Locations with multiple scrapers: {locations_with_multiple_scrapers}")
+            print(
+                f"Locations with multiple scrapers: {locations_with_multiple_scrapers}"
+            )
             print(f"Total scraper records: {total_scraper_records}")
             print(f"Output file: {output_file}")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to generate enhanced output files: {e}")
             return False
@@ -268,16 +289,16 @@ def main():
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    
+
     data_repo_path = Path(os.getenv("DATA_REPO_PATH", "/data-repo"))
-    
+
     if not data_repo_path.exists():
         logger.error(f"Data repository path does not exist: {data_repo_path}")
         sys.exit(1)
-    
+
     exporter = EnhancedMapDataExporter(data_repo_path)
     success = exporter.export()
-    
+
     sys.exit(0 if success else 1)
 
 

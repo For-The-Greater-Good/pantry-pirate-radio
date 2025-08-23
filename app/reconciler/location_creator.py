@@ -550,7 +550,7 @@ class LocationCreator(BaseReconciler):
                 state_province = ""
             else:
                 state_province = state_province.upper()
-        
+
         # Trust the validator's data - no geocoding needed here
         # If still no postal code after validation, use a default based on state
         if postal_code is None or postal_code == "":

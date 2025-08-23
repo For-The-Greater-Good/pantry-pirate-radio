@@ -162,7 +162,7 @@ class The_Food_Pantries_OrgScraper(ScraperJob):
             "total_features": len(collection.get("features", [])),
             "jobs_created": job_count,
             "collection_name": collection.get("name", ""),
-            "status": "complete"
+            "status": "complete",
         }
 
         # Print summary to CLI

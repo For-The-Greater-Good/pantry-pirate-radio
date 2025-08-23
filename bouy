@@ -1181,6 +1181,7 @@ case "$1" in
         # Run tests in a temporary container with current code mounted
         # Use PYTHONUNBUFFERED=1 to ensure output is not buffered
         # Set RUNNING_IN_DOCKER=1 to skip bouy tests that can't run inside Docker
+        # Explicitly set CONTENT_STORE_PATH to ensure tests don't use production data
         docker run --rm $TTY_FLAG \
             -v "$(pwd)":/app:cached \
             -w /app \
@@ -1188,6 +1189,7 @@ case "$1" in
             --env-file "$ENV_FILE_TO_USE" \
             -e PYTHONUNBUFFERED=1 \
             -e RUNNING_IN_DOCKER=1 \
+            -e CONTENT_STORE_PATH=/tmp/test_content_store \
             "$TEST_IMAGE_TAG" \
             bash -c "$test_cmd"
         ;;

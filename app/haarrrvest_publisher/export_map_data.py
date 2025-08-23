@@ -256,7 +256,7 @@ class MapDataExporter:
                             state_value = state_value[:2].upper()
                         else:
                             state_value = ""
-                    
+
                     location = {
                         "id": row["id"],
                         "lat": float(row["lat"]),

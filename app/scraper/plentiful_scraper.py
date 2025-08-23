@@ -219,7 +219,7 @@ class PlentifulScraper(ScraperJob):
         from pathlib import Path
         from app.models.geographic import BoundingBox
         import os
-        
+
         # Define state search boxes - use relative path that works both locally and in container
         # In container: /app/docs/GeoJson/States
         # Locally: current working directory + /docs/GeoJson/States
@@ -229,10 +229,10 @@ class PlentifulScraper(ScraperJob):
         else:
             # Running locally - use relative path from current working directory
             geojson_dir = Path.cwd() / "docs" / "GeoJson" / "States"
-        
+
         # In test mode, only search a few states
         is_test_mode = self.test_mode or "test" in self.scraper_id.lower()
-        
+
         if is_test_mode:
             # Test with just NY, CA, and TX
             state_files = [
@@ -245,7 +245,11 @@ class PlentifulScraper(ScraperJob):
             # Get all state GeoJSON files
             state_files = sorted(geojson_dir.glob("*_zip_codes_geo.min.json"))
             # Skip Alaska and Hawaii in initial implementation (can add back if needed)
-            state_files = [f for f in state_files if not any(skip in f.name for skip in ["ak_alaska", "hi_hawaii"])]
+            state_files = [
+                f
+                for f in state_files
+                if not any(skip in f.name for skip in ["ak_alaska", "hi_hawaii"])
+            ]
             logger.info(f"Production mode: Searching {len(state_files)} states")
 
         total_locations = 0
@@ -259,27 +263,33 @@ class PlentifulScraper(ScraperJob):
             # Process states one by one (or in small batches)
             for state_file in state_files:
                 state_name = state_file.stem.split("_")[1]  # Extract state name
-                logger.info(f"Processing state: {state_name.upper()} ({states_processed + 1}/{len(state_files)})")
-                
+                logger.info(
+                    f"Processing state: {state_name.upper()} ({states_processed + 1}/{len(state_files)})"
+                )
+
                 try:
                     # Get bounding box for the state
                     bbox = BoundingBox.from_geojson(state_file)
-                    logger.info(f"  Searching bounds: ({bbox.south:.2f}, {bbox.west:.2f}) to ({bbox.north:.2f}, {bbox.east:.2f})")
-                    
+                    logger.info(
+                        f"  Searching bounds: ({bbox.south:.2f}, {bbox.west:.2f}) to ({bbox.north:.2f}, {bbox.east:.2f})"
+                    )
+
                     # Search the entire state in one API call
                     locations = await self.fetch_locations_in_bounds(
                         client, bbox.north, bbox.west, bbox.south, bbox.east
                     )
-                    
-                    logger.info(f"  Found {len(locations)} locations in {state_name.upper()}")
-                    
+
+                    logger.info(
+                        f"  Found {len(locations)} locations in {state_name.upper()}"
+                    )
+
                     # Check if we hit the potential 1k limit
                     if len(locations) >= 1000:
                         queries_with_max_results += 1
                         logger.warning(
                             f"  State {state_name.upper()} returned {len(locations)} results, may have hit 1k limit!"
                         )
-                    
+
                     # Process each location with deduplication
                     new_locations = 0
                     for location in locations:
@@ -310,7 +320,9 @@ class PlentifulScraper(ScraperJob):
                             )
                             total_jobs_created += 1
                             if total_jobs_created % 100 == 0:
-                                logger.info(f"  Progress: {total_jobs_created} jobs created")
+                                logger.info(
+                                    f"  Progress: {total_jobs_created} jobs created"
+                                )
                         except Exception as e:
                             logger.error(
                                 f"Failed to submit job for location {location_id}: {e}"
@@ -318,14 +330,16 @@ class PlentifulScraper(ScraperJob):
 
                         # Rate limiting between detail requests
                         await asyncio.sleep(self.detail_request_delay)
-                    
-                    logger.info(f"  Completed {state_name.upper()}: {new_locations} new locations added")
+
+                    logger.info(
+                        f"  Completed {state_name.upper()}: {new_locations} new locations added"
+                    )
                     states_processed += 1
-                    
+
                 except Exception as e:
                     logger.error(f"  Failed to process state {state_name}: {e}")
                     continue
-                
+
                 # Rate limiting between states
                 await asyncio.sleep(self.batch_delay)
 
