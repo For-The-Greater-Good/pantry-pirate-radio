@@ -43,7 +43,7 @@ async def test_generate_config_defaults() -> None:
     assert config.temperature == 0.7
     assert config.top_p == 0.9
     assert config.top_k == 40
-    assert config.max_tokens == 8192  # Default from environment LLM_MAX_TOKENS
+    assert config.max_tokens == 64768  # Default from environment LLM_MAX_TOKENS
     assert config.stop is None
     assert config.stream is False
     assert config.format is None
