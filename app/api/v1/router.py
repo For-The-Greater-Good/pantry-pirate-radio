@@ -22,11 +22,34 @@ from app.api.v1.organizations import router as organizations_router
 from app.api.v1.locations import router as locations_router
 from app.api.v1.services import router as services_router
 from app.api.v1.service_at_location import router as service_at_location_router
+from app.api.v1.taxonomies import router as taxonomies_router
+from app.api.v1.taxonomy_terms import router as taxonomy_terms_router
+from app.api.v1.map import router as map_router
 
 router.include_router(organizations_router)
 router.include_router(locations_router)
 router.include_router(services_router)
 router.include_router(service_at_location_router)
+router.include_router(taxonomies_router)
+router.include_router(taxonomy_terms_router)
+router.include_router(map_router)
+
+
+@router.get("/")
+async def get_api_metadata() -> dict[str, str]:
+    """
+    Get API metadata including HSDS version and profile information.
+
+    Returns information about this API and its relationship with HSDS.
+    """
+    return {
+        "version": "3.1.1",
+        "profile": "https://docs.openhumanservices.org/hsds/",
+        "openapi_url": "/openapi.json",
+        "documentation_url": "/docs",
+        "api_status": "healthy",
+        "implementation": "Pantry Pirate Radio HSDS API",
+    }
 
 
 @router.get("/metrics")

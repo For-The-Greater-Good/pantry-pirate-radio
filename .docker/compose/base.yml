@@ -10,6 +10,9 @@ services:
     ports:
       - "8000:8000"
     env_file: ../../.env
+    environment:
+      # Allow override of content store path (defaults to /data-repo)
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     # All environment variables are loaded from .env file
     # Override specific values as needed for your environment
     volumes:
@@ -33,6 +36,8 @@ services:
       # Worker-specific overrides
       - CLAUDE_HEALTH_SERVER=true
       - QUEUE_NAME=llm
+      # Allow override of content store path (defaults to /data-repo)
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     volumes:
       - ../../outputs:/app/outputs
       - haarrrvest_repo:/data-repo  # Mount HAARRRvest repo for content store
@@ -52,6 +57,8 @@ services:
     environment:
       # Recorder-specific paths
       - OUTPUT_DIR=/app/outputs
+      # Allow override of content store path (defaults to /data-repo)
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     depends_on:
       db:
         condition: service_started
@@ -70,6 +77,9 @@ services:
     image: pantry-pirate-radio:latest
     command: ["scraper"]
     env_file: ../../.env
+    environment:
+      # Allow override of content store path (defaults to /data-repo)
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     # All environment variables are loaded from .env file
     depends_on:
       db:
@@ -87,6 +97,9 @@ services:
     image: pantry-pirate-radio:latest
     command: ["reconciler"]
     env_file: ../../.env
+    environment:
+      # Allow override of content store path (defaults to /data-repo)
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     # All environment variables are loaded from .env file
     volumes:
       - ../../outputs:/app/outputs
@@ -108,6 +121,8 @@ services:
       - LOG_LEVEL=DEBUG
       - VALIDATOR_LOG_DATA_FLOW=true
       - VALIDATOR_ENRICHMENT_ENABLED=true
+      # Allow override of content store path (defaults to /data-repo)
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     # All environment variables are loaded from .env file
     volumes:
       - ../../outputs:/app/outputs

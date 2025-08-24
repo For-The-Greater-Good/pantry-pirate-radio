@@ -129,3 +129,20 @@ class TestContentStoreConfig:
             assert store is not None
             # Default path should be relative to project root
             assert "content_store" in str(store.store_path)
+
+    def test_should_not_use_production_path_in_tests(self):
+        """Should not use production /data-repo path when running tests."""
+        # When CONTENT_STORE_PATH is set to test path
+        with patch.dict(
+            os.environ, {"CONTENT_STORE_PATH": "/tmp/test_content_store"}  # noqa: S108
+        ):  # Temporary test directory
+            store = get_content_store()
+            assert store is not None
+            # Should use test path, not production path
+            assert (
+                str(store.store_path) == "/tmp/test_content_store"  # noqa: S108
+            )  # Temporary test directory
+            assert "/data-repo" not in str(store.store_path)
+            assert "/tmp/test_content_store" in str(  # noqa: S108
+                store.content_store_path
+            )  # Temporary test directory

@@ -23,9 +23,13 @@ def _initialize_database():
         # Keep as None for testing - will be overridden in test fixtures
         return
 
-    # Convert postgres:// to postgresql+asyncpg:// for async support
+    # Convert to postgresql+asyncpg:// for async support
     database_url = settings.DATABASE_URL
-    if database_url.startswith("postgresql://"):
+    if database_url.startswith("postgresql+psycopg2://"):
+        database_url = database_url.replace(
+            "postgresql+psycopg2://", "postgresql+asyncpg://", 1
+        )
+    elif database_url.startswith("postgresql://"):
         database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     elif database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)

@@ -5,12 +5,18 @@ import json
 import logging
 import random
 import time
+from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
 import redis
 
 from app.core.geocoding.service import GeocodingService
 from app.core.state_mapping import normalize_state_to_code
+from app.core.zip_state_mapping import (
+    get_state_from_zip,
+    get_state_from_city,
+    resolve_state_conflict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,12 +179,22 @@ class GeocodingEnricher:
                             logger.warning(
                                 f"Could not normalize state '{state_value}' to 2-letter code"
                             )
+                            # Prevent corrupted state data - only use if it's 2 chars
+                            if len(state_value) == 2 and state_value.isalpha():
+                                normalized_state = state_value.upper()
+                            else:
+                                logger.error(
+                                    f"Rejecting invalid state value with length {len(state_value)}: '{state_value[:50]}...'"
+                                )
+                                normalized_state = (
+                                    ""  # Use empty string rather than corrupted data
+                                )
 
                         enriched["addresses"] = [
                             {
                                 "address_1": address_data.get("address", ""),
                                 "city": address_data.get("city", ""),
-                                "state_province": normalized_state or state_value,
+                                "state_province": normalized_state or "",
                                 "postal_code": address_data.get("postal_code", ""),
                                 "country": "US",
                                 "address_type": "physical",
@@ -211,10 +227,102 @@ class GeocodingEnricher:
                 exc_info=True,
             )
 
+        # Auto-correct state mismatches before returning
+        enriched = self._correct_state_mismatches(enriched, source)
+
         logger.info(
             f"🎯 ENRICHER: Finished enriching '{location_name}', source: {source}"
         )
         return enriched, source
+
+    def _correct_state_mismatches(
+        self, location_data: Dict[str, Any], geocoding_source: Optional[str]
+    ) -> Dict[str, Any]:
+        """Automatically correct state mismatches using ZIP and city data.
+
+        Args:
+            location_data: Location data to check and correct
+            geocoding_source: Source of geocoding if any
+
+        Returns:
+            Location data with corrected state if needed
+        """
+        if not location_data.get("addresses"):
+            return location_data
+
+        lat = location_data.get("latitude")
+        lng = location_data.get("longitude")
+
+        for address in location_data["addresses"]:
+            claimed_state = address.get("state_province", "")
+            postal_code = address.get("postal_code", "")
+            city = address.get("city", "")
+
+            if not claimed_state and not postal_code:
+                continue
+
+            # Get state from multiple sources
+            zip_state = get_state_from_zip(postal_code) if postal_code else None
+            city_state = get_state_from_city(city) if city else None
+
+            # Determine if coordinates are in the claimed state
+            coord_state = None
+            if lat and lng and claimed_state:
+                # Check if coordinates match claimed state
+                from app.llm.utils.geocoding_validator import GeocodingValidator
+
+                validator = GeocodingValidator()
+                if not validator.is_within_state_bounds(lat, lng, claimed_state):
+                    # Coordinates don't match claimed state
+                    # Try to find which state they're actually in
+                    for state in (
+                        [zip_state, city_state] if zip_state or city_state else []
+                    ):
+                        if state and validator.is_within_state_bounds(lat, lng, state):
+                            coord_state = state
+                            break
+
+            # Resolve conflicts
+            resolved_state, reason = resolve_state_conflict(
+                claimed_state, postal_code, city, coord_state
+            )
+
+            # If state needs correction
+            if resolved_state and resolved_state != claimed_state:
+                logger.warning(
+                    f"🔧 ENRICHER: Correcting state from '{claimed_state}' to '{resolved_state}' "
+                    f"(reason: {reason}) for {city}, {postal_code}"
+                )
+
+                address["state_province"] = resolved_state
+
+                # Add note about correction
+                if "validation_notes" not in location_data:
+                    location_data["validation_notes"] = {}
+
+                if "corrections" not in location_data["validation_notes"]:
+                    location_data["validation_notes"]["corrections"] = []
+
+                location_data["validation_notes"]["corrections"].append(
+                    {
+                        "field": "state_province",
+                        "old_value": claimed_state,
+                        "new_value": resolved_state,
+                        "reason": reason,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+
+                # Flag if coordinates might be wrong
+                if zip_state and city_state and zip_state == city_state:
+                    if coord_state and coord_state != zip_state:
+                        location_data["validation_notes"]["coordinates_suspect"] = True
+                        logger.warning(
+                            f"⚠️ ENRICHER: Coordinates may be wrong - "
+                            f"ZIP/city indicate {zip_state} but coords point to {coord_state}"
+                        )
+
+        return location_data
 
     def _geocode_missing_coordinates(
         self, location_data: Dict[str, Any]

@@ -1,0 +1,367 @@
+"""Map API endpoints for serving location data to web interface."""
+
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.v1.map.models import (
+    MapLocationsResponse,
+    MapLocation,
+    MapSource,
+    MapSchedule,
+    MapMetadata,
+    MapStatesResponse,
+    StateInfo,
+)
+from app.api.v1.map.services import MapDataService
+from app.core.db import get_session
+
+router = APIRouter(prefix="/map", tags=["map"])
+
+
+@router.get("/locations", response_model=MapLocationsResponse)
+async def get_map_locations(
+    request: Request,
+    # Bounding box parameters
+    min_lat: Optional[float] = Query(
+        None, ge=-90, le=90, description="Minimum latitude"
+    ),
+    min_lng: Optional[float] = Query(
+        None, ge=-180, le=180, description="Minimum longitude"
+    ),
+    max_lat: Optional[float] = Query(
+        None, ge=-90, le=90, description="Maximum latitude"
+    ),
+    max_lng: Optional[float] = Query(
+        None, ge=-180, le=180, description="Maximum longitude"
+    ),
+    # Filter parameters
+    state: Optional[str] = Query(
+        None, max_length=2, description="State code (e.g., 'CA')"
+    ),
+    confidence_min: Optional[int] = Query(
+        None, ge=0, le=100, description="Minimum confidence score"
+    ),
+    validation_status: Optional[str] = Query(
+        None, description="Validation status filter"
+    ),
+    # Pagination parameters
+    page: Optional[int] = Query(None, ge=1, description="Page number (if paginating)"),
+    per_page: Optional[int] = Query(None, ge=1, le=1000, description="Items per page"),
+    # Aggregation parameters
+    clustering_radius: int = Query(
+        150, ge=0, le=1000, description="Aggregation radius in meters"
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> MapLocationsResponse:
+    """
+    Get locations for map display with optional filtering and aggregation.
+
+    This endpoint returns aggregated location data suitable for map visualization.
+    Locations within the clustering radius are grouped together with source tracking.
+
+    Use bounding box parameters to fetch only visible locations for better performance.
+    """
+
+    # Build bounding box if all parameters provided
+    bbox = None
+    if all(v is not None for v in [min_lat, min_lng, max_lat, max_lng]):
+        bbox = (min_lat, min_lng, max_lat, max_lng)
+
+    # Initialize service
+    service = MapDataService(session, grouping_radius_meters=clustering_radius)
+
+    # Fetch locations
+    locations_data, metadata = await service.get_locations_for_map(
+        bbox=bbox,
+        state=state,
+        confidence_min=confidence_min,
+        validation_status=validation_status,
+        limit=per_page if per_page else 10000,
+    )
+
+    # Convert to response models
+    locations = []
+    for loc_data in locations_data:
+        # Convert sources
+        sources = []
+        for source_data in loc_data.get("sources", []):
+            schedule = None
+            if source_data.get("schedule"):
+                schedule = MapSchedule(**source_data["schedule"])
+
+            source = MapSource(
+                scraper=source_data["scraper"],
+                name=source_data.get("name", ""),
+                org=source_data.get("org", ""),
+                description=source_data.get("description", ""),
+                services=source_data.get("services", ""),
+                languages=source_data.get("languages", ""),
+                schedule=schedule,
+                phone=source_data.get("phone", ""),
+                website=source_data.get("website", ""),
+                email=source_data.get("email", ""),
+                address=source_data.get("address", ""),
+                first_seen=source_data.get("first_seen"),
+                last_updated=source_data.get("last_updated"),
+                confidence_score=source_data.get("confidence_score", 50),
+            )
+            sources.append(source)
+
+        # Create location
+        location = MapLocation(
+            id=UUID(loc_data["id"]),
+            lat=loc_data["lat"],
+            lng=loc_data["lng"],
+            name=loc_data["name"],
+            org=loc_data.get("org", ""),
+            address=loc_data.get("address", ""),
+            city=loc_data.get("city", ""),
+            state=loc_data.get("state", ""),
+            zip=loc_data.get("zip", ""),
+            phone=loc_data.get("phone", ""),
+            website=loc_data.get("website", ""),
+            email=loc_data.get("email", ""),
+            description=loc_data.get("description", ""),
+            source_count=loc_data.get("source_count", 1),
+            sources=sources,
+            confidence_score=loc_data.get("confidence_score", 50),
+            validation_status=loc_data.get("validation_status", "needs_review"),
+            geocoding_source=loc_data.get("geocoding_source", ""),
+            location_type=loc_data.get("location_type", ""),
+        )
+        locations.append(location)
+
+    # Handle pagination if requested
+    if page and per_page:
+        total_pages = (len(locations) + per_page - 1) // per_page
+        start = (page - 1) * per_page
+        end = start + per_page
+        paginated_locations = locations[start:end]
+
+        return MapLocationsResponse(
+            metadata=metadata,
+            locations=paginated_locations,
+            page=page,
+            per_page=per_page,
+            total_pages=total_pages,
+            has_more=end < len(locations),
+        )
+
+    return MapLocationsResponse(metadata=metadata, locations=locations, has_more=False)
+
+
+@router.get("/locations/{location_id}", response_model=MapLocation)
+async def get_map_location_detail(
+    location_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> MapLocation:
+    """
+    Get detailed information for a specific location.
+
+    Returns full details including all source data for a single location.
+    """
+
+    service = MapDataService(session)
+
+    # Query for specific location
+    query = """
+        SELECT
+            l.id,
+            l.latitude as lat,
+            l.longitude as lng,
+            l.name as location_name,
+            o.name as org_name,
+            o.website,
+            o.email,
+            COALESCE(o.description, l.description) as description,
+            CONCAT_WS(', ',
+                NULLIF(a.address_1, ''),
+                NULLIF(a.address_2, ''),
+                NULLIF(a.city, ''),
+                NULLIF(a.state_province, ''),
+                NULLIF(a.postal_code, '')
+            ) as address,
+            a.city,
+            a.state_province as state,
+            a.postal_code as zip,
+            l.confidence_score,
+            l.validation_status,
+            l.geocoding_source,
+            l.location_type
+        FROM location l
+        LEFT JOIN address a ON a.location_id = l.id
+        LEFT JOIN organization o ON o.id = l.organization_id
+        WHERE l.id = :location_id
+    """
+
+    from sqlalchemy import text
+
+    result = await session.execute(text(query), {"location_id": str(location_id)})
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    # Get source information
+    sources_query = """
+        SELECT
+            ls.scraper_id,
+            ls.created_at as first_seen,
+            ls.updated_at as last_updated
+        FROM location_source ls
+        WHERE ls.location_id = :location_id
+    """
+
+    sources_result = await session.execute(
+        text(sources_query), {"location_id": str(location_id)}
+    )
+    sources_rows = sources_result.fetchall()
+
+    # Build sources list
+    sources = []
+    for source_row in sources_rows:
+        source = MapSource(
+            scraper=source_row.scraper_id,
+            name=row.location_name or row.org_name or "",
+            org=row.org_name or "",
+            description=row.description or "",
+            services="",  # Would need additional query for services
+            languages="",  # Would need additional query for languages
+            schedule=None,  # Would need additional query for schedule
+            phone="",  # Would need additional query for phone
+            website=row.website or "",
+            email=row.email or "",
+            address=row.address or "",
+            first_seen=(
+                source_row.first_seen.isoformat() if source_row.first_seen else None
+            ),
+            last_updated=(
+                source_row.last_updated.isoformat() if source_row.last_updated else None
+            ),
+            confidence_score=row.confidence_score or 50,
+        )
+        sources.append(source)
+
+    # Validate state code
+    state_value = row.state or ""
+    if len(state_value) > 2:
+        if len(state_value) >= 2 and state_value[:2].isalpha():
+            state_value = state_value[:2].upper()
+        else:
+            state_value = ""
+
+    return MapLocation(
+        id=location_id,
+        lat=row.lat,
+        lng=row.lng,
+        name=row.location_name or row.org_name or "Food Assistance Location",
+        org=row.org_name or "",
+        address=row.address or "",
+        city=row.city or "",
+        state=state_value,
+        zip=row.zip or "",
+        phone="",  # Would need additional query
+        website=row.website or "",
+        email=row.email or "",
+        description=row.description or "",
+        source_count=len(sources),
+        sources=sources,
+        confidence_score=row.confidence_score or 50,
+        validation_status=row.validation_status or "needs_review",
+        geocoding_source=row.geocoding_source or "",
+        location_type=row.location_type or "",
+    )
+
+
+@router.get("/metadata", response_model=MapMetadata)
+async def get_map_metadata(
+    session: AsyncSession = Depends(get_session),
+) -> MapMetadata:
+    """
+    Get metadata about the map data.
+
+    Returns statistics and coverage information for all map data.
+    """
+
+    from sqlalchemy import text
+    from datetime import datetime, UTC
+
+    # Get statistics
+    stats_query = """
+        SELECT
+            COUNT(DISTINCT l.id) as total_locations,
+            COUNT(DISTINCT ls.id) as total_sources,
+            COUNT(DISTINCT a.state_province) as states_covered
+        FROM location l
+        LEFT JOIN location_source ls ON ls.location_id = l.id
+        LEFT JOIN address a ON a.location_id = l.id
+        WHERE l.latitude IS NOT NULL
+          AND l.longitude IS NOT NULL
+          AND l.is_canonical = true
+          AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
+    """
+
+    result = await session.execute(text(stats_query))
+    stats = result.fetchone()
+
+    # Get multi-source locations count
+    multi_query = """
+        SELECT COUNT(*) as multi_source_count
+        FROM (
+            SELECT location_id, COUNT(*) as source_count
+            FROM location_source
+            GROUP BY location_id
+            HAVING COUNT(*) > 1
+        ) as multi
+    """
+
+    multi_result = await session.execute(text(multi_query))
+    multi_row = multi_result.fetchone()
+    multi_count = multi_row.multi_source_count if multi_row else 0
+
+    if not stats:
+        # Return default values if no stats available
+        return MapMetadata(
+            generated=datetime.now(UTC).isoformat(),
+            total_locations=0,
+            total_source_records=0,
+            multi_source_locations=0,
+            states_covered=0,
+            coverage="0 US states/territories",
+            source="Pantry Pirate Radio HSDS API",
+            format_version="4.0",
+            export_method="API Query",
+            aggregation_radius_meters=150,
+        )
+
+    return MapMetadata(
+        generated=datetime.now(UTC).isoformat(),
+        total_locations=stats.total_locations or 0,
+        total_source_records=stats.total_sources or 0,
+        multi_source_locations=multi_count,
+        states_covered=stats.states_covered or 0,
+        coverage=f"{stats.states_covered or 0} US states/territories",
+        source="Pantry Pirate Radio HSDS API",
+        format_version="4.0",
+        export_method="API Query",
+        aggregation_radius_meters=150,
+    )
+
+
+@router.get("/states", response_model=MapStatesResponse)
+async def get_states_coverage(
+    session: AsyncSession = Depends(get_session),
+) -> MapStatesResponse:
+    """
+    Get coverage information for all states.
+
+    Returns a list of states with location counts and bounding boxes.
+    """
+
+    service = MapDataService(session)
+    states = await service.get_states_coverage()
+
+    return MapStatesResponse(total_states=len(states), states=states)

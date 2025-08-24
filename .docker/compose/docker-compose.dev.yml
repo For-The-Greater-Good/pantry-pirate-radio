@@ -8,7 +8,8 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-pirate}@db:5432/pantry_pirate_radio}
       - REDIS_URL=${REDIS_URL:-redis://cache:6379/0}
-    command: sleep infinity
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
+    # Removed sleep infinity - will use the base "app" command to run FastAPI
 
 volumes:
   vscode-server:

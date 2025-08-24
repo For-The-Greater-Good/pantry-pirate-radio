@@ -84,33 +84,37 @@ class LocationCreator(BaseReconciler):
             self.logger.error(f"Failed to log constraint violation: {e}")
 
     def find_matching_location(
-        self, latitude: float, longitude: float, tolerance: float = 0.0001
+        self, latitude: float, longitude: float, tolerance: float = None
     ) -> str | None:
         """Find matching location by coordinates (backward compatibility wrapper).
 
         Args:
             latitude: Location latitude
             longitude: Location longitude
-            tolerance: Coordinate matching tolerance (4 decimal places = ~11m)
+            tolerance: Coordinate matching tolerance (uses config default if not specified)
 
         Returns:
             ID of matching location if found, None otherwise
         """
+        if tolerance is None:
+            tolerance = self.location_tolerance
         return self.find_matching_location_with_lock(latitude, longitude, tolerance)
 
     def find_matching_location_with_lock(
-        self, latitude: float, longitude: float, tolerance: float = 0.0001
+        self, latitude: float, longitude: float, tolerance: float = None
     ) -> str | None:
         """Find matching location by coordinates using advisory locks for consistency.
 
         Args:
             latitude: Location latitude
             longitude: Location longitude
-            tolerance: Coordinate matching tolerance (4 decimal places = ~11m)
+            tolerance: Coordinate matching tolerance (uses config default if not specified)
 
         Returns:
             ID of matching location if found, None otherwise
         """
+        if tolerance is None:
+            tolerance = self.location_tolerance
         # Acquire advisory lock for coordinate area to prevent concurrent modifications
         lock_query = text("SELECT acquire_location_lock(:lat, :lon)")
         lock_result = self.db.execute(lock_query, {"lat": latitude, "lon": longitude})
@@ -379,7 +383,7 @@ class LocationCreator(BaseReconciler):
             Tuple of (location_id, is_new) where is_new indicates if a new location was created
         """
         scraper_id = metadata.get("scraper_id", "unknown")
-        tolerance = 0.0001  # ~11m tolerance for coordinate matching
+        tolerance = self.location_tolerance  # Use configurable tolerance
 
         def _create_or_find_location():
             # Acquire advisory lock for this coordinate area
@@ -536,6 +540,17 @@ class LocationCreator(BaseReconciler):
         Returns:
             Address ID
         """
+        # Validate state_province to prevent corruption
+        if state_province:
+            # Ensure state is exactly 2 uppercase letters
+            if len(state_province) != 2 or not state_province.isalpha():
+                self.logger.error(
+                    f"Invalid state_province '{state_province[:50]}' (length: {len(state_province)}). Using empty string."
+                )
+                state_province = ""
+            else:
+                state_province = state_province.upper()
+
         # Trust the validator's data - no geocoding needed here
         # If still no postal code after validation, use a default based on state
         if postal_code is None or postal_code == "":

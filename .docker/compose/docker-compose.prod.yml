@@ -9,13 +9,18 @@ services:
     command: ["app"]
     ports:
       - "8000:8000"
-    env_file: .env
+    env_file: ../../.env
     depends_on:
       - db
       - cache
     networks:
       - frontend
       - backend
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
     restart: unless-stopped
 
   worker:
@@ -23,7 +28,9 @@ services:
     command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
-    env_file: .env
+    env_file: ../../.env
+    networks:
+      - backend
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -44,6 +51,9 @@ services:
       - CLAUDE_QUOTA_BACKOFF_MULTIPLIER=${CLAUDE_QUOTA_BACKOFF_MULTIPLIER}
       - CLAUDE_HEALTH_SERVER=true
     volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
       - claude_config:/root/.config/claude  # Shared Claude authentication
     depends_on:
       - db
@@ -52,7 +62,7 @@ services:
   recorder:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["recorder"]
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -60,6 +70,8 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - backend
     volumes:
       - ../../outputs:/app/outputs
       - ../../archives:/app/archives
@@ -67,17 +79,64 @@ services:
   reconciler:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["reconciler"]
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
     depends_on:
       - db
       - cache
+    networks:
+      - backend
+
+  scraper:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["scraper"]
+    env_file: ../../.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
+    depends_on:
+      - db
+      - cache
+    networks:
+      - backend
+
+  validator:
+    image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
+    command: ["validator"]
+    env_file: ../../.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - LOG_LEVEL=INFO
+      - VALIDATOR_LOG_DATA_FLOW=false
+      - VALIDATOR_ENRICHMENT_ENABLED=true
+      - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
+    volumes:
+      - ../../outputs:/app/outputs
+      - haarrrvest_repo:/data-repo
+      - app_data:/app/data
+      - claude_config:/root/.config/claude
+    depends_on:
+      - db
+      - cache
+    networks:
+      - backend
 
   db:
     image: postgis/postgis:15-3.3
-    env_file: .env
+    env_file: ../../.env
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -85,30 +144,36 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../../init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - backend
     # NO PORTS EXPOSED - access only through Docker network for security
 
   cache:
     image: redis:7-alpine
     # NO PORTS EXPOSED - access only through Docker network for security
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --protected-mode yes
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --protected-mode no
     volumes:
       - redis_data:/data
+    networks:
+      - backend
 
   rq-dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["rq-dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 9181:rq-dashboard:9181 user@server
-    env_file: .env
+    env_file: ../../.env
     environment:
       - REDIS_URL=${REDIS_URL}
     depends_on:
       - cache
+    networks:
+      - backend
 
   content-store-dashboard:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 5050:content-store-dashboard:5050 user@server
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -120,11 +185,13 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - backend
 
   haarrrvest-publisher:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["publisher"]
-    env_file: .env
+    env_file: ../../.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - DATA_REPO_PATH=/data-repo
@@ -140,6 +207,8 @@ services:
     depends_on:
       - db
       - cache
+    networks:
+      - backend
 
   datasette:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:datasette-${DOCKER_TAG:-latest}
@@ -162,6 +231,18 @@ services:
     depends_on:
       - haarrrvest-publisher
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - frontend
+    depends_on:
+      - app
+      - datasette
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
@@ -173,5 +254,5 @@ networks:
   frontend:
     # Public-facing network for API and datasette
   backend:
-    # Internal network for service communication
-    internal: true
+    # Backend network for service communication
+    # Services need internet access for GitHub, geocoding APIs, etc.
