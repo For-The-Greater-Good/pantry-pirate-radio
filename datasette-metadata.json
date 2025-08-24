@@ -1,10 +1,17 @@
 {
-  "title": "Pantry Pirate Radio Data Explorer",
-  "description": "Explore food pantry and provider data collected by Pantry Pirate Radio",
-  "license": "CC-BY-SA",
-  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "title": "HAARRRvest - Food Resources Database",
+  "description": "Interactive exploration of food assistance locations",
+  "license": "CC0 1.0 Universal",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
   "source": "Pantry Pirate Radio PostgreSQL Database",
   "source_url": "https://github.com/For-The-Greater-Good/pantry-pirate-radio",
+  
+  "extra_css_urls": [
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+    "/static/datasette-custom.css"
+  ],
+  
+  "extra_body_script": "window.addEventListener('DOMContentLoaded', function() { if (window.location.pathname === '/') { window.location.href = '/pantry_pirate_radio/location_master'; } });",
 
   "plugins": {
     "datasette-cluster-map": {
@@ -30,13 +37,19 @@
   },
 
   "databases": {
-    "latest": {
+    "pantry_pirate_radio": {
       "tables": {
         "location_master": {
-          "sort": "location_name",
-          "sort_desc": false,
           "title": "All Food Pantry Locations",
-          "description": "Comprehensive view of all food pantry locations with complete details including address, contact info, services, hours, and source tracking"
+          "description": "Comprehensive view of all food pantry locations with complete details including address, contact info, services, hours, and source tracking",
+          "facets": ["city", "state_province", "validation_status"],
+          "searchable_columns": ["location_name", "city", "state_province", "services"],
+          "plugins": {
+            "datasette-cluster-map": {
+              "latitude_column": "latitude",
+              "longitude_column": "longitude"
+            }
+          }
         },
         "organization": {
           "hidden": true
@@ -79,11 +92,6 @@
           "sql": "SELECT state_province, count(*) as count FROM location_master GROUP BY state_province ORDER BY count DESC",
           "title": "Locations by State",
           "description": "Number of service locations by state"
-        },
-        "locations_with_hours": {
-          "sql": "SELECT location_name, address_1, city, state_province, hours_of_operation FROM location_master WHERE hours_of_operation IS NOT NULL ORDER BY state_province, city, location_name",
-          "title": "Locations with Known Hours",
-          "description": "All locations that have hours of operation information"
         },
         "multi_source_locations": {
           "sql": "SELECT location_name, address_1, city, state_province, data_sources, source_count FROM location_master WHERE source_count > 1 ORDER BY source_count DESC, location_name",
@@ -139,5 +147,24 @@
         }
       ]
     }
-  }
+  },
+  
+  "custom_nav_links": [
+    {
+      "href": "/pantry_pirate_radio/location_master",
+      "label": "📍 All Locations"
+    },
+    {
+      "href": "https://haarrrvest.for-the-gg.org/map.html",
+      "label": "🗺️ Interactive Map"
+    },
+    {
+      "href": "https://github.com/For-The-Greater-Good/pantry-pirate-radio",
+      "label": "🏴‍☠️ Pantry Pirate Radio"
+    },
+    {
+      "href": "https://github.com/For-The-Greater-Good/HAARRRvest",
+      "label": "📊 HAARRRvest Data"
+    }
+  ]
 }

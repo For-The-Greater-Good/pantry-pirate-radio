@@ -11,8 +11,41 @@ services:
       - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     # Removed sleep infinity - will use the base "app" command to run FastAPI
 
+  datasette:
+    build:
+      context: ../..
+      dockerfile: .docker/images/datasette/Dockerfile
+    ports:
+      - "8001:8001"
+    command: [
+      "datasette",
+      "-p", "8001",
+      "-h", "0.0.0.0",
+      "--metadata", "/app/datasette-metadata.json",
+      "--static", "static:/app/static",
+      "--setting", "sql_time_limit_ms", "120000",
+      "--setting", "max_returned_rows", "10000",
+      "--setting", "allow_download", "1",
+      "--setting", "default_page_size", "100",
+      "--setting", "base_url", "http://localhost:8001/",
+      "/data-repo/sqlite/pantry_pirate_radio.sqlite"
+    ]
+    volumes:
+      - haarrrvest_repo:/data-repo:ro
+      - ../../datasette-metadata.json:/app/datasette-metadata.json:ro
+      - ../../datasette-custom.css:/app/static/datasette-custom.css:ro
+    depends_on:
+      - haarrrvest-publisher
+    networks:
+      - backend
+
 volumes:
   vscode-server:
     name: ${COMPOSE_PROJECT_NAME:-pantry-pirate-radio}_vscode-server
   postgres_data:
   redis_data:
+  haarrrvest_repo:
+
+networks:
+  backend:
+  frontend:
