@@ -549,9 +549,9 @@ class TestHAARRRvestPublisher:
         """Test running HAARRRvest's location export script."""
         _, repo_dir = temp_dirs
 
-        # Mock the new MapDataExporter - imported within the method
+        # Mock the new AggregatedMapDataExporter - imported within the method
         with patch(
-            "app.haarrrvest_publisher.export_map_data.MapDataExporter"
+            "app.haarrrvest_publisher.export_map_data_aggregated.AggregatedMapDataExporter"
         ) as MockExporter:
             mock_exporter = Mock()
             mock_exporter.export.return_value = True
@@ -965,24 +965,24 @@ class TestHAARRRvestPublisher:
         """Test handling missing location export script."""
         _, repo_dir = temp_dirs
 
-        # Mock ImportError for MapDataExporter at the correct import location
+        # Mock ImportError for AggregatedMapDataExporter at the correct import location
         with patch(
-            "app.haarrrvest_publisher.export_map_data.MapDataExporter",
+            "app.haarrrvest_publisher.export_map_data_aggregated.AggregatedMapDataExporter",
             side_effect=ImportError("Module not found"),
         ):
             with patch("app.haarrrvest_publisher.service.logger") as mock_logger:
                 publisher._run_location_export()
 
-                # Should log error about missing MapDataExporter
+                # Should log error about missing AggregatedMapDataExporter
                 mock_logger.error.assert_called()
 
     def test_should_handle_location_export_failure(self, publisher, temp_dirs):
         """Test handling location export script failure."""
         _, repo_dir = temp_dirs
 
-        # Mock MapDataExporter to fail at the correct import location
+        # Mock AggregatedMapDataExporter to fail at the correct import location
         with patch(
-            "app.haarrrvest_publisher.export_map_data.MapDataExporter"
+            "app.haarrrvest_publisher.export_map_data_aggregated.AggregatedMapDataExporter"
         ) as MockExporter:
             mock_exporter = Mock()
             mock_exporter.export.return_value = False  # Export fails

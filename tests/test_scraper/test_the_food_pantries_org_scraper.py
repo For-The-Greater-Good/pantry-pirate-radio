@@ -92,9 +92,9 @@ async def test_scrape(
     scraper: The_Food_Pantries_OrgScraper, mocker: MockerFixture
 ) -> None:
     """Test full scraping process."""
-    # Mock the queue_for_processing method
-    mock_queue = mocker.patch("app.scraper.utils.ScraperUtils.queue_for_processing")
-    mock_queue.return_value = "test_job_id"
+    # Mock the submit_to_queue method
+    mock_submit = mocker.patch.object(scraper, "submit_to_queue")
+    mock_submit.return_value = "test_job_id"
 
     with respx.mock:
         # Mock the GET request
@@ -104,7 +104,13 @@ async def test_scrape(
 
         raw_content = await scraper.scrape()
         data = json.loads(raw_content)
-        assert data == SAMPLE_JSON
 
-        # Verify job was queued
-        assert mock_queue.call_count == 1
+        # Scraper now returns a summary instead of raw content
+        assert data["scraper_id"] == "the_food_pantries_org"
+        assert data["source"] == "https://map.thefoodpantries.org"
+        assert data["total_features"] == 1
+        assert data["jobs_created"] == 1
+        assert data["status"] == "complete"
+
+        # Verify job was submitted
+        assert mock_submit.call_count == 1

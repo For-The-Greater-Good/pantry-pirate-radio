@@ -123,7 +123,7 @@ class The_Food_Pantries_OrgScraper(ScraperJob):
         """Download and process data from map.thefoodpantries.org.
 
         Returns:
-            str: Raw scraped content
+            str: Summary of scraping results as JSON
 
         Raises:
             httpx.HTTPError: If download fails
@@ -155,11 +155,21 @@ class The_Food_Pantries_OrgScraper(ScraperJob):
                 job_count += 1
                 logger.info(f"Queued job {job_id}")
 
+        # Create summary for return
+        summary = {
+            "scraper_id": self.scraper_id,
+            "source": self.url,
+            "total_features": len(collection.get("features", [])),
+            "jobs_created": job_count,
+            "collection_name": collection.get("name", ""),
+            "status": "complete",
+        }
+
         # Print summary to CLI
         print("\nScraper Summary:")
         print(f"Source: {self.url}")
         print(f"Total jobs created: {job_count}")
         print("Status: Complete\n")
 
-        # Return original content for archiving
-        return raw_content
+        # Return summary instead of raw content to prevent duplicate submission
+        return json.dumps(summary)

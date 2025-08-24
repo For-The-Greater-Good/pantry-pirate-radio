@@ -26,9 +26,11 @@ class ReconcilerUtils(BaseReconciler):
         self.job_processor = JobProcessor(db)
 
     def find_matching_location(
-        self, latitude: float, longitude: float, tolerance: float = 0.0001
+        self, latitude: float, longitude: float, tolerance: float = None
     ) -> uuid.UUID | None:
         """Find matching location by coordinates."""
+        if tolerance is None:
+            tolerance = self.location_tolerance
         result = self.location_creator.find_matching_location(
             latitude, longitude, tolerance
         )

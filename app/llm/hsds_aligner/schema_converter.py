@@ -1026,8 +1026,8 @@ class SchemaConverter:
                 "description": schema_description,
                 "schema": schema,
                 "strict": True,
-                "max_tokens": 64768,
                 "temperature": 0.4,  # Ensure deterministic outputs
+                "max_tokens": 64768,  # Maximum tokens for structured output
             },
         }
 
@@ -1241,8 +1241,8 @@ class SchemaConverter:
                 "description": food_pantry_guidance,
                 "schema": hsds_core_schema,
                 "strict": True,
-                "max_tokens": 64768,
                 "temperature": 0.4,
+                "max_tokens": 64768,  # Maximum tokens for structured output
             },
         }
 
@@ -1436,7 +1436,7 @@ class SchemaConverter:
                 "description": full_schema_description,
                 "schema": hsds_full_schema,
                 "strict": True,
-                "max_tokens": 64768,
                 "temperature": 0.4,  # Ensure deterministic outputs
+                "max_tokens": 64768,  # Maximum tokens for structured output
             },
         }

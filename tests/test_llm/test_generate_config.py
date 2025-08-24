@@ -8,9 +8,9 @@ from app.llm.providers.types import GenerateConfig
 @pytest.mark.parametrize(
     "temperature,top_p,top_k,max_tokens",
     [
-        (0.7, 0.9, 40, 64768),  # Default values
+        (0.7, 0.9, 40, 8192),  # Default values
         (0.0, 1.0, 1, 1),  # Minimum valid values
-        (1.0, 0.5, 100, 64768),  # Mixed values
+        (1.0, 0.5, 100, 8192),  # Mixed values
     ],
 )
 async def test_generate_config_valid(
@@ -43,7 +43,7 @@ async def test_generate_config_defaults() -> None:
     assert config.temperature == 0.7
     assert config.top_p == 0.9
     assert config.top_k == 40
-    assert config.max_tokens == 64768
+    assert config.max_tokens == 64768  # Default from environment LLM_MAX_TOKENS
     assert config.stop is None
     assert config.stream is False
     assert config.format is None

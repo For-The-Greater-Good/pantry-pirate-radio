@@ -214,70 +214,80 @@ class PlentifulScraper(ScraperJob):
         """
         logger.info("Starting Plentiful scraper")
 
-        # Get grid points for comprehensive US coverage
-        grid_points = self.utils.get_us_grid_points()
+        # Use state-level searches instead of grid points
+        # Each state typically has <1000 locations, so we can search entire states
+        from pathlib import Path
+        from app.models.geographic import BoundingBox
+        import os
 
-        # In test mode, limit to a few grid points for quick verification
-        # Test mode is detected by checking scraper_id or explicit test_mode flag
-        is_test_mode = self.test_mode or "test" in self.scraper_id.lower()
-        if is_test_mode:
-            # Use grid points that are likely to have results (major metro areas)
-            test_points = [
-                point
-                for point in grid_points
-                if (
-                    40.0 <= point.latitude <= 41.0 and -74.5 <= point.longitude <= -73.5
-                )  # NYC area
-                or (
-                    34.0 <= point.latitude <= 35.0
-                    and -118.5 <= point.longitude <= -117.5
-                )  # LA area
-                or (
-                    41.8 <= point.latitude <= 42.0 and -87.8 <= point.longitude <= -87.5
-                )  # Chicago area
-            ][
-                :3
-            ]  # Limit to 3 points maximum for quick test
-            grid_points = test_points
-            logger.info(f"Test mode: Using {len(grid_points)} grid points for coverage")
+        # Define state search boxes - use relative path that works both locally and in container
+        # In container: /app/docs/GeoJson/States
+        # Locally: current working directory + /docs/GeoJson/States
+        if os.path.exists("/app"):
+            # Running in container
+            geojson_dir = Path("/app/docs/GeoJson/States")
         else:
-            logger.info(f"Using {len(grid_points)} grid points for coverage")
+            # Running locally - use relative path from current working directory
+            geojson_dir = Path.cwd() / "docs" / "GeoJson" / "States"
+
+        # In test mode, only search a few states
+        is_test_mode = self.test_mode or "test" in self.scraper_id.lower()
+
+        if is_test_mode:
+            # Test with just NY, CA, and TX
+            state_files = [
+                geojson_dir / "ny_new_york_zip_codes_geo.min.json",
+                geojson_dir / "ca_california_zip_codes_geo.min.json",
+                geojson_dir / "tx_texas_zip_codes_geo.min.json",
+            ]
+            logger.info(f"Test mode: Searching {len(state_files)} states")
+        else:
+            # Get all state GeoJSON files
+            state_files = sorted(geojson_dir.glob("*_zip_codes_geo.min.json"))
+            # Skip Alaska and Hawaii in initial implementation (can add back if needed)
+            state_files = [
+                f
+                for f in state_files
+                if not any(skip in f.name for skip in ["ak_alaska", "hi_hawaii"])
+            ]
+            logger.info(f"Production mode: Searching {len(state_files)} states")
 
         total_locations = 0
         total_jobs_created = 0
         failed_details = 0
         seen_ids: Set[int] = set()
         queries_with_max_results = 0
+        states_processed = 0
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            # Process grid points in batches
-            for i in range(0, len(grid_points), self.batch_size):
-                batch = grid_points[i : i + self.batch_size]
+            # Process states one by one (or in small batches)
+            for state_file in state_files:
+                state_name = state_file.stem.split("_")[1]  # Extract state name
                 logger.info(
-                    f"Processing batch {i//self.batch_size + 1}/{(len(grid_points) + self.batch_size - 1)//self.batch_size}"
+                    f"Processing state: {state_name.upper()} ({states_processed + 1}/{len(state_files)})"
                 )
 
-                # Fetch locations for each grid point
-                for point in batch:
-                    # Create smaller bounding box around grid point (approximately 25 miles radius)
-                    # to ensure we stay under 1k result limit
-                    lat_offset = 0.36  # ~25 miles in latitude
-                    lng_offset = 0.36  # ~25 miles in longitude (approximate)
+                try:
+                    # Get bounding box for the state
+                    bbox = BoundingBox.from_geojson(state_file)
+                    logger.info(
+                        f"  Searching bounds: ({bbox.south:.2f}, {bbox.west:.2f}) to ({bbox.north:.2f}, {bbox.east:.2f})"
+                    )
 
-                    lat1 = point.latitude + lat_offset
-                    lng1 = point.longitude - lng_offset
-                    lat2 = point.latitude - lat_offset
-                    lng2 = point.longitude + lng_offset
-
+                    # Search the entire state in one API call
                     locations = await self.fetch_locations_in_bounds(
-                        client, lat1, lng1, lat2, lng2
+                        client, bbox.north, bbox.west, bbox.south, bbox.east
+                    )
+
+                    logger.info(
+                        f"  Found {len(locations)} locations in {state_name.upper()}"
                     )
 
                     # Check if we hit the potential 1k limit
                     if len(locations) >= 1000:
                         queries_with_max_results += 1
                         logger.warning(
-                            f"Query returned {len(locations)} results, may have hit 1k limit"
+                            f"  State {state_name.upper()} returned {len(locations)} results, may have hit 1k limit!"
                         )
 
                     # Process each location with deduplication
@@ -309,9 +319,10 @@ class PlentifulScraper(ScraperJob):
                                 json.dumps(processed_location)
                             )
                             total_jobs_created += 1
-                            logger.info(
-                                f"Queued job {job_id} for location: {processed_location['name']}"
-                            )
+                            if total_jobs_created % 100 == 0:
+                                logger.info(
+                                    f"  Progress: {total_jobs_created} jobs created"
+                                )
                         except Exception as e:
                             logger.error(
                                 f"Failed to submit job for location {location_id}: {e}"
@@ -321,13 +332,15 @@ class PlentifulScraper(ScraperJob):
                         await asyncio.sleep(self.detail_request_delay)
 
                     logger.info(
-                        f"Grid point ({point.latitude:.3f}, {point.longitude:.3f}): {len(locations)} total, {new_locations} new"
+                        f"  Completed {state_name.upper()}: {new_locations} new locations added"
                     )
+                    states_processed += 1
 
-                    # Rate limiting between location fetches
-                    await asyncio.sleep(self.request_delay)
+                except Exception as e:
+                    logger.error(f"  Failed to process state {state_name}: {e}")
+                    continue
 
-                # Longer pause between batches
+                # Rate limiting between states
                 await asyncio.sleep(self.batch_delay)
 
         # Create summary
@@ -335,7 +348,7 @@ class PlentifulScraper(ScraperJob):
             "total_locations_found": total_locations,
             "total_jobs_created": total_jobs_created,
             "failed_detail_fetches": failed_details,
-            "grid_points_processed": len(grid_points),
+            "states_processed": states_processed,
             "queries_with_max_results": queries_with_max_results,
             "source": "plentiful",
             "base_url": self.base_url,
@@ -344,7 +357,7 @@ class PlentifulScraper(ScraperJob):
         # Print summary to CLI
         print("\nPlentiful Scraper Summary:")
         print(f"Source: {self.base_url}")
-        print(f"Grid points processed: {len(grid_points)}")
+        print(f"States processed: {states_processed}")
         print(f"Total locations found: {total_locations}")
         print(f"Successfully processed: {total_jobs_created}")
         print(f"Failed detail fetches: {failed_details}")
