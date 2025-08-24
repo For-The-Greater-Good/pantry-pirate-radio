@@ -22,6 +22,237 @@ from psycopg2.extras import RealDictCursor
 logger = logging.getLogger(__name__)
 
 
+def create_postgres_materialized_views(pg_conn: PgConnection) -> None:
+    """
+    Create or refresh materialized views in PostgreSQL for efficient export.
+
+    Args:
+        pg_conn: PostgreSQL connection
+    """
+    logger.info("Creating/refreshing PostgreSQL materialized views")
+
+    with pg_conn.cursor() as cursor:
+        # Check if materialized view already exists
+        cursor.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM pg_matviews
+                WHERE schemaname = 'public' AND matviewname = 'location_master'
+            ) as exists
+        """
+        )
+        mat_view_exists = cursor.fetchone()["exists"]
+
+        if mat_view_exists:
+            # Refresh existing materialized view
+            logger.info("Refreshing existing location_master materialized view")
+            cursor.execute("REFRESH MATERIALIZED VIEW location_master")
+            pg_conn.commit()
+        else:
+            # Drop any existing regular view first
+            try:
+                cursor.execute("DROP VIEW IF EXISTS location_master CASCADE")
+                pg_conn.commit()
+                logger.info("Dropped existing location_master view")
+            except Exception:
+                pg_conn.rollback()
+
+            # Create new materialized view
+            logger.info("Creating new location_master materialized view")
+            cursor.execute(
+                """
+                CREATE MATERIALIZED VIEW location_master AS
+            WITH location_phones AS (
+                SELECT
+                    COALESCE(p.location_id, p.organization_id) as entity_id,
+                    CASE WHEN p.location_id IS NOT NULL THEN 'loc' ELSE 'org' END as entity_type,
+                    STRING_AGG(
+                        p.number || CASE WHEN p.extension IS NOT NULL THEN ' x' || p.extension ELSE '' END,
+                        '; ' ORDER BY p.number
+                    ) as phone_number
+                FROM phone p
+                GROUP BY COALESCE(p.location_id, p.organization_id),
+                         CASE WHEN p.location_id IS NOT NULL THEN 'loc' ELSE 'org' END
+            ),
+            location_services AS (
+                SELECT
+                    sal.location_id,
+                    STRING_AGG(s.name, '; ' ORDER BY s.name) as services
+                FROM service s
+                JOIN service_at_location sal ON s.id = sal.service_id
+                GROUP BY sal.location_id
+            ),
+            location_languages AS (
+                SELECT
+                    l.location_id,
+                    STRING_AGG(l.name, ', ' ORDER BY l.name) as languages
+                FROM language l
+                WHERE l.location_id IS NOT NULL
+                GROUP BY l.location_id
+            ),
+            location_schedules AS (
+                SELECT DISTINCT ON (sal.location_id)
+                    sal.location_id,
+                    s.opens_at,
+                    s.closes_at,
+                    s.byday,
+                    s.description as schedule_description
+                FROM schedule s
+                JOIN service_at_location sal ON s.service_at_location_id = sal.id
+                WHERE sal.location_id IS NOT NULL
+                  AND (s.opens_at IS NOT NULL OR s.closes_at IS NOT NULL OR s.description IS NOT NULL)
+                ORDER BY sal.location_id, s.opens_at, s.closes_at
+            ),
+            location_sources AS (
+                SELECT
+                    ls.location_id,
+                    STRING_AGG(DISTINCT ls.scraper_id, ', ' ORDER BY ls.scraper_id) as data_sources,
+                    COUNT(DISTINCT ls.scraper_id) as source_count,
+                    MIN(ls.created_at) as first_seen,
+                    MAX(ls.updated_at) as last_updated
+                FROM location_source ls
+                GROUP BY ls.location_id
+            )
+            SELECT
+                -- Location Core Data
+                l.id AS location_id,
+                l.name AS location_name,
+                l.alternate_name AS location_alternate_name,
+                l.description AS location_description,
+                l.latitude,
+                l.longitude,
+                l.location_type,
+                l.transportation,
+                l.external_identifier,
+                l.external_identifier_type,
+                l.url AS location_url,
+                l.is_canonical,
+
+                -- Validation data
+                l.confidence_score,
+                l.validation_status,
+                l.validation_notes,
+                l.geocoding_source,
+
+                -- Address Information
+                a.id AS address_id,
+                a.attention AS address_attention,
+                a.address_1,
+                a.address_2,
+                a.city,
+                a.region,
+                a.state_province,
+                a.postal_code,
+                a.country,
+
+                -- Full address concatenated
+                CONCAT_WS(', ',
+                    NULLIF(a.address_1, ''),
+                    NULLIF(a.address_2, ''),
+                    NULLIF(a.city, ''),
+                    NULLIF(a.state_province, ''),
+                    NULLIF(a.postal_code, '')
+                ) AS full_address,
+
+                -- Organization Details
+                o.id AS organization_id,
+                o.name AS organization_name,
+                o.alternate_name AS organization_alternate_name,
+                COALESCE(o.description, l.description) AS organization_description,
+                o.email AS organization_email,
+                o.website AS organization_website,
+                o.legal_status,
+                o.year_incorporated,
+                o.tax_status,
+                o.tax_id,
+
+                -- Aggregated Data from CTEs
+                COALESCE(lp_loc.phone_number, lp_org.phone_number) AS phone_numbers,
+                lsrv.services,
+                llang.languages AS languages_spoken,
+                lsch.opens_at,
+                lsch.closes_at,
+                lsch.byday,
+                lsch.schedule_description,
+                lsrc.data_sources,
+                lsrc.source_count,
+                lsrc.first_seen,
+                lsrc.last_updated
+
+            FROM location l
+            LEFT JOIN address a ON a.location_id = l.id
+            LEFT JOIN organization o ON o.id = l.organization_id
+            LEFT JOIN location_phones lp_loc ON lp_loc.entity_id = l.id AND lp_loc.entity_type = 'loc'
+            LEFT JOIN location_phones lp_org ON lp_org.entity_id = o.id AND lp_org.entity_type = 'org'
+            LEFT JOIN location_services lsrv ON lsrv.location_id = l.id
+            LEFT JOIN location_languages llang ON llang.location_id = l.id
+            LEFT JOIN location_schedules lsch ON lsch.location_id = l.id
+            LEFT JOIN location_sources lsrc ON lsrc.location_id = l.id
+            WHERE l.is_canonical = true
+              AND l.latitude IS NOT NULL
+              AND l.longitude IS NOT NULL
+              AND l.latitude BETWEEN -90 AND 90
+              AND l.longitude BETWEEN -180 AND 180
+              AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
+                ORDER BY l.name
+            """
+            )
+            pg_conn.commit()
+
+            # Create indexes on the new materialized view
+            logger.info("Creating indexes on location_master")
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_location_master_city
+                ON location_master(city)
+            """
+            )
+
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_location_master_state
+                ON location_master(state_province)
+            """
+            )
+
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_location_master_location_id
+                ON location_master(location_id)
+            """
+            )
+
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_location_master_coords
+                ON location_master(latitude, longitude)
+            """
+            )
+
+            pg_conn.commit()
+
+        # Get row and column count
+        cursor.execute("SELECT COUNT(*) FROM location_master")
+        row_count = cursor.fetchone()["count"]
+
+        # Verify columns are accessible
+        cursor.execute(
+            """
+            SELECT COUNT(*) as col_count
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+            WHERE c.relname = 'location_master'
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+        """
+        )
+        col_count = cursor.fetchone()["col_count"]
+
+        logger.info(
+            f"Materialized view location_master ready with {row_count} rows and {col_count} columns"
+        )
+
+
 def export_to_sqlite(
     pg_conn_string: str | None = None,
     sqlite_path: str = "pantry_pirate_radio.sqlite",
@@ -59,6 +290,12 @@ def export_to_sqlite(
         logger.error(f"Failed to connect to PostgreSQL: {e}")
         raise
 
+    # Create or refresh materialized view in PostgreSQL for fast exports
+    create_postgres_materialized_views(pg_conn)
+
+    # Ensure all changes are committed and visible
+    pg_conn.commit()
+
     # Create or overwrite SQLite database
     if os.path.exists(sqlite_path):
         os.remove(sqlite_path)
@@ -67,8 +304,9 @@ def export_to_sqlite(
     sqlite_conn.row_factory = sqlite3.Row
 
     try:
-        # Get list of tables from PostgreSQL
+        # Get list of tables and materialized views from PostgreSQL
         with pg_conn.cursor() as cursor:
+            # Get regular tables
             cursor.execute(
                 """
                 SELECT tablename
@@ -79,17 +317,35 @@ def export_to_sqlite(
             )
             tables = [row["tablename"] for row in cursor.fetchall()]
 
+            # Get materialized views
+            cursor.execute(
+                """
+                SELECT matviewname as tablename
+                FROM pg_matviews
+                WHERE schemaname = 'public'
+                ORDER BY matviewname
+            """
+            )
+            mat_views = [row["tablename"] for row in cursor.fetchall()]
+
+            if mat_views:
+                logger.info(f"Found materialized views: {', '.join(mat_views)}")
+
+            # Combine tables and materialized views
+            all_tables = tables + mat_views
+            logger.info(
+                f"Found {len(tables)} tables and {len(mat_views)} materialized views to export"
+            )
+
         # Exclude PostGIS-specific tables and any user-specified tables
         exclude_list = ["geography_columns", "geometry_columns", *exclude_tables]
-        tables = [t for t in tables if t not in exclude_list]
+        tables_to_export = [t for t in all_tables if t not in exclude_list]
 
-        logger.info(f"Found {len(tables)} tables in the public schema")
-        logger.info(
-            f"Exporting {len([t for t in tables if t not in exclude_list])} tables"
-        )
+        logger.info(f"Found {len(all_tables)} total objects in the public schema")
+        logger.info(f"Exporting {len(tables_to_export)} tables/views after exclusions")
 
         # Export each table
-        for table in tables:
+        for table in tables_to_export:
             export_table_data(pg_conn, sqlite_conn, table)
 
         # Add metadata for Datasette
@@ -97,6 +353,9 @@ def export_to_sqlite(
 
         # Create views for easier data exploration
         create_datasette_views(sqlite_conn)
+
+        # Create indexes for better query performance
+        create_performance_indexes(sqlite_conn)
 
         logger.info(f"Export completed: {sqlite_path}")
 
@@ -107,33 +366,140 @@ def export_to_sqlite(
 
 def get_table_schema(pg_conn: PgConnection, table_name: str) -> list[dict[str, str]]:
     """
-    Get column information for a PostgreSQL table.
+    Get column information for a PostgreSQL table or materialized view.
 
     Args:
         pg_conn: PostgreSQL connection
-        table_name: Name of the table
+        table_name: Name of the table or materialized view
 
     Returns:
         List of column definitions
     """
     with pg_conn.cursor() as cursor:
+        # First check if the table/view exists and what type it is
         cursor.execute(
             """
             SELECT
-                column_name,
-                data_type,
-                character_maximum_length,
-                numeric_precision,
-                numeric_scale,
-                is_nullable
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-                AND table_name = %s
-            ORDER BY ordinal_position
+                CASE
+                    WHEN c.relkind = 'r' THEN 'table'
+                    WHEN c.relkind = 'v' THEN 'view'
+                    WHEN c.relkind = 'm' THEN 'materialized view'
+                    ELSE c.relkind::text
+                END as object_type
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relname = %s
         """,
             (table_name,),
         )
-        return cursor.fetchall()
+
+        result = cursor.fetchone()
+        if result:
+            logger.debug(f"{table_name} is a {result['object_type']}")
+        else:
+            logger.warning(f"{table_name} not found in pg_catalog")
+
+        # For materialized views, we need to use pg_catalog directly
+        # information_schema doesn't show materialized views
+        logger.debug(f"Querying columns for {table_name} from pg_catalog")
+        cursor.execute(
+            """
+            SELECT
+                a.attname as column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+                CASE
+                    WHEN a.atttypmod > 0 AND t.typname IN ('varchar', 'char', 'bpchar')
+                    THEN a.atttypmod - 4
+                    ELSE NULL
+                END as character_maximum_length,
+                CASE
+                    WHEN t.typname IN ('numeric', 'decimal')
+                    THEN ((a.atttypmod - 4) >> 16) & 65535
+                    ELSE NULL
+                END as numeric_precision,
+                CASE
+                    WHEN t.typname IN ('numeric', 'decimal')
+                    THEN (a.atttypmod - 4) & 65535
+                    ELSE NULL
+                END as numeric_scale,
+                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END as is_nullable
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+            WHERE n.nspname = 'public'
+                AND c.relname = %s
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+            ORDER BY a.attnum
+        """,
+            (table_name,),
+        )
+        columns = cursor.fetchall()
+        logger.debug(
+            f"pg_catalog query returned {len(columns)} columns for {table_name}"
+        )
+
+        if not columns:
+            # If still no columns found, try information_schema (for regular tables)
+            cursor.execute(
+                """
+                SELECT
+                    column_name,
+                    data_type,
+                    character_maximum_length,
+                    numeric_precision,
+                    numeric_scale,
+                    is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                    AND table_name = %s
+                ORDER BY ordinal_position
+            """,
+                (table_name,),
+            )
+            columns = cursor.fetchall()
+
+        if not columns:
+            logger.warning(
+                f"No columns found for {table_name} in catalog queries, trying direct query"
+            )
+            # Last resort: use a SELECT query to get column info
+            try:
+                # Validate table name to prevent SQL injection
+                if not table_name.replace("_", "").isalnum():
+                    raise ValueError(f"Invalid table name: {table_name}")
+                cursor.execute(
+                    f'SELECT * FROM "{table_name}" LIMIT 0'
+                )  # nosec B608 - table name validated
+                # Get column descriptions from the cursor
+                columns = []
+                if cursor.description:
+                    for col in cursor.description:
+                        columns.append(
+                            {
+                                "column_name": col.name,
+                                "data_type": "TEXT",  # Default to TEXT for SQLite
+                                "character_maximum_length": None,
+                                "numeric_precision": None,
+                                "numeric_scale": None,
+                                "is_nullable": "YES",
+                            }
+                        )
+                    logger.info(
+                        f"Retrieved {len(columns)} columns for {table_name} via direct query"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to get columns for {table_name} via direct query: {e}"
+                )
+
+        if not columns:
+            logger.error(f"No columns found for {table_name} using any method")
+        else:
+            logger.debug(f"Found {len(columns)} columns for {table_name}")
+
+        return columns
 
 
 def postgres_to_sqlite_type(pg_type: str) -> str:
@@ -146,18 +512,26 @@ def postgres_to_sqlite_type(pg_type: str) -> str:
     Returns:
         SQLite data type
     """
+    # Clean up type string (remove size specifiers like varchar(255))
+    if pg_type:
+        pg_type = pg_type.split("(")[0].lower()
+
     type_mapping = {
         # Numeric types
         "smallint": "INTEGER",
         "integer": "INTEGER",
         "bigint": "INTEGER",
+        "int4": "INTEGER",
+        "int8": "INTEGER",
         "decimal": "REAL",
         "numeric": "REAL",
         "real": "REAL",
+        "float8": "REAL",
         "double precision": "REAL",
         "money": "REAL",
         # Text types
         "character varying": "TEXT",
+        "varchar": "TEXT",
         "character": "TEXT",
         "text": "TEXT",
         "bytea": "BLOB",
@@ -207,6 +581,11 @@ def create_sqlite_table(
         table_name: Name of the table to create
         columns: List of column definitions from PostgreSQL
     """
+    # Check if we have columns
+    if not columns:
+        logger.error(f"No columns found for table {table_name}")
+        raise ValueError(f"Cannot create table {table_name} with no columns")
+
     # Build column definitions
     col_defs = []
     for col in columns:
@@ -299,6 +678,10 @@ def export_table_data(
     """
     # Get table schema
     columns = get_table_schema(pg_conn, table_name)
+
+    if not columns:
+        logger.error(f"No columns found for {table_name}, skipping export")
+        return
 
     # Create table in SQLite
     create_sqlite_table(sqlite_conn, table_name, columns)
@@ -469,31 +852,98 @@ def add_datasette_metadata(sqlite_conn: sqlite3.Connection) -> None:
 
 def create_datasette_views(sqlite_conn: sqlite3.Connection) -> None:
     """
-    Create a single comprehensive view for all location data.
+    Create views for data exploration (location_master is now a table, not a view).
 
     Args:
         sqlite_conn: SQLite connection
     """
-    # Check if required tables exist
+    # Check if location_master table was exported
     try:
         result = sqlite_conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='location_master'"
         )
-        existing_tables = {row[0] for row in result.fetchall()}
+        if result.fetchone():
+            logger.info("location_master table found, no view needed")
 
-        # Check if we have the minimum required table
-        if "location" not in existing_tables:
-            logger.warning("Missing required table: location. View cannot be created.")
-            return
+            # Add any other views here if needed in the future
+
+        else:
+            logger.warning(
+                "location_master table not found - may need to run publisher"
+            )
     except sqlite3.Error as e:
-        logger.warning(f"Error checking for required tables: {e}")
-        return
+        logger.warning(f"Error checking for location_master table: {e}")
 
-    # Create comprehensive location_master view
+    # We could add other views here if needed
+    # For now, location_master is a materialized table from PostgreSQL
+
+    sqlite_conn.commit()
+
+
+def create_datasette_views_old(sqlite_conn: sqlite3.Connection) -> None:
+    """
+    DEPRECATED: Old view creation - kept for reference.
+    location_master is now a materialized table exported from PostgreSQL.
+    """
+    # This is the old view creation code - no longer used
     try:
         sqlite_conn.execute(
             """
             CREATE VIEW IF NOT EXISTS location_master AS
+            WITH location_phones AS (
+                SELECT
+                    COALESCE(p.location_id, p.organization_id) as entity_id,
+                    'loc_' || p.location_id as entity_type,
+                    GROUP_CONCAT(p.number || CASE WHEN p.extension IS NOT NULL THEN ' x' || p.extension ELSE '' END, '; ') as phone_number
+                FROM phone p
+                WHERE p.location_id IS NOT NULL
+                GROUP BY p.location_id
+                UNION
+                SELECT
+                    p.organization_id as entity_id,
+                    'org_' || p.organization_id as entity_type,
+                    GROUP_CONCAT(p.number || CASE WHEN p.extension IS NOT NULL THEN ' x' || p.extension ELSE '' END, '; ') as phone_number
+                FROM phone p
+                WHERE p.location_id IS NULL AND p.organization_id IS NOT NULL
+                GROUP BY p.organization_id
+            ),
+            location_services AS (
+                SELECT
+                    sal.location_id,
+                    GROUP_CONCAT(s.name, '; ') as services
+                FROM service s
+                JOIN service_at_location sal ON s.id = sal.service_id
+                GROUP BY sal.location_id
+            ),
+            location_languages AS (
+                SELECT
+                    l.location_id,
+                    GROUP_CONCAT(l.name, ', ') as languages
+                FROM language l
+                WHERE l.location_id IS NOT NULL
+                GROUP BY l.location_id
+            ),
+            location_schedules AS (
+                SELECT
+                    sal.location_id,
+                    s.opens_at,
+                    s.closes_at,
+                    s.description as schedule_description
+                FROM schedule s
+                JOIN service_at_location sal ON s.service_at_location_id = sal.id
+                WHERE sal.location_id IS NOT NULL
+                  AND (s.opens_at IS NOT NULL OR s.closes_at IS NOT NULL OR s.description IS NOT NULL)
+            ),
+            location_sources AS (
+                SELECT
+                    ls.location_id,
+                    GROUP_CONCAT(ls.scraper_id, ', ') as data_sources,
+                    COUNT(DISTINCT ls.scraper_id) as source_count,
+                    MIN(ls.created_at) as first_seen,
+                    MAX(ls.updated_at) as last_updated
+                FROM location_source ls
+                GROUP BY ls.location_id
+            )
             SELECT
                 -- Location Core Data
                 l.id AS location_id,
@@ -509,6 +959,12 @@ def create_datasette_views(sqlite_conn: sqlite3.Connection) -> None:
                 l.url AS location_url,
                 l.is_canonical,
 
+                -- Validation data
+                l.confidence_score,
+                l.validation_status,
+                l.validation_notes,
+                l.geocoding_source,
+
                 -- Address Information
                 a.id AS address_id,
                 a.attention AS address_attention,
@@ -520,11 +976,18 @@ def create_datasette_views(sqlite_conn: sqlite3.Connection) -> None:
                 a.postal_code,
                 a.country,
 
+                -- Full address concatenated
+                COALESCE(a.address_1, '') ||
+                CASE WHEN a.address_2 IS NOT NULL THEN ', ' || a.address_2 ELSE '' END ||
+                CASE WHEN a.city IS NOT NULL THEN ', ' || a.city ELSE '' END ||
+                CASE WHEN a.state_province IS NOT NULL THEN ', ' || a.state_province ELSE '' END ||
+                CASE WHEN a.postal_code IS NOT NULL THEN ' ' || a.postal_code ELSE '' END AS full_address,
+
                 -- Organization Details
                 o.id AS organization_id,
                 o.name AS organization_name,
                 o.alternate_name AS organization_alternate_name,
-                o.description AS organization_description,
+                COALESCE(o.description, l.description) AS organization_description,
                 o.email AS organization_email,
                 o.website AS organization_website,
                 o.legal_status,
@@ -532,40 +995,33 @@ def create_datasette_views(sqlite_conn: sqlite3.Connection) -> None:
                 o.tax_status,
                 o.tax_id,
 
-                -- Aggregated Data
-                (SELECT GROUP_CONCAT(p.number || CASE WHEN p.extension IS NOT NULL THEN ' x' || p.extension ELSE '' END, '; ')
-                 FROM phone p
-                 WHERE p.location_id = l.id OR p.organization_id = o.id) AS phone_numbers,
-
-                (SELECT GROUP_CONCAT(s.name, '; ')
-                 FROM service s
-                 LEFT JOIN service_at_location sal ON s.id = sal.service_id
-                 WHERE sal.location_id = l.id OR s.organization_id = o.id) AS services,
-
-                (SELECT GROUP_CONCAT(lang.name, ', ')
-                 FROM language lang
-                 WHERE lang.location_id = l.id) AS languages_spoken,
-
-                (SELECT GROUP_CONCAT(ls.scraper_id, ', ')
-                 FROM location_source ls
-                 WHERE ls.location_id = l.id) AS data_sources,
-
-                (SELECT COUNT(DISTINCT ls.scraper_id)
-                 FROM location_source ls
-                 WHERE ls.location_id = l.id) AS source_count,
-
-                (SELECT MIN(ls.created_at)
-                 FROM location_source ls
-                 WHERE ls.location_id = l.id) AS first_seen,
-
-                (SELECT MAX(ls.updated_at)
-                 FROM location_source ls
-                 WHERE ls.location_id = l.id) AS last_updated
+                -- Aggregated Data from CTEs
+                COALESCE(lp_loc.phone_number, lp_org.phone_number) AS phone_numbers,
+                lsrv.services,
+                llang.languages AS languages_spoken,
+                lsch.opens_at,
+                lsch.closes_at,
+                lsch.schedule_description,
+                lsrc.data_sources,
+                lsrc.source_count,
+                lsrc.first_seen,
+                lsrc.last_updated
 
             FROM location l
             LEFT JOIN address a ON a.location_id = l.id
             LEFT JOIN organization o ON o.id = l.organization_id
+            LEFT JOIN location_phones lp_loc ON lp_loc.entity_id = l.id AND lp_loc.entity_type = 'loc_' || l.id
+            LEFT JOIN location_phones lp_org ON lp_org.entity_id = o.id AND lp_org.entity_type = 'org_' || o.id
+            LEFT JOIN location_services lsrv ON lsrv.location_id = l.id
+            LEFT JOIN location_languages llang ON llang.location_id = l.id
+            LEFT JOIN location_schedules lsch ON lsch.location_id = l.id
+            LEFT JOIN location_sources lsrc ON lsrc.location_id = l.id
             WHERE l.is_canonical = 1
+              AND l.latitude IS NOT NULL
+              AND l.longitude IS NOT NULL
+              AND l.latitude BETWEEN -90 AND 90
+              AND l.longitude BETWEEN -180 AND 180
+              AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
             ORDER BY l.name
         """
         )
@@ -576,6 +1032,110 @@ def create_datasette_views(sqlite_conn: sqlite3.Connection) -> None:
         logger.warning(f"Error creating view location_master: {e}")
 
     sqlite_conn.commit()
+
+
+def create_performance_indexes(sqlite_conn: sqlite3.Connection) -> None:
+    """
+    Create indexes to improve query performance, especially for the location_master view.
+
+    Args:
+        sqlite_conn: SQLite connection
+    """
+    logger.info("Creating performance indexes")
+
+    # Define indexes to create
+    # Format: (index_name, table_name, columns)
+    indexes = [
+        # Primary key indexes (if not already created)
+        ("idx_location_id", "location", "id"),
+        ("idx_organization_id", "organization", "id"),
+        ("idx_service_id", "service", "id"),
+        ("idx_address_id", "address", "id"),
+        # Foreign key indexes for joins
+        ("idx_location_org_id", "location", "organization_id"),
+        ("idx_location_canonical", "location", "is_canonical"),
+        ("idx_address_location_id", "address", "location_id"),
+        ("idx_service_org_id", "service", "organization_id"),
+        ("idx_service_at_location_loc", "service_at_location", "location_id"),
+        ("idx_service_at_location_svc", "service_at_location", "service_id"),
+        ("idx_phone_location_id", "phone", "location_id"),
+        ("idx_phone_org_id", "phone", "organization_id"),
+        ("idx_phone_service_id", "phone", "service_id"),
+        ("idx_schedule_sal_id", "schedule", "service_at_location_id"),
+        ("idx_language_location_id", "language", "location_id"),
+        ("idx_language_service_id", "language", "service_id"),
+        # Source tracking indexes
+        ("idx_location_source_loc", "location_source", "location_id"),
+        ("idx_location_source_scraper", "location_source", "scraper_id"),
+        ("idx_org_source_org", "organization_source", "organization_id"),
+        ("idx_org_source_scraper", "organization_source", "scraper_id"),
+        ("idx_service_source_svc", "service_source", "service_id"),
+        ("idx_service_source_scraper", "service_source", "scraper_id"),
+        # Geographic indexes
+        ("idx_location_coords", "location", "latitude, longitude"),
+        # Text search optimization
+        ("idx_location_name", "location", "name"),
+        ("idx_location_city", "address", "city"),
+        ("idx_location_state", "address", "state_province"),
+        ("idx_location_postal", "address", "postal_code"),
+        ("idx_org_name", "organization", "name"),
+        ("idx_service_name", "service", "name"),
+        # Composite indexes for common queries
+        ("idx_location_canonical_name", "location", "is_canonical, name"),
+        ("idx_address_city_state", "address", "city, state_province"),
+        ("idx_location_source_composite", "location_source", "location_id, scraper_id"),
+        # Indexes for location_master materialized table
+        ("idx_location_master_location_id", "location_master", "location_id"),
+        ("idx_location_master_city", "location_master", "city"),
+        ("idx_location_master_state", "location_master", "state_province"),
+        ("idx_location_master_coords", "location_master", "latitude, longitude"),
+        ("idx_location_master_name", "location_master", "location_name"),
+        ("idx_location_master_org", "location_master", "organization_name"),
+        ("idx_location_master_canonical", "location_master", "is_canonical"),
+        ("idx_location_master_confidence", "location_master", "confidence_score"),
+        ("idx_location_master_validation", "location_master", "validation_status"),
+    ]
+
+    # Check which tables exist
+    result = sqlite_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    existing_tables = {row[0] for row in result.fetchall()}
+
+    # Create indexes
+    created = 0
+    skipped = 0
+
+    for index_name, table_name, columns in indexes:
+        # Skip if table doesn't exist
+        if table_name not in existing_tables:
+            logger.debug(
+                f"Skipping index {index_name}: table {table_name} doesn't exist"
+            )
+            skipped += 1
+            continue
+
+        try:
+            # Check if index already exists
+            result = sqlite_conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+                (index_name,),
+            )
+            if result.fetchone():
+                logger.debug(f"Index {index_name} already exists")
+                skipped += 1
+                continue
+
+            # Create the index
+            create_sql = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ({columns})'
+            sqlite_conn.execute(create_sql)
+            created += 1
+            logger.debug(f"Created index: {index_name} on {table_name}({columns})")
+
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to create index {index_name}: {e}")
+            skipped += 1
+
+    sqlite_conn.commit()
+    logger.info(f"Created {created} indexes, skipped {skipped}")
 
 
 if __name__ == "__main__":

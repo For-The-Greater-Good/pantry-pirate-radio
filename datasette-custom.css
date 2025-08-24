@@ -1,0 +1,267 @@
+/* HAARRRvest-style branding for Datasette */
+
+/* Header styling */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.page-header {
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%) !important;
+    color: white !important;
+    padding: 2rem 1rem !important;
+    margin-bottom: 0 !important;
+}
+
+.page-header h1 {
+    color: white !important;
+    font-size: 2rem !important;
+}
+
+.page-header h1:before {
+    content: "🏴‍☠️ ";
+    margin-right: 0.5rem;
+}
+
+.page-header a {
+    color: #87CEEB !important;
+}
+
+.page-header a:hover {
+    color: white !important;
+}
+
+/* Navigation styling */
+nav.crumbs {
+    background: white;
+    padding: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 1rem;
+}
+
+nav.crumbs a {
+    color: #3498db !important;
+    text-decoration: none;
+}
+
+nav.crumbs a:hover {
+    text-decoration: underline;
+}
+
+/* Hide the hamburger menu since we're using a custom nav bar */
+.nav-menu {
+    display: none !important;
+}
+
+/* Custom Navigation Bar Styles */
+.custom-nav-bar {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    padding: 2rem 1rem;
+    border-bottom: 2px solid #3498db;
+    margin-bottom: 2rem;
+}
+
+.nav-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.nav-title {
+    color: #2c3e50;
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.nav-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin: 0 auto;
+}
+
+.nav-button {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-decoration: none !important;
+    color: #2c3e50 !important;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-button:before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(52, 152, 219, 0.1), transparent);
+    transition: left 0.5s ease;
+}
+
+.nav-button:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+    border-color: #3498db;
+}
+
+.nav-button:hover:before {
+    left: 100%;
+}
+
+.nav-button.primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white !important;
+    border: none;
+}
+
+.nav-button.primary .nav-text,
+.nav-button.primary .nav-subtitle {
+    color: white !important;
+}
+
+.nav-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+    display: block;
+}
+
+.nav-text {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.nav-subtitle {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    display: block;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .nav-links {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .nav-button {
+        padding: 1rem;
+    }
+    
+    .nav-icon {
+        font-size: 2rem;
+    }
+    
+    .nav-text {
+        font-size: 1.1rem;
+    }
+}
+
+/* Table styling */
+table.rows-and-columns {
+    font-size: 0.9rem;
+}
+
+table.rows-and-columns th {
+    background: #2c3e50 !important;
+    color: white !important;
+    padding: 0.75rem !important;
+}
+
+table.rows-and-columns td {
+    padding: 0.5rem !important;
+}
+
+table.rows-and-columns tr:hover {
+    background: #f8f9fa !important;
+}
+
+/* Button styling */
+.btn, button, input[type="submit"] {
+    background: #3498db !important;
+    color: white !important;
+    border: none !important;
+    padding: 0.5rem 1rem !important;
+    border-radius: 4px !important;
+    cursor: pointer;
+}
+
+.btn:hover, button:hover, input[type="submit"]:hover {
+    background: #2980b9 !important;
+}
+
+/* Link colors */
+a {
+    color: #3498db;
+}
+
+a:hover {
+    color: #2980b9;
+}
+
+/* Info badges */
+.metadata-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    padding: 1rem;
+    background: white;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 1rem;
+}
+
+.metadata-info-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #555;
+}
+
+.metadata-info-item strong {
+    color: #2c3e50;
+}
+
+/* Add info bar after header */
+.page-header:after {
+    content: "📊 SQLite Database | 📍 United States Coverage | 🏢 HSDS v3.1.1";
+    display: block;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+/* Footer styling */
+.footer {
+    background: #2c3e50;
+    color: white;
+    padding: 2rem;
+    margin-top: 3rem;
+}
+
+.footer a {
+    color: #87CEEB !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .page-header h1 {
+        font-size: 1.5rem !important;
+    }
+    
+    .metadata-info {
+        gap: 1rem;
+        font-size: 0.9rem;
+    }
+}
