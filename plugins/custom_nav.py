@@ -10,7 +10,7 @@ def menu_links(datasette, actor, request):
             "label": "📍 All Locations",
         },
         {
-            "href": "https://haarrrvest.for-the-gg.org/map.html",
+            "href": "https://datasette.for-the-gg.org/map.html",
             "label": "🗺️ Interactive Map",
         },
         {
