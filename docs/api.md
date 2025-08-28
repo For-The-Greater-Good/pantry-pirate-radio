@@ -45,8 +45,11 @@ curl http://localhost:8000/api/v1/health
 - Health Check: `http://localhost:8000/api/v1/health`
 - Metrics: `http://localhost:8000/api/v1/metrics`
 
-### Production (when deployed)
-- API Base: `https://api.yourdomain.com/api/v1`
+### Production
+- API Base: `https://api.for-the-gg.org/api/v1`
+- Documentation: `https://api.for-the-gg.org/docs`
+- ReDoc: `https://api.for-the-gg.org/redoc`
+- OpenAPI Schema: `https://api.for-the-gg.org/openapi.json`
 - Use HTTPS for all production requests
 
 ## Core Endpoints

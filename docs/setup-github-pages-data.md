@@ -51,7 +51,7 @@ Once GitHub Pages is enabled and the pipeline has run:
 
 ### Public Access via GitHub Pages
 1. Visit: `https://[your-username].github.io/[repo-name]/`
-   - Example: `https://for-the-greater-good.github.io/HAARRRvest/`
+   - Example: `https://datasette.for-the-gg.org`
 
 2. The page will load Datasette-Lite with your SQLite database
 
@@ -267,7 +267,7 @@ If GitHub Pages doesn't meet your needs:
    ```
 
 3. **Share with Community**: 
-   - Public data: `https://for-the-greater-good.github.io/HAARRRvest/`
+   - Public data: `https://datasette.for-the-gg.org`
    - API endpoint: Document your API URL for developers
    - Embed Datasette-Lite in other sites using iframes
 

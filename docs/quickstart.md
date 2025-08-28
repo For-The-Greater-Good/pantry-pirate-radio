@@ -672,7 +672,7 @@ Display food resources on a map for community planning.
 - **[Troubleshooting Guide](./troubleshooting.md)** - Common issues and solutions
 - **[GitHub Issues](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)** - Report bugs or request features
 - **[Documentation Index](./README.md)** - Complete documentation navigation
-- **[HAARRRvest Data Explorer](https://for-the-greater-good.github.io/HAARRRvest/)** - Browse collected data
+- **[HAARRRvest Data Explorer](https://datasette.for-the-gg.org)** - Browse collected data
 
 ## 🏗️ System Architecture Overview
 

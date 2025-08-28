@@ -144,7 +144,7 @@ Wait 5-10 minutes for the initial deployment.
 After the pipeline completes and GitHub Pages deploys:
 
 ### Via GitHub Pages (Public Access)
-1. Visit: `https://for-the-greater-good.github.io/HAARRRvest/`
+1. Visit: `https://datasette.for-the-gg.org`
 2. Use Datasette-Lite to explore data with SQL queries
 3. Download SQLite database for offline use
 4. Share the link with your community!
