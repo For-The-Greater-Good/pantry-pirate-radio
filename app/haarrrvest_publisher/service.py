@@ -30,7 +30,7 @@ class HAARRRvestPublisher:
         output_dir: str = "/app/outputs",
         data_repo_path: str = "/data-repo",
         data_repo_url: Optional[str] = None,
-        check_interval: int = 300,  # 5 minutes
+        check_interval: int = 21600,  # 6 hours 
         days_to_sync: int = 7,
         error_retry_delay: int = 60,  # 1 minute
     ):
@@ -49,6 +49,10 @@ class HAARRRvestPublisher:
         self.git_user_name = os.getenv("GIT_USER_NAME", "Pantry Pirate Radio Publisher")
         self.processed_files: Set[str] = set()
         self._load_processed_files()
+        
+        # Track last cleanup times
+        self.last_weekly_cleanup = datetime.now()
+        self.last_monthly_cleanup = datetime.now()
 
         # Check if push is enabled via environment
         self.push_enabled = (
@@ -218,6 +222,96 @@ class HAARRRvestPublisher:
         else:
             logger.info("No additional changes to stash after content store commit")
 
+    def _get_repository_size(self) -> Dict[str, float]:
+        """Get repository size information in MB."""
+        sizes = {}
+        
+        # Get .git folder size
+        git_path = self.data_repo_path / ".git"
+        if git_path.exists():
+            git_size = sum(f.stat().st_size for f in git_path.rglob('*') if f.is_file())
+            sizes['git_mb'] = git_size / (1024 * 1024)
+        
+        # Get total repository size
+        total_size = sum(f.stat().st_size for f in self.data_repo_path.rglob('*') if f.is_file())
+        sizes['total_mb'] = total_size / (1024 * 1024)
+        
+        # Get data folder size (excluding .git)
+        data_size = total_size - (sizes.get('git_mb', 0) * 1024 * 1024)
+        sizes['data_mb'] = data_size / (1024 * 1024)
+        
+        return sizes
+
+    def _check_and_cleanup_repository(self) -> None:
+        """Check repository size and cleanup if needed."""
+        sizes = self._get_repository_size()
+        
+        logger.info(f"Repository sizes - Total: {sizes['total_mb']:.1f}MB, "
+                   f".git: {sizes.get('git_mb', 0):.1f}MB, "
+                   f"Data: {sizes['data_mb']:.1f}MB")
+        
+        # Alert if .git is too large
+        git_size_mb = sizes.get('git_mb', 0)
+        if git_size_mb > 10000:  # 10GB threshold
+            logger.warning(f"⚠️ .git folder is {git_size_mb:.1f}MB - exceeds 10GB threshold!")
+            self._perform_deep_cleanup()
+        elif git_size_mb > 5000:  # 5GB warning
+            logger.warning(f"⚠️ .git folder is {git_size_mb:.1f}MB - approaching size limit")
+            
+    def _perform_deep_cleanup(self) -> None:
+        """Perform deep cleanup of git repository."""
+        logger.info("Performing deep repository cleanup...")
+        
+        # Get initial size for comparison
+        initial_sizes = self._get_repository_size()
+        
+        # First try aggressive gc
+        logger.info("Running aggressive git gc...")
+        code, out, err = self._run_command(
+            ["git", "gc", "--aggressive", "--prune=all"],
+            cwd=self.data_repo_path
+        )
+        
+        # Repack with optimal settings
+        logger.info("Repacking repository...")
+        code, out, err = self._run_command(
+            ["git", "repack", "-a", "-d", "-f", "--depth=250", "--window=250"],
+            cwd=self.data_repo_path
+        )
+        
+        # Clean up reflog
+        logger.info("Cleaning reflog...")
+        self._run_command(
+            ["git", "reflog", "expire", "--all", "--expire=now"],
+            cwd=self.data_repo_path
+        )
+        
+        # Final gc
+        self._run_command(
+            ["git", "gc", "--prune=now"],
+            cwd=self.data_repo_path
+        )
+        
+        # Check size after cleanup
+        new_sizes = self._get_repository_size()
+        logger.info(f"After cleanup - .git: {new_sizes.get('git_mb', 0):.1f}MB "
+                   f"(reduced by {initial_sizes.get('git_mb', 0) - new_sizes.get('git_mb', 0):.1f}MB)")
+
+    def _maintain_shallow_clone(self) -> None:
+        """Maintain shallow clone to limit history."""
+        logger.info("Maintaining shallow clone depth...")
+        
+        # Fetch with limited depth to prevent history growth
+        code, out, err = self._run_command(
+            ["git", "fetch", "--depth=1", "origin", "main"],
+            cwd=self.data_repo_path
+        )
+        
+        if code == 0:
+            logger.info("Shallow fetch successful")
+        else:
+            logger.warning(f"Shallow fetch failed: {err}")
+
     def _setup_git_repo(self):
         """Clone or update the HAARRRvest repository with content store protection."""
         # Check if path exists AND is a git repository
@@ -306,13 +400,11 @@ class HAARRRvestPublisher:
                 logger.error(f"Failed to checkout main: {err}")
                 raise Exception(f"Cannot switch to main branch: {err}")
 
-            # Fetch latest changes (shallow to maintain repository size)
-            code, out, err = self._run_command(
-                ["git", "fetch", "--depth", "1", "origin"], cwd=self.data_repo_path
-            )
-            if code != 0:
-                logger.error(f"Failed to fetch: {err}")
-                raise Exception(f"Cannot fetch from origin: {err}")
+            # Maintain shallow clone
+            self._maintain_shallow_clone()
+            
+            # Check repository size and cleanup if needed
+            self._check_and_cleanup_repository()
 
             # Check if we're behind origin/main
             code, out, err = self._run_command(
@@ -779,6 +871,17 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             if code != 0:
                 logger.error(f"Failed to push: {err}")
                 raise Exception(f"Git push failed: {err}")
+            else:
+                # Run git gc to clean up repository after push
+                logger.info("Running git gc to optimize repository...")
+                gc_code, gc_out, gc_err = self._run_command(
+                    ["git", "gc", "--aggressive", "--prune=now"],
+                    cwd=self.data_repo_path,
+                )
+                if gc_code == 0:
+                    logger.info("Git gc completed successfully")
+                else:
+                    logger.warning(f"Git gc failed (non-critical): {gc_err}")
         else:
             logger.warning(
                 "PUSH DISABLED - Changes committed locally but NOT pushed to remote"
@@ -1311,9 +1414,116 @@ This repository contains food resource data collected by Pantry Pirate Radio.
 
         return has_changes
 
+    def _perform_periodic_maintenance(self) -> None:
+        """Perform weekly and monthly maintenance tasks."""
+        now = datetime.now()
+        
+        # Weekly cleanup (every 7 days)
+        if (now - self.last_weekly_cleanup).days >= 7:
+            logger.info("Performing weekly maintenance...")
+            try:
+                # Remove old branches
+                code, out, err = self._run_command(
+                    ["git", "branch", "-v"],
+                    cwd=self.data_repo_path
+                )
+                if code == 0 and out:
+                    for line in out.strip().split('\n'):
+                        if 'data-update-' in line and not line.startswith('*'):
+                            branch = line.split()[0]
+                            logger.info(f"Removing old branch: {branch}")
+                            self._run_command(
+                                ["git", "branch", "-D", branch],
+                                cwd=self.data_repo_path
+                            )
+                
+                # Run deep cleanup
+                self._perform_deep_cleanup()
+                self.last_weekly_cleanup = now
+                logger.info("Weekly maintenance completed")
+            except Exception as e:
+                logger.error(f"Weekly maintenance failed: {e}")
+        
+        # Monthly cleanup (every 30 days) - more aggressive
+        if (now - self.last_monthly_cleanup).days >= 30:
+            logger.info("Performing monthly deep maintenance...")
+            try:
+                # Consider re-cloning if repository is too large
+                sizes = self._get_repository_size()
+                if sizes.get('git_mb', 0) > 20000:  # 20GB threshold for re-clone
+                    logger.warning("Repository exceeds 20GB, considering fresh clone...")
+                    self._perform_fresh_clone()
+                else:
+                    # Just do extra aggressive cleanup
+                    self._perform_deep_cleanup()
+                
+                self.last_monthly_cleanup = now
+                logger.info("Monthly maintenance completed")
+            except Exception as e:
+                logger.error(f"Monthly maintenance failed: {e}")
+    
+    def _perform_fresh_clone(self) -> None:
+        """Perform a fresh shallow clone to reset repository size."""
+        logger.warning("Performing fresh clone to reset repository size...")
+        
+        # Backup content store if it exists
+        content_store_backup = None
+        content_store_path = self.data_repo_path / "content_store"
+        if content_store_path.exists():
+            logger.info("Backing up content store...")
+            # Use a more secure temporary directory
+            import tempfile
+            temp_dir = tempfile.mkdtemp(prefix="content_store_backup_")
+            content_store_backup = Path(temp_dir) / "content_store"
+            if content_store_backup.exists():
+                shutil.rmtree(content_store_backup)
+            shutil.copytree(content_store_path, content_store_backup)
+        
+        # Remove old repository (except the directory itself - it's a volume mount)
+        logger.info("Removing old repository files...")
+        for item in self.data_repo_path.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        
+        # Clone fresh with shallow depth
+        logger.info("Cloning fresh repository with shallow depth...")
+        clone_url = self._get_authenticated_url()
+        code, out, err = self._run_command(
+            ["git", "clone", "--depth", "1", "--single-branch", 
+             "--branch", "main", clone_url, "."],
+            cwd=self.data_repo_path
+        )
+        
+        if code != 0:
+            raise Exception(f"Fresh clone failed: {err}")
+        
+        # Restore content store if we backed it up
+        if content_store_backup and content_store_backup.exists():
+            logger.info("Restoring content store...")
+            shutil.copytree(content_store_backup, content_store_path)
+            # Clean up the temporary directory (parent of content_store_backup)
+            shutil.rmtree(content_store_backup.parent)
+        
+        # Configure git
+        self._run_command(
+            ["git", "config", "user.email", self.git_user_email],
+            cwd=self.data_repo_path
+        )
+        self._run_command(
+            ["git", "config", "user.name", self.git_user_name],
+            cwd=self.data_repo_path
+        )
+        
+        logger.info("Fresh clone completed successfully")
+
     def process_once(self):
         """Run the publishing pipeline once."""
         logger.info("Starting HAARRRvest publishing pipeline")
+        
+        # Perform periodic maintenance first
+        self._perform_periodic_maintenance()
 
         try:
             # Setup repository
@@ -1433,7 +1643,7 @@ def main():
         data_repo_path=os.getenv("DATA_REPO_PATH", "/data-repo"),
         data_repo_url=os.getenv("DATA_REPO_URL"),
         error_retry_delay=int(os.getenv("ERROR_RETRY_DELAY", "60")),
-        check_interval=int(os.getenv("PUBLISHER_CHECK_INTERVAL", "300")),
+        check_interval=int(os.getenv("PUBLISHER_CHECK_INTERVAL", "43200")),
         days_to_sync=int(os.getenv("DAYS_TO_SYNC", "7")),
     )
 
