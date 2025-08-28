@@ -19,7 +19,7 @@ def extra_body_script(datasette, database, table, columns, view_name, request):
                         <span class="nav-text">Main Deck - Data Explorer</span>
                         <span class="nav-subtitle">Browse 44,000+ food pantry locations</span>
                     </a>
-                    <a href="https://datasette.for-the-gg.org/map.html" class="nav-button" target="_blank">
+                    <a href="https://map.for-the-gg.org/" class="nav-button" target="_blank">
                         <span class="nav-icon">🗺️</span>
                         <span class="nav-text">Treasure Map</span>
                         <span class="nav-subtitle">Interactive pantry location map</span>
