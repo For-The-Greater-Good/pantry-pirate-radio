@@ -710,7 +710,7 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 
 ## 🔍 Explore the Data
 
-### [**HAARRRvest - Interactive Data Explorer**](https://for-the-greater-good.github.io/HAARRRvest/)
+### [**HAARRRvest - Interactive Data Explorer**](https://datasette.for-the-gg.org)
 
 Explore our harvested food resource data directly in your browser! HAARRRvest provides:
 - 🌐 Interactive SQL queries via Datasette-Lite
@@ -946,4 +946,4 @@ For The Greater Good (FTGG) specializes in making public resources truly accessi
 
 *Breaking down information barriers in food security through AI-powered data unification and HSDS-compliant APIs.*
 
-[Website](https://forthegg.org) | [HAARRRvest Data Explorer](https://for-the-greater-good.github.io/HAARRRvest/) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](http://localhost:8000/docs)
+[Website](https://www.for-the-gg.org) | [HAARRRvest Data Explorer](https://datasette.for-the-gg.org) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](https://api.for-the-gg.org/docs)

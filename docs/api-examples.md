@@ -22,8 +22,11 @@ curl http://localhost:8000/api/v1/health
 - ReDoc: `http://localhost:8000/redoc`
 - OpenAPI Schema: `http://localhost:8000/openapi.json`
 
-**Production (when deployed):**
-- Replace `localhost:8000` with your production domain
+**Production:**
+- API: `https://api.for-the-gg.org/api/v1`
+- Interactive Docs: `https://api.for-the-gg.org/docs`
+- ReDoc: `https://api.for-the-gg.org/redoc`
+- OpenAPI Schema: `https://api.for-the-gg.org/openapi.json`
 
 ## Authentication
 

@@ -50,7 +50,9 @@ Use the bouy command to start the API and all required services:
 ./bouy ps
 ```
 
-Once started, the API will be available at `http://localhost:8000/api/v1`.
+Once started, the API will be available at:
+- **Local**: `http://localhost:8000/api/v1`
+- **Production**: `https://api.for-the-gg.org/api/v1`
 
 ## Base URL
 
@@ -58,7 +60,7 @@ Once started, the API will be available at `http://localhost:8000/api/v1`.
 http://localhost:8000/api/v1
 ```
 
-For production deployments, replace `localhost:8000` with your domain.
+For production deployments, use `https://api.for-the-gg.org`.
 
 ## Authentication
 
@@ -621,7 +623,9 @@ Every API request is assigned a unique correlation ID that:
 
 For API support, please:
 1. Check this documentation
-2. Review the interactive OpenAPI specification at `http://localhost:8000/docs`
+2. Review the interactive OpenAPI specification at:
+   - **Local**: `http://localhost:8000/docs`
+   - **Production**: `https://api.for-the-gg.org/docs`
 3. Test endpoints directly using the Swagger UI
 4. Report issues on [GitHub](https://github.com/For-The-Greater-Good/pantry-pirate-radio/issues)
 5. Consult the [Bouy Command Reference](BOUY.md) for Docker fleet management
@@ -708,9 +712,15 @@ Exposes Prometheus metrics for monitoring. Returns metrics in Prometheus text fo
 ## OpenAPI Documentation
 
 Interactive API documentation is available at:
+### Local Development
 - **Swagger UI**: `http://localhost:8000/docs` - Interactive API exploration with try-it-out features
 - **ReDoc**: `http://localhost:8000/redoc` - Alternative documentation interface with better readability
 - **OpenAPI JSON**: `http://localhost:8000/openapi.json` - Machine-readable API specification
+
+### Production
+- **Swagger UI**: `https://api.for-the-gg.org/docs` - Interactive API exploration with try-it-out features
+- **ReDoc**: `https://api.for-the-gg.org/redoc` - Alternative documentation interface with better readability
+- **OpenAPI JSON**: `https://api.for-the-gg.org/openapi.json` - Machine-readable API specification
 
 The Swagger UI provides an interactive interface where you can:
 - Browse all available endpoints
