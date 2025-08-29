@@ -1,286 +1,345 @@
 #!/usr/bin/env python3
-"""Update scraper development progress in the tracking JSON.
+"""Update scraper progress using GitHub issue labels and comments.
 
-This script helps update the status of tasks as you work on scrapers.
+This script manages scraper development status directly through GitHub,
+using labels to track progress and comments to add notes.
 """
 
 import argparse
 import json
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, Any, Optional
+import subprocess
+import sys
+from typing import List, Optional
 
 
-def load_tracking_data(file_path: Path) -> Dict[str, Any]:
-    """Load tracking data from JSON file.
-
+def add_label(issue_number: int, label: str) -> bool:
+    """Add a label to a GitHub issue.
+    
     Args:
-        file_path: Path to tracking JSON file
-
-    Returns:
-        Tracking data dictionary
-    """
-    if not file_path.exists():
-        print(f"Error: Tracking file not found at {file_path}")
-        print("Run generate_scraper_tracking.py first to create the tracking file.")
-        exit(1)
-
-    with open(file_path) as f:
-        return json.load(f)
-
-
-def save_tracking_data(data: Dict[str, Any], file_path: Path) -> None:
-    """Save tracking data to JSON file.
-
-    Args:
-        data: Tracking data
-        file_path: Output file path
-    """
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=2)
-
-
-def find_task_by_issue(data: Dict[str, Any], issue_number: int) -> Optional[Dict[str, Any]]:
-    """Find task entry by issue number.
-
-    Args:
-        data: Tracking data
         issue_number: GitHub issue number
-
+        label: Label to add
+    
     Returns:
-        Task entry or None if not found
+        True if successful, False otherwise
     """
-    for task in data["food_banks"]:
-        if task["issue_number"] == issue_number:
-            return task
-    return None
+    cmd = [
+        "gh", "issue", "edit", str(issue_number),
+        "--add-label", label,
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio"
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"✓ Added label '{label}' to issue #{issue_number}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Failed to add label: {e}")
+        return False
 
 
-def update_task_status(
-    task: Dict[str, Any],
-    subtask: str,
-    status: str,
-    file_path: Optional[str] = None,
-    pr_number: Optional[int] = None
-) -> None:
-    """Update the status of a subtask.
-
+def remove_label(issue_number: int, label: str) -> bool:
+    """Remove a label from a GitHub issue.
+    
     Args:
-        task: Task entry
-        subtask: Subtask name (scraper, tests, pr)
-        status: New status (pending, in_progress, completed)
-        file_path: Optional file path for scraper/test tasks
-        pr_number: Optional PR number for pr task
+        issue_number: GitHub issue number
+        label: Label to remove
+    
+    Returns:
+        True if successful, False otherwise
     """
-    if subtask not in task["tasks"]:
-        print(f"Error: Invalid subtask '{subtask}'. Valid options: scraper, tests, pr")
-        return
-
-    old_status = task["tasks"][subtask]["status"]
-    task["tasks"][subtask]["status"] = status
-
-    if status == "completed":
-        task["tasks"][subtask]["completed_at"] = datetime.now().isoformat()
-
-    if file_path and subtask in ["scraper", "tests"]:
-        task["tasks"][subtask]["file_path"] = file_path
-
-    if pr_number and subtask == "pr":
-        task["tasks"][subtask]["pr_number"] = pr_number
-
-    print(f"Updated {subtask} status: {old_status} → {status}")
+    cmd = [
+        "gh", "issue", "edit", str(issue_number),
+        "--remove-label", label,
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio"
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"✓ Removed label '{label}' from issue #{issue_number}")
+        return True
+    except subprocess.CalledProcessError:
+        # Label might not exist, that's ok
+        return True
 
 
-def recalculate_metadata(data: Dict[str, Any]) -> None:
-    """Recalculate metadata statistics.
-
+def add_comment(issue_number: int, comment: str) -> bool:
+    """Add a comment to a GitHub issue.
+    
     Args:
-        data: Tracking data to update
+        issue_number: GitHub issue number
+        comment: Comment text to add
+    
+    Returns:
+        True if successful, False otherwise
     """
-    completed = 0
-    in_progress = 0
-    pending = 0
-
-    for task in data["food_banks"]:
-        all_completed = all(
-            subtask["status"] == "completed"
-            for subtask in task["tasks"].values()
-        )
-        any_in_progress = any(
-            subtask["status"] == "in_progress"
-            for subtask in task["tasks"].values()
-        )
-
-        if all_completed:
-            completed += 1
-        elif any_in_progress:
-            in_progress += 1
-        else:
-            pending += 1
-
-    data["metadata"]["completed"] = completed
-    data["metadata"]["in_progress"] = in_progress
-    data["metadata"]["pending"] = pending
-    data["metadata"]["last_updated"] = datetime.now().isoformat()
+    cmd = [
+        "gh", "issue", "comment", str(issue_number),
+        "--body", comment,
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio"
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"✓ Added comment to issue #{issue_number}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Failed to add comment: {e}")
+        return False
 
 
-def add_note(task: Dict[str, Any], note: str) -> None:
-    """Add a note to a task.
-
+def update_status(issue_number: int, status: str) -> bool:
+    """Update the status of a scraper task.
+    
     Args:
-        task: Task entry
-        note: Note to add
+        issue_number: GitHub issue number
+        status: New status (pending, in-progress, completed, vivery-covered)
+    
+    Returns:
+        True if successful, False otherwise
     """
-    timestamp = datetime.now().isoformat()
-    task["notes"].append({
-        "timestamp": timestamp,
-        "note": note
-    })
-    print(f"Added note: {note}")
+    # Remove old status labels
+    for old_status in ["pending", "in-progress", "completed", "vivery-covered"]:
+        if old_status != status:
+            remove_label(issue_number, old_status)
+    
+    # Add new status label
+    if status != "pending":  # pending is the default (no label)
+        return add_label(issue_number, status)
+    return True
 
 
-def list_in_progress(data: Dict[str, Any]) -> None:
-    """List all tasks currently in progress.
-
+def get_pending_issues(state: Optional[str] = None) -> List[dict]:
+    """Get all pending scraper issues from GitHub.
+    
     Args:
-        data: Tracking data
+        state: Optional state filter
+    
+    Returns:
+        List of pending issues
     """
-    in_progress_tasks = []
+    cmd = [
+        "gh", "issue", "list",
+        "--label", "scraper",
+        "--state", "open",
+        "--limit", "300",
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio",
+        "--json", "number,title,body,labels"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        issues = json.loads(result.stdout)
+        
+        # Filter for pending (no status label)
+        pending = []
+        for issue in issues:
+            labels = [label["name"] for label in issue.get("labels", [])]
+            
+            # Skip if has any status label
+            if any(status in labels for status in ["in-progress", "completed", "vivery-covered"]):
+                continue
+            
+            # Apply state filter if provided
+            if state:
+                body = issue.get("body", "")
+                if f"State: {state.upper()}" not in body:
+                    continue
+            
+            pending.append(issue)
+        
+        return pending
+    except subprocess.CalledProcessError:
+        return []
 
-    for task in data["food_banks"]:
-        for subtask_name, subtask in task["tasks"].items():
-            if subtask["status"] == "in_progress":
-                in_progress_tasks.append({
-                    "issue": task["issue_number"],
-                    "name": task["food_bank"]["name"],
-                    "subtask": subtask_name
-                })
 
-    if not in_progress_tasks:
-        print("No tasks currently in progress.")
-        return
-
-    print("\nTasks In Progress:")
-    print("=" * 60)
-    for task in in_progress_tasks:
-        print(f"Issue #{task['issue']}: {task['name']}")
-        print(f"  - Working on: {task['subtask']}")
-    print()
-
-
-def show_next_priorities(data: Dict[str, Any], count: int = 10) -> None:
-    """Show next priority tasks.
-
-    Args:
-        data: Tracking data
-        count: Number of tasks to show
+def get_in_progress_issues() -> List[dict]:
+    """Get all in-progress scraper issues from GitHub.
+    
+    Returns:
+        List of in-progress issues
     """
-    priorities = []
+    cmd = [
+        "gh", "issue", "list",
+        "--label", "scraper",
+        "--label", "in-progress",
+        "--state", "open",
+        "--limit", "100",
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio",
+        "--json", "number,title,body"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return json.loads(result.stdout)
+    except subprocess.CalledProcessError:
+        return []
 
-    for task in data["food_banks"]:
-        if task["priority"] == "high" and task["tasks"]["scraper"]["status"] == "pending":
-            priorities.append(task)
 
-    print(f"\nNext {count} High Priority Tasks:")
-    print("=" * 60)
-
-    for i, task in enumerate(priorities[:count]):
-        print(f"{i+1}. Issue #{task['issue_number']}: {task['food_bank']['name']}")
-        if task["food_bank"].get("find_food_url"):
-            print(f"   URL: {task['food_bank']['find_food_url']}")
-        elif task["food_bank"].get("url"):
-            print(f"   URL: {task['food_bank']['url']}")
-    print()
+def show_summary() -> None:
+    """Show a summary of scraper development progress."""
+    cmd = [
+        "gh", "issue", "list",
+        "--label", "scraper",
+        "--state", "all",
+        "--limit", "500",
+        "--repo", "For-The-Greater-Good/pantry-pirate-radio",
+        "--json", "number,title,state,labels"
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        issues = json.loads(result.stdout)
+        
+        # Count by status
+        stats = {
+            "pending": 0,
+            "in-progress": 0,
+            "completed": 0,
+            "vivery-covered": 0,
+            "closed": 0,
+            "total": len(issues)
+        }
+        
+        for issue in issues:
+            if issue["state"] == "CLOSED":
+                stats["closed"] += 1
+                continue
+            
+            labels = [label["name"] for label in issue.get("labels", [])]
+            
+            if "completed" in labels:
+                stats["completed"] += 1
+            elif "in-progress" in labels:
+                stats["in-progress"] += 1
+            elif "vivery-covered" in labels:
+                stats["vivery-covered"] += 1
+            else:
+                stats["pending"] += 1
+        
+        # Display summary
+        print(f"\n{'='*60}")
+        print("SCRAPER DEVELOPMENT SUMMARY")
+        print(f"{'='*60}")
+        print(f"Total Issues:        {stats['total']}")
+        print(f"Closed:              {stats['closed']}")
+        print(f"Completed:           {stats['completed']}")
+        print(f"In Progress:         {stats['in-progress']}")
+        print(f"Pending:             {stats['pending']}")
+        print(f"Vivery Covered:      {stats['vivery-covered']}")
+        print(f"{'='*60}")
+        
+        # Calculate percentage
+        open_issues = stats['total'] - stats['closed']
+        if open_issues > 0:
+            completion_pct = ((stats['completed'] + stats['vivery-covered']) / open_issues) * 100
+            print(f"Completion Rate:     {completion_pct:.1f}%")
+        print(f"{'='*60}\n")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching summary: {e}")
 
 
 def main():
     """Main function."""
     parser = argparse.ArgumentParser(
-        description="Update scraper development progress"
+        description="Update scraper progress using GitHub labels"
     )
-
-    # Action arguments
-    parser.add_argument("--issue", type=int, help="GitHub issue number")
-    parser.add_argument("--task", choices=["scraper", "tests", "pr"],
-                       help="Task to update")
-    parser.add_argument("--status", choices=["pending", "in_progress", "completed"],
-                       help="New status")
-    parser.add_argument("--file", help="File path (for scraper/tests tasks)")
-    parser.add_argument("--pr", type=int, help="PR number (for pr task)")
-    parser.add_argument("--note", help="Add a note to the task")
-
-    # Query arguments
-    parser.add_argument("--list-in-progress", action="store_true",
-                       help="List all tasks currently in progress")
-    parser.add_argument("--next", type=int, metavar="N", default=0,
-                       help="Show next N priority tasks")
-
-    # File argument
-    parser.add_argument("--tracking-file",
-                       default="outputs/scraper_development_tracking.json",
-                       help="Path to tracking JSON file")
-
+    
+    # Issue selection
+    parser.add_argument("--issue", type=int, help="GitHub issue number to update")
+    
+    # Status update
+    parser.add_argument(
+        "--status",
+        choices=["pending", "in-progress", "completed", "vivery-covered"],
+        help="New status for the issue"
+    )
+    
+    # Add notes
+    parser.add_argument("--note", help="Add a comment to the issue")
+    parser.add_argument("--file", help="Note the file path (added as comment)")
+    parser.add_argument("--pr", type=int, help="Note the PR number (added as comment)")
+    
+    # List and summary options
+    parser.add_argument(
+        "--next",
+        type=int,
+        metavar="N",
+        help="Show next N pending tasks"
+    )
+    parser.add_argument(
+        "--list-in-progress",
+        action="store_true",
+        help="List all in-progress tasks"
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Show summary statistics"
+    )
+    
     args = parser.parse_args()
-
-    # Load tracking data
-    tracking_file = Path(args.tracking_file)
-    data = load_tracking_data(tracking_file)
-
-    # Handle queries
+    
+    # Handle summary
+    if args.summary:
+        show_summary()
+        return
+    
+    # Handle listing next tasks
+    if args.next:
+        pending = get_pending_issues()
+        print(f"\nNext {args.next} pending tasks:")
+        print("-" * 40)
+        for i, issue in enumerate(pending[:args.next], 1):
+            print(f"{i}. #{issue['number']}: {issue['title']}")
+        
+        if len(pending) > args.next:
+            print(f"\n... and {len(pending) - args.next} more pending tasks")
+        return
+    
+    # Handle listing in-progress
     if args.list_in_progress:
-        list_in_progress(data)
+        in_progress = get_in_progress_issues()
+        if not in_progress:
+            print("No tasks currently in progress")
+        else:
+            print(f"\nIn-progress tasks ({len(in_progress)}):")
+            print("-" * 40)
+            for issue in in_progress:
+                print(f"#{issue['number']}: {issue['title']}")
         return
-
-    if args.next > 0:
-        show_next_priorities(data, args.next)
-        return
-
-    # Handle updates
-    if not args.issue:
-        parser.error("--issue is required for updates")
-
-    # Find the task
-    task = find_task_by_issue(data, args.issue)
-    if not task:
-        print(f"Error: No task found for issue #{args.issue}")
-        return
-
-    print(f"Found task: {task['food_bank']['name']}")
-
-    # Update status if provided
-    if args.task and args.status:
-        update_task_status(
-            task,
-            args.task,
-            args.status,
-            file_path=args.file,
-            pr_number=args.pr
-        )
-
-    # Add note if provided
-    if args.note:
-        add_note(task, args.note)
-
-    # Recalculate metadata
-    recalculate_metadata(data)
-
-    # Save updated data
-    save_tracking_data(data, tracking_file)
-    print(f"\nTracking data updated: {tracking_file}")
-
-    # Show current task status
-    print(f"\nCurrent status for issue #{args.issue}:")
-    for subtask_name, subtask in task["tasks"].items():
-        status_icon = {
-            "pending": "⏳",
-            "in_progress": "🔄",
-            "completed": "✅"
-        }[subtask["status"]]
-        print(f"  {status_icon} {subtask_name}: {subtask['status']}")
-        if subtask.get("file_path"):
-            print(f"     File: {subtask['file_path']}")
-        if subtask.get("pr_number"):
-            print(f"     PR: #{subtask['pr_number']}")
+    
+    # Handle issue updates
+    if args.issue:
+        success = True
+        
+        # Update status if provided
+        if args.status:
+            success = update_status(args.issue, args.status) and success
+        
+        # Add comments for additional information
+        comments = []
+        
+        if args.file:
+            comments.append(f"📁 File: `{args.file}`")
+        
+        if args.pr:
+            comments.append(f"🔗 Pull Request: #{args.pr}")
+        
+        if args.note:
+            comments.append(f"📝 Note: {args.note}")
+        
+        if comments:
+            comment_text = "\n".join(comments)
+            success = add_comment(args.issue, comment_text) and success
+        
+        if success:
+            print(f"\n✅ Successfully updated issue #{args.issue}")
+        else:
+            print(f"\n⚠️  Some updates may have failed for issue #{args.issue}")
+    else:
+        # Show help if no action specified
+        parser.print_help()
 
 
 if __name__ == "__main__":

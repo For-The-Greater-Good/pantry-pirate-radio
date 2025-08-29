@@ -4,14 +4,14 @@ This directory contains tools to help track and manage the development of scrape
 
 ## Overview
 
-We have 276 food banks that need scrapers. This tracking system provides a comprehensive suite of tools to:
+We have 276 food banks that need scrapers. This system provides a comprehensive suite of tools to:
 - Extract food bank data from the Feeding America API
-- Track scraper development progress across GitHub issues
+- Track scraper development progress using GitHub issues and labels
 - Identify and handle Vivery/AccessFood-powered sites
 - Generate boilerplate code from templates
 - Prioritize tasks based on population served
 - Automate scraper implementation with AI assistance
-- Update status as work progresses
+- Update status directly through GitHub
 
 ## Prerequisites
 
@@ -48,37 +48,11 @@ Fetches comprehensive food bank data directly from the Feeding America API. This
 - Logo URLs
 - Affiliate relationships
 
-### 2. `generate_scraper_tracking.py`
+### 2. `update_scraper_progress.py`
 
-Generates a comprehensive tracking JSON file by fetching GitHub issues and cross-referencing with Feeding America data. This is the central tracking system for all scraper development.
+Updates task status using GitHub issue labels and comments. This is the primary tool for tracking your progress.
 
-**Purpose**: Create and maintain a master tracking file that combines GitHub issues with food bank metadata.
-
-**Usage**:
-```bash
-# Generate the tracking file
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py
-
-# Generate with detailed report
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py --report
-
-# Filter by state
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py --state CA
-
-# Export to CSV format
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py --format csv
-
-# Update existing tracking (preserves task status)
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py --update
-```
-
-**Output**: Creates `outputs/scraper_development_tracking.json` with task status for each food bank
-
-### 3. `update_scraper_progress.py`
-
-Updates task status as you work on scrapers. This is the primary tool for tracking your progress through the development workflow.
-
-**Purpose**: Manage task states (pending/in_progress/completed) and track implementation details.
+**Purpose**: Manage task states using GitHub labels (pending/in-progress/completed/vivery-covered) and add notes via comments.
 
 **Usage**:
 ```bash
@@ -89,27 +63,28 @@ Updates task status as you work on scrapers. This is the primary tool for tracki
 ./bouy exec app python scripts/feeding-america/update_scraper_progress.py --list-in-progress
 
 # Mark scraper as in progress
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task scraper --status in_progress
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --status in-progress
 
 # Mark scraper as completed with file path
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task scraper --status completed --file app/scraper/food_bank_name_scraper.py
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --status completed --file app/scraper/food_bank_name_scraper.py
 
 # Add implementation notes
 ./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --note "Website uses React SPA, need browser automation"
 
 # Mark PR as completed
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task pr --status completed --pr 456
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --pr 456
 
 # Show summary statistics
 ./bouy exec app python scripts/feeding-america/update_scraper_progress.py --summary
 ```
 
-**Task Types**:
-- `scraper`: The main implementation file
-- `tests`: Unit tests for the scraper
-- `pr`: Pull request submission
+**Status Labels**:
+- No label = pending (default)
+- `in-progress`: Currently being worked on
+- `completed`: Implementation finished
+- `vivery-covered`: Uses Vivery/AccessFood (no scraper needed)
 
-### 4. `create_feeding_america_issues.py`
+### 3. `create_feeding_america_issues.py`
 
 Creates GitHub issues for food banks that need scrapers. Uses the GitHub CLI to batch-create issues with proper labels and formatting.
 
@@ -205,7 +180,7 @@ Closes GitHub issues for food banks that are covered by the existing Vivery API 
 
 ### 7. `create_scraper_from_issue.py`
 
-Generates scraper boilerplate code from a GitHub issue using Jinja2 templates.
+Generates scraper boilerplate code from a GitHub issue using templates.
 
 **Purpose**: Quickly scaffold new scraper files with proper structure and naming.
 
@@ -223,11 +198,12 @@ Generates scraper boilerplate code from a GitHub issue using Jinja2 templates.
 - `tests/test_scraper/test_{module_name}_scraper.py`: Test file
 
 **Features**:
+- Fetches food bank data directly from GitHub issue body
 - Automatically sanitizes food bank names for Python identifiers
 - Includes state in naming for uniqueness
-- Adds approximate state coordinates for geocoding
-- Updates tracking to mark scraper as "in_progress"
+- Adds 'in-progress' label to GitHub issue
 - Provides next steps and implementation guidance
+- **NO GEOCODING** - validator service handles this automatically
 
 ### 8. `pick_next_scraper_task.py`
 
@@ -334,9 +310,9 @@ Tests and validates the priority-based task selection system.
 
 ## Templates
 
-### Scraper Template (`/templates/scraper_template.py.jinja2`)
+### Scraper Template (`scripts/feeding-america/templates/scraper_template.py.jinja2`)
 
-A Jinja2 template for generating scraper boilerplate. Variables:
+A template for generating scraper boilerplate. Variables:
 - `food_bank_name`: Full name of the food bank
 - `class_name`: PascalCase class name (e.g., "FoodBankOfAlaska")
 - `scraper_id`: Snake_case scraper ID (e.g., "food_bank_of_alaska")
@@ -344,28 +320,27 @@ A Jinja2 template for generating scraper boilerplate. Variables:
 - `food_bank_url`: URL to scrape
 - `state`: Two-letter state code
 
-### Test Template (`/templates/test_scraper_template.py.jinja2`)
+**Important**: Templates do NOT include geocoding logic. Lat/long is optional and geocoding is handled by the validator service.
 
-A Jinja2 template for generating test boilerplate with the same variables.
+### Test Template (`scripts/feeding-america/templates/test_scraper_template.py.jinja2`)
+
+A template for generating test boilerplate with the same variables.
 
 ## Workflow
 
 ### Initial Setup
 
 ```bash
-# 1. Extract food bank data from API
+# 1. Extract food bank data from API (if creating new issues)
 ./bouy exec app python scripts/feeding-america/extract_feeding_america_foodbanks.py
 
-# 2. Generate tracking file
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py
-
-# 3. Check for Vivery usage
+# 2. Check for Vivery usage
 ./bouy exec app python scripts/feeding-america/check_vivery_usage.py
 
-# 4. Close Vivery-covered issues
+# 3. Close Vivery-covered issues
 ./bouy exec app python scripts/feeding-america/close_vivery_issues.py --dry-run
 
-# 5. Prioritize remaining issues
+# 4. Prioritize remaining issues
 ./bouy exec app python scripts/feeding-america/prioritize_scraper_issues.py
 ```
 
@@ -387,9 +362,7 @@ A Jinja2 template for generating test boilerplate with the same variables.
 # Generate boilerplate files from template
 ./bouy exec app python scripts/feeding-america/create_scraper_from_issue.py --issue 123
 
-# This automatically marks the task as in_progress
-# Or manually update status:
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task scraper --status in_progress
+# This automatically adds the 'in-progress' label to the GitHub issue
 ```
 
 #### 3. Explore the Website
@@ -416,7 +389,7 @@ Use the template as a starting point, but customize based on what you find:
 
 ```bash
 # Mark scraper as completed
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task scraper --status completed --file app/scraper/food_bank_name_scraper.py
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --status completed --file app/scraper/food_bank_name_scraper.py
 
 # Add notes about implementation
 ./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --note "Uses WordPress store locator plugin with AJAX endpoint"
@@ -425,14 +398,11 @@ Use the template as a starting point, but customize based on what you find:
 #### 6. Write Tests
 
 ```bash
-# Mark tests as in progress
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task tests --status in_progress
-
 # Run the tests
 ./bouy test --pytest tests/test_scraper/test_food_bank_name_scraper.py
 
-# After completion
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task tests --status completed --file tests/test_scraper/test_food_bank_name_scraper.py
+# Add note about test completion
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --note "Tests complete with 100% coverage"
 ```
 
 #### 7. Submit PR
@@ -444,70 +414,40 @@ git commit -m "feat: Add scraper for Food Bank Name"
 git push origin feature/food-bank-name-scraper
 gh pr create --title "Add scraper for Food Bank Name" --body "Closes #123"
 
-# Update tracking with PR number
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task pr --status completed --pr 456
+# Update issue with PR number
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --pr 456
+
+# Mark as completed when PR is merged
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --status completed
 ```
 
-## Tracking Data Structure
+## GitHub Issue Structure
 
-The tracking JSON (`outputs/scraper_development_tracking.json`) contains:
+Food bank information is stored in GitHub issue bodies with this format:
 
-```json
-{
-  "metadata": {
-    "generated_at": "2025-01-27T...",
-    "total_food_banks": 276,
-    "completed": 0,
-    "in_progress": 0,
-    "pending": 276
-  },
-  "food_banks": [
-    {
-      "issue_number": 123,
-      "issue_title": "Implement scraper for Food Bank Name",
-      "food_bank": {
-        "name": "Food Bank Name",
-        "org_id": "123",
-        "state": "CA",
-        "url": "https://...",
-        "find_food_url": "https://...",
-        "counties": ["..."]
-      },
-      "tasks": {
-        "scraper": {
-          "status": "pending|in_progress|completed",
-          "file_path": null,
-          "completed_at": null
-        },
-        "tests": {
-          "status": "pending|in_progress|completed",
-          "file_path": null,
-          "completed_at": null
-        },
-        "pr": {
-          "status": "pending|in_progress|completed",
-          "pr_number": null,
-          "completed_at": null
-        }
-      },
-      "priority": "high|medium|low",
-      "assigned_to": null,
-      "notes": []
-    }
-  ],
-  "statistics": {
-    "by_state": {},
-    "by_priority": {},
-    "completion_rate": {}
-  }
-}
+```
+Name: Food Bank Name
+State: CA
+URL: https://...
+Find Food URL: https://...
+Counties: County1, County2, ...
 ```
 
 ## Priority System
 
-- **High**: Food banks with `find_food_url` or `url` (easier to scrape)
-- **Medium**: Food banks with state information
-- **Low**: Others
+Priorities are indicated in issue titles:
+- **[CRITICAL]**: Major metros with 5M+ population
+- **[HIGH]**: Large cities with 1-5M population
+- **[MEDIUM]**: Mid-size cities with 500K-1M population
+- **[LOW]**: Smaller areas under 500K population
+
+## Status Tracking
+
+Status is tracked using GitHub labels:
+- No label = **pending** (not started)
+- `in-progress`: Currently being worked on
+- `completed`: Implementation finished
+- `vivery-covered`: Uses Vivery/AccessFood (no scraper needed)
 
 ## Environment Variables
 
@@ -518,16 +458,17 @@ No special environment variables are required. The scripts use:
 
 ## Data Files
 
-All scripts work with JSON files in the `outputs/` directory:
+Scripts work with these JSON files in the `outputs/` directory:
 
 | File | Description | Generated By |
 |------|-------------|-------------|
 | `feeding_america_foodbanks.json` | Raw food bank data from API | `extract_feeding_america_foodbanks.py` |
 | `feeding_america_issues.json` | Formatted GitHub issues | `create_feeding_america_issues.py` |
-| `scraper_development_tracking.json` | Master tracking file | `generate_scraper_tracking.py` |
 | `vivery_confirmed_users.json` | Vivery-powered sites | `check_vivery_usage.py` |
 | `vivery_check_summary.json` | Vivery detection summary | `check_vivery_usage.py` |
 | `vivery_issues_closed.json` | Closed issue records | `close_vivery_issues.py` |
+
+**Note**: No local tracking JSON is used - GitHub issues are the single source of truth.
 
 ## Troubleshooting
 
@@ -542,10 +483,13 @@ gh auth status
 gh auth login
 ```
 
-#### Missing Tracking File
+#### Missing GitHub Issues
 ```bash
-# Regenerate tracking file
-./bouy exec app python scripts/feeding-america/generate_scraper_tracking.py
+# Check if GitHub CLI is authenticated
+gh auth status
+
+# List all scraper issues
+gh issue list --label scraper --repo For-The-Greater-Good/pantry-pirate-radio
 ```
 
 #### SSL Certificate Errors
@@ -568,11 +512,13 @@ gh auth login
 
 ## Important Notes
 
+- **NO GEOCODING IN SCRAPERS** - The validator service handles all geocoding automatically
+- Lat/long is optional - include if available from the source, otherwise leave as None
 - Many food banks use Vivery (formerly PantryNet/AccessFood) for their food finders
 - Always check for Vivery integration before implementing a custom scraper
 - The Vivery API scraper (`app/scraper/vivery_api_scraper.py`) already covers these
-- 31+ food banks have been identified as Vivery users and their issues closed
 - Use bouy commands for all script execution to ensure proper environment
+- GitHub issues are the single source of truth - no local tracking JSON
 
 ## Statistics
 
@@ -588,7 +534,7 @@ This means 75% of food banks have URLs we can explore!
 
 1. **Start with high-priority tasks** - they serve larger populations
 2. **Check for Vivery first** - avoid duplicate work on already-covered sites
-3. **Document findings** - use notes to record implementation details
+3. **Document findings** - use GitHub comments to record implementation details
 4. **Check for existing patterns** - some food banks use similar systems:
    - WordPress store locators
    - Squarespace integrations
@@ -601,7 +547,8 @@ This means 75% of food banks have URLs we can explore!
    - Data validation
 6. **Follow TDD** - write tests before implementation
 7. **Use templates** - start from boilerplate to maintain consistency
-8. **Update tracking regularly** - helps team coordination
+8. **Update GitHub labels** - helps team coordination
+9. **NO GEOCODING** - validator service handles this automatically
 
 ## Quick Reference
 
@@ -620,10 +567,9 @@ This means 75% of food banks have URLs we can explore!
 ./bouy scraper-test food_bank_name
 ./bouy test --pytest tests/test_scraper/test_food_bank_name_scraper.py
 
-# 5. Update tracking
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task scraper --status completed
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task tests --status completed
+# 5. Update status
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --status completed
 
-# 6. Submit PR and update
-./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --task pr --status completed --pr 456
+# 6. Submit PR and add PR number
+./bouy exec app python scripts/feeding-america/update_scraper_progress.py --issue 123 --pr 456
 ```
