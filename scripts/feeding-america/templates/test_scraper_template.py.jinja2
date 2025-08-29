@@ -149,9 +149,6 @@ async def test_scrape_html_flow(scraper: {{ class_name }}Scraper, mock_html_resp
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
     
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-    
     # Track submitted jobs
     submitted_jobs = []
     
@@ -177,21 +174,16 @@ async def test_scrape_html_flow(scraper: {{ class_name }}Scraper, mock_html_resp
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
     assert job["name"] == "Sample Food Pantry"
-    assert job["latitude"] == 40.0
-    assert job["longitude"] == -75.0
+    # Note: Geocoding is now done by validator service, so lat/long may be None
     assert job["source"] == "{{ scraper_id }}"
     assert job["food_bank"] == "{{ food_bank_name }}"
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(scraper: {{ class_name }}Scraper, mock_html_response: str):
-    """Test scraping when geocoding fails."""
+async def test_scrape_without_coordinates(scraper: {{ class_name }}Scraper, mock_html_response: str):
+    """Test scraping when coordinates are not available."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-    
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
     
     # Track submitted jobs
     submitted_jobs = []
@@ -206,15 +198,12 @@ async def test_scrape_with_geocoding_failure(scraper: {{ class_name }}Scraper, m
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
     
-    # Verify fallback coordinates were used
+    # Verify job was submitted without coordinates (validator will handle geocoding)
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
-    assert job["latitude"] == 39.0
-    assert job["longitude"] == -76.0
-    
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 1
-    assert summary["geocoding_stats"]["success"] == 0
+    # Coordinates might be None - that's ok, validator service will geocode
+    assert "latitude" in job  # Key should exist even if None
+    assert "longitude" in job  # Key should exist even if None
 
 
 def test_scraper_initialization():
@@ -243,9 +232,6 @@ async def test_scrape_api_flow(scraper: {{ class_name }}Scraper, mock_json_respo
     
     # Override parse_html to use process_api_response instead
     scraper.parse_html = Mock(side_effect=lambda x: scraper.process_api_response(mock_json_response))
-    
-    # Mock geocoder (locations in API response don't have addresses)
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(40.0, -75.0))
     
     # Track submitted jobs
     submitted_jobs = []
