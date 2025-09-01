@@ -17,6 +17,11 @@ from app.core.zip_state_mapping import (
     get_state_from_city,
     resolve_state_conflict,
 )
+from app.validator.scraper_context import (
+    enhance_address_with_context,
+    format_address_for_geocoding,
+    get_scraper_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +85,13 @@ class GeocodingEnricher:
         self._enrichment_details: Dict[str, Any] = {}
 
     def enrich_location(
-        self, location_data: Dict[str, Any]
+        self, location_data: Dict[str, Any], scraper_id: Optional[str] = None
     ) -> Tuple[Dict[str, Any], Optional[str]]:
         """Enrich a single location with geocoding data.
 
         Args:
             location_data: Location dictionary with addresses and coordinates
+            scraper_id: Optional scraper identifier for context
 
         Returns:
             Tuple of (enriched location data, geocoding source used)
@@ -104,13 +110,16 @@ class GeocodingEnricher:
             location_data.get("latitude") is None
             or location_data.get("longitude") is None
         )
+        # Check for both "address" and "addresses" keys
+        addresses = location_data.get("addresses") or location_data.get("address") or []
+        
         needs_reverse_geocoding = (
-            not needs_geocoding and location_data.get("addresses", []) == []
+            not needs_geocoding and addresses == []
         )
         needs_postal_enrichment = False
 
-        if location_data.get("addresses"):
-            for address in location_data["addresses"]:
+        if addresses:
+            for address in addresses:
                 if not address.get("postal_code"):
                     needs_postal_enrichment = True
                     break
@@ -135,25 +144,58 @@ class GeocodingEnricher:
 
         try:
             # Geocode missing coordinates
-            if needs_geocoding and enriched.get("addresses"):
-                logger.info(
-                    f"🔍 ENRICHER: Geocoding missing coordinates for '{location_name}'"
-                )
-                result = self._geocode_missing_coordinates(enriched)
-                if result:
-                    coords, source = result
-                    if coords:
-                        logger.info(
-                            f"✅ ENRICHER: Successfully geocoded '{location_name}' to {coords} using {source}"
-                        )
-                        enriched["latitude"], enriched["longitude"] = coords
+            if needs_geocoding:
+                # Check for both "address" and "addresses" keys
+                has_addresses = enriched.get("addresses") or enriched.get("address")
+                
+                # If no addresses array, try to create one from the name
+                if not has_addresses and location_name:
+                    logger.info(
+                        f"🔍 ENRICHER: No address array found, attempting to extract from name: '{location_name}'"
+                    )
+                    # Create a temporary address from the name
+                    # Many NYC locations have addresses in the name like "58-25 LITTLE NECK PKWY (LITTLE NECK)"
+                    enriched["addresses"] = [{
+                        "address_1": location_name,
+                        "city": "",
+                        "state_province": "",
+                        "postal_code": "",
+                        "country": "US",
+                        "address_type": "physical"
+                    }]
+                    logger.info(
+                        f"🔍 ENRICHER: Created temporary address from name for geocoding"
+                    )
+                
+                # Normalize to "addresses" if we have "address"
+                if enriched.get("address") and not enriched.get("addresses"):
+                    enriched["addresses"] = enriched["address"]
+                
+                if enriched.get("addresses"):
+                    logger.info(
+                        f"🔍 ENRICHER: Geocoding missing coordinates for '{location_name}'"
+                    )
+                    result = self._geocode_missing_coordinates(enriched, scraper_id)
+                    if result:
+                        coords, source = result
+                        # Check if we got valid coordinates (not None, None)
+                        if coords and coords[0] is not None and coords[1] is not None:
+                            logger.info(
+                                f"✅ ENRICHER: Successfully geocoded '{location_name}' to {coords} using {source}"
+                            )
+                            enriched["latitude"], enriched["longitude"] = coords
+                            enriched["geocoding_source"] = source  # Track the source
+                        else:
+                            logger.warning(
+                                f"❌ ENRICHER: Geocoding returned invalid coordinates for '{location_name}': {coords}"
+                            )
                     else:
                         logger.warning(
-                            f"❌ ENRICHER: Geocoding returned empty coordinates for '{location_name}'"
+                            f"❌ ENRICHER: All geocoding attempts failed for '{location_name}'"
                         )
                 else:
                     logger.warning(
-                        f"❌ ENRICHER: Geocoding failed for '{location_name}'"
+                        f"❌ ENRICHER: Cannot geocode '{location_name}' - no address information available"
                     )
 
             # Reverse geocode missing address
@@ -210,7 +252,9 @@ class GeocodingEnricher:
                     )
 
             # Enrich postal code if missing
-            if needs_postal_enrichment and enriched.get("addresses"):
+            # Check for both "address" and "addresses" keys
+            addresses_for_postal = enriched.get("addresses") or enriched.get("address")
+            if needs_postal_enrichment and addresses_for_postal:
                 logger.info(f"🔍 ENRICHER: Enriching postal code for '{location_name}'")
                 postal_result = self._enrich_postal_code(enriched)
                 if postal_result:
@@ -325,29 +369,49 @@ class GeocodingEnricher:
         return location_data
 
     def _geocode_missing_coordinates(
-        self, location_data: Dict[str, Any]
+        self, location_data: Dict[str, Any], scraper_id: Optional[str] = None
     ) -> Tuple[Optional[Tuple[float, float]], Optional[str]]:
         """Geocode address to get coordinates.
 
         Args:
             location_data: Location data with address
+            scraper_id: Optional scraper identifier for context
 
         Returns:
-            Tuple of (coordinates, provider source)
+            Tuple of (coordinates, provider source) or (None, None) if all attempts fail
         """
         if not location_data.get("addresses"):
             return None, None
 
         address = location_data["addresses"][0]
-        address_str = self._format_address(address)
+        
+        # Enhance address with scraper context if available
+        if scraper_id:
+            address = enhance_address_with_context(address, scraper_id)
+            address_str = format_address_for_geocoding(address, scraper_id)
+        else:
+            address_str = self._format_address(address)
+        
+        logger.debug(f"Attempting to geocode: {address_str}")
 
+        # Ensure we try ALL configured providers including census
+        all_providers = ["arcgis", "nominatim", "census"]
+        
         # Try each provider in order
-        for provider in self.providers:
+        for provider in all_providers:
+            # Skip if not in configured providers list
+            if provider not in self.providers and provider != "census":
+                continue
+                
             # Check Redis cache if available
             cached_coords = self._get_cached_coordinates(provider, address_str)
             if cached_coords:
                 self._increment_cache_metric("hits")
-                return cached_coords, provider
+                # Validate cached coordinates are not None
+                if cached_coords[0] is not None and cached_coords[1] is not None:
+                    return cached_coords, provider
+                else:
+                    logger.debug(f"Cached coordinates invalid for {provider}: {cached_coords}")
 
             self._increment_cache_metric("misses")
 
@@ -359,18 +423,22 @@ class GeocodingEnricher:
             # Try with minimal retry logic for provider fallback
             # Each provider gets one attempt in the fallback chain
             # Only retry on specific network/timeout errors, not general failures
-            coords = self._geocode_with_retry(provider, address_str, max_retries=1)
+            logger.info(f"Trying {provider} for: {address_str[:50]}...")
+            coords = self._geocode_with_retry(provider, address_str, max_retries=2)
 
-            if coords:
+            if coords and coords[0] is not None and coords[1] is not None:
                 # Cache the result in Redis
                 self._cache_coordinates(provider, address_str, coords)
                 self._increment_provider_metric(provider, "success")
                 self._reset_circuit_breaker(provider)
+                logger.info(f"✅ Successfully geocoded with {provider}: {coords}")
                 return coords, provider
             else:
                 self._increment_provider_metric(provider, "failure")
                 self._record_circuit_failure(provider)
+                logger.debug(f"Failed to geocode with {provider}")
 
+        logger.error(f"All geocoding providers failed for address: {address_str}")
         return None, None
 
     def _reverse_geocode_missing_address(
@@ -473,11 +541,12 @@ class GeocodingEnricher:
 
         return ", ".join(parts)
 
-    def enrich_job_data(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+    def enrich_job_data(self, job_data: Dict[str, Any], scraper_id: Optional[str] = None) -> Dict[str, Any]:
         """Enrich all locations in job data.
 
         Args:
             job_data: Job data with organization, service, and location arrays
+            scraper_id: Optional scraper identifier for context
 
         Returns:
             Enriched job data
@@ -485,6 +554,8 @@ class GeocodingEnricher:
         logger.info("🌟 ENRICHER: Starting enrichment process")
         logger.info(f"🌟 ENRICHER: Enabled: {self.enabled}")
         logger.info(f"🌟 ENRICHER: Providers: {self.providers}")
+        if scraper_id:
+            logger.info(f"🌟 ENRICHER: Using scraper context: {scraper_id}")
 
         if not self.enabled:
             logger.info("🌟 ENRICHER: Enrichment disabled, returning original data")
@@ -527,7 +598,7 @@ class GeocodingEnricher:
                 logger.info(f"📍 ENRICHER: Processing location {i+1}/{location_count}")
                 logger.info(f"📍 ENRICHER: Location data: {location}")
 
-                enriched_location, source = self.enrich_location(location)
+                enriched_location, source = self.enrich_location(location, scraper_id)
                 enriched_data[location_key][i] = enriched_location
 
                 if source:
@@ -570,6 +641,12 @@ class GeocodingEnricher:
                 if provider == "arcgis" and hasattr(self.geocoding_service, "geocode"):
                     # Try regular geocode for arcgis (backward compatibility)
                     coords = self.geocoding_service.geocode(address_str)
+                elif provider == "census":
+                    # Use geocode_with_provider for census
+                    if hasattr(self.geocoding_service, "geocode_with_provider"):
+                        coords = self.geocoding_service.geocode_with_provider(
+                            address_str, provider="census"
+                        )
                 elif hasattr(self.geocoding_service, "geocode_with_provider"):
                     coords = self.geocoding_service.geocode_with_provider(
                         address_str, provider=provider
