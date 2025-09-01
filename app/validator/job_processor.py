@@ -352,8 +352,19 @@ class ValidationProcessor:
         try:
             from app.validator.enrichment import GeocodingEnricher
 
+            # Extract scraper_id from job metadata
+            scraper_id = None
+            if hasattr(job_result, "job") and job_result.job:
+                if hasattr(job_result.job, "metadata") and job_result.job.metadata:
+                    scraper_id = job_result.job.metadata.get("scraper_id")
+            elif hasattr(job_result, "metadata") and job_result.metadata:
+                scraper_id = job_result.metadata.get("scraper_id")
+            
+            if scraper_id:
+                self.logger.info(f"Using scraper context for enrichment: {scraper_id}")
+
             enricher = GeocodingEnricher()
-            enriched_data = enricher.enrich_job_data(data)
+            enriched_data = enricher.enrich_job_data(data, scraper_id)
 
             # Store enrichment details for reporting
             self._enrichment_details = enricher.get_enrichment_details()
