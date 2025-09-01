@@ -151,7 +151,7 @@ services:
   cache:
     image: redis:7-alpine
     # NO PORTS EXPOSED - access only through Docker network for security
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --protected-mode no
+    command: redis-server --protected-mode no
     volumes:
       - redis_data:/data
     networks:
