@@ -9,7 +9,7 @@ import httpx
 import requests
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +37,6 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-        # Initialize geocoder with custom default coordinates for Hawaii
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "HI": (21.094318, -157.498337),  # Hawaii Island center
-                "Hilo, HI": (19.7070, -155.0885),  # Hilo
-                "Kailua-Kona, HI": (19.6400, -155.9969),  # Kona
-                "Pahoa, HI": (19.4947, -154.9458),  # Puna area
-                "Mountain View, HI": (19.5400, -155.1133),  # Mountain View
-                "Holualoa, HI": (19.6239, -155.9311),  # Holualoa
-            }
-        )
 
     async def download_html(self) -> str:
         """Download HTML content from the website.
@@ -291,66 +280,9 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("address") and location.get("city"):
-                    try:
-                        # Construct full address for geocoding
-                        full_address = location["address"]
-                        if not any(location["city"] in full_address for _ in [1]):
-                            full_address = f"{location['address']}, {location['city']}, HI {location.get('zip', '')}".strip()
-
-                        lat, lon = self.geocoder.geocode_address(
-                            address=full_address, state="HI"
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(
-                            f"Geocoding failed for {location['address']}: {e}"
-                        )
-                        # Use city-specific defaults if available
-                        city = location.get("city", "").lower()
-                        if "hilo" in city:
-                            lat, lon = self.geocoder.get_default_coordinates(
-                                location="Hilo, HI", with_offset=True
-                            )
-                        elif "kona" in city or "kailua" in city:
-                            lat, lon = self.geocoder.get_default_coordinates(
-                                location="Kailua-Kona, HI", with_offset=True
-                            )
-                        else:
-                            lat, lon = self.geocoder.get_default_coordinates(
-                                location="HI", with_offset=True
-                            )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="HI", with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
-
-            # Format hours to include day of week if available
-            if location.get("day_of_week") and location.get("hours"):
-                location["hours"] = f"{location['day_of_week']}: {location['hours']}"
-
-            # Remove temporary day_of_week field
-            location.pop("day_of_week", None)
-
-            # Add metadata
-            location["source"] = "the_food_basket_inc_hi"
-            location["food_bank"] = "The Food Basket, Inc."
-
-            # Submit to queue
+            # Note: Latitude and longitude will be handled by the validator service
             job_id = self.submit_to_queue(json.dumps(location))
             job_count += 1
             logger.debug(
@@ -360,34 +292,24 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
         # Create summary
         summary = {
             "scraper_id": self.scraper_id,
-            "food_bank": "The Food Basket, Inc.",
+            "food_bank": "The Food Basket Inc HI",
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
-            "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
+            "jobs_created": job_count,
             "source": self.url,
-            "test_mode": self.test_mode,
         }
 
         # Print summary to CLI
-        print("\n" + "=" * 60)
-        print("SCRAPER SUMMARY: The Food Basket, Inc.")
-        print("=" * 60)
-        print(f"Source: {self.url}")
+        print(f"{'='*60}")
+        print(f"The Food Basket Inc HI Scraper Summary")
+        print(f"{'='*60}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")
-        print("=" * 60 + "\n")
+        print(f"{'='*60}\n")
 
         # Return summary for archiving
         return json.dumps(summary)
-
-
-# Alias for compatibility with test imports
-TheFoodBasketIncHiScraper = The_Food_Basket_Inc_HiScraper

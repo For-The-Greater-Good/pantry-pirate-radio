@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 # Suppress warning about parsing XML with HTML parser (needed to avoid xml.etree security issues)
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +48,6 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         # Request settings
         self.timeout = 30.0
 
-        # Initialize geocoder with custom default coordinates for NYC region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "NY": (40.7128, -74.0060),  # New York City
-                # Borough-specific defaults
-                "Manhattan": (40.7831, -73.9712),
-                "Brooklyn": (40.6782, -73.9442),
-                "Queens": (40.7282, -73.7949),
-                "Bronx": (40.8448, -73.8648),
-                "Staten Island": (40.5795, -74.1502),
-            }
-        )
 
     async def download_kml(self) -> str:
         """Download KML content from Google My Maps.
@@ -241,39 +229,9 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("address"):
-                    try:
-                        lat, lon = self.geocoder.geocode_address(
-                            address=location["address"],
-                            state=location.get("state", "NY"),
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(
-                            f"Geocoding failed for {location['address']}: {e}"
-                        )
-                        # Use default coordinates
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location="NY", with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="NY", with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
+            # Note: Latitude and longitude will be handled by the validator service
 
             # Add metadata
             location["source"] = "food_bank_for_new_york_city_ny"
@@ -293,7 +251,6 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
             "source": self.url,
             "test_mode": self.test_mode,
         }
@@ -306,9 +263,6 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")

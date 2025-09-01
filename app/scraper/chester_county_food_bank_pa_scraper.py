@@ -10,7 +10,7 @@ import httpx
 import requests
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,6 @@ class ChesterCountyFoodBankPaScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-        # Initialize geocoder with custom default coordinates for the region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "PA": (39.9983793, -75.7033508),  # Chester County center
-                "Chester County": (39.9983793, -75.7033508),
-            }
-        )
 
     async def download_html(self) -> str:
         """Download HTML content from the website.
@@ -356,43 +349,9 @@ class ChesterCountyFoodBankPaScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("address") and location.get("city"):
-                    try:
-                        # Build a proper address string for geocoding
-                        full_address = f"{location['address']}, {location['city']}, {location.get('state', 'PA')}"
-                        if location.get("zip"):
-                            full_address += f" {location['zip']}"
-
-                        lat, lon = self.geocoder.geocode_address(
-                            address=full_address, state=location.get("state", "PA")
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(
-                            f"Geocoding failed for {location['address']}: {e}"
-                        )
-                        # Use default coordinates
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location="PA", with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="PA", with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
+            # Note: Latitude and longitude will be handled by the validator service
 
             # Add metadata
             location["source"] = "chester_county_food_bank_pa"
@@ -412,7 +371,6 @@ class ChesterCountyFoodBankPaScraper(ScraperJob):
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
             "source": self.url,
             "test_mode": self.test_mode,
         }
@@ -425,9 +383,6 @@ class ChesterCountyFoodBankPaScraper(ScraperJob):
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")

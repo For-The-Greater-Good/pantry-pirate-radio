@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +36,6 @@ class PhilabundancePaScraper(ScraperJob):
         )  # Be respectful with API calls
         self.timeout = 30.0
 
-        # Initialize geocoder with custom default coordinates for the region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "PA": (40.590752, -77.209755),  # Pennsylvania center
-                # Philadelphia region (where most locations are)
-                "Philadelphia": (39.9526, -75.1652),
-            }
-        )
 
     async def fetch_api_data(
         self, endpoint: str, params: Optional[Dict[str, Any]] = None
@@ -271,45 +263,9 @@ class PhilabundancePaScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("address"):
-                    try:
-                        lat, lon = self.geocoder.geocode_address(
-                            address=location["address"],
-                            state=location.get("state", "PA"),
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(
-                            f"Geocoding failed for {location['address']}: {e}"
-                        )
-                        # Use default coordinates
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location="PA", with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="PA", with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
-
-            # Add metadata
-            location["source"] = "philabundance_pa"
-            location["food_bank"] = "Philabundance"
-
-            # Submit to queue
+            # Note: Latitude and longitude will be handled by the validator service
             job_id = self.submit_to_queue(json.dumps(location))
             job_count += 1
             logger.debug(
@@ -319,30 +275,24 @@ class PhilabundancePaScraper(ScraperJob):
         # Create summary
         summary = {
             "scraper_id": self.scraper_id,
-            "food_bank": "Philabundance",
+            "food_bank": "Philabundance PA",
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
-            "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
+            "jobs_created": job_count,
             "source": self.url,
-            "test_mode": self.test_mode,
         }
 
         # Print summary to CLI
-        print(f"\n{'='*60}")
-        print("SCRAPER SUMMARY: Philabundance")
-        print("=" * 60)
-        print(f"Source: {self.url}")
+        print(f"{'='*60}")
+        print(f"Philabundance PA Scraper Summary")
+        print(f"{'='*60}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")
-        print("=" * 60 + "\n")
+        print(f"{'='*60}\n")
 
         # Return summary for archiving
         return json.dumps(summary)

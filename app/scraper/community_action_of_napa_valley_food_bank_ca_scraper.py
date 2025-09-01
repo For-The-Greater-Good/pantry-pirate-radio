@@ -9,7 +9,7 @@ import httpx
 import requests
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +39,6 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-        # Initialize geocoder with custom default coordinates for the region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                # Napa County, CA coordinates
-                "CA": (38.5025, -122.2654),  # Napa, CA
-                "Napa": (38.5025, -122.2654),  # Napa County center
-            }
-        )
 
     async def download_html(self) -> str:
         """Download HTML content from the website.
@@ -177,7 +169,7 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
         ]
 
         for loc in location_data:
-            # Build full address for geocoding
+            # Build full address for reference
             full_address = (
                 f"{loc['address']}, {loc['city']}, {loc['state']} {loc['zip']}"
             )
@@ -194,7 +186,6 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
                 "services": ["Food Pantry"],
                 "website": self.url,
                 "notes": "Participants can receive food once every 30 days. Must bring two forms of ID (one with current address and one with birthdate) and shopping bags/box.",
-                "full_address": full_address,  # For geocoding
             }
 
             locations.append(location)
@@ -267,47 +258,9 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("full_address"):
-                    try:
-                        lat, lon = self.geocoder.geocode_address(
-                            address=location["full_address"],
-                            state=location.get("state", "CA"),
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(
-                            f"Geocoding failed for {location['full_address']}: {e}"
-                        )
-                        # Use default coordinates for the city if available
-                        default_location = (
-                            location.get("city", "Napa")
-                            if location.get("city")
-                            else "Napa"
-                        )
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location=default_location, with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="Napa", with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
-
-            # Remove the temporary full_address field
-            location.pop("full_address", None)
+            # Note: Latitude and longitude will be handled by the validator service
 
             # Add metadata
             location["source"] = "community_action_of_napa_valley_food_bank_ca"
@@ -327,7 +280,6 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
             "source": self.url,
             "test_mode": self.test_mode,
         }
@@ -340,9 +292,6 @@ class CommunityActionOfNapaValleyFoodBankCaScraper(ScraperJob):
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")

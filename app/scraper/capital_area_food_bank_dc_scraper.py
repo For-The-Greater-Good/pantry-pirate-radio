@@ -9,7 +9,7 @@ import httpx
 import requests
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -37,19 +37,6 @@ class CapitalAreaFoodBankDcScraper(ScraperJob):
         self.batch_size = 10 if not test_mode else 3
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
-
-        # Initialize geocoder with custom default coordinates for the region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "DC": (38.907192, -77.036871),  # Washington DC center
-                "Montgomery County": (39.141717, -77.201869),  # Maryland
-                "Prince George's County": (38.820450, -76.848889),  # Maryland
-                "Arlington County": (38.879970, -77.106769),  # Virginia
-                "Alexandria city": (38.804836, -77.046921),  # Virginia
-                "Fairfax County": (38.850033, -77.284137),  # Virginia
-                "Prince William County": (38.662668, -77.448326),  # Virginia
-            }
-        )
 
     async def query_arcgis_features(
         self, offset: int = 0, limit: int = 1000
@@ -248,54 +235,13 @@ class CapitalAreaFoodBankDcScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"arcgis": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Build full address for better geocoding if needed
+            # Build full address
             if location.get("address2"):
                 full_address = f"{location['address']} {location['address2']}"
             else:
                 full_address = location["address"]
-
-            # Geocode address if not already present (ArcGIS provides coordinates)
-            if not (location.get("latitude") and location.get("longitude")):
-                if full_address:
-                    try:
-                        # Try to geocode using address
-                        lat, lon = self.geocoder.geocode_address(
-                            address=full_address,
-                            city=location.get("city", ""),
-                            state=location.get("state", "DC"),
-                            county=location.get("county", ""),
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats[
-                            "failed"
-                        ] += 1  # We had to geocode, ArcGIS didn't provide coords
-                    except ValueError as e:
-                        logger.warning(f"Geocoding failed for {full_address}: {e}")
-                        # Use default coordinates based on county or city
-                        default_loc = (
-                            location.get("county") or location.get("city") or "DC"
-                        )
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location=default_loc, with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["default"] += 1
-                else:
-                    # No address, use defaults
-                    default_loc = location.get("county") or location.get("city") or "DC"
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location=default_loc, with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
-            else:
-                geocoding_stats["arcgis"] += 1
 
             # Add metadata
             location["source"] = "capital_area_food_bank_dc"
@@ -316,7 +262,6 @@ class CapitalAreaFoodBankDcScraper(ScraperJob):
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
             "source": self.url,
             "test_mode": self.test_mode,
         }
@@ -330,9 +275,6 @@ class CapitalAreaFoodBankDcScraper(ScraperJob):
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - ArcGIS coords: {geocoding_stats['arcgis']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")

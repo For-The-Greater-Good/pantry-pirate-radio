@@ -9,7 +9,7 @@ from typing import Any
 import pdfplumber
 import requests
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +26,6 @@ class Hccc_Food_PantryScraper(ScraperJob):
         super().__init__(scraper_id=scraper_id)
         self.url = "https://www.hccc.edu/student-success/resources/documents/food-pantry-list-2021.pdf"
 
-        # Initialize geocoder with custom default coordinates for Hudson County, NJ
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "Hudson": (40.7282, -74.0776),  # Jersey City, NJ (Hudson County seat)
-                "NJ": (40.0583, -74.4057),  # Geographic center of New Jersey
-            }
-        )
 
     async def download_pdf(self) -> bytes:
         """Download PDF file from the source URL.
@@ -449,116 +442,40 @@ class Hccc_Food_PantryScraper(ScraperJob):
         # 3. Process pantries and submit to queue
         job_count = 0
         failed_pantries = []
-        geocoder_stats = {"success": 0, "default": 0}
 
         for pantry in pantries:
-            try:
-                # Try to geocode address
-                try:
-                    # Use the geocoder from utils.py
-                    full_address = pantry.get("address", "")
-                    if full_address:
-                        latitude, longitude = self.geocoder.geocode_address(
-                            full_address, county="Hudson", state="NJ"
-                        )
-
-                        # Add coordinates to pantry data
-                        pantry["latitude"] = latitude
-                        pantry["longitude"] = longitude
-                        geocoder_stats["success"] += 1
-                    else:
-                        raise ValueError("No address available for geocoding")
-
-                except Exception as geocode_error:
-                    # Log the geocoding error
-                    logger.warning(
-                        f"Geocoding failed for {pantry['name']}: {geocode_error}"
-                    )
-
-                    # Add to failed pantries list for later review
-                    failed_pantries.append(
-                        {
-                            "name": pantry["name"],
-                            "address": pantry.get("address", ""),
-                            "error": str(geocode_error),
-                        }
-                    )
-
-                    # Use default coordinates for Hudson County with a small offset
-                    latitude, longitude = self.geocoder.get_default_coordinates(
-                        location="Hudson", with_offset=True
-                    )
-                    pantry["latitude"] = latitude
-                    pantry["longitude"] = longitude
-                    geocoder_stats["default"] += 1
-
-                    logger.info(
-                        f"Using default coordinates with offset for {pantry['name']}"
-                    )
-
-                # Transform to HSDS format
-                hsds_data = self.transform_to_hsds(pantry)
-
-                # Submit to queue
-                job_id = self.submit_to_queue(json.dumps(hsds_data))
-                job_count += 1
-                logger.info(f"Queued job {job_id} for pantry: {pantry['name']}")
-
-            except Exception as e:
-                logger.error(
-                    f"Error processing pantry {pantry.get('name', 'Unknown')}: {e}"
-                )
-                failed_pantries.append(
-                    {
-                        "name": pantry.get("name", "Unknown"),
-                        "address": pantry.get("address", ""),
-                        "error": str(e),
-                    }
-                )
-                continue
-
-        # Save failed pantries to file for later review
-        if failed_pantries:
-            import datetime
-            from pathlib import Path
-
-            # Create outputs directory if it doesn't exist
-            output_dir = Path(__file__).parent.parent.parent / "outputs"
-            output_dir.mkdir(exist_ok=True)
-
-            # Generate filename with timestamp
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            failed_file = output_dir / f"hccc_food_pantry_failed_{timestamp}.json"
-
-            # Write failed pantries to file
-            with open(failed_file, "w") as f:
-                json.dump(failed_pantries, f, indent=2)
-
-            logger.info(
-                f"Saved {len(failed_pantries)} failed pantries to {failed_file}"
+            # Note: Latitude and longitude will be handled by the validator service
+            
+            # Add metadata
+            pantry["source"] = "hccc_food_pantry"
+            pantry["pdf_url"] = self.url
+            
+            # Submit to queue
+            job_id = self.submit_to_queue(json.dumps(pantry))
+            job_count += 1
+            logger.debug(
+                f"Queued job {job_id} for pantry: {pantry.get('name', 'Unknown')}"
             )
 
         # Create summary
         summary = {
+            "scraper_id": self.scraper_id,
             "total_pantries_found": len(pantries),
             "total_jobs_created": job_count,
-            "failed_processing": len(failed_pantries),
-            "geocoder_stats": geocoder_stats,
+            "failed_pantries": len(failed_pantries),
             "source": self.url,
         }
 
         # Print summary to CLI
-        print("\nScraper Summary:")
-        print(f"Source: {self.url}")
+        print(f"\n{'='*60}")
+        print("SCRAPER SUMMARY: HCCC Food Pantry (Hudson County, NJ)")
+        print(f"{'='*60}")
+        print(f"PDF URL: {self.url}")
         print(f"Total pantries found: {len(pantries)}")
-        print(f"Successfully processed: {job_count}")
-        print("Geocoder usage:")
-        print(f"  - Successful geocoding: {geocoder_stats['success']}")
-        print(f"  - Default coordinates: {geocoder_stats['default']}")
+        print(f"Jobs created: {job_count}")
         print(f"Failed processing: {len(failed_pantries)}")
-        if failed_pantries:
-            print(f"Failed pantries saved to: {failed_file}")
-        print("Status: Complete\n")
+        print("Status: Complete")
+        print(f"{'='*60}\n")
 
-        # Return summary as JSON string
+        # Return summary for archiving
         return json.dumps(summary)

@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,6 @@ class FreshtrakScraper(ScraperJob):
         self.base_url = "https://pantry-finder-api.freshtrak.com"
         self.unique_agencies: set[str] = set()
         self.total_agencies = 0
-
-        # Initialize geocoder with US default coordinates
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                # Geographic center of the United States
-                "US": (39.8283, -98.5795),
-            }
-        )
 
     async def scrape_with_zip_codes(self) -> list[dict[str, Any]]:
         """Scrape using zip code search - removed since grid search is more comprehensive."""

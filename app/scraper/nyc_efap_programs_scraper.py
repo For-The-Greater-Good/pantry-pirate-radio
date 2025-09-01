@@ -8,7 +8,7 @@ from typing import Any
 import pdfplumber
 import requests
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +27,6 @@ class Nyc_Efap_ProgramsScraper(ScraperJob):
             "https://www.nyc.gov/assets/hra/downloads/pdf/services/efap/CFC_ACTIVE.pdf"
         )
 
-        # Initialize geocoder with custom default coordinates for NYC
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "NYC": (40.7128, -74.0060),  # New York City center
-                "NY": (
-                    40.7128,
-                    -74.0060,
-                ),  # New York state (using NYC coords as default)
-            }
-        )
 
     async def download_pdf(self) -> bytes:
         """Download PDF file from the source URL.
@@ -250,112 +240,39 @@ class Nyc_Efap_ProgramsScraper(ScraperJob):
         # 3. Process programs and submit to queue
         job_count = 0
         failed_programs = []
-        geocoder_stats = {"success": 0, "default": 0}
 
         for program in programs:
-            try:
-                # Try to geocode address
-                try:
-                    # Use the geocoder from utils.py
-                    latitude, longitude = self.geocoder.geocode_address(
-                        program["full_address"], state="NY"
-                    )
-
-                    # Add coordinates to program data
-                    program["latitude"] = latitude
-                    program["longitude"] = longitude
-                    geocoder_stats["success"] += 1
-
-                except Exception as geocode_error:
-                    # Log the geocoding error
-                    logger.warning(
-                        f"Geocoding failed for {program['name']}: {geocode_error}"
-                    )
-
-                    # Add to failed programs list for later review
-                    failed_programs.append(
-                        {
-                            "name": program["name"],
-                            "address": program.get("full_address", ""),
-                            "error": str(geocode_error),
-                        }
-                    )
-
-                    # Use default coordinates for NYC with a small offset
-                    latitude, longitude = self.geocoder.get_default_coordinates(
-                        location="NYC", with_offset=True
-                    )
-                    program["latitude"] = latitude
-                    program["longitude"] = longitude
-                    geocoder_stats["default"] += 1
-
-                    logger.info(
-                        f"Using default coordinates with offset for {program['name']}"
-                    )
-
-                # Transform to HSDS format
-                hsds_data = self.transform_to_hsds(program)
-
-                # Submit to queue
-                job_id = self.submit_to_queue(json.dumps(hsds_data))
-                job_count += 1
-                logger.info(f"Queued job {job_id} for program: {program['name']}")
-
-            except Exception as e:
-                logger.error(
-                    f"Error processing program {program.get('name', 'Unknown')}: {e}"
-                )
-                failed_programs.append(
-                    {
-                        "name": program.get("name", "Unknown"),
-                        "address": program.get("full_address", ""),
-                        "error": str(e),
-                    }
-                )
-                continue
-
-        # Save failed programs to file for later review
-        if failed_programs:
-            import datetime
-            from pathlib import Path
-
-            # Create outputs directory if it doesn't exist
-            output_dir = Path(__file__).parent.parent.parent / "outputs"
-            output_dir.mkdir(exist_ok=True)
-
-            # Generate filename with timestamp
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            failed_file = output_dir / f"nyc_efap_programs_failed_{timestamp}.json"
-
-            # Write failed programs to file
-            with open(failed_file, "w") as f:
-                json.dump(failed_programs, f, indent=2)
-
-            logger.info(
-                f"Saved {len(failed_programs)} failed programs to {failed_file}"
+            # Note: Latitude and longitude will be handled by the validator service
+            
+            # Add metadata
+            program["source"] = "nyc_efap_programs"
+            
+            # Submit to queue
+            job_id = self.submit_to_queue(json.dumps(program))
+            job_count += 1
+            logger.debug(
+                f"Queued job {job_id} for program: {program.get('name', 'Unknown')}"
             )
 
         # Create summary
         summary = {
+            "scraper_id": self.scraper_id,
             "total_programs_found": len(programs),
             "total_jobs_created": job_count,
-            "failed_processing": len(failed_programs),
-            "geocoder_stats": geocoder_stats,
+            "failed_programs": len(failed_programs),
             "source": self.url,
         }
 
         # Print summary to CLI
-        print("\nScraper Summary:")
-        print(f"Source: {self.url}")
+        print(f"\n{'='*60}")
+        print("SCRAPER SUMMARY: NYC EFAP Programs")
+        print(f"{'='*60}")
+        print(f"PDF URL: {self.url}")
         print(f"Total programs found: {len(programs)}")
-        print(f"Successfully processed: {job_count}")
-        print("Geocoder usage:")
-        print(f"  - Successful geocoding: {geocoder_stats['success']}")
-        print(f"  - Default coordinates: {geocoder_stats['default']}")
+        print(f"Jobs created: {job_count}")
         print(f"Failed processing: {len(failed_programs)}")
-        if failed_programs:
-            print(f"Failed programs saved to: {failed_file}")
-        print("Status: Complete\n")
+        print("Status: Complete")
+        print(f"{'='*60}\n")
 
-        # Return summary as JSON string
+        # Return summary for archiving
         return json.dumps(summary)

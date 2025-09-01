@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +34,6 @@ class Care_And_Share_Food_LocatorScraper(ScraperJob):
         self.base_url = "https://careandshare.org/findfood/food-locator/"
         self.search_url = "https://careandshare.org/findfood/food-locator/?address%5B0%5D=Denver%2C+CO&post%5B0%5D=locations&distance=500&units=imperial&per_page=100&form=1&action=fs"
 
-        # Initialize geocoder with custom default coordinates for Colorado
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "CO": (39.5501, -105.7821),  # Geographic center of Colorado
-                "Denver": (39.7392, -104.9903),  # Denver coordinates
-            }
-        )
 
         # Track unique locations to avoid duplicates
         self.unique_locations: set[str] = set()
@@ -290,23 +283,7 @@ class Care_And_Share_Food_LocatorScraper(ScraperJob):
         # Extract address components
         address_parts = self.parse_address(location_data["address"])
 
-        # Geocode the address
-        latitude = None
-        longitude = None
-
-        try:
-            logger.info(f"Geocoding address: {location_data['address']}")
-            latitude, longitude = self.geocoder.geocode_address(
-                location_data["address"], state="CO"
-            )
-            logger.info(f"Successfully geocoded to: {latitude}, {longitude}")
-        except Exception as e:
-            logger.warning(f"Geocoding failed for {location_data['name']}: {e}")
-            # Use default coordinates for Colorado with a small offset
-            latitude, longitude = self.geocoder.get_default_coordinates(
-                location="CO", with_offset=True
-            )
-            logger.info(f"Using default coordinates: {latitude}, {longitude}")
+        # Note: Latitude and longitude will be handled by the validator service
 
         # Create HSDS data structure
         hsds_data = {
@@ -329,7 +306,7 @@ class Care_And_Share_Food_LocatorScraper(ScraperJob):
                 else []
             ),
             "regular_schedule": self.parse_hours(location_data["hours"]),
-            "location": {"latitude": latitude, "longitude": longitude},
+            "location": {},
         }
 
         logger.info(

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +42,6 @@ class FeedingTheGulfCoastALScraper(ScraperJob):
         # Request settings
         self.timeout = 30.0
         self.request_delay = 0.5 if not test_mode else 0.05
-
-        # Initialize geocoder with custom default coordinates for the region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                "AL": (30.696, -88.043),  # Mobile, AL (main branch location)
-                "FL": (30.412, -87.217),  # Pensacola, FL (panhandle branch)
-                "MS": (30.367, -89.093),  # Gulfport, MS (MS branch)
-            }
-        )
 
     async def fetch_results_html(self, address: str = "", radius: int = 100) -> str:
         """Fetch search results HTML from the website.

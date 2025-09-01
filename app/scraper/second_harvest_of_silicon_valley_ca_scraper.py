@@ -9,7 +9,7 @@ import httpx
 import requests
 from bs4 import BeautifulSoup
 
-from app.scraper.utils import GeocoderUtils, ScraperJob, get_scraper_headers
+from app.scraper.utils import ScraperJob, get_scraper_headers
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +41,6 @@ class SecondHarvestOfSiliconValleyCaScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-        # Initialize geocoder with custom default coordinates for the region
-        self.geocoder = GeocoderUtils(
-            default_coordinates={
-                # Silicon Valley region coordinates (San Jose area)
-                "CA": (37.3541, -121.9552),  # San Jose, CA
-                # Add county-level defaults if needed
-            }
-        )
 
     async def download_html(self) -> str:
         """Download HTML content from the website.
@@ -310,45 +302,9 @@ class SecondHarvestOfSiliconValleyCaScraper(ScraperJob):
 
         # Process each location
         job_count = 0
-        geocoding_stats = {"success": 0, "failed": 0, "default": 0}
 
         for location in unique_locations:
-            # Geocode address if not already present
-            if not (location.get("latitude") and location.get("longitude")):
-                if location.get("address"):
-                    try:
-                        lat, lon = self.geocoder.geocode_address(
-                            address=location["address"],
-                            state=location.get("state", "CA"),
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["success"] += 1
-                    except ValueError as e:
-                        logger.warning(
-                            f"Geocoding failed for {location['address']}: {e}"
-                        )
-                        # Use default coordinates
-                        lat, lon = self.geocoder.get_default_coordinates(
-                            location="CA", with_offset=True
-                        )
-                        location["latitude"] = lat
-                        location["longitude"] = lon
-                        geocoding_stats["failed"] += 1
-                else:
-                    # No address, use defaults
-                    lat, lon = self.geocoder.get_default_coordinates(
-                        location="CA", with_offset=True
-                    )
-                    location["latitude"] = lat
-                    location["longitude"] = lon
-                    geocoding_stats["default"] += 1
-
-            # Add metadata
-            location["source"] = "second_harvest_of_silicon_valley_ca"
-            location["food_bank"] = "Second Harvest of Silicon Valley"
-
-            # Submit to queue
+            # Note: Latitude and longitude will be handled by the validator service
             job_id = self.submit_to_queue(json.dumps(location))
             job_count += 1
             logger.debug(
@@ -362,7 +318,6 @@ class SecondHarvestOfSiliconValleyCaScraper(ScraperJob):
             "total_locations_found": len(locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
-            "geocoding_stats": geocoding_stats,
             "source": self.url,
             "test_mode": self.test_mode,
         }
@@ -370,18 +325,15 @@ class SecondHarvestOfSiliconValleyCaScraper(ScraperJob):
         # Print summary to CLI
         print(f"\n{'='*60}")
         print("SCRAPER SUMMARY: Second Harvest of Silicon Valley")
-        print("=" * 60)
+        print(f"{'='*60}")
         print(f"Source: {self.url}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
-        print(
-            f"Geocoding - Success: {geocoding_stats['success']}, Failed: {geocoding_stats['failed']}, Default: {geocoding_stats['default']}"
-        )
         if self.test_mode:
             print("TEST MODE: Limited processing")
         print("Status: Complete")
-        print("=" * 60 + "\n")
+        print(f"{'='*60}\n")
 
         # Return summary for archiving
         return json.dumps(summary)
