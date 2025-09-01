@@ -39,7 +39,7 @@ async def test_generate_config_valid(
 async def test_generate_config_defaults() -> None:
     """Test generation configuration default values."""
     import os
-    
+
     config = GenerateConfig()
 
     assert config.temperature == 0.7
