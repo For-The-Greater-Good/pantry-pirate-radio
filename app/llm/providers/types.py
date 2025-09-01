@@ -45,13 +45,17 @@ class GenerateConfig:
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 40
-    max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+    max_tokens: int | None = None  # Will be set in __post_init__
     stop: list[str] | None = None
     stream: bool = False
     format: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        """Validate configuration parameters."""
+        """Validate configuration parameters and set defaults."""
+        # Set max_tokens from environment at instance creation time if not provided
+        if self.max_tokens is None:
+            self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+
         if not 0 <= self.temperature <= 1:
             raise ValueError("Temperature must be between 0 and 1")
         if not 0 <= self.top_p <= 1:
