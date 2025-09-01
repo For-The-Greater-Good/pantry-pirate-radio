@@ -38,7 +38,6 @@ class MarylandFoodBankMdScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-
     async def download_html(self) -> str:
         """Download HTML content from the website using Playwright for JavaScript rendering.
 
@@ -470,11 +469,11 @@ class MarylandFoodBankMdScraper(ScraperJob):
 
         for location in unique_locations:
             # Note: Latitude and longitude will be handled by the validator service
-            
+
             # Add metadata
             location["source"] = "maryland_food_bank_md"
             location["food_bank"] = "Maryland Food Bank"
-            
+
             # Submit to queue
             job_id = self.submit_to_queue(json.dumps(location))
             job_count += 1

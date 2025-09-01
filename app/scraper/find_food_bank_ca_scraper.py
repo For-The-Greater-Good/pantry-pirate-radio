@@ -39,7 +39,6 @@ class FindFoodBankCaScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-
     async def download_html(self) -> str:
         """Download HTML content from the website using Playwright for JavaScript rendering.
 

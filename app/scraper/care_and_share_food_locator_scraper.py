@@ -34,7 +34,6 @@ class Care_And_Share_Food_LocatorScraper(ScraperJob):
         self.base_url = "https://careandshare.org/findfood/food-locator/"
         self.search_url = "https://careandshare.org/findfood/food-locator/?address%5B0%5D=Denver%2C+CO&post%5B0%5D=locations&distance=500&units=imperial&per_page=100&form=1&action=fs"
 
-
         # Track unique locations to avoid duplicates
         self.unique_locations: set[str] = set()
 

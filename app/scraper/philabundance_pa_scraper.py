@@ -36,7 +36,6 @@ class PhilabundancePaScraper(ScraperJob):
         )  # Be respectful with API calls
         self.timeout = 30.0
 
-
     async def fetch_api_data(
         self, endpoint: str, params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -284,7 +283,7 @@ class PhilabundancePaScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"{'='*60}")
-        print(f"Philabundance PA Scraper Summary")
+        print("Philabundance PA Scraper Summary")
         print(f"{'='*60}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")

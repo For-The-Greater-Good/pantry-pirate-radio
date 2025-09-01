@@ -43,7 +43,6 @@ class FoodBankOfWesternMassachusettsMaScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-
     async def fetch_wp_store_locator_data(self) -> List[Dict[str, Any]]:
         """Fetch location data from WP Store Locator AJAX endpoint.
 
@@ -242,11 +241,11 @@ class FoodBankOfWesternMassachusettsMaScraper(ScraperJob):
 
         for location in unique_locations:
             # Note: Latitude and longitude will be handled by the validator service
-            
+
             # Add metadata
             location["source"] = "food_bank_of_western_massachusetts_ma"
             location["food_bank"] = "Food Bank of Western Massachusetts"
-            
+
             # Submit to queue
             job_id = self.submit_to_queue(json.dumps(location))
             job_count += 1

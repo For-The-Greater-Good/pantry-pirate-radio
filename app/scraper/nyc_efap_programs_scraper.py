@@ -27,7 +27,6 @@ class Nyc_Efap_ProgramsScraper(ScraperJob):
             "https://www.nyc.gov/assets/hra/downloads/pdf/services/efap/CFC_ACTIVE.pdf"
         )
 
-
     async def download_pdf(self) -> bytes:
         """Download PDF file from the source URL.
 
@@ -243,10 +242,10 @@ class Nyc_Efap_ProgramsScraper(ScraperJob):
 
         for program in programs:
             # Note: Latitude and longitude will be handled by the validator service
-            
+
             # Add metadata
             program["source"] = "nyc_efap_programs"
-            
+
             # Submit to queue
             job_id = self.submit_to_queue(json.dumps(program))
             job_count += 1

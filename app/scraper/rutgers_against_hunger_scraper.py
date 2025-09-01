@@ -24,7 +24,6 @@ class Rutgers_Against_HungerScraper(ScraperJob):
         super().__init__(scraper_id=scraper_id)
         self.url = "https://rah.rutgers.edu/resources/local-pantries/"
 
-
     async def download_html(self) -> str:
         """Download HTML content from the website.
 
@@ -193,10 +192,10 @@ class Rutgers_Against_HungerScraper(ScraperJob):
 
         for pantry in pantries:
             # Note: Latitude and longitude will be handled by the validator service
-            
+
             # Add metadata
             pantry["source"] = "rutgers_against_hunger"
-            
+
             # Submit to queue
             job_id = self.submit_to_queue(json.dumps(pantry))
             job_count += 1

@@ -37,7 +37,6 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-
     async def download_html(self) -> str:
         """Download HTML content from the website.
 
@@ -301,7 +300,7 @@ class The_Food_Basket_Inc_HiScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"{'='*60}")
-        print(f"The Food Basket Inc HI Scraper Summary")
+        print("The Food Basket Inc HI Scraper Summary")
         print(f"{'='*60}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")

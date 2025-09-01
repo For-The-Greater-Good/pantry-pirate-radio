@@ -48,7 +48,6 @@ class FoodBankForNewYorkCityNyScraper(ScraperJob):
         # Request settings
         self.timeout = 30.0
 
-
     async def download_kml(self) -> str:
         """Download KML content from Google My Maps.
 

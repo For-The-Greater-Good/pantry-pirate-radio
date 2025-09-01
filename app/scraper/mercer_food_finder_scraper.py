@@ -24,7 +24,6 @@ class Mercer_Food_FinderScraper(ScraperJob):
         super().__init__(scraper_id=scraper_id)
         self.url = "https://mercerfoodfinder.herokuapp.com/api/pdf"
 
-
     async def download_html(self) -> str:
         """Download HTML content from the website.
 
@@ -110,10 +109,10 @@ class Mercer_Food_FinderScraper(ScraperJob):
 
         for pantry in pantries:
             # Note: Latitude and longitude will be handled by the validator service
-            
+
             # Add metadata
             pantry["source"] = "mercer_food_finder"
-            
+
             # Submit to queue
             job_id = self.submit_to_queue(json.dumps(pantry))
             job_count += 1

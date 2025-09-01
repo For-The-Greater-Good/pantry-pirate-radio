@@ -26,7 +26,6 @@ class Hccc_Food_PantryScraper(ScraperJob):
         super().__init__(scraper_id=scraper_id)
         self.url = "https://www.hccc.edu/student-success/resources/documents/food-pantry-list-2021.pdf"
 
-
     async def download_pdf(self) -> bytes:
         """Download PDF file from the source URL.
 
@@ -445,11 +444,11 @@ class Hccc_Food_PantryScraper(ScraperJob):
 
         for pantry in pantries:
             # Note: Latitude and longitude will be handled by the validator service
-            
+
             # Add metadata
             pantry["source"] = "hccc_food_pantry"
             pantry["pdf_url"] = self.url
-            
+
             # Submit to queue
             job_id = self.submit_to_queue(json.dumps(pantry))
             job_count += 1

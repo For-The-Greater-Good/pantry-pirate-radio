@@ -40,7 +40,6 @@ class ToledoNorthwesternOhioFoodBankOHScraper(ScraperJob):
         self.request_delay = 0.5 if not test_mode else 0.05
         self.timeout = 30.0
 
-
     async def download_html(self) -> str:
         """Download HTML content from the website.
 
@@ -238,7 +237,7 @@ class ToledoNorthwesternOhioFoodBankOHScraper(ScraperJob):
 
         # Print summary to CLI
         print(f"{'='*60}")
-        print(f"Toledo Northwestern Ohio Food Bank Scraper Summary")
+        print("Toledo Northwestern Ohio Food Bank Scraper Summary")
         print(f"{'='*60}")
         print(f"Total locations found: {len(locations)}")
         print(f"Unique locations: {len(unique_locations)}")
