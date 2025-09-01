@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 import psycopg2
-from psycopg2 import OperationalError
+from psycopg2 import OperationalError, sql
 from psycopg2.extensions import connection as PgConnection  # noqa: N812
 from psycopg2.extras import RealDictCursor
 
@@ -469,9 +469,11 @@ def get_table_schema(pg_conn: PgConnection, table_name: str) -> list[dict[str, s
                 # Validate table name to prevent SQL injection
                 if not table_name.replace("_", "").isalnum():
                     raise ValueError(f"Invalid table name: {table_name}")
-                cursor.execute(
-                    f'SELECT * FROM "{table_name}" LIMIT 0'
-                )  # nosec B608 - table name validated
+                # Use psycopg2.sql for safe query composition
+                query = sql.SQL("SELECT * FROM {} LIMIT 0").format(
+                    sql.Identifier(table_name)
+                )
+                cursor.execute(query)
                 # Get column descriptions from the cursor
                 columns = []
                 if cursor.description:
@@ -704,7 +706,8 @@ def export_table_data(
         pg_cursor.itersize = 1000  # Fetch 1000 rows at a time
 
         # Table name comes from PostgreSQL catalog - already validated
-        pg_cursor.execute(f'SELECT * FROM "{table_name}"')  # nosec B608
+        query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table_name))
+        pg_cursor.execute(query)
 
         # Prepare column names and types for conversion
         col_names = [col["column_name"] for col in columns]
@@ -750,7 +753,8 @@ def count_rows(pg_conn: PgConnection, table_name: str) -> int:
     """Count rows in a PostgreSQL table."""
     with pg_conn.cursor() as cursor:
         # Table name comes from PostgreSQL catalog
-        cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')  # nosec B608
+        query = sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table_name))
+        cursor.execute(query)
         return cursor.fetchone()["count"]
 
 

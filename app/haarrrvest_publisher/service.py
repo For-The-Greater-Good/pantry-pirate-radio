@@ -315,7 +315,8 @@ class HAARRRvestPublisher:
         if code == 0:
             logger.info("Shallow fetch successful")
         else:
-            logger.warning(f"Shallow fetch failed: {err}")
+            logger.error(f"Shallow fetch failed: {err}")
+            raise Exception(f"Cannot fetch from origin: {err}")
 
     def _setup_git_repo(self):
         """Clone or update the HAARRRvest repository with content store protection."""
