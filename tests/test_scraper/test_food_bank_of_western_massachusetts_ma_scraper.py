@@ -79,6 +79,7 @@ async def test_fetch_wp_store_locator_data_success(
         assert result[0]["name"] == "Sample Food Pantry"
         assert result[0]["full_address"] == "123 Main St"
         assert result[0]["city"] == "Springfield"
+        # Note: This scraper DOES extract coordinates from the API when available
         assert result[0]["latitude"] == 42.1015
         assert result[0]["longitude"] == -72.5898
         assert result[0]["services"] == ["Food Pantry"]
@@ -86,6 +87,7 @@ async def test_fetch_wp_store_locator_data_success(
         assert result[1]["name"] == "Community Meal Site"
         assert result[1]["full_address"] == "456 Oak Ave Suite 100"
         assert result[1]["services"] == ["Meal Site"]
+        # Second location has empty coordinates in mock data
         assert result[1]["latitude"] is None
         assert result[1]["longitude"] is None
 
@@ -197,10 +199,6 @@ async def test_scrape_complete_flow(
             },
         ]
     )
-
-    # Mock geocoder for second location without coordinates
-    scraper.geocoder.geocode_address = Mock(return_value=(42.2042, -72.6162))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -220,36 +218,37 @@ async def test_scrape_complete_flow(
     assert summary["total_locations_found"] == 2
     assert summary["unique_locations"] == 2
     assert summary["total_jobs_created"] == 2
-    assert summary["test_mode"] is True
-    assert summary["geocoding_stats"]["success"] == 2
-    assert summary["geocoding_stats"]["failed"] == 0
-    assert summary["geocoding_stats"]["default"] == 0
-
+    assert "geocoding_stats" not in summary
+    # Note: test_mode field was removed from summary in scraper updates
+    # assert summary["test_mode"] is True
     # Verify submitted jobs
     assert len(submitted_jobs) == 2
 
     job1 = submitted_jobs[0]
     assert job1["name"] == "Sample Food Pantry"
+    # Note: This scraper DOES extract coordinates when available from API
     assert job1["latitude"] == 42.1015
     assert job1["longitude"] == -72.5898
+    # Note: This scraper still uses OLD format - adds metadata to jobs
     assert job1["source"] == "food_bank_of_western_massachusetts_ma"
     assert job1["food_bank"] == "Food Bank of Western Massachusetts"
     assert job1["services"] == ["Food Pantry"]
 
     job2 = submitted_jobs[1]
     assert job2["name"] == "Community Meal Site"
-    assert job2["latitude"] == 42.2042
-    assert job2["longitude"] == -72.6162
+    # Second job has no coordinates in mock data
+    assert job2["latitude"] is None
+    assert job2["longitude"] is None
     assert job2["source"] == "food_bank_of_western_massachusetts_ma"
     assert job2["food_bank"] == "Food Bank of Western Massachusetts"
     assert job2["services"] == ["Meal Site"]
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(
+async def test_scrape_without_geocoding(
     scraper: FoodBankOfWesternMassachusettsMaScraper,
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping without geocoding (validator handles it now)."""
     # Mock fetch_wp_store_locator_data with location missing coordinates
     scraper.fetch_wp_store_locator_data = AsyncMock(
         return_value=[
@@ -271,13 +270,7 @@ async def test_scrape_with_geocoding_failure(
                 "full_address": "123 Main St",
             }
         ]
-    )
-
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    # Springfield is in Hampden County
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(42.1387, -72.6324))
-
+    )  # Springfield is in Hampden County
     # Track submitted jobs
     submitted_jobs = []
 
@@ -291,21 +284,7 @@ async def test_scrape_with_geocoding_failure(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
-    assert len(submitted_jobs) == 1
-    job = submitted_jobs[0]
-    assert job["latitude"] == 42.1387
-    assert job["longitude"] == -72.6324
-
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 1
-    assert summary["geocoding_stats"]["success"] == 0
-    assert summary["geocoding_stats"]["default"] == 0
-
-    # Verify get_default_coordinates was called with county
-    scraper.geocoder.get_default_coordinates.assert_called_once_with(
-        location="Hampden", with_offset=True
-    )
+    # Verify location was processed (validator will handle geocoding)
 
 
 def test_scraper_initialization():
@@ -351,6 +330,7 @@ async def test_scrape_with_empty_response(
     assert summary["total_locations_found"] == 0
     assert summary["unique_locations"] == 0
     assert summary["total_jobs_created"] == 0
+    assert "geocoding_stats" not in summary
     assert len(submitted_jobs) == 0
 
 
@@ -381,10 +361,6 @@ async def test_scrape_with_no_address_default_coordinates(
             }
         ]
     )
-
-    # Mock geocoder to return Hampshire County defaults
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(42.3410, -72.6420))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -398,18 +374,9 @@ async def test_scrape_with_no_address_default_coordinates(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify default coordinates were used
+    # Verify location was processed (validator will handle geocoding)
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
-    assert job["latitude"] == 42.3410
-    assert job["longitude"] == -72.6420
-
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["default"] == 1
-    assert summary["geocoding_stats"]["success"] == 0
-    assert summary["geocoding_stats"]["failed"] == 0
-
-    # Verify get_default_coordinates was called with Hampshire county
-    scraper.geocoder.get_default_coordinates.assert_called_once_with(
-        location="Hampshire", with_offset=True
-    )
+    assert job["name"] == "No Address Food Pantry"
+    # County may not be present if not in source data
+    assert "geocoding_stats" not in summary

@@ -204,20 +204,21 @@ async def test_scrape_api_flow(
 
     # Verify summary
     assert summary["scraper_id"] == "philabundance_pa"
-    assert summary["food_bank"] == "Philabundance"
+    assert summary["food_bank"] == "Philabundance PA"
     assert summary["total_locations_found"] == 2
     assert summary["unique_locations"] == 2
-    assert summary["total_jobs_created"] == 2
-    assert summary["test_mode"] is True
+    assert summary["jobs_created"] == 2
+    # test_mode field was removed from summary in updated scrapers
 
     # Verify submitted jobs
     assert len(submitted_jobs) == 2
     job1 = submitted_jobs[0]
     assert job1["name"] == "Saint Mark's Food Cupboard"
+    # Note: This scraper DOES extract coordinates when available from API
     assert job1["latitude"] == 39.948556
     assert job1["longitude"] == -75.167084
-    assert job1["source"] == "philabundance_pa"
-    assert job1["food_bank"] == "Philabundance"
+    assert "source" not in job1  # source not included in job data
+    assert "food_bank" not in job1  # food_bank not included in job data
 
 
 @pytest.mark.asyncio
@@ -312,4 +313,4 @@ async def test_scrape_with_no_locations(scraper: PhilabundancePaScraper):
     # Verify no jobs were submitted
     assert len(submitted_jobs) == 0
     assert summary["total_locations_found"] == 0
-    assert summary["total_jobs_created"] == 0
+    assert summary["jobs_created"] == 0

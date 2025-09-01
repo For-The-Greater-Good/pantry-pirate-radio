@@ -63,6 +63,8 @@ def test_get_table_schema():
     ]
 
     # Set up cursor to return the mocked rows
+    # First call checks if table exists, second gets the schema
+    mock_cursor.fetchone.return_value = {"object_type": "table"}
     mock_cursor.fetchall.return_value = mock_rows
 
     # Call the function
@@ -74,16 +76,17 @@ def test_get_table_schema():
     assert result[1]["data_type"] == "character varying"
     assert result[2]["is_nullable"] == "YES"
 
-    # Verify the cursor was called with correct SQL
-    mock_cursor.execute.assert_called_once()
+    # Verify the cursor was called twice (once to check existence, once for schema)
+    assert mock_cursor.execute.call_count == 2
+    # The second call should be for getting the schema from pg_catalog
     call_args = mock_cursor.execute.call_args[0]
-    # Check that the query contains expected parts
+    # Check that the query contains expected parts (now queries pg_catalog)
     query_str = str(call_args[0])
     assert "SELECT" in query_str
-    assert "column_name" in query_str
-    assert "data_type" in query_str
-    assert "is_nullable" in query_str
-    assert "information_schema.columns" in query_str
+    assert "attname" in query_str  # pg_catalog uses attname instead of column_name
+    assert (
+        "pg_catalog" in query_str
+    )  # Now uses pg_catalog instead of information_schema
     assert call_args[1] == ("test_table",)
 
 

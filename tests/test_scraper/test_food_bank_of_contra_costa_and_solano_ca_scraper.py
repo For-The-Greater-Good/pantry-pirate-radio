@@ -255,6 +255,7 @@ async def test_scrape_export_flow(
     assert summary["total_locations_found"] == 1
     assert summary["unique_locations"] == 1
     assert summary["total_jobs_created"] == 1
+    assert "geocoding_stats" not in summary
     assert summary["test_mode"] is True
 
     # Verify submitted jobs
@@ -268,10 +269,10 @@ async def test_scrape_export_flow(
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(
+async def test_scrape_without_geocoding(
     scraper: FoodBankOfContraCostaAndSolanoCAScraper, mock_csv_response: str
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping without geocoding (validator handles it now)."""
     # Mock fetch_locations_from_export to return location without coordinates
     scraper.fetch_locations_from_export = AsyncMock(
         return_value=[
@@ -284,11 +285,6 @@ async def test_scrape_with_geocoding_failure(
             }
         ]
     )
-
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -302,19 +298,7 @@ async def test_scrape_with_geocoding_failure(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
-    assert len(submitted_jobs) == 1
-    job = submitted_jobs[0]
-    assert job["latitude"] == 39.0
-    assert job["longitude"] == -76.0
-
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 1
-    assert summary["geocoding_stats"]["success"] == 0
-
-
-def test_scraper_initialization():
-    """Test scraper initialization."""
+    # Verify location was processed (validator will handle geocoding)
     # Test with default ID
     scraper1 = FoodBankOfContraCostaAndSolanoCAScraper()
     assert scraper1.scraper_id == "food_bank_of_contra_costa_and_solano_ca"
@@ -350,10 +334,6 @@ async def test_scrape_fallback_flow(
         mock_response.text = mock_city_html
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
-
-        # Mock geocoder
-        scraper.geocoder.geocode_address = Mock(return_value=(38.0, -121.8))
-
         # Track submitted jobs
         submitted_jobs = []
 
@@ -371,4 +351,5 @@ async def test_scrape_fallback_flow(
         assert mock_get.call_count == 3  # Limited by test mode
         # Each city page has 1 location, but they're all the same name so deduplication reduces to 1
         assert summary["total_jobs_created"] == 1
+        assert "geocoding_stats" not in summary
         assert len(submitted_jobs) == 1

@@ -387,9 +387,10 @@ class TarrantAreaFoodBankTXScraper(ScraperJob):
         summary = {
             "scraper_id": self.scraper_id,
             "food_bank": "Tarrant Area Food Bank",
-            "total_locations_found": len(locations),
+            "total_locations": len(all_locations),
             "unique_locations": len(unique_locations),
             "total_jobs_created": job_count,
+            "search_zips_used": len(search_zips),
             "source": self.url,
             "test_mode": self.test_mode,
         }
@@ -399,7 +400,7 @@ class TarrantAreaFoodBankTXScraper(ScraperJob):
         print("SCRAPER SUMMARY: Tarrant Area Food Bank")
         print(f"{'='*60}")
         print(f"Source: {self.url}")
-        print(f"Total locations found: {len(locations)}")
+        print(f"Total locations found: {len(all_locations)}")
         print(f"Unique locations: {len(unique_locations)}")
         print(f"Jobs created: {job_count}")
         if self.test_mode:

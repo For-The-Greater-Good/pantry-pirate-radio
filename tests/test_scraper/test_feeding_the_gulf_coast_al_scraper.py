@@ -186,8 +186,6 @@ async def test_scrape_html_flow(
     scraper.fetch_results_html = AsyncMock(return_value=mock_html_response)
 
     # Mock geocoder for default coordinates
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(30.696, -88.043))
-
     # Track submitted jobs
     submitted_jobs = []
 

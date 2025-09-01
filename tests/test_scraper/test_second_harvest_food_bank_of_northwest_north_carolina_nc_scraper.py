@@ -218,10 +218,6 @@ async def test_scrape_html_flow(
         mock_response.text = mock_iframe_response
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
-
-        # Mock geocoder
-        scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-
         # Track submitted jobs
         submitted_jobs = []
 
@@ -247,31 +243,29 @@ async def test_scrape_html_flow(
         assert summary["total_locations_found"] == 1
         assert summary["unique_locations"] == 1
         assert summary["total_jobs_created"] == 1
+        assert "geocoding_stats" not in summary
         assert summary["test_mode"] is True
 
         # Verify submitted jobs
         assert len(submitted_jobs) == 1
         job = submitted_jobs[0]
         assert job["name"] == "Sample Food Pantry"
-        assert job["latitude"] == 40.0
-        assert job["longitude"] == -75.0
-        assert (
-            job["source"] == "second_harvest_food_bank_of_northwest_north_carolina_nc"
-        )
-        assert (
-            job["food_bank"] == "Second Harvest Food Bank of Northwest North Carolina"
-        )
+        # Note: latitude/longitude removed - validator service handles geocoding
+        assert "latitude" not in job or job["latitude"] is None
+        assert "longitude" not in job or job["longitude"] is None
+        assert "source" not in job  # source not included in job data
+        assert "food_bank" not in job  # food_bank not included in job data
         assert "services" in job
         assert isinstance(job["services"], list)
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(
+async def test_scrape_without_geocoding(
     scraper: SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper,
     mock_html_response: str,
     mock_iframe_response: str,
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping without geocoding (validator handles it now)."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
 
@@ -281,13 +275,6 @@ async def test_scrape_with_geocoding_failure(
         mock_response.text = mock_iframe_response
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
-
-        # Mock geocoder to fail
-        scraper.geocoder.geocode_address = Mock(
-            side_effect=ValueError("Geocoding failed")
-        )
-        scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
-
         # Track submitted jobs
         submitted_jobs = []
 
@@ -301,19 +288,7 @@ async def test_scrape_with_geocoding_failure(
         summary_json = await scraper.scrape()
         summary = json.loads(summary_json)
 
-        # Verify fallback coordinates were used
-        assert len(submitted_jobs) == 1
-        job = submitted_jobs[0]
-        assert job["latitude"] == 39.0
-        assert job["longitude"] == -76.0
-
-        # Verify geocoding stats
-        assert summary["geocoding_stats"]["failed"] == 1
-        assert summary["geocoding_stats"]["success"] == 0
-
-
-def test_scraper_initialization():
-    """Test scraper initialization."""
+        # Verify location was processed (validator will handle geocoding)
     # Test with default ID
     scraper1 = SecondHarvestFoodBankOfNorthwestNorthCarolinaNCScraper()
     assert (

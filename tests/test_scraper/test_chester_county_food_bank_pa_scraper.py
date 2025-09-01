@@ -189,9 +189,6 @@ async def test_scrape_html_flow(
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
 
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -227,13 +224,9 @@ async def test_scrape_html_flow(
 async def test_scrape_with_geocoding_failure(
     scraper: ChesterCountyFoodBankPaScraper, mock_html_response: str
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping when geocoding is not needed (coordinates come from source)."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
 
     # Track submitted jobs
     submitted_jobs = []
@@ -248,16 +241,17 @@ async def test_scrape_with_geocoding_failure(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
+    # Verify coordinates come from source data
     assert len(submitted_jobs) == 2
-    # Note: coordinates come from map_data, not geocoding, so they should still be correct
     job = submitted_jobs[0]
     assert job["latitude"] == 40.040690400000003
     assert job["longitude"] == -75.490907699999994
 
-    # Verify geocoding stats (no geocoding needed since coords in map_data)
-    assert summary["geocoding_stats"]["failed"] == 0
-    assert summary["geocoding_stats"]["success"] == 0
+    # Verify summary structure (no geocoding stats)
+    assert summary["total_locations_found"] == 2
+    assert summary["unique_locations"] == 2
+    assert summary["total_jobs_created"] == 2
+    assert "geocoding_stats" not in summary
 
 
 def test_scraper_initialization():
@@ -291,9 +285,6 @@ async def test_scrape_api_flow(
     scraper.parse_html = Mock(
         side_effect=lambda x: scraper.process_api_response(mock_json_response)
     )
-
-    # Mock geocoder (locations in API response don't have addresses)
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(40.0, -75.0))
 
     # Track submitted jobs
     submitted_jobs = []

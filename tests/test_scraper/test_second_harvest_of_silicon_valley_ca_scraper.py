@@ -240,6 +240,7 @@ async def test_scrape_api_flow(
         # Verify job data
         job = submitted_jobs[0]
         assert job["name"] == "Sample Food Pantry"
+        # Note: This scraper DOES extract coordinates from API
         assert job["latitude"] == 37.3541
         assert job["longitude"] == -121.9552
-        assert job["source"] == "second_harvest_of_silicon_valley_ca"
+        assert "source" not in job  # source not included in job data

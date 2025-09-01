@@ -119,10 +119,6 @@ async def test_scrape_html_flow(
     """Test complete HTML scraping flow."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -138,11 +134,12 @@ async def test_scrape_html_flow(
 
     # Verify summary
     assert summary["scraper_id"] == "food_lifeline_wa"
-    assert summary["food_bank"] == "Food Lifeline"
+    assert summary["food_bank"] == "Food Lifeline WA"
     assert summary["total_locations_found"] == 2
     assert summary["unique_locations"] == 2
-    assert summary["total_jobs_created"] == 2
-    assert summary["test_mode"] is True
+    assert summary["jobs_created"] == 2
+    assert "geocoding_stats" not in summary
+    # test_mode field was removed from summary in updated scrapers
 
     # Verify submitted jobs
     assert len(submitted_jobs) == 2
@@ -150,10 +147,12 @@ async def test_scrape_html_flow(
     # Check first job
     job1 = submitted_jobs[0]
     assert job1["name"] == "Sample Food Pantry"
-    assert job1["latitude"] == 40.0
-    assert job1["longitude"] == -75.0
-    assert job1["source"] == "food_lifeline_wa"
-    assert job1["food_bank"] == "Food Lifeline"
+    # Note: latitude/longitude removed - validator service handles geocoding
+    assert "latitude" not in job1 or job1["latitude"] is None
+    assert "longitude" not in job1 or job1["longitude"] is None
+    # Note: source and food_bank metadata removed from individual jobs in updated scrapers
+    assert "source" not in job1
+    assert "food_bank" not in job1
     assert job1["email"] == "contact@pantry.org"
     assert job1["website"] == "https://pantry.org"
     assert job1["services"] == ["Food Pantry", "Emergency Food"]
@@ -161,22 +160,17 @@ async def test_scrape_html_flow(
     # Check second job
     job2 = submitted_jobs[1]
     assert job2["name"] == "Community Food Bank"
-    assert job2["source"] == "food_lifeline_wa"
-    assert job2["food_bank"] == "Food Lifeline"
+    assert "source" not in job2
+    assert "food_bank" not in job2
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(
+async def test_scrape_without_geocoding(
     scraper: FoodLifelineWAScraper, mock_html_response: str
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping without geocoding (validator handles it now)."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -190,21 +184,7 @@ async def test_scrape_with_geocoding_failure(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
-    assert len(submitted_jobs) == 2
-
-    # Both jobs should use fallback coordinates
-    for job in submitted_jobs:
-        assert job["latitude"] == 39.0
-        assert job["longitude"] == -76.0
-
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 2
-    assert summary["geocoding_stats"]["success"] == 0
-
-
-def test_scraper_initialization():
-    """Test scraper initialization."""
+    # Verify location was processed (validator will handle geocoding)
     # Test with default ID
     scraper1 = FoodLifelineWAScraper()
     assert scraper1.scraper_id == "food_lifeline_wa"

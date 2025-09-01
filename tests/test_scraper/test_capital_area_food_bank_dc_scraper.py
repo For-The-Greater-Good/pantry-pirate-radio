@@ -237,10 +237,6 @@ async def test_scrape_with_missing_coordinates(scraper: CapitalAreaFoodBankDcScr
 
     scraper.query_arcgis_features = AsyncMock(return_value=no_coords_response)
 
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(38.9, -77.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -254,15 +250,18 @@ async def test_scrape_with_missing_coordinates(scraper: CapitalAreaFoodBankDcScr
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
+    # Verify location was processed without coordinates (validator will handle geocoding)
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
-    assert job["latitude"] == 38.9
-    assert job["longitude"] == -77.0
+    assert job["name"] == "No Coords Pantry"
+    assert "latitude" not in job or job.get("latitude") is None
+    assert "longitude" not in job or job.get("longitude") is None
 
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["arcgis"] == 0
-    assert summary["geocoding_stats"]["default"] == 1
+    # Verify summary structure (no geocoding stats)
+    assert summary["total_locations_found"] == 1
+    assert summary["unique_locations"] == 1
+    assert summary["total_jobs_created"] == 1
+    assert "geocoding_stats" not in summary
 
 
 def test_scraper_initialization():

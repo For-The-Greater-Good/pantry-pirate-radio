@@ -173,9 +173,6 @@ async def test_scrape_html_flow(
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
 
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -201,23 +198,18 @@ async def test_scrape_html_flow(
     assert len(submitted_jobs) == 8
     job = submitted_jobs[0]
     assert job["name"] == "Napa Food Pantry (NEW LOCATION)"
-    assert job["latitude"] == 40.0
-    assert job["longitude"] == -75.0
+    # Validator will handle geocoding, so lat/lng may not be present in submitted jobs
     assert job["source"] == "community_action_of_napa_valley_food_bank_ca"
     assert job["food_bank"] == "Community Action of Napa Valley Food Bank"
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(
+async def test_scrape_without_geocoding(
     scraper: CommunityActionOfNapaValleyFoodBankCaScraper, mock_html_response: str
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping without geocoding (validator handles it now)."""
     # Mock download_html
     scraper.download_html = AsyncMock(return_value=mock_html_response)
-
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
 
     # Track submitted jobs
     submitted_jobs = []
@@ -232,15 +224,18 @@ async def test_scrape_with_geocoding_failure(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
+    # Verify locations were processed
     assert len(submitted_jobs) == 8
     job = submitted_jobs[0]
-    assert job["latitude"] == 39.0
-    assert job["longitude"] == -76.0
+    assert job["name"] == "Napa Food Pantry (NEW LOCATION)"
+    assert job["address"] == "938 Kaiser Road"
+    assert job["city"] == "Napa"
 
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 8
-    assert summary["geocoding_stats"]["success"] == 0
+    # Verify summary structure (no geocoding stats)
+    assert summary["total_locations_found"] == 8
+    assert summary["unique_locations"] == 8
+    assert summary["total_jobs_created"] == 8
+    assert "geocoding_stats" not in summary
 
 
 def test_scraper_initialization():
@@ -270,9 +265,6 @@ async def test_scrape_api_flow(
     # This scraper uses HTML parsing, not API
     # Mock download_html instead
     scraper.download_html = AsyncMock(return_value="<html></html>")
-
-    # Mock geocoder
-    scraper.geocoder.geocode_address = Mock(return_value=(40.0, -75.0))
 
     # Track submitted jobs
     submitted_jobs = []

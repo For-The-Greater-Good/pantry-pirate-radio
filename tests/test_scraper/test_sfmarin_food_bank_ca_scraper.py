@@ -209,23 +209,25 @@ async def test_scrape_api_flow(
     assert summary["total_locations_found"] == 1
     assert summary["unique_locations"] == 1
     assert summary["total_jobs_created"] == 1
+    assert "geocoding_stats" not in summary
     assert summary["test_mode"] is True
 
     # Verify submitted jobs
     assert len(submitted_jobs) == 1
     job = submitted_jobs[0]
     assert job["name"] == "Sample Food Pantry"
+    # Note: This scraper DOES extract coordinates from API
     assert job["latitude"] == 37.7749
     assert job["longitude"] == -122.4194
-    assert job["source"] == "sfmarin_food_bank_ca"
-    assert job["food_bank"] == "SF-Marin Food Bank"
+    assert "source" not in job  # source not included in job data
+    assert "food_bank" not in job  # food_bank not included in job data
 
 
 @pytest.mark.asyncio
-async def test_scrape_with_geocoding_failure(
+async def test_scrape_without_geocoding(
     scraper: SfmarinFoodBankCAScraper, mock_json_response: Dict[str, Any]
 ):
-    """Test scraping when geocoding fails."""
+    """Test scraping without geocoding (validator handles it now)."""
     # Create response without lat/lng to trigger geocoding
     no_coords_response = {
         "ngns": [
@@ -258,11 +260,6 @@ async def test_scrape_with_geocoding_failure(
         return {"sites": no_coords_response["ngns"]}
 
     scraper.fetch_api_data = AsyncMock(side_effect=mock_fetch)
-
-    # Mock geocoder to fail
-    scraper.geocoder.geocode_address = Mock(side_effect=ValueError("Geocoding failed"))
-    scraper.geocoder.get_default_coordinates = Mock(return_value=(39.0, -76.0))
-
     # Track submitted jobs
     submitted_jobs = []
 
@@ -276,19 +273,7 @@ async def test_scrape_with_geocoding_failure(
     summary_json = await scraper.scrape()
     summary = json.loads(summary_json)
 
-    # Verify fallback coordinates were used
-    assert len(submitted_jobs) == 1
-    job = submitted_jobs[0]
-    assert job["latitude"] == 39.0
-    assert job["longitude"] == -76.0
-
-    # Verify geocoding stats
-    assert summary["geocoding_stats"]["failed"] == 1
-    assert summary["geocoding_stats"]["success"] == 0
-
-
-def test_scraper_initialization():
-    """Test scraper initialization."""
+    # Verify location was processed (validator will handle geocoding)
     # Test with default ID
     scraper1 = SfmarinFoodBankCAScraper()
     assert scraper1.scraper_id == "sfmarin_food_bank_ca"
