@@ -38,12 +38,16 @@ async def test_generate_config_valid(
 
 async def test_generate_config_defaults() -> None:
     """Test generation configuration default values."""
+    import os
+    
     config = GenerateConfig()
 
     assert config.temperature == 0.7
     assert config.top_p == 0.9
     assert config.top_k == 40
-    assert config.max_tokens == 8192  # Default when LLM_MAX_TOKENS not set
+    # max_tokens defaults to LLM_MAX_TOKENS env var or 8192
+    expected_max_tokens = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+    assert config.max_tokens == expected_max_tokens
     assert config.stop is None
     assert config.stream is False
     assert config.format is None
