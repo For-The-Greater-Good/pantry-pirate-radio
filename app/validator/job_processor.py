@@ -359,7 +359,7 @@ class ValidationProcessor:
                     scraper_id = job_result.job.metadata.get("scraper_id")
             elif hasattr(job_result, "metadata") and job_result.metadata:
                 scraper_id = job_result.metadata.get("scraper_id")
-            
+
             if scraper_id:
                 self.logger.info(f"Using scraper context for enrichment: {scraper_id}")
 
