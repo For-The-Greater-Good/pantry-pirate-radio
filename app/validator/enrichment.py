@@ -112,10 +112,8 @@ class GeocodingEnricher:
         )
         # Check for both "address" and "addresses" keys
         addresses = location_data.get("addresses") or location_data.get("address") or []
-        
-        needs_reverse_geocoding = (
-            not needs_geocoding and addresses == []
-        )
+
+        needs_reverse_geocoding = not needs_geocoding and addresses == []
         needs_postal_enrichment = False
 
         if addresses:
@@ -147,7 +145,7 @@ class GeocodingEnricher:
             if needs_geocoding:
                 # Check for both "address" and "addresses" keys
                 has_addresses = enriched.get("addresses") or enriched.get("address")
-                
+
                 # If no addresses array, try to create one from the name
                 if not has_addresses and location_name:
                     logger.info(
@@ -155,22 +153,24 @@ class GeocodingEnricher:
                     )
                     # Create a temporary address from the name
                     # Many NYC locations have addresses in the name like "58-25 LITTLE NECK PKWY (LITTLE NECK)"
-                    enriched["addresses"] = [{
-                        "address_1": location_name,
-                        "city": "",
-                        "state_province": "",
-                        "postal_code": "",
-                        "country": "US",
-                        "address_type": "physical"
-                    }]
+                    enriched["addresses"] = [
+                        {
+                            "address_1": location_name,
+                            "city": "",
+                            "state_province": "",
+                            "postal_code": "",
+                            "country": "US",
+                            "address_type": "physical",
+                        }
+                    ]
                     logger.info(
-                        f"🔍 ENRICHER: Created temporary address from name for geocoding"
+                        "🔍 ENRICHER: Created temporary address from name for geocoding"
                     )
-                
+
                 # Normalize to "addresses" if we have "address"
                 if enriched.get("address") and not enriched.get("addresses"):
                     enriched["addresses"] = enriched["address"]
-                
+
                 if enriched.get("addresses"):
                     logger.info(
                         f"🔍 ENRICHER: Geocoding missing coordinates for '{location_name}'"
@@ -384,25 +384,25 @@ class GeocodingEnricher:
             return None, None
 
         address = location_data["addresses"][0]
-        
+
         # Enhance address with scraper context if available
         if scraper_id:
             address = enhance_address_with_context(address, scraper_id)
             address_str = format_address_for_geocoding(address, scraper_id)
         else:
             address_str = self._format_address(address)
-        
+
         logger.debug(f"Attempting to geocode: {address_str}")
 
         # Ensure we try ALL configured providers including census
         all_providers = ["arcgis", "nominatim", "census"]
-        
+
         # Try each provider in order
         for provider in all_providers:
             # Skip if not in configured providers list
             if provider not in self.providers and provider != "census":
                 continue
-                
+
             # Check Redis cache if available
             cached_coords = self._get_cached_coordinates(provider, address_str)
             if cached_coords:
@@ -411,7 +411,9 @@ class GeocodingEnricher:
                 if cached_coords[0] is not None and cached_coords[1] is not None:
                     return cached_coords, provider
                 else:
-                    logger.debug(f"Cached coordinates invalid for {provider}: {cached_coords}")
+                    logger.debug(
+                        f"Cached coordinates invalid for {provider}: {cached_coords}"
+                    )
 
             self._increment_cache_metric("misses")
 
@@ -541,7 +543,9 @@ class GeocodingEnricher:
 
         return ", ".join(parts)
 
-    def enrich_job_data(self, job_data: Dict[str, Any], scraper_id: Optional[str] = None) -> Dict[str, Any]:
+    def enrich_job_data(
+        self, job_data: Dict[str, Any], scraper_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Enrich all locations in job data.
 
         Args:
