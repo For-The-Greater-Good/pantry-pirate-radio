@@ -506,6 +506,11 @@ class TestValidationProcessorWithEnrichment:
         }
 
         mock_enricher.enrich_job_data.return_value = enriched_data
+        mock_enricher.get_enrichment_details.return_value = {
+            "locations_enriched": 1,
+            "coordinates_added": 1,
+            "postal_codes_added": 1,
+        }
 
         processor = ValidationProcessor(db=mock_db)
 
@@ -513,7 +518,11 @@ class TestValidationProcessorWithEnrichment:
         result = processor.process_job_result(job_result)
 
         # Assert
-        mock_enricher.enrich_job_data.assert_called_once_with(job_result.data)
+        # The enricher is called with data and optionally scraper_id
+        mock_enricher.enrich_job_data.assert_called_once()
+        call_args = mock_enricher.enrich_job_data.call_args
+        assert call_args[0][0] == job_result.data  # First positional arg is data
+        # scraper_id might be None or a string, depends on job metadata
         assert result["data"] == enriched_data
         assert "enrichment" in result.get("validation_notes", {})
 

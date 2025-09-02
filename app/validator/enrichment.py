@@ -97,12 +97,21 @@ class GeocodingEnricher:
             Tuple of (enriched location data, geocoding source used)
         """
         location_name = location_data.get("name", "Unknown Location")
+        location_type = location_data.get("location_type", "physical")
         logger.info(f"🌟 ENRICHER: Starting enrichment for location: {location_name}")
+        logger.info(f"🌟 ENRICHER: Location type: {location_type}")
         logger.info(f"🌟 ENRICHER: Enabled: {self.enabled}")
         logger.info(f"🌟 ENRICHER: Location data: {location_data}")
 
         if not self.enabled:
             logger.info("🌟 ENRICHER: Enrichment disabled, returning original data")
+            return location_data, None
+
+        # Skip enrichment for virtual locations
+        if location_type == "virtual":
+            logger.info(
+                f"🌟 ENRICHER: Skipping enrichment for virtual location: {location_name}"
+            )
             return location_data, None
 
         # Check if location needs enrichment
