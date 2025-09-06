@@ -14,11 +14,155 @@ from app.api.v1.map.models import (
     MapMetadata,
     MapStatesResponse,
     StateInfo,
+    MapSearchResponse,
 )
 from app.api.v1.map.services import MapDataService
+from app.api.v1.map.search_service import MapSearchService, OutputFormat
 from app.core.db import get_session
 
 router = APIRouter(prefix="/map", tags=["map"])
+
+
+@router.get("/search", response_model=MapSearchResponse)
+async def search_map_locations(
+    request: Request,
+    # Full-text search
+    q: Optional[str] = Query(None, description="Search query text"),
+    # Geographic filters
+    min_lat: Optional[float] = Query(
+        None, ge=-90, le=90, description="Minimum latitude for bounding box"
+    ),
+    min_lng: Optional[float] = Query(
+        None, ge=-180, le=180, description="Minimum longitude for bounding box"
+    ),
+    max_lat: Optional[float] = Query(
+        None, ge=-90, le=90, description="Maximum latitude for bounding box"
+    ),
+    max_lng: Optional[float] = Query(
+        None, ge=-180, le=180, description="Maximum longitude for bounding box"
+    ),
+    center_lat: Optional[float] = Query(
+        None, ge=-90, le=90, description="Center latitude for radius search"
+    ),
+    center_lng: Optional[float] = Query(
+        None, ge=-180, le=180, description="Center longitude for radius search"
+    ),
+    radius: Optional[float] = Query(
+        None, gt=0, le=500, description="Search radius in miles"
+    ),
+    # Filter parameters
+    state: Optional[str] = Query(
+        None, max_length=2, description="State code (e.g., 'CA')"
+    ),
+    services: Optional[str] = Query(
+        None, description="Comma-separated list of services to filter"
+    ),
+    languages: Optional[str] = Query(
+        None, description="Comma-separated list of languages to filter"
+    ),
+    schedule_days: Optional[str] = Query(
+        None, description="Comma-separated days (e.g., 'monday,wednesday')"
+    ),
+    open_now: bool = Query(False, description="Filter to locations open now"),
+    confidence_min: Optional[int] = Query(
+        None, ge=0, le=100, description="Minimum confidence score"
+    ),
+    validation_status: Optional[str] = Query(
+        None, description="Validation status filter"
+    ),
+    has_multiple_sources: Optional[bool] = Query(
+        None, description="Filter by source count"
+    ),
+    # Output format
+    format: OutputFormat = Query(
+        OutputFormat.FULL, description="Output format: full, compact, or geojson"
+    ),
+    # Pagination
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(100, ge=1, le=1000, description="Items per page"),
+    session: AsyncSession = Depends(get_session),
+) -> MapSearchResponse:
+    """
+    Get map locations optimized for geographic display (HAARRRvest-style).
+
+    This endpoint is optimized for map rendering with location-based queries.
+    It returns aggregated location data suitable for displaying on interactive maps.
+
+    ### Primary Use Case - Geographic Queries:
+    - **Bounding Box** (RECOMMENDED): Use min_lat, min_lng, max_lat, max_lng for current map view
+    - **Radius Search**: Use center_lat, center_lng, and radius (miles) for proximity search
+    - **State Filter**: Use state code (e.g., 'CA', 'NY') for state-level data
+
+    ### Output Formats:
+    - **compact** (RECOMMENDED for maps): Minimal data for map markers (id, lat, lng, name, confidence)
+    - **geojson**: GeoJSON FeatureCollection for map libraries
+    - **full**: Complete location data with sources (use sparingly, larger payload)
+
+    ### Quality Filters:
+    - `confidence_min=70` - Only high-confidence locations
+    - `has_multiple_sources=true` - Verified by multiple sources
+
+    ### Example Map Integration:
+    ```javascript
+    // Fetch locations for current map view
+    const bbox = map.getBounds();
+    fetch(`/api/v1/map/search?min_lat=${bbox.south}&max_lat=${bbox.north}&min_lng=${bbox.west}&max_lng=${bbox.east}&format=compact&per_page=500`)
+    ```
+
+    ### Performance Notes:
+    - Bounding box queries are fastest
+    - Use `format=compact` for map display
+    - Limit results with `per_page` based on zoom level
+    - Text search (q parameter) is simplified and only searches location names
+    """
+
+    # Build bounding box if all parameters provided
+    bbox = None
+    if all(v is not None for v in [min_lat, min_lng, max_lat, max_lng]):
+        bbox = (min_lat, min_lng, max_lat, max_lng)
+
+    # Parse comma-separated lists
+    services_list = services.split(",") if services else None
+    languages_list = languages.split(",") if languages else None
+    days_list = schedule_days.split(",") if schedule_days else None
+
+    # Initialize search service
+    search_service = MapSearchService(session)
+
+    # Calculate offset from page
+    offset = (page - 1) * per_page
+
+    # Execute search
+    locations, metadata, total_count = await search_service.search_locations(
+        query=q,
+        bbox=bbox,
+        center_lat=center_lat,
+        center_lng=center_lng,
+        radius_miles=radius,
+        state=state,
+        services=services_list,
+        languages=languages_list,
+        schedule_days=days_list,
+        open_now=open_now,
+        confidence_min=confidence_min,
+        validation_status=validation_status,
+        has_multiple_sources=has_multiple_sources,
+        output_format=format,
+        limit=per_page,
+        offset=offset,
+    )
+
+    # Calculate pagination info
+    has_more = (offset + per_page) < total_count
+
+    return MapSearchResponse(
+        metadata=metadata,
+        locations=locations,
+        total=total_count,
+        page=page,
+        per_page=per_page,
+        has_more=has_more,
+    )
 
 
 @router.get("/locations", response_model=MapLocationsResponse)

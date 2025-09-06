@@ -109,6 +109,37 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, OrganizationModel)
 
+    async def get_by_id(self, id: UUID) -> Optional[OrganizationModel]:
+        """Get organization by ID with eager loading."""
+        query = (
+            select(self.model)
+            .options(selectinload(self.model.services))
+            .filter(self.model.id == str(id))
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> Sequence[OrganizationModel]:
+        """Get all organizations with eager loading to prevent lazy load errors."""
+        query = select(self.model).options(selectinload(self.model.services))
+
+        # Apply filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
     async def get_by_name(self, name: str) -> Optional[OrganizationModel]:
         """Get organization by name."""
         query = select(self.model).filter(self.model.name == name)
@@ -121,6 +152,9 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
         """Search organizations by name (partial match)."""
         query = (
             select(self.model)
+            .options(
+                selectinload(self.model.services).selectinload(ServiceModel.locations)
+            )
             .filter(
                 or_(
                     self.model.name.ilike(f"%{name}%"),
@@ -153,7 +187,9 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
         """Get organizations with their services."""
         query = (
             select(self.model)
-            .options(selectinload(self.model.services))
+            .options(
+                selectinload(self.model.services).selectinload(ServiceModel.locations)
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -166,6 +202,39 @@ class LocationRepository(BaseRepository[LocationModel]):
 
     def __init__(self, session: AsyncSession):
         super().__init__(session, LocationModel)
+
+    async def get_by_id(self, id: UUID) -> Optional[LocationModel]:
+        """Get location by ID with eager loading."""
+        query = (
+            select(self.model)
+            .options(selectinload(self.model.services_at_location))
+            .filter(self.model.id == str(id))
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> Sequence[LocationModel]:
+        """Get all locations with eager loading to prevent lazy load errors."""
+        query = select(self.model).options(
+            selectinload(self.model.services_at_location)
+        )
+
+        # Apply filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def get_locations_by_radius(
         self,
@@ -420,12 +489,52 @@ class ServiceRepository(BaseRepository[ServiceModel]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, ServiceModel)
 
+    async def get_by_id(self, id: UUID) -> Optional[ServiceModel]:
+        """Get service by ID with eager loading."""
+        query = (
+            select(self.model)
+            .options(
+                selectinload(self.model.organization),
+                selectinload(self.model.locations),
+            )
+            .filter(self.model.id == str(id))
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> Sequence[ServiceModel]:
+        """Get all services with eager loading to prevent lazy load errors."""
+        query = select(self.model).options(
+            selectinload(self.model.organization), selectinload(self.model.locations)
+        )
+
+        # Apply filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
     async def get_services_by_status(
         self, status: str, skip: int = 0, limit: int = 100
     ) -> Sequence[ServiceModel]:
         """Get services by status."""
         query = (
             select(self.model)
+            .options(
+                selectinload(self.model.organization),
+                selectinload(self.model.locations),
+            )
             .filter(self.model.status == status)
             .offset(skip)
             .limit(limit)
@@ -439,7 +548,11 @@ class ServiceRepository(BaseRepository[ServiceModel]):
         """Get services by organization."""
         query = (
             select(self.model)
-            .filter(self.model.organization_id == organization_id)
+            .options(
+                selectinload(self.model.organization),
+                selectinload(self.model.locations),
+            )
+            .filter(self.model.organization_id == str(organization_id))
             .offset(skip)
             .limit(limit)
         )
@@ -452,6 +565,10 @@ class ServiceRepository(BaseRepository[ServiceModel]):
         """Search services by name or description."""
         query = (
             select(self.model)
+            .options(
+                selectinload(self.model.organization),
+                selectinload(self.model.locations),
+            )
             .filter(
                 or_(
                     self.model.name.ilike(f"%{search_term}%"),
@@ -505,14 +622,56 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, ServiceAtLocationModel)
 
+    async def get_by_id(self, id: UUID) -> Optional[ServiceAtLocationModel]:
+        """Get service at location by ID with eager loading."""
+        query = (
+            select(self.model)
+            .options(
+                selectinload(self.model.service), selectinload(self.model.location)
+            )
+            .filter(self.model.id == str(id))
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[dict[str, Any]] = None,
+    ) -> Sequence[ServiceAtLocationModel]:
+        """Get all service at locations with eager loading to prevent lazy load errors."""
+        query = select(self.model).options(
+            selectinload(self.model.service).selectinload(ServiceModel.locations),
+            selectinload(self.model.location),
+        )
+
+        # Apply filters
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
     async def get_by_service_and_location(
         self, service_id: UUID, location_id: UUID
     ) -> Optional[ServiceAtLocationModel]:
         """Get service at location by service and location IDs."""
-        query = select(self.model).filter(
-            and_(
-                self.model.service_id == service_id,
-                self.model.location_id == location_id,
+        query = (
+            select(self.model)
+            .options(
+                selectinload(self.model.service), selectinload(self.model.location)
+            )
+            .filter(
+                and_(
+                    self.model.service_id == str(service_id),
+                    self.model.location_id == str(location_id),
+                )
             )
         )
         result = await self.session.execute(query)
@@ -525,7 +684,7 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         query = (
             select(self.model)
             .options(selectinload(self.model.service))
-            .filter(self.model.location_id == location_id)
+            .filter(self.model.location_id == str(location_id))
             .offset(skip)
             .limit(limit)
         )
@@ -537,7 +696,7 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         query = (
             select(func.count())
             .select_from(self.model)
-            .filter(self.model.location_id == location_id)
+            .filter(self.model.location_id == str(location_id))
         )
         result = await self.session.execute(query)
         return result.scalar() or 0
@@ -549,7 +708,7 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         query = (
             select(self.model)
             .options(selectinload(self.model.location))
-            .filter(self.model.service_id == service_id)
+            .filter(self.model.service_id == str(service_id))
             .offset(skip)
             .limit(limit)
         )
@@ -561,7 +720,7 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         query = (
             select(func.count())
             .select_from(self.model)
-            .filter(self.model.service_id == service_id)
+            .filter(self.model.service_id == str(service_id))
         )
         result = await self.session.execute(query)
         return result.scalar() or 0
@@ -579,7 +738,7 @@ class AddressRepository(BaseRepository[AddressModel]):
         """Get addresses by location."""
         query = (
             select(self.model)
-            .filter(self.model.location_id == location_id)
+            .filter(self.model.location_id == str(location_id))
             .offset(skip)
             .limit(limit)
         )

@@ -201,6 +201,30 @@ async def search_services(
     )
 
 
+@router.get("/active", response_model=Page[ServiceResponse])
+async def get_active_services(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(25, ge=1, le=100, description="Items per page"),
+    include_locations: bool = Query(False, description="Include locations in response"),
+    session: AsyncSession = Depends(get_session),
+) -> Page[ServiceResponse]:
+    """
+    Get only active services.
+
+    Returns paginated list of active services with optional location details.
+    """
+    return await list_services(
+        request=request,
+        page=page,
+        per_page=per_page,
+        organization_id=None,
+        status="active",
+        include_locations=include_locations,
+        session=session,
+    )
+
+
 @router.get("/{service_id}", response_model=ServiceResponse)
 async def get_service(
     service_id: UUID,
@@ -234,27 +258,3 @@ async def get_service(
         ]
 
     return service_response
-
-
-@router.get("/active", response_model=Page[ServiceResponse])
-async def get_active_services(
-    request: Request,
-    page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(25, ge=1, le=100, description="Items per page"),
-    include_locations: bool = Query(False, description="Include locations in response"),
-    session: AsyncSession = Depends(get_session),
-) -> Page[ServiceResponse]:
-    """
-    Get only active services.
-
-    Returns paginated list of active services with optional location details.
-    """
-    return await list_services(
-        request=request,
-        page=page,
-        per_page=per_page,
-        organization_id=None,
-        status="active",
-        include_locations=include_locations,
-        session=session,
-    )

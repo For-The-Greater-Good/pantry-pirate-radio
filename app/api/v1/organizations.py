@@ -54,13 +54,31 @@ async def list_organizations(
     # Convert to response models
     org_responses = []
     for org in organizations:
-        org_data = OrganizationResponse.model_validate(org)
-
-        if include_services and hasattr(org, "services") and org.services:
-            # Add service details (simplified for now)
-            org_data.services = [
-                ServiceResponse.model_validate(service) for service in org.services
-            ]
+        if include_services:
+            # Include services in validation
+            org_data = OrganizationResponse.model_validate(org)
+            if hasattr(org, "services") and org.services:
+                # Add service details
+                org_data.services = [
+                    ServiceResponse.model_validate(service) for service in org.services
+                ]
+        else:
+            # Exclude services from validation to avoid lazy loading
+            org_dict = {
+                "id": org.id,
+                "name": org.name,
+                "description": org.description,
+                "website": org.website,
+                "email": org.email,
+                "metadata": {
+                    "last_updated": (
+                        org.updated_at.isoformat()
+                        if hasattr(org, "updated_at") and org.updated_at
+                        else None
+                    )
+                },
+            }
+            org_data = OrganizationResponse.model_validate(org_dict)
 
         org_responses.append(org_data)
 
@@ -85,40 +103,6 @@ async def list_organizations(
         links=links,
         data=org_responses,
     )
-
-
-@router.get("/{organization_id}", response_model=OrganizationResponse)
-async def get_organization(
-    organization_id: UUID,
-    include_services: bool = Query(False, description="Include services in response"),
-    session: AsyncSession = Depends(get_session),
-) -> OrganizationResponse:
-    """
-    Get a specific organization by ID.
-
-    Returns detailed information about an organization with optional service details.
-    """
-    repository = OrganizationRepository(session)
-
-    organization = await repository.get_by_id(organization_id)
-    if not organization:
-        raise HTTPException(status_code=404, detail="Organization not found")
-
-    # Convert to response model
-    org_response = OrganizationResponse.model_validate(organization)
-
-    if include_services:
-        # Load services for this organization
-        from app.database.repositories import ServiceRepository
-
-        service_repo = ServiceRepository(session)
-        services = await service_repo.get_services_by_organization(organization_id)
-
-        org_response.services = [
-            ServiceResponse.model_validate(service) for service in services
-        ]
-
-    return org_response
 
 
 @router.get("/search", response_model=Page[OrganizationResponse])
@@ -164,3 +148,37 @@ async def search_organizations(
         links=links,
         data=org_responses,
     )
+
+
+@router.get("/{organization_id}", response_model=OrganizationResponse)
+async def get_organization(
+    organization_id: UUID,
+    include_services: bool = Query(False, description="Include services in response"),
+    session: AsyncSession = Depends(get_session),
+) -> OrganizationResponse:
+    """
+    Get a specific organization by ID.
+
+    Returns detailed information about an organization with optional service details.
+    """
+    repository = OrganizationRepository(session)
+
+    organization = await repository.get_by_id(organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Convert to response model
+    org_response = OrganizationResponse.model_validate(organization)
+
+    if include_services:
+        # Load services for this organization
+        from app.database.repositories import ServiceRepository
+
+        service_repo = ServiceRepository(session)
+        services = await service_repo.get_services_by_organization(organization_id)
+
+        org_response.services = [
+            ServiceResponse.model_validate(service) for service in services
+        ]
+
+    return org_response

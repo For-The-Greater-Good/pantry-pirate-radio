@@ -206,100 +206,364 @@ class PlentifulScraper(ScraperJob):
 
         return processed
 
+    def get_variable_density_grids(self) -> List[Dict[str, Any]]:
+        """Generate grid points with variable density based on Plentiful concentration.
+
+        Returns:
+            List of dictionaries with grid point info and search radius
+        """
+        from app.scraper.utils import ScraperUtils
+        from app.models.geographic import BoundingBox, GridPoint
+
+        grids = []
+
+        # Define regions with different densities
+        # Format: (bounds, radius_miles, description)
+        regions = [
+            # NYC Metro - Ultra fine (5-10 mile radius)
+            # Manhattan
+            (
+                {"north": 40.9, "south": 40.7, "east": -73.9, "west": -74.05},
+                5,
+                "Manhattan",
+            ),
+            # Brooklyn
+            (
+                {"north": 40.74, "south": 40.57, "east": -73.83, "west": -74.05},
+                7,
+                "Brooklyn",
+            ),
+            # Queens
+            (
+                {"north": 40.8, "south": 40.55, "east": -73.7, "west": -73.96},
+                7,
+                "Queens",
+            ),
+            # Bronx
+            (
+                {"north": 40.92, "south": 40.78, "east": -73.75, "west": -73.93},
+                7,
+                "Bronx",
+            ),
+            # Staten Island
+            (
+                {"north": 40.65, "south": 40.49, "east": -74.03, "west": -74.26},
+                10,
+                "Staten Island",
+            ),
+            # Newark/Jersey City
+            (
+                {"north": 40.8, "south": 40.66, "east": -74.02, "west": -74.28},
+                10,
+                "Newark/Jersey City",
+            ),
+            # Northeast Corridor - Fine (15-20 mile radius)
+            # Boston Metro
+            (
+                {"north": 42.6, "south": 42.0, "east": -70.6, "west": -71.3},
+                15,
+                "Boston Metro",
+            ),
+            # Philadelphia Metro
+            (
+                {"north": 40.14, "south": 39.86, "east": -74.96, "west": -75.28},
+                15,
+                "Philadelphia Metro",
+            ),
+            # DC Metro
+            (
+                {"north": 39.2, "south": 38.6, "east": -76.7, "west": -77.5},
+                15,
+                "DC Metro",
+            ),
+            # Connecticut
+            (
+                {"north": 42.05, "south": 40.95, "east": -71.78, "west": -73.73},
+                20,
+                "Connecticut",
+            ),
+            # Rhode Island
+            (
+                {"north": 42.02, "south": 41.15, "east": -71.12, "west": -71.91},
+                20,
+                "Rhode Island",
+            ),
+            # Rest of NJ not covered above
+            (
+                {"north": 41.36, "south": 40.8, "east": -73.89, "west": -74.7},
+                20,
+                "Northern NJ",
+            ),
+            (
+                {"north": 40.66, "south": 38.93, "east": -74.0, "west": -75.57},
+                20,
+                "Southern NJ",
+            ),
+            # Secondary Markets - Medium (50-100 mile radius)
+            # Chicago
+            (
+                {"north": 42.5, "south": 41.2, "east": -87.0, "west": -88.5},
+                75,
+                "Chicago Metro",
+            ),
+            # Los Angeles
+            (
+                {"north": 34.8, "south": 33.2, "east": -117.0, "west": -119.0},
+                75,
+                "Los Angeles Metro",
+            ),
+            # San Francisco Bay Area
+            (
+                {"north": 38.3, "south": 36.9, "east": -121.2, "west": -123.0},
+                75,
+                "SF Bay Area",
+            ),
+            # Seattle
+            (
+                {"north": 48.3, "south": 46.9, "east": -121.0, "west": -123.0},
+                75,
+                "Seattle Metro",
+            ),
+            # Atlanta
+            (
+                {"north": 34.4, "south": 33.2, "east": -83.5, "west": -85.0},
+                75,
+                "Atlanta Metro",
+            ),
+            # Miami
+            (
+                {"north": 26.7, "south": 25.1, "east": -79.9, "west": -80.9},
+                75,
+                "Miami Metro",
+            ),
+            # Denver/Colorado
+            (
+                {"north": 41.0, "south": 37.0, "east": -102.0, "west": -109.0},
+                100,
+                "Colorado",
+            ),
+            # Rest of CA
+            (
+                {"north": 42.0, "south": 32.5, "east": -114.0, "west": -124.5},
+                100,
+                "California Rest",
+            ),
+            # Texas major cities
+            (
+                {"north": 33.0, "south": 29.2, "east": -94.0, "west": -100.5},
+                100,
+                "Texas Cities",
+            ),
+            # Florida rest
+            (
+                {"north": 31.0, "south": 24.5, "east": -79.9, "west": -87.6},
+                100,
+                "Florida Rest",
+            ),
+            # Large Coverage Areas - Coarse (200-500 mile radius)
+            # Midwest
+            (
+                {"north": 49.0, "south": 36.0, "east": -80.5, "west": -104.0},
+                300,
+                "Midwest",
+            ),
+            # Mountain West
+            (
+                {"north": 49.0, "south": 31.0, "east": -104.0, "west": -125.0},
+                400,
+                "Mountain West",
+            ),
+            # South (excluding FL and TX)
+            (
+                {"north": 39.0, "south": 25.0, "east": -75.0, "west": -104.0},
+                300,
+                "South",
+            ),
+        ]
+
+        # Track processed areas to avoid overlap
+        processed_coords = set()
+
+        for bounds_dict, radius_miles, region_name in regions:
+            # Skip if in test mode and not a priority region
+            if self.test_mode and region_name not in [
+                "Manhattan",
+                "Brooklyn",
+                "Queens",
+            ]:
+                continue
+
+            bounds = BoundingBox(
+                north=bounds_dict["north"],
+                south=bounds_dict["south"],
+                east=bounds_dict["east"],
+                west=bounds_dict["west"],
+            )
+
+            # Generate grid points for this region
+            grid_points = ScraperUtils.get_grid_points(
+                bounds=bounds,
+                search_radius_miles=radius_miles,
+                overlap_factor=0.1,  # Small overlap to ensure coverage
+            )
+
+            # Add to grids list with deduplication
+            for point in grid_points:
+                coord_key = (round(point.latitude, 2), round(point.longitude, 2))
+                if coord_key not in processed_coords:
+                    processed_coords.add(coord_key)
+                    grids.append(
+                        {
+                            "point": point,
+                            "radius_miles": radius_miles,
+                            "region": region_name,
+                        }
+                    )
+
+        logger.info(f"Generated {len(grids)} total grid points with variable density")
+        return grids
+
+    async def search_grid_with_subdivision(
+        self,
+        client: httpx.AsyncClient,
+        lat: float,
+        lon: float,
+        radius_miles: float,
+        seen_ids: Set[int],
+        max_depth: int = 3,
+        current_depth: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Search a grid cell and subdivide if it hits the API limit.
+
+        Args:
+            client: HTTP client
+            lat: Center latitude
+            lon: Center longitude
+            radius_miles: Search radius in miles
+            seen_ids: Set of already seen location IDs
+            max_depth: Maximum subdivision depth
+            current_depth: Current recursion depth
+
+        Returns:
+            List of unique locations found
+        """
+        # Convert radius to degrees (rough approximation)
+        radius_deg = radius_miles / 69.0
+
+        # Define bounding box
+        lat1 = lat + radius_deg  # North
+        lat2 = lat - radius_deg  # South
+        lng1 = lon - radius_deg  # West
+        lng2 = lon + radius_deg  # East
+
+        # Fetch locations
+        locations = await self.fetch_locations_in_bounds(client, lat1, lng1, lat2, lng2)
+
+        # If we hit the limit and can subdivide further
+        if len(locations) >= 1000 and current_depth < max_depth:
+            logger.warning(
+                f"Hit 1000 limit at ({lat:.2f}, {lon:.2f}) radius {radius_miles}mi, subdividing..."
+            )
+
+            # Subdivide into 4 quadrants
+            half_radius = radius_miles / 2
+            offset = half_radius / 69.0  # Convert to degrees
+
+            all_locations = []
+            quadrants = [
+                (lat + offset, lon - offset, "NW"),  # Northwest
+                (lat + offset, lon + offset, "NE"),  # Northeast
+                (lat - offset, lon - offset, "SW"),  # Southwest
+                (lat - offset, lon + offset, "SE"),  # Southeast
+            ]
+
+            for qlat, qlon, quad_name in quadrants:
+                logger.debug(f"  Searching {quad_name} quadrant...")
+                quad_locations = await self.search_grid_with_subdivision(
+                    client,
+                    qlat,
+                    qlon,
+                    half_radius,
+                    seen_ids,
+                    max_depth,
+                    current_depth + 1,
+                )
+                all_locations.extend(quad_locations)
+
+            return all_locations
+
+        # Filter out duplicates
+        unique_locations = []
+        for location in locations:
+            loc_id = location.get("id")
+            if loc_id and loc_id not in seen_ids:
+                seen_ids.add(loc_id)
+                unique_locations.append(location)
+
+        return unique_locations
+
     async def scrape(self) -> str:
-        """Scrape data from Plentiful API.
+        """Scrape data from Plentiful API using variable density grid.
 
         Returns:
             Summary of scraping operation as JSON string
         """
-        logger.info("Starting Plentiful scraper")
+        logger.info("Starting Plentiful scraper with variable density grid")
 
-        # Use state-level searches instead of grid points
-        # Each state typically has <1000 locations, so we can search entire states
-        from pathlib import Path
-        from app.models.geographic import BoundingBox
-        import os
-
-        # Define state search boxes - use relative path that works both locally and in container
-        # In container: /app/docs/GeoJson/States
-        # Locally: current working directory + /docs/GeoJson/States
-        if os.path.exists("/app"):
-            # Running in container
-            geojson_dir = Path("/app/docs/GeoJson/States")
-        else:
-            # Running locally - use relative path from current working directory
-            geojson_dir = Path.cwd() / "docs" / "GeoJson" / "States"
-
-        # In test mode, only search a few states
-        is_test_mode = self.test_mode or "test" in self.scraper_id.lower()
-
-        if is_test_mode:
-            # Test with just NY, CA, and TX
-            state_files = [
-                geojson_dir / "ny_new_york_zip_codes_geo.min.json",
-                geojson_dir / "ca_california_zip_codes_geo.min.json",
-                geojson_dir / "tx_texas_zip_codes_geo.min.json",
-            ]
-            logger.info(f"Test mode: Searching {len(state_files)} states")
-        else:
-            # Get all state GeoJSON files
-            state_files = sorted(geojson_dir.glob("*_zip_codes_geo.min.json"))
-            # Skip Alaska and Hawaii in initial implementation (can add back if needed)
-            state_files = [
-                f
-                for f in state_files
-                if not any(skip in f.name for skip in ["ak_alaska", "hi_hawaii"])
-            ]
-            logger.info(f"Production mode: Searching {len(state_files)} states")
+        # Generate variable density grids
+        grids = self.get_variable_density_grids()
+        logger.info(f"Using {len(grids)} grid points with variable density")
 
         total_locations = 0
         total_jobs_created = 0
         failed_details = 0
         seen_ids: Set[int] = set()
         queries_with_max_results = 0
-        states_processed = 0
+        grids_processed = 0
+        regions_summary = {}
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            # Process states one by one (or in small batches)
-            for state_file in state_files:
-                state_name = state_file.stem.split("_")[1]  # Extract state name
-                logger.info(
-                    f"Processing state: {state_name.upper()} ({states_processed + 1}/{len(state_files)})"
-                )
+            # Process grids by region
+            current_region = None
+            region_locations = 0
+
+            for grid_info in grids:
+                grid_point = grid_info["point"]
+                radius_miles = grid_info["radius_miles"]
+                region = grid_info["region"]
+
+                # Track region changes
+                if region != current_region:
+                    if current_region:
+                        regions_summary[current_region] = region_locations
+                        logger.info(
+                            f"  {current_region}: {region_locations} locations found"
+                        )
+                    current_region = region
+                    region_locations = 0
+                    logger.info(
+                        f"Processing region: {region} (radius: {radius_miles} miles)"
+                    )
 
                 try:
-                    # Get bounding box for the state
-                    bbox = BoundingBox.from_geojson(state_file)
-                    logger.info(
-                        f"  Searching bounds: ({bbox.south:.2f}, {bbox.west:.2f}) to ({bbox.north:.2f}, {bbox.east:.2f})"
+                    # Search with automatic subdivision if needed
+                    locations = await self.search_grid_with_subdivision(
+                        client,
+                        grid_point.latitude,
+                        grid_point.longitude,
+                        radius_miles,
+                        seen_ids,
                     )
 
-                    # Search the entire state in one API call
-                    locations = await self.fetch_locations_in_bounds(
-                        client, bbox.north, bbox.west, bbox.south, bbox.east
-                    )
-
-                    logger.info(
-                        f"  Found {len(locations)} locations in {state_name.upper()}"
-                    )
-
-                    # Check if we hit the potential 1k limit
                     if len(locations) >= 1000:
                         queries_with_max_results += 1
-                        logger.warning(
-                            f"  State {state_name.upper()} returned {len(locations)} results, may have hit 1k limit!"
-                        )
 
-                    # Process each location with deduplication
-                    new_locations = 0
+                    # Process each unique location
                     for location in locations:
-                        location_id = location.get("id")
-                        if not location_id or location_id in seen_ids:
-                            continue
-
-                        seen_ids.add(location_id)
                         total_locations += 1
-                        new_locations += 1
+                        region_locations += 1
+
+                        location_id = location.get("id")
 
                         # Fetch detailed information
                         detailed_data = await self.fetch_location_details(
@@ -331,25 +595,35 @@ class PlentifulScraper(ScraperJob):
                         # Rate limiting between detail requests
                         await asyncio.sleep(self.detail_request_delay)
 
-                    logger.info(
-                        f"  Completed {state_name.upper()}: {new_locations} new locations added"
-                    )
-                    states_processed += 1
+                    grids_processed += 1
+                    if grids_processed % 10 == 0:
+                        logger.info(
+                            f"Processed {grids_processed}/{len(grids)} grid points"
+                        )
 
                 except Exception as e:
-                    logger.error(f"  Failed to process state {state_name}: {e}")
+                    logger.error(
+                        f"Failed to process grid at ({grid_point.latitude:.2f}, {grid_point.longitude:.2f}): {e}"
+                    )
                     continue
 
-                # Rate limiting between states
-                await asyncio.sleep(self.batch_delay)
+                # Rate limiting between grids
+                await asyncio.sleep(self.request_delay)
+
+            # Add last region to summary
+            if current_region:
+                regions_summary[current_region] = region_locations
+                logger.info(f"  {current_region}: {region_locations} locations found")
 
         # Create summary
         summary = {
             "total_locations_found": total_locations,
             "total_jobs_created": total_jobs_created,
             "failed_detail_fetches": failed_details,
-            "states_processed": states_processed,
+            "grids_processed": grids_processed,
+            "total_grids": len(grids),
             "queries_with_max_results": queries_with_max_results,
+            "regions_summary": regions_summary,
             "source": "plentiful",
             "base_url": self.base_url,
         }
@@ -357,12 +631,17 @@ class PlentifulScraper(ScraperJob):
         # Print summary to CLI
         print("\nPlentiful Scraper Summary:")
         print(f"Source: {self.base_url}")
-        print(f"States processed: {states_processed}")
+        print(f"Grids processed: {grids_processed}/{len(grids)}")
         print(f"Total locations found: {total_locations}")
         print(f"Successfully processed: {total_jobs_created}")
         print(f"Failed detail fetches: {failed_details}")
         if queries_with_max_results > 0:
-            print(f"⚠️  Queries that may have hit 1k limit: {queries_with_max_results}")
+            print(f"⚠️  Queries that hit 1k limit: {queries_with_max_results}")
+        print("\nLocations by region:")
+        for region, count in sorted(
+            regions_summary.items(), key=lambda x: x[1], reverse=True
+        ):
+            print(f"  {region}: {count}")
         print("Status: Complete\n")
 
         return json.dumps(summary)

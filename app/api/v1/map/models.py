@@ -130,3 +130,42 @@ class MapStatesResponse(BaseModel):
 
     total_states: int
     states: List[StateInfo]
+
+
+class CompactLocation(BaseModel):
+    """Compact location format for map markers."""
+
+    id: str
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    name: str
+    confidence: int = Field(default=50, ge=0, le=100)
+
+
+class GeoJSONFeature(BaseModel):
+    """GeoJSON Feature for a location."""
+
+    type: str = Field(default="Feature")
+    geometry: Dict[str, Any] = Field(..., description="GeoJSON geometry")
+    properties: Dict[str, Any] = Field(..., description="Feature properties")
+
+
+class GeoJSONFeatureCollection(BaseModel):
+    """GeoJSON FeatureCollection response."""
+
+    type: str = Field(default="FeatureCollection")
+    features: List[Dict[str, Any]]
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MapSearchResponse(BaseModel):
+    """Response for map search endpoint."""
+
+    metadata: MapMetadata
+    locations: List[Any] = Field(
+        ..., description="List of locations in requested format"
+    )
+    total: int = Field(..., description="Total number of matching locations")
+    page: int = Field(default=1, description="Current page number")
+    per_page: int = Field(default=100, description="Items per page")
+    has_more: bool = Field(default=False, description="Whether more results exist")
