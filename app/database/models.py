@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 # Try to import GeoAlchemy2, use fallback if not available
@@ -35,9 +35,9 @@ class OrganizationModel(Base):
     __tablename__ = "organization"
 
     id = Column(
-        UUID(as_uuid=True),
+        Text,
         primary_key=True,
-        default=uuid4,
+        default=lambda: str(uuid4()),
         nullable=False,
     )
     name = Column(Text, nullable=False)
@@ -83,13 +83,13 @@ class LocationModel(Base):
     __tablename__ = "location"
 
     id = Column(
-        UUID(as_uuid=True),
+        Text,
         primary_key=True,
-        default=uuid4,
+        default=lambda: str(uuid4()),
         nullable=False,
     )
     organization_id = Column(
-        UUID(as_uuid=True),
+        Text,
         ForeignKey("organization.id"),
         nullable=True,
     )
@@ -163,17 +163,17 @@ class ServiceModel(Base):
     __tablename__ = "service"
 
     id = Column(
-        UUID(as_uuid=True),
+        Text,
         primary_key=True,
-        default=uuid4,
+        default=lambda: str(uuid4()),
         nullable=False,
     )
     organization_id = Column(
-        UUID(as_uuid=True),
+        Text,
         ForeignKey("organization.id"),
         nullable=False,
     )
-    program_id = Column(UUID(as_uuid=True), nullable=True)
+    program_id = Column(Text, nullable=True)
     name = Column(Text, nullable=False)
     alternate_name = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
@@ -237,31 +237,22 @@ class ServiceAtLocationModel(Base):
     __tablename__ = "service_at_location"
 
     id = Column(
-        UUID(as_uuid=True),
+        Text,
         primary_key=True,
-        default=uuid4,
+        default=lambda: str(uuid4()),
         nullable=False,
     )
     service_id = Column(
-        UUID(as_uuid=True),
+        Text,
         ForeignKey("service.id"),
         nullable=False,
     )
     location_id = Column(
-        UUID(as_uuid=True),
+        Text,
         ForeignKey("location.id"),
         nullable=False,
     )
     description = Column(Text, nullable=True)
-
-    # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )
 
     # Relationships
     service = relationship("ServiceModel", back_populates="locations")
@@ -274,13 +265,13 @@ class AddressModel(Base):
     __tablename__ = "address"
 
     id = Column(
-        UUID(as_uuid=True),
+        Text,
         primary_key=True,
-        default=uuid4,
+        default=lambda: str(uuid4()),
         nullable=False,
     )
     location_id = Column(
-        UUID(as_uuid=True),
+        Text,
         ForeignKey("location.id"),
         nullable=False,
     )

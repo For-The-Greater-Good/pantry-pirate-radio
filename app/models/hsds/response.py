@@ -95,8 +95,8 @@ class MetadataResponse(BaseModel):
         },
     )
 
-    last_updated: str = Field(
-        ...,
+    last_updated: str | None = Field(
+        default=None,
         title="Last Updated",
         description="Timestamp of when the data was last updated",
     )
