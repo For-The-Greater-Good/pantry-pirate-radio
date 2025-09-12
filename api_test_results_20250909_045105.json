@@ -1,0 +1,586 @@
+{
+  "timestamp": "2025-09-09T04:51:05.597897",
+  "base_url": "https://api.for-the-gg.org",
+  "summary": {
+    "total": 54,
+    "passed": 28,
+    "failed": 26,
+    "success_rate": 51.85185185185185
+  },
+  "results": [
+    {
+      "name": "API Root Metadata",
+      "method": "GET",
+      "endpoint": "/api/v1/",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.11006355285644531,
+      "issues": [],
+      "response_sample": "{'version': '3.1.1', 'profile': 'https://docs.openhumanservices.org/hsds/', 'openapi_url': '/openapi.json', 'documentation_url': '/docs', 'api_status': 'healthy', 'implementation': 'Pantry Pirate Radi"
+    },
+    {
+      "name": "Health Check",
+      "method": "GET",
+      "endpoint": "/api/v1/health",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.030490398406982422,
+      "issues": [],
+      "response_sample": "{'status': 'healthy', 'version': '0.1.0', 'correlation_id': 'dae17e2c-9474-4af0-953e-1c2544cefadf'}"
+    },
+    {
+      "name": "Database Health",
+      "method": "GET",
+      "endpoint": "/api/v1/health/db",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.16807794570922852,
+      "issues": [],
+      "response_sample": "{'status': 'healthy', 'database': 'postgresql', 'version': 'PostgreSQL 15.4 (Debian 15.4-1.pgdg110+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 10.2.1-6) 10.2.1 20210110, 64-bit', 'postgis_versi"
+    },
+    {
+      "name": "Redis Health",
+      "method": "GET",
+      "endpoint": "/api/v1/health/redis",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.03276538848876953,
+      "issues": [],
+      "response_sample": "{'status': 'healthy', 'redis_version': '7.4.5', 'connected_clients': '3', 'used_memory_human': '228.93M', 'correlation_id': '764ad886-2be3-4ae7-893d-b9e98ab90798'}"
+    },
+    {
+      "name": "LLM Health",
+      "method": "GET",
+      "endpoint": "/api/v1/health/llm",
+      "status": 200,
+      "success": true,
+      "elapsed": 1.4311792850494385,
+      "issues": [],
+      "response_sample": "{'status': 'healthy', 'provider': 'openai', 'model': 'google/gemini-2.5-flash-lite', 'correlation_id': '73a871de-ff5a-4534-b447-b85fab569928'}"
+    },
+    {
+      "name": "Prometheus Metrics",
+      "method": "GET",
+      "endpoint": "/api/v1/metrics",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.030829906463623047,
+      "issues": [],
+      "response_sample": "# HELP python_gc_objects_collected_total Objects collected during gc\n# TYPE python_gc_objects_collected_total counter\npython_gc_objects_collected_total{generation=\"0\"} 1350.0\npython_gc_objects_collect"
+    },
+    {
+      "name": "List Organizations",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.04400491714477539,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 100385, 'per_page': 25, 'current_page': 1, 'total_pages': 4016, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/?page=1&per_page=25&include_services=False', '"
+    },
+    {
+      "name": "List Organizations (Paginated)",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.040631771087646484,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 5, 'total': 100385, 'per_page': 5, 'current_page': 1, 'total_pages': 20077, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/?page=1&per_page=5&include_services=False', 'la"
+    },
+    {
+      "name": "List Organizations (With Services)",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.04936504364013672,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 100385, 'per_page': 25, 'current_page': 1, 'total_pages': 4016, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/?page=1&per_page=25&include_services=True', 'l"
+    },
+    {
+      "name": "Filter Organizations by Name",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.1063232421875,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 23317, 'per_page': 25, 'current_page': 1, 'total_pages': 933, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/?page=1&per_page=25&name=food&include_services=F"
+    },
+    {
+      "name": "Search Organizations",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.10199570655822754,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 15286, 'per_page': 25, 'current_page': 1, 'total_pages': 612, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/search?page=1&per_page=25&q=pantry', 'last': 'ht"
+    },
+    {
+      "name": "Get Organization by ID",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 404,
+      "success": false,
+      "elapsed": 0.04138755798339844,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Not Found', 'status_code': 404, 'correlation_id': '1295a8fe-99ff-4979-8a66-76d7f6895b45'}"
+    },
+    {
+      "name": "List Locations",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.040204763412475586,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 28101, 'per_page': 25, 'current_page': 1, 'total_pages': 1125, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/?page=1&per_page=25&include_services=False', 'last'"
+    },
+    {
+      "name": "List Locations (Paginated)",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.03728818893432617,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 10, 'total': 28101, 'per_page': 10, 'current_page': 1, 'total_pages': 2811, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/?page=1&per_page=10&include_services=False', 'last'"
+    },
+    {
+      "name": "List Locations (Include Schedule)",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.03686380386352539,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 28101, 'per_page': 25, 'current_page': 1, 'total_pages': 1125, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/?page=1&per_page=25&include_services=False', 'last'"
+    },
+    {
+      "name": "Filter Locations by Organization",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/",
+      "status": 500,
+      "success": false,
+      "elapsed": 0.03362703323364258,
+      "issues": [],
+      "response_sample": "{'error': 'ProgrammingError', 'message': \"(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: operator does not exist: character varying = uu"
+    },
+    {
+      "name": "Search Locations (Radius)",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.03706836700439453,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 1637, 'per_page': 25, 'current_page': 1, 'total_pages': 66, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/search?page=1&per_page=25&latitude=40.7128&longitude=-"
+    },
+    {
+      "name": "Search Locations (Bounding Box)",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.0417628288269043,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 2760, 'per_page': 25, 'current_page': 1, 'total_pages': 111, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/search?page=1&per_page=25&min_latitude=40.2128&max_la"
+    },
+    {
+      "name": "Search Locations (Text)",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.03802633285522461,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 28101, 'per_page': 25, 'current_page': 1, 'total_pages': 1125, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/search?page=1&per_page=25&include_services=False', "
+    },
+    {
+      "name": "Export Locations",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/export",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.032471418380737305,
+      "issues": [],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': '458cf015-5974-4da7-94df-b182491c1e99'}"
+    },
+    {
+      "name": "Export Simple Format",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/export-simple",
+      "status": 200,
+      "success": true,
+      "elapsed": 1.9062390327453613,
+      "issues": [],
+      "response_sample": "{'metadata': {'generated': '2025-09-09T04:50:52.334999', 'total_locations': 28101, 'states_covered': 51, 'format_version': '1.0', 'source': 'Pantry Pirate Radio API'}, 'locations': [{'id': '000036fc-1"
+    },
+    {
+      "name": "Export Working Format",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/export-working",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.03286862373352051,
+      "issues": [],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': '1968f2ce-cf73-4e44-a0bc-a5b912d0df7f'}"
+    },
+    {
+      "name": "Test Endpoint",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/test-endpoint",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.029951095581054688,
+      "issues": [],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': '4c833c24-f991-468a-a46d-34803f4ce5c2'}"
+    },
+    {
+      "name": "Test Before Export",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/test-before-export",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.03194093704223633,
+      "issues": [],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': 'c22b9e87-a16f-4d4c-bacd-06a3f29ac392'}"
+    },
+    {
+      "name": "Get Location by ID",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 404,
+      "success": false,
+      "elapsed": 0.03600335121154785,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Not Found', 'status_code': 404, 'correlation_id': '1f1af755-e916-4030-a637-e5e856b8afb5'}"
+    },
+    {
+      "name": "List Services",
+      "method": "GET",
+      "endpoint": "/api/v1/services/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.06291961669921875,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 102661, 'per_page': 25, 'current_page': 1, 'total_pages': 4107, 'links': {'first': 'http://api.for-the-gg.org/api/v1/services/?page=1&per_page=25&include_locations=False', 'last"
+    },
+    {
+      "name": "List Services (Paginated)",
+      "method": "GET",
+      "endpoint": "/api/v1/services/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.040805816650390625,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 10, 'total': 102661, 'per_page': 10, 'current_page': 1, 'total_pages': 10267, 'links': {'first': 'http://api.for-the-gg.org/api/v1/services/?page=1&per_page=10&include_locations=False', 'las"
+    },
+    {
+      "name": "List Active Services",
+      "method": "GET",
+      "endpoint": "/api/v1/services/active",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.04935574531555176,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 102661, 'per_page': 25, 'current_page': 1, 'total_pages': 4107, 'links': {'first': 'http://api.for-the-gg.org/api/v1/services/active?page=1&per_page=25&status=active&include_loc"
+    },
+    {
+      "name": "Search Services",
+      "method": "GET",
+      "endpoint": "/api/v1/services/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.08133268356323242,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 6062, 'per_page': 25, 'current_page': 1, 'total_pages': 243, 'links': {'first': 'http://api.for-the-gg.org/api/v1/services/search?page=1&per_page=25&q=meal&include_locations=Fal"
+    },
+    {
+      "name": "Get Service by ID",
+      "method": "GET",
+      "endpoint": "/api/v1/services/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 404,
+      "success": false,
+      "elapsed": 0.03322601318359375,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Not Found', 'status_code': 404, 'correlation_id': '79ab17e1-afb5-4609-bd7c-96fb7e5bd8dd'}"
+    },
+    {
+      "name": "List Service-at-Location",
+      "method": "GET",
+      "endpoint": "/api/v1/service-at-location/",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.05755805969238281,
+      "issues": [
+        "Missing 'page' field in paginated response"
+      ],
+      "response_sample": "{'count': 25, 'total': 29335, 'per_page': 25, 'current_page': 1, 'total_pages': 1174, 'links': {'first': 'http://api.for-the-gg.org/api/v1/service-at-location/?page=1&per_page=25&include_details=False"
+    },
+    {
+      "name": "Get Service-at-Location by ID",
+      "method": "GET",
+      "endpoint": "/api/v1/service-at-location/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 404,
+      "success": false,
+      "elapsed": 0.03424692153930664,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Not Found', 'status_code': 404, 'correlation_id': '18888f77-0cc3-4188-a17a-bc930a63235e'}"
+    },
+    {
+      "name": "Get Services at Location",
+      "method": "GET",
+      "endpoint": "/api/v1/service-at-location/location/6d24dca7-51de-46ef-b51d-6e0a91832b28/services",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.03285861015319824,
+      "issues": [],
+      "response_sample": "{'count': 0, 'total': 0, 'per_page': 25, 'current_page': 1, 'total_pages': 1, 'links': {'first': 'http://api.for-the-gg.org/api/v1/service-at-location/location/6d24dca7-51de-46ef-b51d-6e0a91832b28/ser"
+    },
+    {
+      "name": "Get Locations for Service",
+      "method": "GET",
+      "endpoint": "/api/v1/service-at-location/service/6d24dca7-51de-46ef-b51d-6e0a91832b28/locations",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.03397488594055176,
+      "issues": [],
+      "response_sample": "{'count': 0, 'total': 0, 'per_page': 25, 'current_page': 1, 'total_pages': 1, 'links': {'first': 'http://api.for-the-gg.org/api/v1/service-at-location/service/6d24dca7-51de-46ef-b51d-6e0a91832b28/loca"
+    },
+    {
+      "name": "Map Metadata",
+      "method": "GET",
+      "endpoint": "/api/v1/map/metadata",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.15102195739746094,
+      "issues": [],
+      "response_sample": "{'generated': '2025-09-09T04:50:54.321895+00:00', 'total_locations': 28101, 'total_source_records': 28801, 'multi_source_locations': 671, 'states_covered': 51, 'coverage': '51 US states/territories', "
+    },
+    {
+      "name": "States Coverage",
+      "method": "GET",
+      "endpoint": "/api/v1/map/states",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.07440376281738281,
+      "issues": [],
+      "response_sample": "{'total_states': 50, 'states': [{'state_code': 'NY', 'state_name': 'New York', 'location_count': 3270, 'bounds': {'min_lat': 32.002848960461, 'max_lat': 47.6119136, 'min_lng': -122.344353, 'max_lng': "
+    },
+    {
+      "name": "Map Locations",
+      "method": "GET",
+      "endpoint": "/api/v1/map/locations",
+      "status": 200,
+      "success": true,
+      "elapsed": 6.932327747344971,
+      "issues": [],
+      "response_sample": "{'metadata': {'generated': '2025-09-09T04:51:00.479271+00:00', 'total_locations': 9120, 'total_source_records': 9307, 'multi_source_locations': 187, 'states_covered': 20, 'coverage': '20 US states/ter"
+    },
+    {
+      "name": "Map Locations (Filtered)",
+      "method": "GET",
+      "endpoint": "/api/v1/map/locations",
+      "status": 200,
+      "success": true,
+      "elapsed": 2.812864303588867,
+      "issues": [],
+      "response_sample": "{'metadata': {'generated': '2025-09-09T04:51:03.983430+00:00', 'total_locations': 3557, 'total_source_records': 3748, 'multi_source_locations': 170, 'states_covered': 4, 'coverage': '4 US states/terri"
+    },
+    {
+      "name": "Map Clusters",
+      "method": "GET",
+      "endpoint": "/api/v1/map/clusters",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.17943763732910156,
+      "issues": [],
+      "response_sample": "{'clusters': [{'id': 'cluster_0', 'lat': 40.65862152261517, 'lng': -74.13941571619235, 'count': 317, 'bounds': {'north': 40.7228083, 'south': 40.510309199999995, 'east': -74.01057, 'west': -74.2293875"
+    },
+    {
+      "name": "Map Location Detail",
+      "method": "GET",
+      "endpoint": "/api/v1/map/locations/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 404,
+      "success": false,
+      "elapsed": 0.032967567443847656,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Not Found', 'status_code': 404, 'correlation_id': 'dae9c1d7-8cb9-448f-b4d8-1ca39bc8b8be'}"
+    },
+    {
+      "name": "Map Search",
+      "method": "GET",
+      "endpoint": "/api/v1/map/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.16968011856079102,
+      "issues": [],
+      "response_sample": "{'metadata': {'generated': '2025-09-09T04:51:04.747216+00:00', 'total_locations': 100, 'total_source_records': 127, 'multi_source_locations': 26, 'states_covered': 27, 'coverage': '27 US states/territ"
+    },
+    {
+      "name": "Geolocate Address",
+      "method": "POST",
+      "endpoint": "/api/v1/map/geolocate",
+      "status": 405,
+      "success": false,
+      "elapsed": 0.029796838760375977,
+      "issues": [],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Method Not Allowed', 'status_code': 405, 'correlation_id': 'c45a0423-9dd5-4ab3-9b9a-0df3f6a63406'}"
+    },
+    {
+      "name": "List Taxonomies",
+      "method": "GET",
+      "endpoint": "/api/v1/taxonomies/",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.032080888748168945,
+      "issues": [],
+      "response_sample": "{'message': 'Taxonomy endpoints are not yet implemented', 'status': 'not_implemented', 'note': 'This system currently focuses on core HSDS entities: organizations, services, locations, and service_at_"
+    },
+    {
+      "name": "Get Taxonomy by ID",
+      "method": "GET",
+      "endpoint": "/api/v1/taxonomies/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.03191876411437988,
+      "issues": [],
+      "response_sample": "{'message': 'Taxonomy endpoints are not yet implemented', 'status': 'not_implemented', 'requested_id': '6d24dca7-51de-46ef-b51d-6e0a91832b28', 'note': 'This system currently focuses on core HSDS entit"
+    },
+    {
+      "name": "List Taxonomy Terms",
+      "method": "GET",
+      "endpoint": "/api/v1/taxonomy-terms/",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.030989885330200195,
+      "issues": [],
+      "response_sample": "{'message': 'Taxonomy term endpoints are not yet implemented', 'status': 'not_implemented', 'note': 'This system currently focuses on core HSDS entities: organizations, services, locations, and servic"
+    },
+    {
+      "name": "Get Taxonomy Term by ID",
+      "method": "GET",
+      "endpoint": "/api/v1/taxonomy-terms/6d24dca7-51de-46ef-b51d-6e0a91832b28",
+      "status": 200,
+      "success": false,
+      "elapsed": 0.03186941146850586,
+      "issues": [],
+      "response_sample": "{'message': 'Taxonomy term endpoints are not yet implemented', 'status': 'not_implemented', 'requested_id': '6d24dca7-51de-46ef-b51d-6e0a91832b28', 'note': 'This system currently focuses on core HSDS "
+    },
+    {
+      "name": "Invalid Page Number",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.03076481819152832,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': '0174ea2e-1a03-4d65-b4dc-6d7365f87aa9'}"
+    },
+    {
+      "name": "Invalid Per Page",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.030943632125854492,
+      "issues": [
+        "Error field present: HTTPException"
+      ],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': 'd13c37f0-6892-473c-9298-dcac60b9ce24'}"
+    },
+    {
+      "name": "Invalid Coordinates",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.037459611892700195,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 28101, 'per_page': 25, 'current_page': 1, 'total_pages': 1125, 'links': {'first': 'http://api.for-the-gg.org/api/v1/locations/search?page=1&per_page=25&latitude=999.0&longitude="
+    },
+    {
+      "name": "SQL Injection Test",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.15935945510864258,
+      "issues": [],
+      "response_sample": "{'count': 0, 'total': 0, 'per_page': 25, 'current_page': 1, 'total_pages': 1, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/search?page=1&per_page=25&q=%27%3B+DROP+TABLE+organizat"
+    },
+    {
+      "name": "XSS Test",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.14991402626037598,
+      "issues": [],
+      "response_sample": "{'count': 0, 'total': 0, 'per_page': 25, 'current_page': 1, 'total_pages': 1, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/search?page=1&per_page=25&q=%3Cscript%3Ealert%28%27xss%"
+    },
+    {
+      "name": "Very Large Radius",
+      "method": "GET",
+      "endpoint": "/api/v1/locations/search",
+      "status": 422,
+      "success": false,
+      "elapsed": 0.03177642822265625,
+      "issues": [],
+      "response_sample": "{'error': 'HTTPException', 'message': 'Error', 'status_code': 422, 'correlation_id': 'e9a3a9af-2a86-4276-bb77-5e1120116527'}"
+    },
+    {
+      "name": "Empty Search",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.08707571029663086,
+      "issues": [],
+      "response_sample": "{'count': 25, 'total': 100385, 'per_page': 25, 'current_page': 1, 'total_pages': 4016, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/search?page=1&per_page=25&q=', 'last': 'http:/"
+    },
+    {
+      "name": "Unicode Search",
+      "method": "GET",
+      "endpoint": "/api/v1/organizations/search",
+      "status": 200,
+      "success": true,
+      "elapsed": 0.14449119567871094,
+      "issues": [],
+      "response_sample": "{'count': 0, 'total': 0, 'per_page': 25, 'current_page': 1, 'total_pages': 1, 'links': {'first': 'http://api.for-the-gg.org/api/v1/organizations/search?page=1&per_page=25&q=%E9%A3%9F%E7%89%A9%E9%8A%80"
+    }
+  ]
+}

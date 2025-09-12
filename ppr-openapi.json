@@ -1,0 +1,3410 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Pantry Pirate Radio",
+        "description": "Read-only food security data API using HSDS specification",
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/api/v1/organizations/": {
+            "get": {
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "List Organizations",
+                "description": "List organizations with optional filtering and pagination.\n\nReturns paginated list of organizations with optional service details.",
+                "operationId": "list_organizations_api_v1_organizations__get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "name",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by organization name",
+                            "title": "Name"
+                        },
+                        "description": "Filter by organization name"
+                    },
+                    {
+                        "name": "include_services",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include services in response",
+                            "default": false,
+                            "title": "Include Services"
+                        },
+                        "description": "Include services in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_OrganizationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{organization_id}": {
+            "get": {
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Get Organization",
+                "description": "Get a specific organization by ID.\n\nReturns detailed information about an organization with optional service details.",
+                "operationId": "get_organization_api_v1_organizations__organization_id__get",
+                "parameters": [
+                    {
+                        "name": "organization_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Organization Id"
+                        }
+                    },
+                    {
+                        "name": "include_services",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include services in response",
+                            "default": false,
+                            "title": "Include Services"
+                        },
+                        "description": "Include services in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OrganizationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/search": {
+            "get": {
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Search Organizations",
+                "description": "Search organizations by name or description.\n\nReturns paginated search results based on the query string.",
+                "operationId": "search_organizations_api_v1_organizations_search_get",
+                "parameters": [
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "description": "Search query",
+                            "title": "Q"
+                        },
+                        "description": "Search query"
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_OrganizationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/locations/": {
+            "get": {
+                "tags": [
+                    "locations"
+                ],
+                "summary": "List Locations",
+                "description": "List locations with optional filtering and pagination.\n\nReturns paginated list of locations with optional service details.",
+                "operationId": "list_locations_api_v1_locations__get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "organization_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by organization ID",
+                            "title": "Organization Id"
+                        },
+                        "description": "Filter by organization ID"
+                    },
+                    {
+                        "name": "include_services",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include services in response",
+                            "default": false,
+                            "title": "Include Services"
+                        },
+                        "description": "Include services in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_LocationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/locations/search": {
+            "get": {
+                "tags": [
+                    "locations"
+                ],
+                "summary": "Search Locations",
+                "description": "Search locations by geographic area.\n\nSupports both radius-based search (latitude, longitude, radius_miles) and\nbounding box search (min/max latitude/longitude).",
+                "operationId": "search_locations_api_v1_locations_search_get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "latitude",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Latitude for radius search",
+                            "title": "Latitude"
+                        },
+                        "description": "Latitude for radius search"
+                    },
+                    {
+                        "name": "longitude",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Longitude for radius search",
+                            "title": "Longitude"
+                        },
+                        "description": "Longitude for radius search"
+                    },
+                    {
+                        "name": "radius_miles",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number",
+                                    "maximum": 100,
+                                    "minimum": 0
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Radius in miles",
+                            "title": "Radius Miles"
+                        },
+                        "description": "Radius in miles"
+                    },
+                    {
+                        "name": "min_latitude",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum latitude for bounding box",
+                            "title": "Min Latitude"
+                        },
+                        "description": "Minimum latitude for bounding box"
+                    },
+                    {
+                        "name": "max_latitude",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Maximum latitude for bounding box",
+                            "title": "Max Latitude"
+                        },
+                        "description": "Maximum latitude for bounding box"
+                    },
+                    {
+                        "name": "min_longitude",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum longitude for bounding box",
+                            "title": "Min Longitude"
+                        },
+                        "description": "Minimum longitude for bounding box"
+                    },
+                    {
+                        "name": "max_longitude",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Maximum longitude for bounding box",
+                            "title": "Max Longitude"
+                        },
+                        "description": "Maximum longitude for bounding box"
+                    },
+                    {
+                        "name": "organization_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by organization ID",
+                            "title": "Organization Id"
+                        },
+                        "description": "Filter by organization ID"
+                    },
+                    {
+                        "name": "include_services",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include services in response",
+                            "default": false,
+                            "title": "Include Services"
+                        },
+                        "description": "Include services in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_LocationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/locations/{location_id}": {
+            "get": {
+                "tags": [
+                    "locations"
+                ],
+                "summary": "Get Location",
+                "description": "Get a specific location by ID.\n\nReturns detailed information about a location with optional service details.",
+                "operationId": "get_location_api_v1_locations__location_id__get",
+                "parameters": [
+                    {
+                        "name": "location_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Location Id"
+                        }
+                    },
+                    {
+                        "name": "include_services",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include services in response",
+                            "default": false,
+                            "title": "Include Services"
+                        },
+                        "description": "Include services in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LocationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/services/": {
+            "get": {
+                "tags": [
+                    "services"
+                ],
+                "summary": "List Services",
+                "description": "List services with optional filtering and pagination.\n\nReturns paginated list of services with optional location details.",
+                "operationId": "list_services_api_v1_services__get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "organization_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by organization ID",
+                            "title": "Organization Id"
+                        },
+                        "description": "Filter by organization ID"
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by service status",
+                            "title": "Status"
+                        },
+                        "description": "Filter by service status"
+                    },
+                    {
+                        "name": "include_locations",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include locations in response",
+                            "default": false,
+                            "title": "Include Locations"
+                        },
+                        "description": "Include locations in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_ServiceResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/services/search": {
+            "get": {
+                "tags": [
+                    "services"
+                ],
+                "summary": "Search Services",
+                "description": "Search services by name or description.\n\nReturns paginated search results based on the query string.",
+                "operationId": "search_services_api_v1_services_search_get",
+                "parameters": [
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "description": "Search query",
+                            "title": "Q"
+                        },
+                        "description": "Search query"
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by service status",
+                            "title": "Status"
+                        },
+                        "description": "Filter by service status"
+                    },
+                    {
+                        "name": "include_locations",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include locations in response",
+                            "default": false,
+                            "title": "Include Locations"
+                        },
+                        "description": "Include locations in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_ServiceResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/services/{service_id}": {
+            "get": {
+                "tags": [
+                    "services"
+                ],
+                "summary": "Get Service",
+                "description": "Get a specific service by ID.\n\nReturns detailed information about a service with optional location details.",
+                "operationId": "get_service_api_v1_services__service_id__get",
+                "parameters": [
+                    {
+                        "name": "service_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Service Id"
+                        }
+                    },
+                    {
+                        "name": "include_locations",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include locations in response",
+                            "default": false,
+                            "title": "Include Locations"
+                        },
+                        "description": "Include locations in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ServiceResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/services/active": {
+            "get": {
+                "tags": [
+                    "services"
+                ],
+                "summary": "Get Active Services",
+                "description": "Get only active services.\n\nReturns paginated list of active services with optional location details.",
+                "operationId": "get_active_services_api_v1_services_active_get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "include_locations",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include locations in response",
+                            "default": false,
+                            "title": "Include Locations"
+                        },
+                        "description": "Include locations in response"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_ServiceResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-at-location/": {
+            "get": {
+                "tags": [
+                    "service-at-location"
+                ],
+                "summary": "List Service At Location",
+                "description": "List service-at-location relationships with optional filtering and pagination.\n\nReturns paginated list of service-at-location relationships with optional details.",
+                "operationId": "list_service_at_location_api_v1_service_at_location__get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "service_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by service ID",
+                            "title": "Service Id"
+                        },
+                        "description": "Filter by service ID"
+                    },
+                    {
+                        "name": "location_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by location ID",
+                            "title": "Location Id"
+                        },
+                        "description": "Filter by location ID"
+                    },
+                    {
+                        "name": "organization_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by organization ID",
+                            "title": "Organization Id"
+                        },
+                        "description": "Filter by organization ID"
+                    },
+                    {
+                        "name": "include_details",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include service and location details",
+                            "default": false,
+                            "title": "Include Details"
+                        },
+                        "description": "Include service and location details"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_ServiceAtLocationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-at-location/{service_at_location_id}": {
+            "get": {
+                "tags": [
+                    "service-at-location"
+                ],
+                "summary": "Get Service At Location",
+                "description": "Get a specific service-at-location relationship by ID.\n\nReturns detailed information about a service-at-location relationship.",
+                "operationId": "get_service_at_location_api_v1_service_at_location__service_at_location_id__get",
+                "parameters": [
+                    {
+                        "name": "service_at_location_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Service At Location Id"
+                        }
+                    },
+                    {
+                        "name": "include_details",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include service and location details",
+                            "default": false,
+                            "title": "Include Details"
+                        },
+                        "description": "Include service and location details"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ServiceAtLocationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-at-location/service/{service_id}/locations": {
+            "get": {
+                "tags": [
+                    "service-at-location"
+                ],
+                "summary": "Get Locations For Service",
+                "description": "Get all locations for a specific service.\n\nReturns paginated list of locations where the service is offered.",
+                "operationId": "get_locations_for_service_api_v1_service_at_location_service__service_id__locations_get",
+                "parameters": [
+                    {
+                        "name": "service_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Service Id"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "include_details",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include service and location details",
+                            "default": false,
+                            "title": "Include Details"
+                        },
+                        "description": "Include service and location details"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_ServiceAtLocationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/service-at-location/location/{location_id}/services": {
+            "get": {
+                "tags": [
+                    "service-at-location"
+                ],
+                "summary": "Get Services At Location",
+                "description": "Get all services at a specific location.\n\nReturns paginated list of services offered at the location.",
+                "operationId": "get_services_at_location_api_v1_service_at_location_location__location_id__services_get",
+                "parameters": [
+                    {
+                        "name": "location_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Location Id"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "include_details",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "description": "Include service and location details",
+                            "default": false,
+                            "title": "Include Details"
+                        },
+                        "description": "Include service and location details"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Page_ServiceAtLocationResponse_"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/taxonomies/": {
+            "get": {
+                "tags": [
+                    "taxonomies"
+                ],
+                "summary": "List Taxonomies",
+                "description": "List taxonomies (not yet implemented).\n\nThis endpoint is part of HSDS v3.1.1 specification but taxonomy\nmodels are not yet implemented in this system.",
+                "operationId": "list_taxonomies_api_v1_taxonomies__get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Search query",
+                            "title": "Search"
+                        },
+                        "description": "Search query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Taxonomies Api V1 Taxonomies  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/taxonomies/{taxonomy_id}": {
+            "get": {
+                "tags": [
+                    "taxonomies"
+                ],
+                "summary": "Get Taxonomy",
+                "description": "Get a specific taxonomy by ID (not yet implemented).\n\nThis endpoint is part of HSDS v3.1.1 specification but taxonomy\nmodels are not yet implemented in this system.",
+                "operationId": "get_taxonomy_api_v1_taxonomies__taxonomy_id__get",
+                "parameters": [
+                    {
+                        "name": "taxonomy_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Taxonomy Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Get Taxonomy Api V1 Taxonomies  Taxonomy Id  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/taxonomy-terms/": {
+            "get": {
+                "tags": [
+                    "taxonomy-terms"
+                ],
+                "summary": "List Taxonomy Terms",
+                "description": "List taxonomy terms (not yet implemented).\n\nThis endpoint is part of HSDS v3.1.1 specification but taxonomy term\nmodels are not yet implemented in this system.",
+                "operationId": "list_taxonomy_terms_api_v1_taxonomy_terms__get",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Page number",
+                            "default": 1,
+                            "title": "Page"
+                        },
+                        "description": "Page number"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "description": "Items per page",
+                            "default": 25,
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Search query",
+                            "title": "Search"
+                        },
+                        "description": "Search query"
+                    },
+                    {
+                        "name": "taxonomy_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by taxonomy ID",
+                            "title": "Taxonomy Id"
+                        },
+                        "description": "Filter by taxonomy ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Taxonomy Terms Api V1 Taxonomy Terms  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/taxonomy-terms/{taxonomy_term_id}": {
+            "get": {
+                "tags": [
+                    "taxonomy-terms"
+                ],
+                "summary": "Get Taxonomy Term",
+                "description": "Get a specific taxonomy term by ID (not yet implemented).\n\nThis endpoint is part of HSDS v3.1.1 specification but taxonomy term\nmodels are not yet implemented in this system.",
+                "operationId": "get_taxonomy_term_api_v1_taxonomy_terms__taxonomy_term_id__get",
+                "parameters": [
+                    {
+                        "name": "taxonomy_term_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Taxonomy Term Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Get Taxonomy Term Api V1 Taxonomy Terms  Taxonomy Term Id  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/map/locations": {
+            "get": {
+                "tags": [
+                    "map"
+                ],
+                "summary": "Get Map Locations",
+                "description": "Get locations for map display with optional filtering and aggregation.\n\nThis endpoint returns aggregated location data suitable for map visualization.\nLocations within the clustering radius are grouped together with source tracking.\n\nUse bounding box parameters to fetch only visible locations for better performance.",
+                "operationId": "get_map_locations_api_v1_map_locations_get",
+                "parameters": [
+                    {
+                        "name": "min_lat",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number",
+                                    "maximum": 90,
+                                    "minimum": -90
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum latitude",
+                            "title": "Min Lat"
+                        },
+                        "description": "Minimum latitude"
+                    },
+                    {
+                        "name": "min_lng",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number",
+                                    "maximum": 180,
+                                    "minimum": -180
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum longitude",
+                            "title": "Min Lng"
+                        },
+                        "description": "Minimum longitude"
+                    },
+                    {
+                        "name": "max_lat",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number",
+                                    "maximum": 90,
+                                    "minimum": -90
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Maximum latitude",
+                            "title": "Max Lat"
+                        },
+                        "description": "Maximum latitude"
+                    },
+                    {
+                        "name": "max_lng",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "number",
+                                    "maximum": 180,
+                                    "minimum": -180
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Maximum longitude",
+                            "title": "Max Lng"
+                        },
+                        "description": "Maximum longitude"
+                    },
+                    {
+                        "name": "state",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 2
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "State code (e.g., 'CA')",
+                            "title": "State"
+                        },
+                        "description": "State code (e.g., 'CA')"
+                    },
+                    {
+                        "name": "confidence_min",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "maximum": 100,
+                                    "minimum": 0
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum confidence score",
+                            "title": "Confidence Min"
+                        },
+                        "description": "Minimum confidence score"
+                    },
+                    {
+                        "name": "validation_status",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Validation status filter",
+                            "title": "Validation Status"
+                        },
+                        "description": "Validation status filter"
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Page number (if paginating)",
+                            "title": "Page"
+                        },
+                        "description": "Page number (if paginating)"
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "maximum": 1000,
+                                    "minimum": 1
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Items per page",
+                            "title": "Per Page"
+                        },
+                        "description": "Items per page"
+                    },
+                    {
+                        "name": "clustering_radius",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 0,
+                            "description": "Aggregation radius in meters",
+                            "default": 150,
+                            "title": "Clustering Radius"
+                        },
+                        "description": "Aggregation radius in meters"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MapLocationsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/map/locations/{location_id}": {
+            "get": {
+                "tags": [
+                    "map"
+                ],
+                "summary": "Get Map Location Detail",
+                "description": "Get detailed information for a specific location.\n\nReturns full details including all source data for a single location.",
+                "operationId": "get_map_location_detail_api_v1_map_locations__location_id__get",
+                "parameters": [
+                    {
+                        "name": "location_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Location Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MapLocation"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/map/metadata": {
+            "get": {
+                "tags": [
+                    "map"
+                ],
+                "summary": "Get Map Metadata",
+                "description": "Get metadata about the map data.\n\nReturns statistics and coverage information for all map data.",
+                "operationId": "get_map_metadata_api_v1_map_metadata_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MapMetadata"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/map/states": {
+            "get": {
+                "tags": [
+                    "map"
+                ],
+                "summary": "Get States Coverage",
+                "description": "Get coverage information for all states.\n\nReturns a list of states with location counts and bounding boxes.",
+                "operationId": "get_states_coverage_api_v1_map_states_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MapStatesResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/": {
+            "get": {
+                "summary": "Get Api Metadata",
+                "description": "Get API metadata including HSDS version and profile information.\n\nReturns information about this API and its relationship with HSDS.",
+                "operationId": "get_api_metadata_api_v1__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Get Api Metadata Api V1  Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/metrics": {
+            "get": {
+                "summary": "Metrics",
+                "description": "Prometheus metrics endpoint.",
+                "operationId": "metrics_api_v1_metrics_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/health": {
+            "get": {
+                "summary": "Health Check",
+                "description": "Health check endpoint.\n\nReturns\n-------\n    Dict containing health status information",
+                "operationId": "health_check_api_v1_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Health Check Api V1 Health Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/health/llm": {
+            "get": {
+                "summary": "Llm Health Check",
+                "description": "LLM health check endpoint.\n\nReturns\n-------\n    Dict containing LLM provider health status information",
+                "operationId": "llm_health_check_api_v1_health_llm_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Llm Health Check Api V1 Health Llm Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/health/redis": {
+            "get": {
+                "summary": "Redis Health Check",
+                "description": "Redis health check endpoint.\n\nReturns\n-------\n    Dict containing Redis health status information",
+                "operationId": "redis_health_check_api_v1_health_redis_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Redis Health Check Api V1 Health Redis Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/health/db": {
+            "get": {
+                "summary": "Db Health Check",
+                "description": "Database health check endpoint.\n\nReturns\n-------\n    Dict containing database health status information",
+                "operationId": "db_health_check_api_v1_health_db_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Db Health Check Api V1 Health Db Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "LocationResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Identifier",
+                        "description": "Unique identifier for this record",
+                        "examples": [
+                            "ac148810-d857-441c-9679-408f346de14b"
+                        ]
+                    },
+                    "last_modified": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Modified",
+                        "description": "The datetime when this record was last modified",
+                        "examples": [
+                            "2023-03-15T10:30:45.123Z"
+                        ]
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/MetadataResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata",
+                        "description": "Additional metadata about the response"
+                    },
+                    "name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Name"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    },
+                    "latitude": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Latitude"
+                    },
+                    "longitude": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Longitude"
+                    },
+                    "services": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "$ref": "#/components/schemas/ServiceResponse"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Services"
+                    },
+                    "distance": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Distance"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "id"
+                ],
+                "title": "LocationResponse",
+                "description": "Response model for Location endpoints.",
+                "example": {
+                    "id": "ac148810-d857-441c-9679-408f346de14b",
+                    "last_modified": "2023-03-15T10:30:45.123Z"
+                }
+            },
+            "MapLocation": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Id"
+                    },
+                    "lat": {
+                        "type": "number",
+                        "maximum": 90.0,
+                        "minimum": -90.0,
+                        "title": "Lat"
+                    },
+                    "lng": {
+                        "type": "number",
+                        "maximum": 180.0,
+                        "minimum": -180.0,
+                        "title": "Lng"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "org": {
+                        "type": "string",
+                        "title": "Org",
+                        "description": "Organization name",
+                        "default": ""
+                    },
+                    "address": {
+                        "type": "string",
+                        "title": "Address",
+                        "description": "Full address",
+                        "default": ""
+                    },
+                    "city": {
+                        "type": "string",
+                        "title": "City",
+                        "default": ""
+                    },
+                    "state": {
+                        "type": "string",
+                        "maxLength": 2,
+                        "title": "State",
+                        "default": ""
+                    },
+                    "zip": {
+                        "type": "string",
+                        "title": "Zip",
+                        "description": "Postal code",
+                        "default": ""
+                    },
+                    "phone": {
+                        "type": "string",
+                        "title": "Phone",
+                        "default": ""
+                    },
+                    "website": {
+                        "type": "string",
+                        "title": "Website",
+                        "default": ""
+                    },
+                    "email": {
+                        "type": "string",
+                        "title": "Email",
+                        "default": ""
+                    },
+                    "description": {
+                        "type": "string",
+                        "title": "Description",
+                        "default": ""
+                    },
+                    "source_count": {
+                        "type": "integer",
+                        "title": "Source Count",
+                        "description": "Number of sources for this location",
+                        "default": 1
+                    },
+                    "sources": {
+                        "items": {
+                            "$ref": "#/components/schemas/MapSource"
+                        },
+                        "type": "array",
+                        "title": "Sources"
+                    },
+                    "confidence_score": {
+                        "type": "integer",
+                        "maximum": 100.0,
+                        "minimum": 0.0,
+                        "title": "Confidence Score",
+                        "default": 50
+                    },
+                    "validation_status": {
+                        "type": "string",
+                        "title": "Validation Status",
+                        "default": "needs_review"
+                    },
+                    "geocoding_source": {
+                        "type": "string",
+                        "title": "Geocoding Source",
+                        "default": ""
+                    },
+                    "location_type": {
+                        "type": "string",
+                        "title": "Location Type",
+                        "default": ""
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "lat",
+                    "lng",
+                    "name"
+                ],
+                "title": "MapLocation",
+                "description": "Location data for map display."
+            },
+            "MapLocationsResponse": {
+                "properties": {
+                    "metadata": {
+                        "$ref": "#/components/schemas/MapMetadata"
+                    },
+                    "locations": {
+                        "items": {
+                            "$ref": "#/components/schemas/MapLocation"
+                        },
+                        "type": "array",
+                        "title": "Locations"
+                    },
+                    "page": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Page"
+                    },
+                    "per_page": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Per Page"
+                    },
+                    "total_pages": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Total Pages"
+                    },
+                    "has_more": {
+                        "type": "boolean",
+                        "title": "Has More",
+                        "default": false
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "metadata",
+                    "locations"
+                ],
+                "title": "MapLocationsResponse",
+                "description": "Response for map locations endpoint."
+            },
+            "MapMetadata": {
+                "properties": {
+                    "generated": {
+                        "type": "string",
+                        "title": "Generated",
+                        "description": "ISO timestamp of data generation"
+                    },
+                    "total_locations": {
+                        "type": "integer",
+                        "title": "Total Locations"
+                    },
+                    "total_source_records": {
+                        "type": "integer",
+                        "title": "Total Source Records"
+                    },
+                    "multi_source_locations": {
+                        "type": "integer",
+                        "title": "Multi Source Locations"
+                    },
+                    "states_covered": {
+                        "type": "integer",
+                        "title": "States Covered"
+                    },
+                    "coverage": {
+                        "type": "string",
+                        "title": "Coverage",
+                        "description": "Human-readable coverage description"
+                    },
+                    "source": {
+                        "type": "string",
+                        "title": "Source",
+                        "default": "Pantry Pirate Radio HSDS API"
+                    },
+                    "format_version": {
+                        "type": "string",
+                        "title": "Format Version",
+                        "default": "4.0"
+                    },
+                    "export_method": {
+                        "type": "string",
+                        "title": "Export Method",
+                        "default": "API Query"
+                    },
+                    "aggregation_radius_meters": {
+                        "type": "integer",
+                        "title": "Aggregation Radius Meters",
+                        "default": 150
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "generated",
+                    "total_locations",
+                    "total_source_records",
+                    "multi_source_locations",
+                    "states_covered",
+                    "coverage"
+                ],
+                "title": "MapMetadata",
+                "description": "Metadata about the map data."
+            },
+            "MapSchedule": {
+                "properties": {
+                    "opens_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Opens At"
+                    },
+                    "closes_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Closes At"
+                    },
+                    "byday": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Byday"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    }
+                },
+                "type": "object",
+                "title": "MapSchedule",
+                "description": "Schedule information for a location."
+            },
+            "MapSource": {
+                "properties": {
+                    "scraper": {
+                        "type": "string",
+                        "title": "Scraper",
+                        "description": "Scraper ID"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name",
+                        "description": "Location name from this source",
+                        "default": ""
+                    },
+                    "org": {
+                        "type": "string",
+                        "title": "Org",
+                        "description": "Organization name",
+                        "default": ""
+                    },
+                    "description": {
+                        "type": "string",
+                        "title": "Description",
+                        "description": "Description",
+                        "default": ""
+                    },
+                    "services": {
+                        "type": "string",
+                        "title": "Services",
+                        "description": "Comma-separated services",
+                        "default": ""
+                    },
+                    "languages": {
+                        "type": "string",
+                        "title": "Languages",
+                        "description": "Comma-separated languages",
+                        "default": ""
+                    },
+                    "schedule": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/MapSchedule"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "phone": {
+                        "type": "string",
+                        "title": "Phone",
+                        "description": "Phone number",
+                        "default": ""
+                    },
+                    "website": {
+                        "type": "string",
+                        "title": "Website",
+                        "description": "Website URL",
+                        "default": ""
+                    },
+                    "email": {
+                        "type": "string",
+                        "title": "Email",
+                        "description": "Email address",
+                        "default": ""
+                    },
+                    "address": {
+                        "type": "string",
+                        "title": "Address",
+                        "description": "Full address",
+                        "default": ""
+                    },
+                    "first_seen": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "First Seen"
+                    },
+                    "last_updated": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Updated"
+                    },
+                    "confidence_score": {
+                        "type": "integer",
+                        "maximum": 100.0,
+                        "minimum": 0.0,
+                        "title": "Confidence Score",
+                        "default": 50
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "scraper"
+                ],
+                "title": "MapSource",
+                "description": "Source information from a specific scraper."
+            },
+            "MapStatesResponse": {
+                "properties": {
+                    "total_states": {
+                        "type": "integer",
+                        "title": "Total States"
+                    },
+                    "states": {
+                        "items": {
+                            "$ref": "#/components/schemas/StateInfo"
+                        },
+                        "type": "array",
+                        "title": "States"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "total_states",
+                    "states"
+                ],
+                "title": "MapStatesResponse",
+                "description": "Response for states coverage endpoint."
+            },
+            "MetadataResponse": {
+                "properties": {
+                    "last_updated": {
+                        "type": "string",
+                        "title": "Last Updated",
+                        "description": "Timestamp of when the data was last updated"
+                    },
+                    "coverage_area": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Coverage Area",
+                        "description": "Geographic area covered by this data"
+                    },
+                    "data_source": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Data Source",
+                        "description": "Source of the data"
+                    },
+                    "license": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "License",
+                        "description": "License under which the data is provided"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "last_updated"
+                ],
+                "title": "MetadataResponse",
+                "description": "Common metadata for all responses.",
+                "example": {
+                    "coverage_area": "San Francisco Bay Area",
+                    "data_source": "Community Food Bank API",
+                    "last_updated": "2024-02-06T20:46:26Z",
+                    "license": "CC BY-SA 4.0"
+                }
+            },
+            "OrganizationResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Identifier",
+                        "description": "Unique identifier for this record",
+                        "examples": [
+                            "ac148810-d857-441c-9679-408f346de14b"
+                        ]
+                    },
+                    "last_modified": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Modified",
+                        "description": "The datetime when this record was last modified",
+                        "examples": [
+                            "2023-03-15T10:30:45.123Z"
+                        ]
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/MetadataResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata",
+                        "description": "Additional metadata about the response"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    },
+                    "website": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 2083,
+                                "minLength": 1,
+                                "format": "uri"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Website"
+                    },
+                    "email": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Email"
+                    },
+                    "services": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "$ref": "#/components/schemas/ServiceResponse"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Services"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "id",
+                    "name"
+                ],
+                "title": "OrganizationResponse",
+                "description": "Response model for Organization endpoints.",
+                "example": {
+                    "id": "ac148810-d857-441c-9679-408f346de14b",
+                    "last_modified": "2023-03-15T10:30:45.123Z"
+                }
+            },
+            "Page_LocationResponse_": {
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Count",
+                        "description": "Number of items in current page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "total": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Total",
+                        "description": "Total number of items across all pages",
+                        "examples": [
+                            123
+                        ]
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Per Page",
+                        "description": "Number of items per page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "current_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Current Page",
+                        "description": "Current page number",
+                        "examples": [
+                            1
+                        ]
+                    },
+                    "total_pages": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Total Pages",
+                        "description": "Total number of pages",
+                        "examples": [
+                            5
+                        ]
+                    },
+                    "links": {
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 2083,
+                                    "minLength": 1,
+                                    "format": "uri"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "type": "object",
+                        "title": "Links",
+                        "description": "Navigation links for pagination"
+                    },
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/LocationResponse"
+                        },
+                        "type": "array",
+                        "title": "Data",
+                        "description": "List of items in current page"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "count",
+                    "total",
+                    "per_page",
+                    "current_page",
+                    "total_pages",
+                    "links",
+                    "data"
+                ],
+                "title": "Page[LocationResponse]",
+                "example": {
+                    "count": 25,
+                    "current_page": 1,
+                    "data": [],
+                    "links": {
+                        "first": "/api/v1/services?page=1",
+                        "last": "/api/v1/services?page=5",
+                        "next": "/api/v1/services?page=2"
+                    },
+                    "per_page": 25,
+                    "total": 123,
+                    "total_pages": 5
+                }
+            },
+            "Page_OrganizationResponse_": {
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Count",
+                        "description": "Number of items in current page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "total": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Total",
+                        "description": "Total number of items across all pages",
+                        "examples": [
+                            123
+                        ]
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Per Page",
+                        "description": "Number of items per page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "current_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Current Page",
+                        "description": "Current page number",
+                        "examples": [
+                            1
+                        ]
+                    },
+                    "total_pages": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Total Pages",
+                        "description": "Total number of pages",
+                        "examples": [
+                            5
+                        ]
+                    },
+                    "links": {
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 2083,
+                                    "minLength": 1,
+                                    "format": "uri"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "type": "object",
+                        "title": "Links",
+                        "description": "Navigation links for pagination"
+                    },
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/OrganizationResponse"
+                        },
+                        "type": "array",
+                        "title": "Data",
+                        "description": "List of items in current page"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "count",
+                    "total",
+                    "per_page",
+                    "current_page",
+                    "total_pages",
+                    "links",
+                    "data"
+                ],
+                "title": "Page[OrganizationResponse]",
+                "example": {
+                    "count": 25,
+                    "current_page": 1,
+                    "data": [],
+                    "links": {
+                        "first": "/api/v1/services?page=1",
+                        "last": "/api/v1/services?page=5",
+                        "next": "/api/v1/services?page=2"
+                    },
+                    "per_page": 25,
+                    "total": 123,
+                    "total_pages": 5
+                }
+            },
+            "Page_ServiceAtLocationResponse_": {
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Count",
+                        "description": "Number of items in current page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "total": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Total",
+                        "description": "Total number of items across all pages",
+                        "examples": [
+                            123
+                        ]
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Per Page",
+                        "description": "Number of items per page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "current_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Current Page",
+                        "description": "Current page number",
+                        "examples": [
+                            1
+                        ]
+                    },
+                    "total_pages": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Total Pages",
+                        "description": "Total number of pages",
+                        "examples": [
+                            5
+                        ]
+                    },
+                    "links": {
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 2083,
+                                    "minLength": 1,
+                                    "format": "uri"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "type": "object",
+                        "title": "Links",
+                        "description": "Navigation links for pagination"
+                    },
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/ServiceAtLocationResponse"
+                        },
+                        "type": "array",
+                        "title": "Data",
+                        "description": "List of items in current page"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "count",
+                    "total",
+                    "per_page",
+                    "current_page",
+                    "total_pages",
+                    "links",
+                    "data"
+                ],
+                "title": "Page[ServiceAtLocationResponse]",
+                "example": {
+                    "count": 25,
+                    "current_page": 1,
+                    "data": [],
+                    "links": {
+                        "first": "/api/v1/services?page=1",
+                        "last": "/api/v1/services?page=5",
+                        "next": "/api/v1/services?page=2"
+                    },
+                    "per_page": 25,
+                    "total": 123,
+                    "total_pages": 5
+                }
+            },
+            "Page_ServiceResponse_": {
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Count",
+                        "description": "Number of items in current page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "total": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Total",
+                        "description": "Total number of items across all pages",
+                        "examples": [
+                            123
+                        ]
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Per Page",
+                        "description": "Number of items per page",
+                        "examples": [
+                            25
+                        ]
+                    },
+                    "current_page": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Current Page",
+                        "description": "Current page number",
+                        "examples": [
+                            1
+                        ]
+                    },
+                    "total_pages": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Total Pages",
+                        "description": "Total number of pages",
+                        "examples": [
+                            5
+                        ]
+                    },
+                    "links": {
+                        "additionalProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 2083,
+                                    "minLength": 1,
+                                    "format": "uri"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "type": "object",
+                        "title": "Links",
+                        "description": "Navigation links for pagination"
+                    },
+                    "data": {
+                        "items": {
+                            "$ref": "#/components/schemas/ServiceResponse"
+                        },
+                        "type": "array",
+                        "title": "Data",
+                        "description": "List of items in current page"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "count",
+                    "total",
+                    "per_page",
+                    "current_page",
+                    "total_pages",
+                    "links",
+                    "data"
+                ],
+                "title": "Page[ServiceResponse]",
+                "example": {
+                    "count": 25,
+                    "current_page": 1,
+                    "data": [],
+                    "links": {
+                        "first": "/api/v1/services?page=1",
+                        "last": "/api/v1/services?page=5",
+                        "next": "/api/v1/services?page=2"
+                    },
+                    "per_page": 25,
+                    "total": 123,
+                    "total_pages": 5
+                }
+            },
+            "ServiceAtLocationResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Identifier",
+                        "description": "Unique identifier for this record",
+                        "examples": [
+                            "ac148810-d857-441c-9679-408f346de14b"
+                        ]
+                    },
+                    "last_modified": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Modified",
+                        "description": "The datetime when this record was last modified",
+                        "examples": [
+                            "2023-03-15T10:30:45.123Z"
+                        ]
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/MetadataResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata",
+                        "description": "Additional metadata about the response"
+                    },
+                    "service_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Service Id"
+                    },
+                    "location_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Location Id"
+                    },
+                    "service": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/ServiceResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "location": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/LocationResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "id",
+                    "service_id",
+                    "location_id"
+                ],
+                "title": "ServiceAtLocationResponse",
+                "description": "Response model for ServiceAtLocation endpoints.",
+                "example": {
+                    "id": "ac148810-d857-441c-9679-408f346de14b",
+                    "last_modified": "2023-03-15T10:30:45.123Z"
+                }
+            },
+            "ServiceResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Identifier",
+                        "description": "Unique identifier for this record",
+                        "examples": [
+                            "ac148810-d857-441c-9679-408f346de14b"
+                        ]
+                    },
+                    "last_modified": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Modified",
+                        "description": "The datetime when this record was last modified",
+                        "examples": [
+                            "2023-03-15T10:30:45.123Z"
+                        ]
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/MetadataResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata",
+                        "description": "Additional metadata about the response"
+                    },
+                    "organization_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Organization Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    },
+                    "url": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 2083,
+                                "minLength": 1,
+                                "format": "uri"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Url"
+                    },
+                    "email": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Email"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "locations": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "$ref": "#/components/schemas/LocationResponse"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Locations"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "id",
+                    "organization_id",
+                    "name",
+                    "status"
+                ],
+                "title": "ServiceResponse",
+                "description": "Response model for Service endpoints.",
+                "example": {
+                    "id": "ac148810-d857-441c-9679-408f346de14b",
+                    "last_modified": "2023-03-15T10:30:45.123Z"
+                }
+            },
+            "StateInfo": {
+                "properties": {
+                    "state_code": {
+                        "type": "string",
+                        "maxLength": 2,
+                        "title": "State Code"
+                    },
+                    "state_name": {
+                        "type": "string",
+                        "title": "State Name"
+                    },
+                    "location_count": {
+                        "type": "integer",
+                        "title": "Location Count"
+                    },
+                    "bounds": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": {
+                                    "type": "number"
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bounds"
+                    },
+                    "last_updated": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Updated"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "state_code",
+                    "state_name",
+                    "location_count"
+                ],
+                "title": "StateInfo",
+                "description": "Information about a state's coverage."
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        }
+    }
+}
