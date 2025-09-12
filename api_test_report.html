@@ -1,0 +1,386 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test Report - 2025-09-06 06:05</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
+        .summary { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .passed { color: #27ae60; font-weight: bold; }
+        .failed { color: #e74c3c; font-weight: bold; }
+        .error { color: #f39c12; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th { background: #34495e; color: white; padding: 10px; text-align: left; }
+        td { padding: 10px; border-bottom: 1px solid #ecf0f1; }
+        tr:hover { background: #f8f9fa; }
+        .status-passed { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 3px; }
+        .status-failed { background: #f8d7da; color: #721c24; padding: 2px 8px; border-radius: 3px; }
+        .status-error { background: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Pantry Pirate Radio API Test Report</h1>
+        <p>Target: https://api.for-the-gg.org</p>
+        <p>Generated: 2025-09-06 06:05:36</p>
+    </div>
+    
+    <div class="summary">
+        <h2>Test Summary</h2>
+        <p>Total Tests: 33</p>
+        <p class="passed">Passed: 33</p>
+        <p class="failed">Failed: 0</p>
+        <p class="error">Errors: 0</p>
+        <p>Success Rate: 100.0%</p>
+    </div>
+    
+    <h2>Test Results</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Test Name</th>
+                <th>Endpoint</th>
+                <th>Method</th>
+                <th>Status</th>
+                <th>Response Code</th>
+                <th>Response Time</th>
+                <th>Error</th>
+            </tr>
+        </thead>
+        <tbody>
+
+            <tr>
+                <td>Basic Health Check</td>
+                <td>/api/v1/health</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.119s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Database Health Check</td>
+                <td>/api/v1/health/db</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.089s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Redis Health Check</td>
+                <td>/api/v1/health/redis</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.028s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>LLM Provider Health Check</td>
+                <td>/api/v1/health/llm</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>1.120s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Prometheus Metrics</td>
+                <td>/api/v1/metrics</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.033s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>API Root Metadata</td>
+                <td>/api/v1/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.025s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Organizations</td>
+                <td>/api/v1/organizations/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.170s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Organizations (Paginated)</td>
+                <td>/api/v1/organizations/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.041s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Organizations with Services</td>
+                <td>/api/v1/organizations/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.053s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Search Organizations</td>
+                <td>/api/v1/organizations/search</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.134s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Organization by ID</td>
+                <td>/api/v1/organizations/88051595-22e7-4461-a3e7-bcd9ec4fb4bf</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>404</td>
+                <td>0.025s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Locations</td>
+                <td>/api/v1/locations/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.049s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Locations (Paginated)</td>
+                <td>/api/v1/locations/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.032s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Search Locations by Radius</td>
+                <td>/api/v1/locations/search</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.044s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Search Locations by Bounding Box</td>
+                <td>/api/v1/locations/search</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.319s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Location by ID</td>
+                <td>/api/v1/locations/6d61b64d-8427-48fe-982b-75c29ce93072</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>404</td>
+                <td>0.025s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Services</td>
+                <td>/api/v1/services/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.061s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Active Services</td>
+                <td>/api/v1/services/active</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.055s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Search Services</td>
+                <td>/api/v1/services/search</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.102s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Service by ID</td>
+                <td>/api/v1/services/8e22d4b3-d93f-4408-952c-18ac3b55564b</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>404</td>
+                <td>0.032s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Service-at-Location</td>
+                <td>/api/v1/service-at-location/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.058s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Service-at-Location by ID</td>
+                <td>/api/v1/service-at-location/c50d8bf8-9b40-4f60-9117-d0ebd8710c41</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>404</td>
+                <td>0.026s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Locations for Service</td>
+                <td>/api/v1/service-at-location/service/c50d8bf8-9b40-4f60-9117-d0ebd8710c41/locations</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.032s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Services at Location</td>
+                <td>/api/v1/service-at-location/location/c50d8bf8-9b40-4f60-9117-d0ebd8710c41/services</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.033s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Map Metadata</td>
+                <td>/api/v1/map/metadata</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.267s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>States Coverage</td>
+                <td>/api/v1/map/states</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.094s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Map Locations</td>
+                <td>/api/v1/map/locations</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>7.201s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Map Locations (Filtered)</td>
+                <td>/api/v1/map/locations</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>1.371s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Map Location Detail</td>
+                <td>/api/v1/map/locations/1638f3f8-a10f-42a0-a06c-033d8c2dffac</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>404</td>
+                <td>0.037s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Taxonomies</td>
+                <td>/api/v1/taxonomies/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.029s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Taxonomy by ID</td>
+                <td>/api/v1/taxonomies/541c2611-731f-4df7-b5f2-59bf434ffd8e</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.032s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>List Taxonomy Terms</td>
+                <td>/api/v1/taxonomy-terms/</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.029s</td>
+                <td></td>
+            </tr>
+
+            <tr>
+                <td>Get Taxonomy Term by ID</td>
+                <td>/api/v1/taxonomy-terms/541c2611-731f-4df7-b5f2-59bf434ffd8e</td>
+                <td>GET</td>
+                <td><span class="status-passed">PASSED</span></td>
+                <td>200</td>
+                <td>0.028s</td>
+                <td></td>
+            </tr>
+
+        </tbody>
+    </table>
+</body>
+</html>

@@ -1,0 +1,384 @@
+{
+  "timestamp": "2025-09-06 06:10:23",
+  "api_url": "https://api.for-the-gg.org/api/v1/",
+  "summary": {
+    "total_tests": 60,
+    "passed": 57,
+    "failed": 3,
+    "success_rate": "95.0%"
+  },
+  "categories": {
+    "data_integrity": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Pagination total consistency",
+          "passed": true,
+          "details": "Total count consistent: 100385"
+        },
+        {
+          "name": "No duplicate IDs across pages",
+          "passed": true,
+          "details": "No duplicates found"
+        },
+        {
+          "name": "Required fields present",
+          "passed": true,
+          "details": "All required fields present"
+        },
+        {
+          "name": "Service-Org relationship for 9f3fac47...",
+          "passed": true,
+          "details": "Bidirectional relationship valid"
+        },
+        {
+          "name": "Service-Org relationship for 3ac6b710...",
+          "passed": true,
+          "details": "Bidirectional relationship valid"
+        },
+        {
+          "name": "Service-Org relationship for ccb39eb1...",
+          "passed": true,
+          "details": "Bidirectional relationship valid"
+        },
+        {
+          "name": "Service-Org relationship for 5c002c11...",
+          "passed": true,
+          "details": "Bidirectional relationship valid"
+        }
+      ]
+    },
+    "search": {
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Search for 'food'",
+          "passed": true,
+          "details": "Found 23317 results in 0.13s"
+        },
+        {
+          "name": "Search for 'bank'",
+          "passed": true,
+          "details": "Found 3841 results in 0.15s"
+        },
+        {
+          "name": "Search for 'pantry'",
+          "passed": true,
+          "details": "Found 15286 results in 0.15s"
+        },
+        {
+          "name": "Search for 'church'",
+          "passed": true,
+          "details": "Found 28228 results in 0.13s"
+        },
+        {
+          "name": "Search for 'community'",
+          "passed": true,
+          "details": "Found 10150 results in 0.13s"
+        },
+        {
+          "name": "Case variant 'FOOD'",
+          "passed": true,
+          "details": "Returns 23317 results"
+        },
+        {
+          "name": "Case variant 'Food'",
+          "passed": true,
+          "details": "Returns 23317 results"
+        },
+        {
+          "name": "Case variant 'food'",
+          "passed": true,
+          "details": "Returns 23317 results"
+        },
+        {
+          "name": "Case variant 'FoOd'",
+          "passed": true,
+          "details": "Returns 23317 results"
+        },
+        {
+          "name": "Special chars: 'food & pantry'",
+          "passed": true,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Special chars: 'church's'",
+          "passed": true,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Special chars: 'co-op'",
+          "passed": true,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Special chars: '501(c)(3)'",
+          "passed": true,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Service search for 'emergency'",
+          "passed": true,
+          "details": "Found 553 services"
+        }
+      ]
+    },
+    "geospatial": {
+      "total": 17,
+      "passed": 17,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "NYC - 1 mile radius",
+          "passed": true,
+          "details": "Found 38 locations in 0.04s"
+        },
+        {
+          "name": "NYC - 5 mile radius",
+          "passed": true,
+          "details": "Found 597 locations in 0.04s"
+        },
+        {
+          "name": "NYC - 10 mile radius",
+          "passed": true,
+          "details": "Found 1637 locations in 0.05s"
+        },
+        {
+          "name": "NYC - 25 mile radius",
+          "passed": true,
+          "details": "Found 2654 locations in 0.04s"
+        },
+        {
+          "name": "LA - 1 mile radius",
+          "passed": true,
+          "details": "Found 0 locations in 0.06s"
+        },
+        {
+          "name": "LA - 5 mile radius",
+          "passed": true,
+          "details": "Found 16 locations in 0.05s"
+        },
+        {
+          "name": "LA - 10 mile radius",
+          "passed": true,
+          "details": "Found 38 locations in 0.04s"
+        },
+        {
+          "name": "LA - 25 mile radius",
+          "passed": true,
+          "details": "Found 129 locations in 0.05s"
+        },
+        {
+          "name": "Chicago - 1 mile radius",
+          "passed": true,
+          "details": "Found 1 locations in 0.04s"
+        },
+        {
+          "name": "Chicago - 5 mile radius",
+          "passed": true,
+          "details": "Found 8 locations in 0.05s"
+        },
+        {
+          "name": "Chicago - 10 mile radius",
+          "passed": true,
+          "details": "Found 29 locations in 0.04s"
+        },
+        {
+          "name": "Chicago - 25 mile radius",
+          "passed": true,
+          "details": "Found 88 locations in 0.04s"
+        },
+        {
+          "name": "Bounding box: Manhattan",
+          "passed": true,
+          "details": "Found 235 locations in 0.04s"
+        },
+        {
+          "name": "Bounding box: Large area",
+          "passed": true,
+          "details": "Found 3536 locations in 0.04s"
+        },
+        {
+          "name": "Zero radius",
+          "passed": true,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Very large radius",
+          "passed": true,
+          "details": "Status: Failed"
+        },
+        {
+          "name": "International dateline",
+          "passed": true,
+          "details": "Status: 200"
+        }
+      ]
+    },
+    "performance": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "tests": [
+        {
+          "name": "Page size 1",
+          "passed": true,
+          "details": "Response time: 0.037s"
+        },
+        {
+          "name": "Page size 10",
+          "passed": true,
+          "details": "Response time: 0.040s"
+        },
+        {
+          "name": "Page size 25",
+          "passed": true,
+          "details": "Response time: 0.043s"
+        },
+        {
+          "name": "Page size 50",
+          "passed": true,
+          "details": "Response time: 0.047s"
+        },
+        {
+          "name": "Page size 100",
+          "passed": true,
+          "details": "Response time: 0.051s"
+        },
+        {
+          "name": "4 concurrent requests",
+          "passed": true,
+          "details": "Total time: 0.136s"
+        },
+        {
+          "name": "Large geographic query",
+          "passed": true,
+          "details": "Response time: 1.248s"
+        }
+      ]
+    },
+    "error_handling": {
+      "total": 9,
+      "passed": 7,
+      "failed": 2,
+      "tests": [
+        {
+          "name": "Negative page",
+          "passed": true,
+          "details": "Status: Failed"
+        },
+        {
+          "name": "Excessive page size",
+          "passed": true,
+          "details": "Status: Failed"
+        },
+        {
+          "name": "Invalid latitude",
+          "passed": false,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Invalid longitude",
+          "passed": false,
+          "details": "Status: 200"
+        },
+        {
+          "name": "Invalid UUID",
+          "passed": true,
+          "details": "Status: Failed"
+        },
+        {
+          "name": "Missing required search query",
+          "passed": true,
+          "details": "Status: Failed"
+        },
+        {
+          "name": "Null byte in path",
+          "passed": true,
+          "details": "Properly rejected with status: Failed"
+        },
+        {
+          "name": "Path traversal attempt",
+          "passed": true,
+          "details": "Properly rejected with status: Failed"
+        },
+        {
+          "name": "XSS in path",
+          "passed": true,
+          "details": "Properly rejected with status: Failed"
+        }
+      ]
+    },
+    "api_consistency": {
+      "total": 6,
+      "passed": 5,
+      "failed": 1,
+      "tests": [
+        {
+          "name": "organizations/ response structure",
+          "passed": true,
+          "details": "All required keys present"
+        },
+        {
+          "name": "locations/ response structure",
+          "passed": true,
+          "details": "All required keys present"
+        },
+        {
+          "name": "services/ response structure",
+          "passed": true,
+          "details": "All required keys present"
+        },
+        {
+          "name": "Pagination link navigation",
+          "passed": true,
+          "details": "Next link is navigable"
+        },
+        {
+          "name": "CORS headers present",
+          "passed": false,
+          "details": "CORS origin: Not set"
+        },
+        {
+          "name": "Content-Type header",
+          "passed": true,
+          "details": "Content-Type: application/json"
+        }
+      ]
+    }
+  },
+  "performance": {
+    "average_response_time": "0.044s",
+    "metrics": [
+      {
+        "endpoint": "organizations",
+        "page_size": 1,
+        "response_time": 0.037409305572509766
+      },
+      {
+        "endpoint": "organizations",
+        "page_size": 10,
+        "response_time": 0.040468692779541016
+      },
+      {
+        "endpoint": "organizations",
+        "page_size": 25,
+        "response_time": 0.04344582557678223
+      },
+      {
+        "endpoint": "organizations",
+        "page_size": 50,
+        "response_time": 0.047077178955078125
+      },
+      {
+        "endpoint": "organizations",
+        "page_size": 100,
+        "response_time": 0.05112791061401367
+      }
+    ]
+  }
+}

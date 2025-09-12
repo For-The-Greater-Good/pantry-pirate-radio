@@ -1,14 +1,18 @@
 """API v1 router module."""
 
 import os
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from redis.asyncio import Redis
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.db import get_session
 from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
 
 # Override settings for tests
@@ -25,6 +29,283 @@ from app.api.v1.service_at_location import router as service_at_location_router
 from app.api.v1.taxonomies import router as taxonomies_router
 from app.api.v1.taxonomy_terms import router as taxonomy_terms_router
 from app.api.v1.map import router as map_router
+from app.api.v1.export import router as export_router
+
+# Define locations/export-simple BEFORE including locations router to avoid conflicts
+@router.get("/locations/export-simple")
+async def export_simple_priority(
+    session: AsyncSession = Depends(get_session),
+    grouping_radius: Optional[int] = Query(
+        None,
+        description="Radius in meters for grouping nearby locations. Set to 0 to disable grouping. Defaults to MAP_GROUPING_RADIUS_METERS env var (150m)",
+        ge=0,
+        le=10000
+    )
+) -> Dict[str, Any]:
+    """
+    Export all locations in a simplified format for mobile app caching.
+    Returns data compatible with Flutter app's CompactPantryLocation model.
+    
+    Args:
+        grouping_radius: Optional radius in meters for deduplicating nearby locations.
+                        Defaults to MAP_GROUPING_RADIUS_METERS env var (typically 150m).
+                        Set to 0 to disable deduplication.
+    """
+    try:
+        # Get grouping radius from query param or environment variable
+        if grouping_radius is None:
+            grouping_radius = int(os.getenv("MAP_GROUPING_RADIUS_METERS", "150"))
+        
+        # Convert meters to approximate degrees for ST_ClusterDBSCAN
+        # At the equator, 1 degree latitude = ~111,000 meters
+        eps = grouping_radius / 111000.0 if grouping_radius > 0 else None
+        
+        # Main query for location data with optional clustering
+        if eps and grouping_radius > 0:
+            # Query with PostGIS clustering for deduplication
+            location_query = text("""
+                WITH clustered_locations AS (
+                    SELECT DISTINCT ON (l.id)
+                        l.id,
+                        l.latitude as lat,
+                        l.longitude as lng,
+                        l.name,
+                        o.name as org,
+                        a.address_1,
+                        a.city,
+                        a.state_province as state,
+                        a.postal_code as zip,
+                        p.number as phone,
+                        l.url as website,
+                        l.description,
+                        l.confidence_score,
+                        l.validation_status,
+                        l.geocoding_source,
+                        l.is_canonical,
+                        ST_ClusterDBSCAN(
+                            ST_SetSRID(ST_MakePoint(l.longitude, l.latitude), 4326),
+                            eps := :eps,
+                            minpoints := 1
+                        ) OVER() as cluster_id
+                    FROM location l
+                    LEFT JOIN organization o ON l.organization_id = o.id
+                    LEFT JOIN address a ON a.location_id = l.id AND a.address_type = 'physical'
+                    LEFT JOIN phone p ON p.location_id = l.id
+                    WHERE l.validation_status != 'rejected' OR l.validation_status IS NULL
+                    ORDER BY l.id
+                ),
+                cluster_representatives AS (
+                    SELECT DISTINCT ON (cluster_id)
+                        id,
+                        lat,
+                        lng,
+                        name,
+                        org,
+                        address_1,
+                        city,
+                        state,
+                        zip,
+                        phone,
+                        website,
+                        description,
+                        confidence_score,
+                        validation_status,
+                        geocoding_source,
+                        cluster_id
+                    FROM clustered_locations
+                    WHERE cluster_id IS NOT NULL
+                    ORDER BY cluster_id, 
+                             CASE WHEN is_canonical THEN 0 ELSE 1 END,
+                             confidence_score DESC NULLS LAST,
+                             id
+                )
+                SELECT * FROM cluster_representatives
+                UNION ALL
+                SELECT 
+                    id, lat, lng, name, org, address_1, city, state, zip,
+                    phone, website, description, confidence_score,
+                    validation_status, geocoding_source, NULL as cluster_id
+                FROM clustered_locations
+                WHERE cluster_id IS NULL
+            """)
+            
+            result = await session.execute(location_query, {"eps": eps})
+        else:
+            # Query without clustering (original behavior)
+            location_query = text("""
+                SELECT DISTINCT ON (l.id)
+                    l.id,
+                    l.latitude as lat,
+                    l.longitude as lng,
+                    l.name,
+                    o.name as org,
+                    a.address_1,
+                    a.city,
+                    a.state_province as state,
+                    a.postal_code as zip,
+                    p.number as phone,
+                    l.url as website,
+                    l.description,
+                    l.confidence_score,
+                    l.validation_status,
+                    l.geocoding_source
+                FROM location l
+                LEFT JOIN organization o ON l.organization_id = o.id
+                LEFT JOIN address a ON a.location_id = l.id AND a.address_type = 'physical'
+                LEFT JOIN phone p ON p.location_id = l.id
+                WHERE l.validation_status != 'rejected' OR l.validation_status IS NULL
+                ORDER BY l.id
+            """)
+            
+            result = await session.execute(location_query)
+        
+        locations_raw = result.fetchall()
+        
+        # Get all location IDs for batch queries
+        location_ids = [row.id for row in locations_raw]
+        
+        # Query schedules for all locations
+        schedule_dict = {}
+        if location_ids:
+            schedule_query = text("""
+                SELECT 
+                    s.location_id,
+                    s.freq,
+                    s.byday,
+                    s.opens_at,
+                    s.closes_at,
+                    s.description,
+                    s.valid_from,
+                    s.valid_to
+                FROM schedule s
+                WHERE s.location_id = ANY(:location_ids)
+                ORDER BY s.location_id, s.opens_at
+            """)
+            
+            schedule_result = await session.execute(
+                schedule_query, 
+                {"location_ids": location_ids}
+            )
+            
+            for row in schedule_result:
+                if row.location_id not in schedule_dict:
+                    schedule_dict[row.location_id] = {
+                        "freq": row.freq,
+                        "byday": row.byday,
+                        "opens_at": str(row.opens_at) if row.opens_at else None,
+                        "closes_at": str(row.closes_at) if row.closes_at else None,
+                        "description": row.description,
+                        "valid_from": row.valid_from.isoformat() if row.valid_from else None,
+                        "valid_to": row.valid_to.isoformat() if row.valid_to else None
+                    }
+        
+        # Query services for all locations
+        services_dict = {}
+        if location_ids:
+            services_query = text("""
+                SELECT 
+                    sal.location_id,
+                    sv.name as service_name
+                FROM service_at_location sal
+                JOIN service sv ON sal.service_id = sv.id
+                WHERE sal.location_id = ANY(:location_ids)
+                ORDER BY sal.location_id, sv.name
+            """)
+            
+            services_result = await session.execute(
+                services_query,
+                {"location_ids": location_ids}
+            )
+            
+            for row in services_result:
+                if row.location_id not in services_dict:
+                    services_dict[row.location_id] = []
+                services_dict[row.location_id].append(row.service_name)
+        
+        # Count distinct states
+        state_query = text("""
+            SELECT COUNT(DISTINCT a.state_province) as state_count
+            FROM location l
+            JOIN address a ON a.location_id = l.id
+            WHERE (l.validation_status != 'rejected' OR l.validation_status IS NULL)
+            AND a.state_province IS NOT NULL
+        """)
+        
+        state_result = await session.execute(state_query)
+        states_covered = state_result.scalar() or 0
+        
+        # Format locations for response
+        locations = []
+        for row in locations_raw:
+            # Build address string
+            address_parts = []
+            if row.address_1:
+                address_parts.append(row.address_1)
+            if row.city:
+                address_parts.append(row.city)
+            if row.state:
+                address_parts.append(row.state)
+            if row.zip:
+                address_parts.append(row.zip)
+            
+            location_data = {
+                "id": row.id,
+                "lat": float(row.lat) if row.lat else 0.0,
+                "lng": float(row.lng) if row.lng else 0.0,
+                "name": row.name or "Unknown",
+                "org": row.org or row.name or "",
+                "address": ", ".join(address_parts),
+                "city": row.city,
+                "state": row.state,
+                "zip": row.zip,
+                "phone": row.phone,
+                "website": row.website,
+                "email": None,  # Email not in current schema
+                "description": row.description,
+                "confidence_score": row.confidence_score or 50,
+                "validation_status": row.validation_status or "needs_review",
+                "services": services_dict.get(row.id, []),
+                "schedule": schedule_dict.get(row.id)
+            }
+            locations.append(location_data)
+        
+        # Add deduplication info to metadata
+        metadata = {
+            "generated": datetime.utcnow().isoformat(),
+            "total_locations": len(locations),
+            "states_covered": states_covered,
+            "format_version": "1.0",
+            "source": "Pantry Pirate Radio API",
+            "deduplication": {
+                "enabled": grouping_radius > 0,
+                "radius_meters": grouping_radius
+            }
+        }
+        
+        # If deduplication was applied, calculate how many locations were grouped
+        if grouping_radius > 0:
+            # Count original locations before deduplication
+            count_query = text("""
+                SELECT COUNT(*) as total_before_dedup
+                FROM location l
+                WHERE l.validation_status != 'rejected' OR l.validation_status IS NULL
+            """)
+            count_result = await session.execute(count_query)
+            total_before = count_result.scalar() or 0
+            metadata["deduplication"]["locations_before"] = total_before
+            metadata["deduplication"]["locations_after"] = len(locations)
+            metadata["deduplication"]["locations_grouped"] = total_before - len(locations)
+        
+        return {
+            "metadata": metadata,
+            "locations": locations
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching location data: {str(e)}"
+        )
 
 router.include_router(organizations_router)
 router.include_router(locations_router)
@@ -33,6 +314,9 @@ router.include_router(service_at_location_router)
 router.include_router(taxonomies_router)
 router.include_router(taxonomy_terms_router)
 router.include_router(map_router)
+router.include_router(export_router)
+
+
 
 
 @router.get("/")
