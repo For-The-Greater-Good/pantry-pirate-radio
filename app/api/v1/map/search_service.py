@@ -215,8 +215,8 @@ class MapSearchService:
             current_day = dt.now().strftime("%a")[:2].upper()
             conditions.append(
                 f"""
-                (byday LIKE '%{current_day}%' AND 
-                 opens_at <= :current_time AND 
+                (byday LIKE '%{current_day}%' AND
+                 opens_at <= :current_time AND
                  closes_at >= :current_time)
             """
             )

@@ -158,16 +158,16 @@ class Settings(BaseSettings):
         extra="allow",  # Allow extra fields in environment
     )
 
-    # @model_validator(mode="after")
-    # def validate_origins(self) -> "Settings":
-    #     """Validate CORS origins."""
-    #     if self.cors_origins == ["*"]:
-    #         self.cors_origins = [
-    #             "http://localhost",
-    #             "http://localhost:8000",
-    #             "http://localhost:3000",
-    #         ]
-    #     return self
+    @model_validator(mode="after")
+    def validate_origins(self) -> "Settings":
+        """Validate CORS origins."""
+        if self.cors_origins == ["*"]:
+            self.cors_origins = [
+                "http://localhost",
+                "http://localhost:8000",
+                "http://localhost:3000",
+            ]
+        return self
 
     @model_validator(mode="after")
     def use_test_configs_for_testing(self) -> "Settings":
