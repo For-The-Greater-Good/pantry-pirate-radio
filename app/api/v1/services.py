@@ -121,8 +121,16 @@ async def list_services(
                     loc_dict = {
                         "id": str(sal.location.id),
                         "name": sal.location.name,
-                        "latitude": float(sal.location.latitude) if sal.location.latitude else None,
-                        "longitude": float(sal.location.longitude) if sal.location.longitude else None,
+                        "latitude": (
+                            float(sal.location.latitude)
+                            if sal.location.latitude
+                            else None
+                        ),
+                        "longitude": (
+                            float(sal.location.longitude)
+                            if sal.location.longitude
+                            else None
+                        ),
                         "description": sal.location.description,
                     }
                     loc_response = LocationResponse.model_validate(loc_dict)
