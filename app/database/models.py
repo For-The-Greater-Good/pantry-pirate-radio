@@ -287,7 +287,9 @@ class ScheduleModel(Base):
     # Relationships
     location = relationship("LocationModel", back_populates="schedules")
     service = relationship("ServiceModel", back_populates="schedules")
-    service_at_location = relationship("ServiceAtLocationModel", back_populates="schedules")
+    service_at_location = relationship(
+        "ServiceAtLocationModel", back_populates="schedules"
+    )
 
 
 class ServiceAtLocationModel(Base):

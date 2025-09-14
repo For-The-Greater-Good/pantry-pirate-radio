@@ -110,7 +110,9 @@ class ConsumerLocationService:
             # 1 degree latitude ~ 111,000 meters
             eps_degrees = grouping_radius / 111000.0
 
-            query = base_query + f"""
+            query = (
+                base_query
+                + f"""
             , clustered AS (
                 SELECT *,
                     ST_ClusterDBSCAN(
@@ -136,9 +138,12 @@ class ConsumerLocationService:
             FROM clustered
             GROUP BY cluster_id
             """
+            )
         else:
             # No clustering - return individual locations
-            query = base_query + """
+            query = (
+                base_query
+                + """
             SELECT
                 id,
                 latitude as lat,
@@ -149,6 +154,7 @@ class ConsumerLocationService:
                 has_schedule
             FROM viewport_locations
             """
+            )
 
         # Execute query
         result = await self.session.execute(text(query), params)
@@ -167,59 +173,67 @@ class ConsumerLocationService:
                 if len(locations) == 1:
                     # Single location pin
                     loc = locations[0]
-                    pins.append({
-                        "type": "single",
-                        "lat": loc["lat"],
-                        "lng": loc["lng"],
-                        "location_ids": [loc["id"]],
-                        "name": loc["name"],
-                        "confidence": loc["confidence"],
-                        "source_count": loc["source_count"],
-                        "has_schedule": loc["has_schedule"],
-                        "open_now": None  # Would require schedule evaluation
-                    })
+                    pins.append(
+                        {
+                            "type": "single",
+                            "lat": loc["lat"],
+                            "lng": loc["lng"],
+                            "location_ids": [loc["id"]],
+                            "name": loc["name"],
+                            "confidence": loc["confidence"],
+                            "source_count": loc["source_count"],
+                            "has_schedule": loc["has_schedule"],
+                            "open_now": None,  # Would require schedule evaluation
+                        }
+                    )
                 else:
                     # Grouped pin
                     lats = [loc["lat"] for loc in locations]
                     lngs = [loc["lng"] for loc in locations]
-                    avg_confidence = sum(loc["confidence"] for loc in locations) / len(locations)
+                    avg_confidence = sum(loc["confidence"] for loc in locations) / len(
+                        locations
+                    )
                     total_sources = sum(loc["source_count"] for loc in locations)
 
                     # Find most common name
                     names = [loc["name"] for loc in locations if loc["name"]]
                     primary_name = max(set(names), key=names.count) if names else None
 
-                    pins.append({
-                        "type": "group",
-                        "lat": sum(lats) / len(lats),  # Centroid
-                        "lng": sum(lngs) / len(lngs),
-                        "location_ids": [loc["id"] for loc in locations],
-                        "name": f"{len(locations)} locations",
-                        "primary_name": primary_name,
-                        "confidence_avg": int(avg_confidence),
-                        "source_count": total_sources,
-                        "bounds": {
-                            "north": max(lats),
-                            "south": min(lats),
-                            "east": max(lngs),
-                            "west": min(lngs),
+                    pins.append(
+                        {
+                            "type": "group",
+                            "lat": sum(lats) / len(lats),  # Centroid
+                            "lng": sum(lngs) / len(lngs),
+                            "location_ids": [loc["id"] for loc in locations],
+                            "name": f"{len(locations)} locations",
+                            "primary_name": primary_name,
+                            "confidence_avg": int(avg_confidence),
+                            "source_count": total_sources,
+                            "bounds": {
+                                "north": max(lats),
+                                "south": min(lats),
+                                "east": max(lngs),
+                                "west": min(lngs),
+                            },
                         }
-                    })
+                    )
         else:
             # Process individual results
             for row in rows:
                 total_locations += 1
-                pins.append({
-                    "type": "single",
-                    "lat": float(row.lat),
-                    "lng": float(row.lng),
-                    "location_ids": [str(row.id)],
-                    "name": row.name,
-                    "confidence": row.confidence or 50,
-                    "source_count": row.source_count or 1,
-                    "has_schedule": row.has_schedule or False,
-                    "open_now": None
-                })
+                pins.append(
+                    {
+                        "type": "single",
+                        "lat": float(row.lat),
+                        "lng": float(row.lng),
+                        "location_ids": [str(row.id)],
+                        "name": row.name,
+                        "confidence": row.confidence or 50,
+                        "source_count": row.source_count or 1,
+                        "has_schedule": row.has_schedule or False,
+                        "open_now": None,
+                    }
+                )
 
         # Create metadata
         metadata = MapPinsMetadata(
@@ -289,10 +303,7 @@ class ConsumerLocationService:
             WHERE l.id = ANY(:location_ids)
         """
 
-        result = await self.session.execute(
-            text(query),
-            {"location_ids": location_ids}
-        )
+        result = await self.session.execute(text(query), {"location_ids": location_ids})
         location_rows = result.fetchall()
 
         locations = []
@@ -302,24 +313,32 @@ class ConsumerLocationService:
                 name=row.name,
                 alternate_name=row.alternate_name,
                 description=row.description,
-                address={
-                    "street": row.address_1 or "",
-                    "city": row.city or "",
-                    "state": row.state_province or "",
-                    "zip": row.postal_code or "",
-                    "country": row.country or "US",
-                } if row.address_1 else None,
+                address=(
+                    {
+                        "street": row.address_1 or "",
+                        "city": row.city or "",
+                        "state": row.state_province or "",
+                        "zip": row.postal_code or "",
+                        "country": row.country or "US",
+                    }
+                    if row.address_1
+                    else None
+                ),
                 coordinates={
                     "lat": float(row.latitude) if row.latitude else None,
                     "lng": float(row.longitude) if row.longitude else None,
                     "geocoding_source": row.geocoding_source,
                     "confidence": row.confidence_score or 50,
                 },
-                contact={
-                    "phone": row.phone or None,
-                    "email": row.email or None,
-                    "website": row.website or None,
-                } if any([row.phone, row.email, row.website]) else None,
+                contact=(
+                    {
+                        "phone": row.phone or None,
+                        "email": row.email or None,
+                        "website": row.website or None,
+                    }
+                    if any([row.phone, row.email, row.website])
+                    else None
+                ),
                 confidence=row.confidence_score or 50,
                 validation_status=row.validation_status,
             )
@@ -352,8 +371,7 @@ class ConsumerLocationService:
                 """
 
                 source_result = await self.session.execute(
-                    text(source_query),
-                    {"location_id": str(row.id)}
+                    text(source_query), {"location_id": str(row.id)}
                 )
                 source_rows = source_result.fetchall()
 
@@ -362,17 +380,19 @@ class ConsumerLocationService:
                     if src_row.address_1:
                         address = f"{src_row.address_1}, {src_row.city}, {src_row.state_province} {src_row.postal_code}".strip()
 
-                    sources.append(SourceData(
-                        scraper_id=src_row.scraper_id,
-                        last_updated=src_row.last_updated,
-                        first_seen=src_row.first_seen,
-                        name=src_row.name,
-                        address=address,
-                        phone=src_row.phone,
-                        website=src_row.website,
-                        email=src_row.email,
-                        confidence=50,  # Default confidence for sources
-                    ))
+                    sources.append(
+                        SourceData(
+                            scraper_id=src_row.scraper_id,
+                            last_updated=src_row.last_updated,
+                            first_seen=src_row.first_seen,
+                            name=src_row.name,
+                            address=address,
+                            phone=src_row.phone,
+                            website=src_row.website,
+                            email=src_row.email,
+                            confidence=50,  # Default confidence for sources
+                        )
+                    )
 
             # Get schedule data if requested
             schedule_merged = None
@@ -391,8 +411,7 @@ class ConsumerLocationService:
                 """
 
                 schedule_result = await self.session.execute(
-                    text(schedule_query),
-                    {"location_id": str(row.id)}
+                    text(schedule_query), {"location_id": str(row.id)}
                 )
                 schedule_rows = schedule_result.fetchall()
 
@@ -407,12 +426,14 @@ class ConsumerLocationService:
                         "description": sched.description,
                     }
 
-            locations.append(LocationDetail(
-                id=str(row.id),
-                canonical=canonical,
-                sources=sources,
-                schedule_merged=schedule_merged,
-            ))
+            locations.append(
+                LocationDetail(
+                    id=str(row.id),
+                    canonical=canonical,
+                    sources=sources,
+                    schedule_merged=schedule_merged,
+                )
+            )
 
         return locations
 
@@ -457,8 +478,7 @@ class ConsumerLocationService:
                 WHERE id = :location_id
             """
             coords_result = await self.session.execute(
-                text(coords_query),
-                {"location_id": str(location_id)}
+                text(coords_query), {"location_id": str(location_id)}
             )
             coords = coords_result.fetchone()
 
@@ -505,20 +525,26 @@ class ConsumerLocationService:
                         "lat": float(coords.latitude),
                         "lng": float(coords.longitude),
                         "radius": nearby_radius,
-                    }
+                    },
                 )
                 nearby_rows = nearby_result.fetchall()
 
                 nearby_locations = []
                 for nb_row in nearby_rows:
-                    address = f"{nb_row.address_1}, {nb_row.city}" if nb_row.address_1 else None
-                    nearby_locations.append(NearbyLocation(
-                        id=str(nb_row.id),
-                        name=nb_row.name,
-                        distance_meters=float(nb_row.distance_meters),
-                        bearing=nb_row.bearing,
-                        address=address,
-                    ))
+                    address = (
+                        f"{nb_row.address_1}, {nb_row.city}"
+                        if nb_row.address_1
+                        else None
+                    )
+                    nearby_locations.append(
+                        NearbyLocation(
+                            id=str(nb_row.id),
+                            name=nb_row.name,
+                            distance_meters=float(nb_row.distance_meters),
+                            bearing=nb_row.bearing,
+                            address=address,
+                        )
+                    )
 
                 result["nearby_locations"] = nearby_locations
 
