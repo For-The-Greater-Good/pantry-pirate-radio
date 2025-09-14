@@ -252,18 +252,18 @@ class EndpointTester:
         
         # ============ MAP ENDPOINTS ============
         print(f"\n{Colors.BOLD}{Colors.MAGENTA}━━━ MAP ENDPOINTS ━━━{Colors.RESET}")
-        
+
         self.test("GET", "/api/v1/map/metadata", "Map Metadata")
         self.test("GET", "/api/v1/map/states", "States Coverage")
         self.test("GET", "/api/v1/map/locations", "Map Locations")
-        self.test("GET", "/api/v1/map/locations", "Map Locations (Filtered)", 
+        self.test("GET", "/api/v1/map/locations", "Map Locations (Filtered)",
                   params={
                       "min_lat": valid_lat - 1,
                       "max_lat": valid_lat + 1,
                       "min_lng": valid_lng - 1,
                       "max_lng": valid_lng + 1
                   })
-        self.test("GET", "/api/v1/map/clusters", "Map Clusters", 
+        self.test("GET", "/api/v1/map/clusters", "Map Clusters",
                   params={
                       "min_lat": valid_lat - 1,
                       "max_lat": valid_lat + 1,
@@ -271,12 +271,76 @@ class EndpointTester:
                       "max_lng": valid_lng + 1,
                       "zoom": 10
                   })
-        self.test("GET", f"/api/v1/map/locations/{sample_uuid}", "Map Location Detail", 
+        self.test("GET", f"/api/v1/map/locations/{sample_uuid}", "Map Location Detail",
                   expected_status=[404])
-        self.test("GET", "/api/v1/map/search", "Map Search", 
+        self.test("GET", "/api/v1/map/search", "Map Search",
                   params={"q": "food pantry"})
         self.test("GET", "/api/v1/map/geolocate", "Geolocate IP Address",
                   params={"ip": "8.8.8.8"})
+
+        # ============ CONSUMER API ENDPOINTS ============
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}━━━ CONSUMER API ENDPOINTS ━━━{Colors.RESET}")
+
+        # Map pins endpoint
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Map Pins",
+                  params={
+                      "min_lat": valid_lat - 0.1,
+                      "max_lat": valid_lat + 0.1,
+                      "min_lng": valid_lng - 0.1,
+                      "max_lng": valid_lng + 0.1
+                  })
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Map Pins (No Grouping)",
+                  params={
+                      "min_lat": valid_lat - 0.1,
+                      "max_lat": valid_lat + 0.1,
+                      "min_lng": valid_lng - 0.1,
+                      "max_lng": valid_lng + 0.1,
+                      "grouping_radius": 0
+                  })
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Map Pins (Large Grouping)",
+                  params={
+                      "min_lat": valid_lat - 0.1,
+                      "max_lat": valid_lat + 0.1,
+                      "min_lng": valid_lng - 0.1,
+                      "max_lng": valid_lng + 0.1,
+                      "grouping_radius": 500
+                  })
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Map Pins (With Filters)",
+                  params={
+                      "min_lat": valid_lat - 0.1,
+                      "max_lat": valid_lat + 0.1,
+                      "min_lng": valid_lng - 0.1,
+                      "max_lng": valid_lng + 0.1,
+                      "min_confidence": 70,
+                      "services": "food_pantry,meal_program"
+                  })
+
+        # Multi-location fetch endpoint
+        self.test("GET", "/api/v1/consumer/locations/multi", "Consumer Multi-Location (Single ID)",
+                  params={"ids": sample_uuid})
+        self.test("GET", "/api/v1/consumer/locations/multi", "Consumer Multi-Location (Multiple IDs)",
+                  params={"ids": f"{sample_uuid},{str(uuid.uuid4())},{str(uuid.uuid4())}"})
+        self.test("GET", "/api/v1/consumer/locations/multi", "Consumer Multi-Location (No Sources)",
+                  params={
+                      "ids": sample_uuid,
+                      "include_sources": False,
+                      "include_schedule": False
+                  })
+
+        # Single location detail endpoint
+        self.test("GET", f"/api/v1/consumer/locations/{sample_uuid}", "Consumer Location Detail",
+                  expected_status=[404])
+        self.test("GET", f"/api/v1/consumer/locations/{sample_uuid}", "Consumer Location Detail (With Nearby)",
+                  params={
+                      "include_nearby": True,
+                      "nearby_radius": 1000
+                  },
+                  expected_status=[404])
+        self.test("GET", f"/api/v1/consumer/locations/{sample_uuid}", "Consumer Location Detail (With History)",
+                  params={
+                      "include_history": True
+                  },
+                  expected_status=[404])
         
         # ============ TAXONOMY ENDPOINTS ============
         print(f"\n{Colors.BOLD}{Colors.MAGENTA}━━━ TAXONOMY ENDPOINTS ━━━{Colors.RESET}")
@@ -290,12 +354,45 @@ class EndpointTester:
         
         # ============ EDGE CASES & ERROR HANDLING ============
         print(f"\n{Colors.BOLD}{Colors.MAGENTA}━━━ EDGE CASES & ERROR HANDLING ━━━{Colors.RESET}")
-        
+
         # Invalid pagination
-        self.test("GET", "/api/v1/organizations/", "Invalid Page Number", 
+        self.test("GET", "/api/v1/organizations/", "Invalid Page Number",
                   params={"page": -1}, expected_status=[422, 400])
-        self.test("GET", "/api/v1/organizations/", "Invalid Per Page", 
+        self.test("GET", "/api/v1/organizations/", "Invalid Per Page",
                   params={"per_page": 1000}, expected_status=[422, 400, 200])  # Might be clamped
+
+        # Consumer API edge cases
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Pins - Invalid Viewport",
+                  params={
+                      "min_lat": 40.8,
+                      "max_lat": 40.7,  # max < min
+                      "min_lng": -74.0,
+                      "max_lng": -74.1
+                  }, expected_status=[400])
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Pins - Out of Range Coordinates",
+                  params={
+                      "min_lat": -100,  # Out of valid range
+                      "max_lat": 100,
+                      "min_lng": -200,
+                      "max_lng": 200
+                  }, expected_status=[422])
+        self.test("GET", "/api/v1/consumer/map/pins", "Consumer Pins - Excessive Grouping Radius",
+                  params={
+                      "min_lat": valid_lat - 0.1,
+                      "max_lat": valid_lat + 0.1,
+                      "min_lng": valid_lng - 0.1,
+                      "max_lng": valid_lng + 0.1,
+                      "grouping_radius": 1000  # Over 500m limit
+                  }, expected_status=[422])
+        self.test("GET", "/api/v1/consumer/locations/multi", "Consumer Multi - Too Many IDs",
+                  params={"ids": ",".join([str(uuid.uuid4()) for _ in range(101)])},  # 101 IDs
+                  expected_status=[400])
+        self.test("GET", "/api/v1/consumer/locations/multi", "Consumer Multi - Invalid UUID",
+                  params={"ids": "not-a-uuid,another-bad-id"},
+                  expected_status=[400])
+        self.test("GET", "/api/v1/consumer/locations/multi", "Consumer Multi - Empty IDs",
+                  params={"ids": ""},
+                  expected_status=[400])
         
         # Invalid coordinates
         self.test("GET", "/api/v1/locations/search", "Invalid Coordinates", 
