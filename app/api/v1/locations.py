@@ -15,7 +15,7 @@ from app.database.repositories import LocationRepository
 from app.database.models import LocationModel
 from app.models.hsds.location import Location
 from app.models.hsds.query import GeoBoundingBox, GeoPoint
-from app.models.hsds.response import LocationResponse, ServiceResponse, Page
+from app.models.hsds.response import LocationResponse, ServiceResponse, Page, SourceInfo, ScheduleInfo
 from app.api.v1.utils import (
     create_pagination_links,
     calculate_pagination_metadata,
@@ -24,6 +24,121 @@ from app.api.v1.utils import (
 )
 
 router = APIRouter(prefix="/locations", tags=["locations"])
+
+
+async def get_location_schedules(
+    location_id: str, session: AsyncSession
+) -> list[ScheduleInfo]:
+    """Get schedule information for a location via direct SQL query.
+
+    Args:
+        location_id: Location ID
+        session: Database session
+
+    Returns:
+        List of schedule information
+    """
+    # Query for schedules directly
+    schedule_query = """
+        SELECT
+            opens_at,
+            closes_at,
+            byday,
+            freq,
+            description,
+            valid_from,
+            valid_to,
+            notes
+        FROM schedule
+        WHERE location_id = :location_id
+           OR service_id IN (
+               SELECT service_id
+               FROM service_at_location
+               WHERE location_id = :location_id
+           )
+    """
+
+    result = await session.execute(
+        text(schedule_query), {"location_id": str(location_id)}
+    )
+    rows = result.fetchall()
+
+    schedules = []
+    for row in rows:
+        schedule = ScheduleInfo(
+            opens_at=str(row.opens_at) if row.opens_at else None,
+            closes_at=str(row.closes_at) if row.closes_at else None,
+            byday=row.byday,
+            freq=row.freq,
+            description=row.description,
+            valid_from=row.valid_from.isoformat() if row.valid_from else None,
+            valid_to=row.valid_to.isoformat() if row.valid_to else None,
+            notes=row.notes,
+        )
+        schedules.append(schedule)
+
+    return schedules
+
+
+async def get_location_sources(
+    location_id: str, session: AsyncSession
+) -> list[SourceInfo]:
+    """Get source information for a location.
+
+    Args:
+        location_id: Location ID
+        session: Database session
+
+    Returns:
+        List of source information
+    """
+    # Query for source information
+    sources_query = """
+        SELECT
+            ls.scraper_id,
+            ls.name,
+            ls.description,
+            ls.created_at as first_seen,
+            ls.updated_at as last_updated,
+            p.number as phone,
+            o.website,
+            o.email,
+            CONCAT_WS(', ',
+                NULLIF(a.address_1, ''),
+                NULLIF(a.city, ''),
+                NULLIF(a.state_province, ''),
+                NULLIF(a.postal_code, '')
+            ) as address,
+            l.confidence_score
+        FROM location_source ls
+        LEFT JOIN location l ON l.id = ls.location_id
+        LEFT JOIN organization o ON o.id = l.organization_id
+        LEFT JOIN address a ON a.location_id = l.id
+        LEFT JOIN phone p ON p.location_id = l.id
+        WHERE ls.location_id = :location_id
+    """
+
+    result = await session.execute(
+        text(sources_query), {"location_id": str(location_id)}
+    )
+    rows = result.fetchall()
+
+    sources = []
+    for row in rows:
+        source = SourceInfo(
+            scraper=row.scraper_id,
+            name=row.name,
+            phone=row.phone,
+            email=row.email,
+            website=row.website,
+            address=row.address,
+            confidence_score=row.confidence_score or 50,
+            first_seen=row.first_seen.isoformat() if row.first_seen else None,
+            last_updated=row.last_updated.isoformat() if row.last_updated else None,
+        )
+        sources.append(source)
+
+    return sources
 
 
 @router.get("/", response_model=Page[LocationResponse])
@@ -51,8 +166,8 @@ async def list_locations(
         0, page, per_page
     )  # Will update total later
 
-    # Build filters
-    filters = build_filter_dict(organization_id=organization_id)
+    # Build filters - convert UUID to string
+    filters = build_filter_dict(organization_id=str(organization_id) if organization_id else None)
 
     # Get locations
     if include_services:
@@ -74,7 +189,41 @@ async def list_locations(
     # Convert to response models
     location_responses = []
     for location in locations:
-        location_data = LocationResponse.model_validate(location)
+        try:
+            location_data = LocationResponse.model_validate(location)
+        except Exception:
+            # Fallback to manual construction if validation fails
+            loc_dict = {
+                "id": str(location.id),
+                "name": location.name,
+                "alternate_name": location.alternate_name,
+                "description": location.description,
+                "latitude": float(location.latitude) if location.latitude else None,
+                "longitude": float(location.longitude) if location.longitude else None,
+                "transportation": location.transportation,
+                "external_identifier": location.external_identifier,
+                "external_identifier_type": location.external_identifier_type,
+                "location_type": location.location_type,
+                "metadata": {
+                    "last_updated": (
+                        location.updated_at.isoformat()
+                        if hasattr(location, "updated_at") and location.updated_at
+                        else None
+                    )
+                },
+            }
+            location_data = LocationResponse.model_validate(loc_dict)
+
+        # Add sources information
+        sources = await get_location_sources(location.id, session)
+        if sources:
+            location_data.sources = sources
+            location_data.source_count = len(sources)
+
+        # Add schedules information via direct SQL query
+        schedules = await get_location_schedules(location.id, session)
+        if schedules:
+            location_data.schedules = schedules[:5]  # Limit to 5 schedules per location
 
         if include_services and location.services_at_location:
             location_data.services = [
@@ -101,6 +250,7 @@ async def list_locations(
         total=total,
         per_page=per_page,
         current_page=page,
+        page=page,
         total_pages=pagination["total_pages"],
         links=links,
         data=location_responses,
@@ -116,7 +266,7 @@ async def search_locations(
     latitude: Optional[float] = Query(None, description="Latitude for radius search"),
     longitude: Optional[float] = Query(None, description="Longitude for radius search"),
     radius_miles: Optional[float] = Query(
-        None, ge=0, le=100, description="Radius in miles"
+        None, ge=0, le=1000, description="Radius in miles"
     ),
     # Bounding box search parameters
     min_latitude: Optional[float] = Query(
@@ -151,8 +301,8 @@ async def search_locations(
     # Calculate pagination
     pagination = calculate_pagination_metadata(0, page, per_page)
 
-    # Build filters
-    filters = build_filter_dict(organization_id=organization_id)
+    # Build filters - convert UUID to string
+    filters = build_filter_dict(organization_id=str(organization_id) if organization_id else None)
 
     # Determine search type and execute query
     locations: Sequence[LocationModel] = []
@@ -230,7 +380,41 @@ async def search_locations(
     # Convert to response models
     location_responses = []
     for location in locations:
-        location_data = LocationResponse.model_validate(location)
+        try:
+            location_data = LocationResponse.model_validate(location)
+        except Exception:
+            # Fallback to manual construction if validation fails
+            loc_dict = {
+                "id": str(location.id),
+                "name": location.name,
+                "alternate_name": location.alternate_name,
+                "description": location.description,
+                "latitude": float(location.latitude) if location.latitude else None,
+                "longitude": float(location.longitude) if location.longitude else None,
+                "transportation": location.transportation,
+                "external_identifier": location.external_identifier,
+                "external_identifier_type": location.external_identifier_type,
+                "location_type": location.location_type,
+                "metadata": {
+                    "last_updated": (
+                        location.updated_at.isoformat()
+                        if hasattr(location, "updated_at") and location.updated_at
+                        else None
+                    )
+                },
+            }
+            location_data = LocationResponse.model_validate(loc_dict)
+
+        # Add sources information
+        sources = await get_location_sources(location.id, session)
+        if sources:
+            location_data.sources = sources
+            location_data.source_count = len(sources)
+
+        # Add schedules information via direct SQL query
+        schedules = await get_location_schedules(location.id, session)
+        if schedules:
+            location_data.schedules = schedules[:5]  # Limit to 5 schedules per location
 
         # Add distance information for radius searches
         if (
@@ -277,6 +461,7 @@ async def search_locations(
         total=total,
         per_page=per_page,
         current_page=page,
+        page=page,
         total_pages=pagination["total_pages"],
         links=links,
         data=location_responses,
@@ -301,7 +486,41 @@ async def get_location(
         raise HTTPException(status_code=404, detail="Location not found")
 
     # Convert to response model
-    location_response = LocationResponse.model_validate(location)
+    try:
+        location_response = LocationResponse.model_validate(location)
+    except Exception:
+        # Fallback to manual construction if validation fails
+        loc_dict = {
+            "id": str(location.id),
+            "name": location.name,
+            "alternate_name": location.alternate_name,
+            "description": location.description,
+            "latitude": float(location.latitude) if location.latitude else None,
+            "longitude": float(location.longitude) if location.longitude else None,
+            "transportation": location.transportation,
+            "external_identifier": location.external_identifier,
+            "external_identifier_type": location.external_identifier_type,
+            "location_type": location.location_type,
+            "metadata": {
+                "last_updated": (
+                    location.updated_at.isoformat()
+                    if hasattr(location, "updated_at") and location.updated_at
+                    else None
+                )
+            },
+        }
+        location_response = LocationResponse.model_validate(loc_dict)
+
+    # Add sources information
+    sources = await get_location_sources(location.id, session)
+    if sources:
+        location_response.sources = sources
+        location_response.source_count = len(sources)
+
+    # Add schedules information via direct SQL query
+    schedules = await get_location_schedules(location.id, session)
+    if schedules:
+        location_response.schedules = schedules
 
     if include_services:
         # Load services at this location
@@ -350,227 +569,153 @@ class SimpleExportResponse(BaseModel):
     locations: List[Dict[str, Any]]
 
 
-@router.get("/test-before-export", response_model=Dict[str, str])
-async def test_before_export() -> Dict[str, str]:
-    """Test endpoint before export."""
-    return {"test": "working", "position": "before export"}
+
+# The /export endpoint has been removed as deprecated
+# Use /export-simple endpoint instead for location export functionality
 
 
-@router.get("/export")
-async def export_locations(
-    request: Request,
+
+
+@router.get("/export-simple")
+async def export_simple_locations(
     state: Optional[str] = Query(None, description="Filter by state code (e.g., 'CA')"),
     min_confidence: Optional[int] = Query(None, ge=0, le=100, description="Minimum confidence score"),
+    limit: int = Query(10000, ge=1, le=50000, description="Maximum number of locations to return"),
     session: AsyncSession = Depends(get_session),
-) -> LocationExportResponse:
+) -> Dict[str, Any]:
     """
-    Export all locations in a lightweight format for client-side caching.
-    
-    This endpoint is optimized for bulk data export similar to HAARRRvest.
-    Returns a compact JSON representation of all locations suitable for
-    offline use and client-side clustering.
-    
-    The response is cached-friendly and can be stored in browser IndexedDB
-    for offline functionality.
-    """
-    from sqlalchemy.orm import selectinload, joinedload
-    from app.database.models import AddressModel, OrganizationModel, PhoneModel, EmailModel
-    
-    # Build optimized query with eager loading - fix the relationship loading
-    query = (
-        select(LocationModel)
-        .options(
-            selectinload(LocationModel.address),
-            selectinload(LocationModel.organization),
-            selectinload(LocationModel.phones),
-            selectinload(LocationModel.emails),
-            selectinload(LocationModel.schedules),
-        )
-        .where(LocationModel.latitude.isnot(None))
-        .where(LocationModel.longitude.isnot(None))
-        .where(LocationModel.latitude.between(-90, 90))
-        .where(LocationModel.longitude.between(-180, 180))
-    )
-    
-    # Add filters
-    if state:
-        query = query.join(AddressModel).where(
-            AddressModel.state_province == state.upper()
-        )
-    
-    # Filter by validation status (exclude rejected)
-    query = query.where(
-        (LocationModel.validation_status.is_(None)) | 
-        (LocationModel.validation_status != 'rejected')
-    )
-    
-    # Execute query
-    result = await session.execute(query)
-    locations = result.scalars().unique().all()
-    
-    # Get total count and state coverage
-    total_count = len(locations)
-    states = set()
-    
-    # Convert to export format
-    export_locations = []
-    for loc in locations:
-        # Extract state from address if available
-        if loc.address and loc.address.state_province:
-            states.add(loc.address.state_province)
-        
-        # Build address string
-        address_parts = []
-        if loc.address:
-            if loc.address.address_1:
-                address_parts.append(loc.address.address_1)
-            if loc.address.city:
-                address_parts.append(loc.address.city)
-            if loc.address.state_province:
-                address_parts.append(loc.address.state_province)
-            if loc.address.postal_code:
-                address_parts.append(loc.address.postal_code)
-        
-        # Build simplified location object
-        export_loc = ExportLocation(
-            id=str(loc.id),
-            lat=float(loc.latitude) if loc.latitude else 0.0,
-            lng=float(loc.longitude) if loc.longitude else 0.0,
-            name=loc.name or "Unknown",
-            org=loc.organization.name if loc.organization else loc.name,
-            address=", ".join(address_parts) if address_parts else "",
-            city=loc.address.city if loc.address else None,
-            state=loc.address.state_province if loc.address else None,
-            zip=loc.address.postal_code if loc.address else None,
-            phone=loc.phones[0].number if loc.phones else None,
-            website=loc.url,
-            email=loc.emails[0].email if loc.emails else None,
-            description=loc.description,
-            confidence_score=getattr(loc, 'confidence_score', 50),
-            validation_status=getattr(loc, 'validation_status', 'needs_review'),
-        )
-        
-        # Add services if available (skip for now to avoid relationship issues)
-        # if loc.services_at_location:
-        #     export_loc.services = [sal.service.name for sal in loc.services_at_location if sal.service]
-        
-        # Add schedule if available
-        if loc.schedules:
-            schedule_data = {}
-            for schedule in loc.schedules[:1]:  # Take first schedule
-                if schedule.opens_at:
-                    schedule_data['opens_at'] = str(schedule.opens_at)
-                if schedule.closes_at:
-                    schedule_data['closes_at'] = str(schedule.closes_at)
-                if hasattr(schedule, 'description') and schedule.description:
-                    schedule_data['description'] = schedule.description
-            if schedule_data:
-                export_loc.schedule = schedule_data
-        
-        # Skip locations with confidence below threshold if specified
-        if min_confidence and export_loc.confidence_score < min_confidence:
-            continue
-            
-        export_locations.append(export_loc)
-    
-    # Build metadata
-    metadata = {
-        "generated": datetime.utcnow().isoformat(),
-        "total_locations": len(export_locations),
-        "states_covered": len(states),
-        "coverage": f"{len(states)} US states/territories" if states else "No state data",
-        "format_version": "1.0",
-        "source": "Pantry Pirate Radio API",
-        "export_method": "Full Database Export",
-    }
-    
-    if state:
-        metadata["filter_state"] = state.upper()
-    if min_confidence:
-        metadata["min_confidence"] = min_confidence
-    
-    response = LocationExportResponse(
-        metadata=metadata,
-        locations=export_locations
-    )
-    
-    # Return with cache headers for client-side caching
-    return JSONResponse(
-        content=response.model_dump(),
-        headers={
-            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
-            "ETag": f'"{len(export_locations)}-{datetime.utcnow().date()}"',
-        }
-    )
+    Export locations in a simplified format with sources information.
 
+    This endpoint returns location data including an array of sources showing
+    which scrapers found each location and their specific data variations.
 
-@router.get("/test-endpoint", response_model=SimpleExportResponse)
-async def test_endpoint() -> SimpleExportResponse:
+    The response includes:
+    - Basic location information (name, coordinates, address)
+    - Sources array with per-scraper data
+    - Source count for quick reference
     """
-    Simple export endpoint that uses raw SQL to avoid ORM issues.
-    Returns a JSONResponse with properly serialized data.
-    """
-    
-    # TEMPORARY: Return hardcoded response to test if endpoint works
-    return SimpleExportResponse(
-        metadata={
-            "test": "hardcoded",
-            "working": True
-        },
-        locations=[]
-    )
-    
-    # Build SQL query
+    # Build optimized query to fetch locations with sources
     sql = """
-        SELECT 
-            l.id,
-            l.latitude as lat,
-            l.longitude as lng,
-            l.name,
-            o.name as org_name,
-            CONCAT_WS(', ', a.address_1, a.city, a.state_province, a.postal_code) as address,
-            a.city,
-            a.state_province as state,
-            a.postal_code as zip,
-            p.number as phone,
-            l.url as website,
-            COALESCE(l.confidence_score, 50) as confidence_score,
-            COALESCE(l.validation_status, 'needs_review') as validation_status
-        FROM location l
-        LEFT JOIN organization o ON l.organization_id = o.id
-        LEFT JOIN address a ON a.location_id = l.id
-        LEFT JOIN LATERAL (
-            SELECT number FROM phone 
-            WHERE location_id = l.id 
-            LIMIT 1
-        ) p ON true
-        WHERE l.latitude IS NOT NULL 
-          AND l.longitude IS NOT NULL
-          AND l.latitude BETWEEN -90 AND 90
-          AND l.longitude BETWEEN -180 AND 180
-          AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
+        WITH location_data AS (
+            SELECT
+                l.id,
+                l.latitude as lat,
+                l.longitude as lng,
+                l.name,
+                o.name as org_name,
+                CONCAT_WS(', ', a.address_1, a.city, a.state_province, a.postal_code) as address,
+                a.city,
+                a.state_province as state,
+                a.postal_code as zip,
+                p.number as phone,
+                l.url as website,
+                e.email,
+                l.description,
+                COALESCE(l.confidence_score, 50) as confidence_score,
+                COALESCE(l.validation_status, 'needs_review') as validation_status
+            FROM location l
+            LEFT JOIN organization o ON l.organization_id = o.id
+            LEFT JOIN address a ON a.location_id = l.id
+            LEFT JOIN LATERAL (
+                SELECT number FROM phone
+                WHERE location_id = l.id
+                LIMIT 1
+            ) p ON true
+            LEFT JOIN LATERAL (
+                SELECT email FROM email
+                WHERE location_id = l.id
+                LIMIT 1
+            ) e ON true
+            WHERE l.latitude IS NOT NULL
+              AND l.longitude IS NOT NULL
+              AND l.latitude BETWEEN -90 AND 90
+              AND l.longitude BETWEEN -180 AND 180
+              AND l.is_canonical = true
+              AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
     """
-    
+
     params = {}
+
+    # Add filters
     if state:
         sql += " AND a.state_province = :state"
         params['state'] = state.upper()
-    
-    sql += f" LIMIT {limit}"
-    
+
+    if min_confidence:
+        sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
+        params['min_confidence'] = min_confidence
+
+    sql += f"""
+        ), source_data AS (
+            SELECT
+                ls.location_id,
+                json_agg(
+                    json_build_object(
+                        'scraper', ls.scraper_id,
+                        'name', ls.name,
+                        'phone', p2.number,
+                        'email', e2.email,
+                        'website', o2.website,
+                        'address', CONCAT_WS(', ', a2.address_1, a2.city, a2.state_province, a2.postal_code),
+                        'confidence_score', COALESCE(l2.confidence_score, 50),
+                        'last_updated', ls.updated_at,
+                        'first_seen', ls.created_at
+                    )
+                    ORDER BY ls.updated_at DESC
+                ) as sources,
+                COUNT(DISTINCT ls.scraper_id) as source_count
+            FROM location_source ls
+            LEFT JOIN location l2 ON l2.id = ls.location_id
+            LEFT JOIN organization o2 ON o2.id = l2.organization_id
+            LEFT JOIN address a2 ON a2.location_id = l2.id
+            LEFT JOIN LATERAL (
+                SELECT number FROM phone WHERE location_id = l2.id LIMIT 1
+            ) p2 ON true
+            LEFT JOIN LATERAL (
+                SELECT email FROM email WHERE location_id = l2.id LIMIT 1
+            ) e2 ON true
+            GROUP BY ls.location_id
+        )
+        SELECT
+            ld.*,
+            COALESCE(sd.sources, '[]'::json) as sources,
+            COALESCE(sd.source_count, 0) as source_count
+        FROM location_data ld
+        LEFT JOIN source_data sd ON sd.location_id = ld.id
+        ORDER BY ld.confidence_score DESC, ld.name
+        LIMIT {limit}
+    """
+
     # Execute query
     result = await session.execute(text(sql), params)
     rows = result.fetchall()
-    
-    # Convert to simple locations
+
+    # Convert to simple locations with sources
     locations = []
     states = set()
-    
+
     for row in rows:
         if row.state:
             states.add(row.state)
-            
-        locations.append({
+
+        # Parse sources JSON
+        sources = []
+        if row.sources:
+            if isinstance(row.sources, str):
+                import json
+                sources_data = json.loads(row.sources)
+            else:
+                sources_data = row.sources
+
+            for src in sources_data:
+                # Format timestamps
+                if src.get('last_updated'):
+                    src['last_updated'] = src['last_updated'].isoformat() if hasattr(src['last_updated'], 'isoformat') else str(src['last_updated'])
+                if src.get('first_seen'):
+                    src['first_seen'] = src['first_seen'].isoformat() if hasattr(src['first_seen'], 'isoformat') else str(src['first_seen'])
+                sources.append(src)
+
+        location_data = {
             "id": str(row.id),
             "lat": float(row.lat) if row.lat else 0.0,
             "lng": float(row.lng) if row.lng else 0.0,
@@ -582,18 +727,34 @@ async def test_endpoint() -> SimpleExportResponse:
             "zip": row.zip,
             "phone": row.phone,
             "website": row.website,
+            "email": row.email,
+            "description": row.description,
             "confidence_score": float(row.confidence_score) if row.confidence_score else 50.0,
-            "validation_status": row.validation_status or "needs_review"
-        })
-    
-    # Return plain dict - let FastAPI handle serialization
+            "validation_status": row.validation_status or "needs_review",
+            "sources": sources,
+            "source_count": int(row.source_count) if row.source_count else 0
+        }
+
+        locations.append(location_data)
+
+    # Build metadata
+    metadata = {
+        "generated": datetime.utcnow().isoformat(),
+        "total_locations": len(locations),
+        "states_covered": len(states),
+        "coverage": f"{len(states)} US states/territories" if states else "No state data",
+        "format_version": "2.0",
+        "source": "Pantry Pirate Radio API",
+        "includes_sources": True,
+        "export_method": "Simple Export with Sources"
+    }
+
+    if state:
+        metadata["filter_state"] = state.upper()
+    if min_confidence:
+        metadata["min_confidence"] = min_confidence
+
     return {
-        "metadata": {
-            "generated": datetime.utcnow().isoformat(),
-            "total_locations": len(locations),
-            "states_covered": len(states),
-            "format_version": "1.0",
-            "source": "Pantry Pirate Radio API"
-        },
+        "metadata": metadata,
         "locations": locations
     }

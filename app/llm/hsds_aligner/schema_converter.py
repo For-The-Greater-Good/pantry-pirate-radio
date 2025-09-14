@@ -1073,10 +1073,14 @@ class SchemaConverter:
                         for field_name, field_def in schema_data["properties"].items():
                             # Include all fields for now, but prioritize core fields
                             # Core fields are marked with "core": "Y"
+                            # Phone, address, and schedule need all fields included to avoid schema errors
                             if field_def.get("core") == "Y" or name in [
                                 "service_at_location",
                                 "required_document",
                                 "service_area",
+                                "phone",
+                                "address",
+                                "schedule",
                             ]:
                                 core_properties[field_name] = {
                                     "type": field_def.get("type", "string"),
@@ -1101,11 +1105,34 @@ class SchemaConverter:
                                 ].items()
                             }
 
+                        # Define required fields based on entity type for proper data tracking
+                        if name == "organization":
+                            # Critical fields for organizations
+                            required_fields = ["id", "name", "description", "email", "website"]
+                        elif name == "service":
+                            # Critical fields for services
+                            required_fields = ["id", "name", "description", "status", "email", "eligibility_description"]
+                        elif name == "location":
+                            # Critical fields for locations
+                            required_fields = ["id", "name", "description", "latitude", "longitude", "location_type"]
+                        elif name == "address":
+                            # Critical fields for addresses
+                            required_fields = ["id", "address_1", "city", "state_province", "postal_code", "country"]
+                        elif name == "phone":
+                            # Keep existing phone requirements
+                            required_fields = ["id", "number", "type"]
+                        elif name == "schedule":
+                            # Only id is required, other fields are optional
+                            required_fields = ["id"]
+                        else:
+                            # Default to id only for other entities
+                            required_fields = required_fields if required_fields else ["id"]
+                        
                         definitions[name] = {
                             "type": "object",
                             "description": schema_data.get("description", ""),
                             "properties": core_properties,
-                            "required": required_fields if required_fields else ["id"],
+                            "required": required_fields,
                             "additionalProperties": False,
                         }
 

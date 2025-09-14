@@ -84,13 +84,49 @@ async def list_services(
     # Convert to response models
     service_responses = []
     for service in services:
-        service_data = ServiceResponse.model_validate(service)
+        try:
+            service_data = ServiceResponse.model_validate(service)
+        except Exception:
+            # Fallback to manual construction if validation fails
+            service_dict = {
+                "id": str(service.id),
+                "organization_id": str(service.organization_id),
+                "name": service.name,
+                "alternate_name": service.alternate_name,
+                "description": service.description,
+                "url": service.url,
+                "email": service.email,
+                "status": service.status,
+                "interpretation_services": service.interpretation_services,
+                "application_process": service.application_process,
+                "fees_description": service.fees_description,
+                "wait_time": service.wait_time,
+                "metadata": {
+                    "last_updated": (
+                        service.updated_at.isoformat()
+                        if hasattr(service, "updated_at") and service.updated_at
+                        else None
+                    )
+                },
+            }
+            service_data = ServiceResponse.model_validate(service_dict)
 
         if include_locations and hasattr(service, "locations") and service.locations:
-            service_data.locations = [
-                LocationResponse.model_validate(sal.location)
-                for sal in service.locations
-            ]
+            service_data.locations = []
+            for sal in service.locations:
+                try:
+                    loc_response = LocationResponse.model_validate(sal.location)
+                except Exception:
+                    # Fallback for location
+                    loc_dict = {
+                        "id": str(sal.location.id),
+                        "name": sal.location.name,
+                        "latitude": float(sal.location.latitude) if sal.location.latitude else None,
+                        "longitude": float(sal.location.longitude) if sal.location.longitude else None,
+                        "description": sal.location.description,
+                    }
+                    loc_response = LocationResponse.model_validate(loc_dict)
+                service_data.locations.append(loc_response)
 
         service_responses.append(service_data)
 
@@ -112,6 +148,7 @@ async def list_services(
         total=total,
         per_page=per_page,
         current_page=page,
+        page=page,
         total_pages=pagination["total_pages"],
         links=links,
         data=service_responses,
@@ -195,6 +232,7 @@ async def search_services(
         total=total,
         per_page=per_page,
         current_page=page,
+        page=page,
         total_pages=total_pages,
         links=links,
         data=service_responses,

@@ -55,13 +55,45 @@ async def list_organizations(
     org_responses = []
     for org in organizations:
         if include_services:
-            # Include services in validation
-            org_data = OrganizationResponse.model_validate(org)
+            # Build organization dict manually to avoid lazy loading issues
+            org_dict = {
+                "id": str(org.id),
+                "name": org.name,
+                "description": org.description,
+                "website": org.website,
+                "email": org.email,
+                "alternate_name": org.alternate_name if hasattr(org, "alternate_name") else None,
+                "tax_status": org.tax_status if hasattr(org, "tax_status") else None,
+                "tax_id": org.tax_id if hasattr(org, "tax_id") else None,
+                "year_incorporated": org.year_incorporated if hasattr(org, "year_incorporated") else None,
+                "legal_status": org.legal_status if hasattr(org, "legal_status") else None,
+                "metadata": {
+                    "last_updated": (
+                        org.updated_at.isoformat()
+                        if hasattr(org, "updated_at") and org.updated_at
+                        else None
+                    )
+                },
+            }
+
+            # Add services if they were loaded
             if hasattr(org, "services") and org.services:
-                # Add service details
-                org_data.services = [
-                    ServiceResponse.model_validate(service) for service in org.services
-                ]
+                org_dict["services"] = []
+                for service in org.services:
+                    service_dict = {
+                        "id": str(service.id),
+                        "organization_id": str(service.organization_id),
+                        "name": service.name,
+                        "description": service.description,
+                        "status": service.status,
+                        "url": service.url,
+                        "email": service.email,
+                        "alternate_name": service.alternate_name if hasattr(service, "alternate_name") else None,
+                    }
+                    # Don't try to access nested locations to avoid greenlet error
+                    org_dict["services"].append(service_dict)
+
+            org_data = OrganizationResponse.model_validate(org_dict)
         else:
             # Exclude services from validation to avoid lazy loading
             org_dict = {
@@ -99,6 +131,7 @@ async def list_organizations(
         total=total,
         per_page=per_page,
         current_page=page,
+        page=page,
         total_pages=total_pages,
         links=links,
         data=org_responses,
@@ -125,7 +158,45 @@ async def search_organizations(
     total = await repository.count_by_name_search(q)
 
     # Convert to response models
-    org_responses = [OrganizationResponse.model_validate(org) for org in organizations]
+    org_responses = []
+    for org in organizations:
+        try:
+            org_response = OrganizationResponse.model_validate(org)
+        except Exception:
+            # Fallback to manual construction if validation fails
+            org_dict = {
+                "id": str(org.id),
+                "name": org.name,
+                "alternate_name": org.alternate_name,
+                "description": org.description,
+                "email": org.email,
+                "website": org.website,
+                "tax_status": org.tax_status,
+                "tax_id": org.tax_id,
+                "year_incorporated": org.year_incorporated,
+                "legal_status": org.legal_status,
+                "metadata": {
+                    "last_updated": (
+                        org.updated_at.isoformat()
+                        if hasattr(org, "updated_at") and org.updated_at
+                        else None
+                    )
+                },
+            }
+            # Add services if they were loaded
+            if hasattr(org, "services") and org.services:
+                org_dict["services"] = [
+                    {
+                        "id": str(service.id),
+                        "organization_id": str(service.organization_id),
+                        "name": service.name,
+                        "description": service.description,
+                        "status": service.status,
+                    }
+                    for service in org.services
+                ]
+            org_response = OrganizationResponse.model_validate(org_dict)
+        org_responses.append(org_response)
 
     # Calculate pagination metadata
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -144,6 +215,7 @@ async def search_organizations(
         total=total,
         per_page=per_page,
         current_page=page,
+        page=page,
         total_pages=total_pages,
         links=links,
         data=org_responses,
