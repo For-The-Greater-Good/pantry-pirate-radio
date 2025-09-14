@@ -155,6 +155,7 @@ class TestQuickAPIBoosts:
             total=1,
             per_page=25,
             current_page=1,
+            page=1,  # Add required page field
             total_pages=1,
             links={
                 "first": "http://example.com?page=1",

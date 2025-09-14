@@ -1108,16 +1108,43 @@ class SchemaConverter:
                         # Define required fields based on entity type for proper data tracking
                         if name == "organization":
                             # Critical fields for organizations
-                            required_fields = ["id", "name", "description", "email", "website"]
+                            required_fields = [
+                                "id",
+                                "name",
+                                "description",
+                                "email",
+                                "website",
+                            ]
                         elif name == "service":
                             # Critical fields for services
-                            required_fields = ["id", "name", "description", "status", "email", "eligibility_description"]
+                            required_fields = [
+                                "id",
+                                "name",
+                                "description",
+                                "status",
+                                "email",
+                                "eligibility_description",
+                            ]
                         elif name == "location":
                             # Critical fields for locations
-                            required_fields = ["id", "name", "description", "latitude", "longitude", "location_type"]
+                            required_fields = [
+                                "id",
+                                "name",
+                                "description",
+                                "latitude",
+                                "longitude",
+                                "location_type",
+                            ]
                         elif name == "address":
                             # Critical fields for addresses
-                            required_fields = ["id", "address_1", "city", "state_province", "postal_code", "country"]
+                            required_fields = [
+                                "id",
+                                "address_1",
+                                "city",
+                                "state_province",
+                                "postal_code",
+                                "country",
+                            ]
                         elif name == "phone":
                             # Keep existing phone requirements
                             required_fields = ["id", "number", "type"]
@@ -1126,8 +1153,10 @@ class SchemaConverter:
                             required_fields = ["id"]
                         else:
                             # Default to id only for other entities
-                            required_fields = required_fields if required_fields else ["id"]
-                        
+                            required_fields = (
+                                required_fields if required_fields else ["id"]
+                            )
+
                         definitions[name] = {
                             "type": "object",
                             "description": schema_data.get("description", ""),

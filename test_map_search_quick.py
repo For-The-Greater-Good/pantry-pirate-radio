@@ -11,7 +11,7 @@ def test_endpoint():
     base_url = "https://api.for-the-gg.org/api/v1/map/search"
     tests_passed = 0
     tests_failed = 0
-    
+
     tests = [
         ("Basic text search", {"q": "food", "per_page": 5}),
         ("State filter", {"state": "CA", "per_page": 5}),
@@ -33,26 +33,26 @@ def test_endpoint():
         ("Pagination", {"q": "food", "page": 2, "per_page": 5}),
         ("Complex query", {
             "q": "food",
-            "state": "NY", 
+            "state": "NY",
             "confidence_min": 60,
             "per_page": 5
         }),
     ]
-    
+
     print("MAP SEARCH ENDPOINT QUICK TEST")
     print("=" * 60)
-    
+
     for test_name, params in tests:
         try:
             start = time.time()
             response = requests.get(base_url, params=params, timeout=5)
             elapsed = time.time() - start
-            
+
             if response.status_code == 200:
                 data = response.json()
                 total = data.get("total", 0)
                 returned = len(data.get("locations", []))
-                
+
                 # Validate format for specific tests
                 format_check = ""
                 if "format" in params:
@@ -68,21 +68,21 @@ def test_endpoint():
                             format_check = " ✓ Format OK"
                         else:
                             format_check = " ✗ Format Issue"
-                
+
                 print(f"✅ {test_name}: {total} total, {returned} returned ({elapsed:.2f}s){format_check}")
                 tests_passed += 1
             else:
                 print(f"❌ {test_name}: Status {response.status_code}")
                 tests_failed += 1
-                
+
         except Exception as e:
             print(f"❌ {test_name}: {str(e)}")
             tests_failed += 1
-    
+
     print("\n" + "=" * 60)
     print(f"SUMMARY: {tests_passed} passed, {tests_failed} failed")
     print(f"Success rate: {tests_passed}/{tests_passed+tests_failed} ({tests_passed/(tests_passed+tests_failed)*100:.0f}%)")
-    
+
     return tests_passed, tests_failed
 
 

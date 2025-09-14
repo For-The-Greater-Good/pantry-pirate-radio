@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 
 INDEX_QUERIES = [
     # Geographic indexes
-    """CREATE INDEX IF NOT EXISTS idx_location_lat_lng 
-       ON location(latitude, longitude) 
+    """CREATE INDEX IF NOT EXISTS idx_location_lat_lng
+       ON location(latitude, longitude)
        WHERE latitude IS NOT NULL AND longitude IS NOT NULL""",
-    """CREATE INDEX IF NOT EXISTS idx_location_geo_confidence 
-       ON location(latitude, longitude, confidence_score) 
+    """CREATE INDEX IF NOT EXISTS idx_location_geo_confidence
+       ON location(latitude, longitude, confidence_score)
        WHERE latitude IS NOT NULL AND longitude IS NOT NULL""",
     # Address indexes
     "CREATE INDEX IF NOT EXISTS idx_address_state ON address(state_province)",
@@ -107,9 +107,9 @@ async def create_indexes(database_url: str):
             result = await session.execute(
                 text(
                     """
-                SELECT indexname, tablename 
-                FROM pg_indexes 
-                WHERE schemaname = 'public' 
+                SELECT indexname, tablename
+                FROM pg_indexes
+                WHERE schemaname = 'public'
                 AND indexname LIKE 'idx_%'
                 ORDER BY tablename, indexname
             """

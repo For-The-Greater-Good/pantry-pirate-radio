@@ -321,25 +321,25 @@ async def get_map_clusters(
 ) -> MapClustersResponse:
     """
     Get clustered locations for efficient map display.
-    
+
     This endpoint returns both clusters and individual locations based on zoom level.
     At lower zoom levels, locations are clustered together. At higher zoom levels,
     individual locations are returned.
-    
+
     The clustering algorithm groups nearby locations to prevent overcrowding the map.
     """
-    
+
     from sqlalchemy import text
     import math
-    
+
     # Calculate pixel-to-degree ratio based on zoom level
     # At zoom 0, 256 pixels = 360 degrees
     # Each zoom level doubles the pixels
-    pixels_per_degree = (256 * (2 ** zoom)) / 360
-    
+    pixels_per_degree = (256 * (2**zoom)) / 360
+
     # Convert cluster radius from pixels to degrees
     cluster_radius_degrees = cluster_radius / pixels_per_degree
-    
+
     # Query locations within bounding box
     locations_query = """
         SELECT DISTINCT
@@ -358,7 +358,7 @@ async def get_map_clusters(
         ORDER BY l.confidence_score DESC
         LIMIT 5000
     """
-    
+
     result = await session.execute(
         text(locations_query),
         {
@@ -366,49 +366,52 @@ async def get_map_clusters(
             "min_lng": min_lng,
             "max_lat": max_lat,
             "max_lng": max_lng,
-        }
+        },
     )
-    
+
     locations = result.fetchall()
-    
+
     # Perform clustering if zoom level is low enough
     clusters = []
     unclustered_locations = []
     processed = set()
-    
+
     if zoom < 15:  # Only cluster at lower zoom levels
         for i, loc in enumerate(locations):
             if i in processed:
                 continue
-                
+
             # Start a new cluster
             cluster_lats = [loc.lat]
             cluster_lngs = [loc.lng]
             cluster_ids = [str(loc.id)]
             cluster_confidence = [loc.confidence_score or 50]
-            
+
             # Find nearby locations to add to cluster
-            for j, other in enumerate(locations[i+1:], start=i+1):
+            for j, other in enumerate(locations[i + 1 :], start=i + 1):
                 if j in processed:
                     continue
-                    
+
                 # Calculate distance
                 lat_diff = abs(loc.lat - other.lat)
                 lng_diff = abs(loc.lng - other.lng)
-                
-                if lat_diff <= cluster_radius_degrees and lng_diff <= cluster_radius_degrees:
+
+                if (
+                    lat_diff <= cluster_radius_degrees
+                    and lng_diff <= cluster_radius_degrees
+                ):
                     # Add to cluster
                     cluster_lats.append(other.lat)
                     cluster_lngs.append(other.lng)
                     cluster_ids.append(str(other.id))
                     cluster_confidence.append(other.confidence_score or 50)
                     processed.add(j)
-            
+
             if len(cluster_lats) > 1:
                 # Create cluster
                 avg_lat = sum(cluster_lats) / len(cluster_lats)
                 avg_lng = sum(cluster_lngs) / len(cluster_lngs)
-                
+
                 # Calculate bounds
                 bounds = {
                     "north": max(cluster_lats),
@@ -416,39 +419,45 @@ async def get_map_clusters(
                     "east": max(cluster_lngs),
                     "west": min(cluster_lngs),
                 }
-                
-                clusters.append(MapCluster(
-                    id=f"cluster_{i}",
-                    lat=avg_lat,
-                    lng=avg_lng,
-                    count=len(cluster_lats),
-                    bounds=bounds,
-                    zoom_expand=zoom + 2,
-                ))
+
+                clusters.append(
+                    MapCluster(
+                        id=f"cluster_{i}",
+                        lat=avg_lat,
+                        lng=avg_lng,
+                        count=len(cluster_lats),
+                        bounds=bounds,
+                        zoom_expand=zoom + 2,
+                    )
+                )
                 processed.add(i)
             else:
                 # Single location, add as unclustered
-                unclustered_locations.append(MapLocation(
+                unclustered_locations.append(
+                    MapLocation(
+                        id=UUID(str(loc.id)),
+                        lat=loc.lat,
+                        lng=loc.lng,
+                        name=loc.name or "Food Assistance Location",
+                        confidence_score=loc.confidence_score or 50,
+                        validation_status="verified",
+                    )
+                )
+                processed.add(i)
+    else:
+        # At high zoom, return all as individual locations
+        for loc in locations:
+            unclustered_locations.append(
+                MapLocation(
                     id=UUID(str(loc.id)),
                     lat=loc.lat,
                     lng=loc.lng,
                     name=loc.name or "Food Assistance Location",
                     confidence_score=loc.confidence_score or 50,
                     validation_status="verified",
-                ))
-                processed.add(i)
-    else:
-        # At high zoom, return all as individual locations
-        for loc in locations:
-            unclustered_locations.append(MapLocation(
-                id=UUID(str(loc.id)),
-                lat=loc.lat,
-                lng=loc.lng,
-                name=loc.name or "Food Assistance Location",
-                confidence_score=loc.confidence_score or 50,
-                validation_status="verified",
-            ))
-    
+                )
+            )
+
     return MapClustersResponse(
         clusters=clusters,
         locations=unclustered_locations,
@@ -680,6 +689,7 @@ async def get_states_coverage(
 
 class GeoLocationResponse(BaseModel):
     """Response model for IP-based geolocation."""
+
     lat: float
     lng: float
     city: Optional[str] = None
@@ -693,15 +703,17 @@ class GeoLocationResponse(BaseModel):
 @router.get("/geolocate", response_model=GeoLocationResponse)
 async def geolocate_ip(
     request: Request,
-    ip: Optional[str] = Query(None, description="IP address to geolocate (defaults to client IP)"),
+    ip: Optional[str] = Query(
+        None, description="IP address to geolocate (defaults to client IP)"
+    ),
 ) -> GeoLocationResponse:
     """
     Get approximate location from IP address.
-    
+
     This endpoint provides fallback location detection when browser geolocation
     is unavailable or denied. Uses IP geolocation services to determine
     approximate user location.
-    
+
     Returns city, state, and coordinates for centering the map.
     """
     # Get client IP if not provided
@@ -709,13 +721,17 @@ async def geolocate_ip(
     if not client_ip:
         # Try to get real IP from headers (for proxied requests)
         client_ip = (
-            request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
-            request.headers.get("X-Real-IP") or
-            request.client.host
+            request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.headers.get("X-Real-IP")
+            or request.client.host
         )
-    
+
     # Skip localhost/private IPs
-    if client_ip in ["127.0.0.1", "localhost", "::1"] or client_ip.startswith("192.168.") or client_ip.startswith("10."):
+    if (
+        client_ip in ["127.0.0.1", "localhost", "::1"]
+        or client_ip.startswith("192.168.")
+        or client_ip.startswith("10.")
+    ):
         # Return center of US for local development
         return GeoLocationResponse(
             lat=39.8283,
@@ -724,18 +740,20 @@ async def geolocate_ip(
             state="US",
             country="US",
             ip=client_ip,
-            source="default"
+            source="default",
         )
-    
+
     try:
         # Try ip-api.com first (free, no key required, 45 requests per minute)
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"http://ip-api.com/json/{client_ip}",
-                params={"fields": "status,country,countryCode,region,regionName,city,zip,lat,lon,query"},
-                timeout=5.0
+                params={
+                    "fields": "status,country,countryCode,region,regionName,city,zip,lat,lon,query"
+                },
+                timeout=5.0,
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == "success":
@@ -747,11 +765,11 @@ async def geolocate_ip(
                         country=data.get("countryCode", "US"),
                         zip=data.get("zip"),
                         ip=data.get("query", client_ip),
-                        source="ip-api"
+                        source="ip-api",
                     )
     except Exception as e:
         logger.warning(f"IP geolocation failed for {client_ip}: {e}")
-    
+
     # Fallback to US center if geolocation fails
     return GeoLocationResponse(
         lat=39.8283,
@@ -760,5 +778,5 @@ async def geolocate_ip(
         state="US",
         country="US",
         ip=client_ip,
-        source="fallback"
+        source="fallback",
     )

@@ -30,7 +30,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.ServiceResponse"
         ) as mock_service_response, patch(
             "app.api.v1.locations.Page"
-        ) as mock_page:
+        ) as mock_page, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -38,11 +42,16 @@ class TestLocationsDirectExecution:
 
             # Mock location with services
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_location.services_at_location = [Mock()]
             mock_location.services_at_location[0].service = Mock()
             mock_repo.get_all.return_value = [mock_location]
             mock_repo.get_locations_with_services.return_value = [mock_location]
             mock_repo.count.return_value = 1
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -109,7 +118,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.LocationResponse"
         ) as mock_location_response, patch(
             "app.api.v1.locations.Page"
-        ) as mock_page:
+        ) as mock_page, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -117,12 +130,17 @@ class TestLocationsDirectExecution:
 
             # Mock location with coordinates
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_location.latitude = 40.7589
             mock_location.longitude = -73.9851
             mock_location.services_at_location = []
             mock_location.distance_miles = 2.5  # Add distance attribute
             mock_repo.get_locations_by_radius.return_value = [mock_location]
             mock_repo.count_by_radius.return_value = 1
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -184,7 +202,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.LocationResponse"
         ) as mock_location_response, patch(
             "app.api.v1.locations.Page"
-        ) as mock_page:
+        ) as mock_page, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -192,11 +214,16 @@ class TestLocationsDirectExecution:
 
             # Mock location
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_location.latitude = None
             mock_location.longitude = None
             mock_location.services_at_location = []
             mock_repo.get_locations_by_bbox.return_value = [mock_location]
             mock_repo.count_by_bbox.return_value = 1
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -261,7 +288,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.LocationResponse"
         ) as mock_location_response, patch(
             "app.api.v1.locations.Page"
-        ) as mock_page:
+        ) as mock_page, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -269,9 +300,14 @@ class TestLocationsDirectExecution:
 
             # Mock location
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_location.services_at_location = []
             mock_repo.get_all.return_value = [mock_location]
             mock_repo.count.return_value = 1
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -326,7 +362,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.LocationResponse"
         ) as mock_location_response, patch(
             "app.api.v1.locations.Page"
-        ) as mock_page:
+        ) as mock_page, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -334,10 +374,15 @@ class TestLocationsDirectExecution:
 
             # Mock location
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_location.services_at_location = []
             mock_repo.get_all.return_value = [mock_location]
             mock_repo.count.return_value = 1
             mock_repo.get_locations_with_services.return_value = [mock_location]
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -404,7 +449,11 @@ class TestLocationsDirectExecution:
         """Test get_location function execution."""
         with patch("app.api.v1.locations.LocationRepository") as mock_repo_class, patch(
             "app.api.v1.locations.LocationResponse"
-        ) as mock_location_response:
+        ) as mock_location_response, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -412,8 +461,13 @@ class TestLocationsDirectExecution:
 
             # Mock location
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_repo.get_by_id.return_value = mock_location
             mock_location_response.model_validate.return_value = Mock()
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock session
             mock_session = AsyncMock()
@@ -471,7 +525,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.ServiceResponse"
         ) as mock_service_response, patch(
             "app.database.repositories.ServiceAtLocationRepository"
-        ) as mock_sal_repo_class:
+        ) as mock_sal_repo_class, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repositories
             mock_repo = AsyncMock()
@@ -481,7 +539,12 @@ class TestLocationsDirectExecution:
 
             # Mock location
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_repo.get_by_id.return_value = mock_location
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock service at location
             mock_sal = Mock()
@@ -527,7 +590,11 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.LocationResponse"
         ) as mock_location_response, patch(
             "app.api.v1.locations.Page"
-        ) as mock_page:
+        ) as mock_page, patch(
+            "app.api.v1.locations.get_location_sources"
+        ) as mock_get_sources, patch(
+            "app.api.v1.locations.get_location_schedules"
+        ) as mock_get_schedules:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -535,12 +602,17 @@ class TestLocationsDirectExecution:
 
             # Mock location with coordinates
             mock_location = Mock()
+            mock_location.id = uuid4()
             mock_location.latitude = 40.7589
             mock_location.longitude = -73.9851
             mock_location.services_at_location = []
             mock_location.distance_miles = 2.5  # Add distance attribute
             mock_repo.get_locations_by_radius.return_value = [mock_location]
             mock_repo.count_by_radius.return_value = 1
+
+            # Mock async helper functions to return empty lists
+            mock_get_sources.return_value = []
+            mock_get_schedules.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {

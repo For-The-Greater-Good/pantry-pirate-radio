@@ -976,7 +976,8 @@ class JobProcessor:
                                         ),
                                         postal_code=address.get("postal_code", ""),
                                         country=country,
-                                        address_type=address.get("address_type") or "physical",
+                                        address_type=address.get("address_type")
+                                        or "physical",
                                         location_id=location_id_str,
                                         metadata=job_result.job.metadata,
                                     )
@@ -1511,7 +1512,7 @@ class JobProcessor:
                         elif "," in wkst_value:
                             # If multiple days in wkst, take first one (rest should be in byday)
                             wkst_value = wkst_value.split(",")[0].strip()
-                    
+
                     # Update or create schedule record
                     schedule_id, was_updated = (
                         service_creator.update_or_create_schedule(
