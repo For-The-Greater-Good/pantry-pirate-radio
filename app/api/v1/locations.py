@@ -15,7 +15,13 @@ from app.database.repositories import LocationRepository
 from app.database.models import LocationModel
 from app.models.hsds.location import Location
 from app.models.hsds.query import GeoBoundingBox, GeoPoint
-from app.models.hsds.response import LocationResponse, ServiceResponse, Page, SourceInfo, ScheduleInfo
+from app.models.hsds.response import (
+    LocationResponse,
+    ServiceResponse,
+    Page,
+    SourceInfo,
+    ScheduleInfo,
+)
 from app.api.v1.utils import (
     create_pagination_links,
     calculate_pagination_metadata,
@@ -167,7 +173,9 @@ async def list_locations(
     )  # Will update total later
 
     # Build filters - convert UUID to string
-    filters = build_filter_dict(organization_id=str(organization_id) if organization_id else None)
+    filters = build_filter_dict(
+        organization_id=str(organization_id) if organization_id else None
+    )
 
     # Get locations
     if include_services:
@@ -302,7 +310,9 @@ async def search_locations(
     pagination = calculate_pagination_metadata(0, page, per_page)
 
     # Build filters - convert UUID to string
-    filters = build_filter_dict(organization_id=str(organization_id) if organization_id else None)
+    filters = build_filter_dict(
+        organization_id=str(organization_id) if organization_id else None
+    )
 
     # Determine search type and execute query
     locations: Sequence[LocationModel] = []
@@ -538,6 +548,7 @@ async def get_location(
 
 class ExportLocation(BaseModel):
     """Simplified location model for export."""
+
     id: str
     lat: float
     lng: float
@@ -559,28 +570,31 @@ class ExportLocation(BaseModel):
 
 class LocationExportResponse(BaseModel):
     """Response model for bulk location export."""
+
     metadata: Dict[str, Any]
     locations: List[ExportLocation]
 
 
 class SimpleExportResponse(BaseModel):
     """Simple export response model."""
+
     metadata: Dict[str, Any]
     locations: List[Dict[str, Any]]
-
 
 
 # The /export endpoint has been removed as deprecated
 # Use /export-simple endpoint instead for location export functionality
 
 
-
-
 @router.get("/export-simple")
 async def export_simple_locations(
     state: Optional[str] = Query(None, description="Filter by state code (e.g., 'CA')"),
-    min_confidence: Optional[int] = Query(None, ge=0, le=100, description="Minimum confidence score"),
-    limit: int = Query(10000, ge=1, le=50000, description="Maximum number of locations to return"),
+    min_confidence: Optional[int] = Query(
+        None, ge=0, le=100, description="Minimum confidence score"
+    ),
+    limit: int = Query(
+        10000, ge=1, le=50000, description="Maximum number of locations to return"
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> Dict[str, Any]:
     """
@@ -639,11 +653,11 @@ async def export_simple_locations(
     # Add filters
     if state:
         sql += " AND a.state_province = :state"
-        params['state'] = state.upper()
+        params["state"] = state.upper()
 
     if min_confidence:
         sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
-        params['min_confidence'] = min_confidence
+        params["min_confidence"] = min_confidence
 
     sql += f"""
         ), source_data AS (
@@ -703,16 +717,25 @@ async def export_simple_locations(
         if row.sources:
             if isinstance(row.sources, str):
                 import json
+
                 sources_data = json.loads(row.sources)
             else:
                 sources_data = row.sources
 
             for src in sources_data:
                 # Format timestamps
-                if src.get('last_updated'):
-                    src['last_updated'] = src['last_updated'].isoformat() if hasattr(src['last_updated'], 'isoformat') else str(src['last_updated'])
-                if src.get('first_seen'):
-                    src['first_seen'] = src['first_seen'].isoformat() if hasattr(src['first_seen'], 'isoformat') else str(src['first_seen'])
+                if src.get("last_updated"):
+                    src["last_updated"] = (
+                        src["last_updated"].isoformat()
+                        if hasattr(src["last_updated"], "isoformat")
+                        else str(src["last_updated"])
+                    )
+                if src.get("first_seen"):
+                    src["first_seen"] = (
+                        src["first_seen"].isoformat()
+                        if hasattr(src["first_seen"], "isoformat")
+                        else str(src["first_seen"])
+                    )
                 sources.append(src)
 
         location_data = {
@@ -729,10 +752,12 @@ async def export_simple_locations(
             "website": row.website,
             "email": row.email,
             "description": row.description,
-            "confidence_score": float(row.confidence_score) if row.confidence_score else 50.0,
+            "confidence_score": (
+                float(row.confidence_score) if row.confidence_score else 50.0
+            ),
             "validation_status": row.validation_status or "needs_review",
             "sources": sources,
-            "source_count": int(row.source_count) if row.source_count else 0
+            "source_count": int(row.source_count) if row.source_count else 0,
         }
 
         locations.append(location_data)
@@ -742,11 +767,13 @@ async def export_simple_locations(
         "generated": datetime.utcnow().isoformat(),
         "total_locations": len(locations),
         "states_covered": len(states),
-        "coverage": f"{len(states)} US states/territories" if states else "No state data",
+        "coverage": (
+            f"{len(states)} US states/territories" if states else "No state data"
+        ),
         "format_version": "2.0",
         "source": "Pantry Pirate Radio API",
         "includes_sources": True,
-        "export_method": "Simple Export with Sources"
+        "export_method": "Simple Export with Sources",
     }
 
     if state:
@@ -754,7 +781,4 @@ async def export_simple_locations(
     if min_confidence:
         metadata["min_confidence"] = min_confidence
 
-    return {
-        "metadata": metadata,
-        "locations": locations
-    }
+    return {"metadata": metadata, "locations": locations}

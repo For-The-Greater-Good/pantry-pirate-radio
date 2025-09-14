@@ -62,11 +62,17 @@ async def list_organizations(
                 "description": org.description,
                 "website": org.website,
                 "email": org.email,
-                "alternate_name": org.alternate_name if hasattr(org, "alternate_name") else None,
+                "alternate_name": (
+                    org.alternate_name if hasattr(org, "alternate_name") else None
+                ),
                 "tax_status": org.tax_status if hasattr(org, "tax_status") else None,
                 "tax_id": org.tax_id if hasattr(org, "tax_id") else None,
-                "year_incorporated": org.year_incorporated if hasattr(org, "year_incorporated") else None,
-                "legal_status": org.legal_status if hasattr(org, "legal_status") else None,
+                "year_incorporated": (
+                    org.year_incorporated if hasattr(org, "year_incorporated") else None
+                ),
+                "legal_status": (
+                    org.legal_status if hasattr(org, "legal_status") else None
+                ),
                 "metadata": {
                     "last_updated": (
                         org.updated_at.isoformat()
@@ -88,7 +94,11 @@ async def list_organizations(
                         "status": service.status,
                         "url": service.url,
                         "email": service.email,
-                        "alternate_name": service.alternate_name if hasattr(service, "alternate_name") else None,
+                        "alternate_name": (
+                            service.alternate_name
+                            if hasattr(service, "alternate_name")
+                            else None
+                        ),
                     }
                     # Don't try to access nested locations to avoid greenlet error
                     org_dict["services"].append(service_dict)
