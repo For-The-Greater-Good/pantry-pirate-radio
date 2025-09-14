@@ -111,8 +111,16 @@ async def list_service_at_location(
                     loc_dict = {
                         "id": str(sal.location.id),
                         "name": sal.location.name,
-                        "latitude": float(sal.location.latitude) if sal.location.latitude else None,
-                        "longitude": float(sal.location.longitude) if sal.location.longitude else None,
+                        "latitude": (
+                            float(sal.location.latitude)
+                            if sal.location.latitude
+                            else None
+                        ),
+                        "longitude": (
+                            float(sal.location.longitude)
+                            if sal.location.longitude
+                            else None
+                        ),
                         "description": sal.location.description,
                     }
                     sal_data.location = LocationResponse.model_validate(loc_dict)
@@ -200,8 +208,14 @@ async def get_service_at_location(
                 loc_dict = {
                     "id": str(sal.location.id),
                     "name": sal.location.name,
-                    "latitude": float(sal.location.latitude) if sal.location.latitude else None,
-                    "longitude": float(sal.location.longitude) if sal.location.longitude else None,
+                    "latitude": (
+                        float(sal.location.latitude) if sal.location.latitude else None
+                    ),
+                    "longitude": (
+                        float(sal.location.longitude)
+                        if sal.location.longitude
+                        else None
+                    ),
                     "description": sal.location.description,
                 }
                 sal_response.location = LocationResponse.model_validate(loc_dict)
