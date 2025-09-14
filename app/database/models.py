@@ -147,6 +147,7 @@ class LocationModel(Base):
     services_at_location = relationship(
         "ServiceAtLocationModel", back_populates="location"
     )
+    schedules = relationship("ScheduleModel", back_populates="location")
 
     def __init__(self, **kwargs):
         """Initialize location with geometry from lat/lon."""
@@ -229,6 +230,64 @@ class ServiceModel(Base):
     # Relationships
     organization = relationship("OrganizationModel", back_populates="services")
     locations = relationship("ServiceAtLocationModel", back_populates="service")
+    schedules = relationship("ScheduleModel", back_populates="service")
+
+
+class ScheduleModel(Base):
+    """Schedule model for HSDS specification."""
+
+    __tablename__ = "schedule"
+
+    id = Column(
+        Text,
+        primary_key=True,
+        default=lambda: str(uuid4()),
+        nullable=False,
+    )
+    service_id = Column(Text, ForeignKey("service.id"), nullable=True)
+    location_id = Column(Text, ForeignKey("location.id"), nullable=True)
+    service_at_location_id = Column(
+        Text, ForeignKey("service_at_location.id"), nullable=True
+    )
+
+    # Validity period
+    valid_from = Column(Date, nullable=True)
+    valid_to = Column(Date, nullable=True)
+
+    # Recurrence fields (iCalendar RRULE spec)
+    dtstart = Column(Date, nullable=True)
+    timezone = Column(Numeric, nullable=True)
+    until = Column(Date, nullable=True)
+    count = Column(Numeric, nullable=True)
+
+    # Frequency enums
+    wkst = Column(
+        Enum("MO", "TU", "WE", "TH", "FR", "SA", "SU", name="schedule_wkst_enum"),
+        nullable=True,
+    )
+    freq = Column(
+        Enum("WEEKLY", "MONTHLY", name="schedule_freq_enum"),
+        nullable=True,
+    )
+
+    interval = Column(Numeric, nullable=True)
+    byday = Column(Text, nullable=True)
+    byweekno = Column(Text, nullable=True)
+    bymonthday = Column(Text, nullable=True)
+    byyearday = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+
+    # Opening hours
+    opens_at = Column(Text, nullable=True)
+    closes_at = Column(Text, nullable=True)
+    schedule_link = Column(Text, nullable=True)
+    attending_type = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    # Relationships
+    location = relationship("LocationModel", back_populates="schedules")
+    service = relationship("ServiceModel", back_populates="schedules")
+    service_at_location = relationship("ServiceAtLocationModel", back_populates="schedules")
 
 
 class ServiceAtLocationModel(Base):
@@ -257,6 +316,7 @@ class ServiceAtLocationModel(Base):
     # Relationships
     service = relationship("ServiceModel", back_populates="locations")
     location = relationship("LocationModel", back_populates="services_at_location")
+    schedules = relationship("ScheduleModel", back_populates="service_at_location")
 
 
 class AddressModel(Base):

@@ -664,7 +664,7 @@ class LocationCreator(BaseReconciler):
                 "state_province": state_province,
                 "postal_code": postal_code,
                 "country": country,
-                "address_type": address_type,
+                "address_type": address_type if address_type and address_type != "" and address_type != "string" else "physical",
             },
         )
         self.db.commit()
