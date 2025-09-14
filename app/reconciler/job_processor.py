@@ -976,9 +976,7 @@ class JobProcessor:
                                         ),
                                         postal_code=address.get("postal_code", ""),
                                         country=country,
-                                        address_type=address.get(
-                                            "address_type", "physical"
-                                        ),
+                                        address_type=address.get("address_type") or "physical",
                                         location_id=location_id_str,
                                         metadata=job_result.job.metadata,
                                     )
@@ -1504,11 +1502,21 @@ class JobProcessor:
 
                     description = schedule.get("description", "") if schedule else ""
 
+                    # Clean wkst value - convert empty string or placeholder to None
+                    wkst_value = schedule.get("wkst") or None
+                    if wkst_value:
+                        if wkst_value == "string":
+                            # LLM sometimes outputs "string" as placeholder
+                            wkst_value = None
+                        elif "," in wkst_value:
+                            # If multiple days in wkst, take first one (rest should be in byday)
+                            wkst_value = wkst_value.split(",")[0].strip()
+                    
                     # Update or create schedule record
                     schedule_id, was_updated = (
                         service_creator.update_or_create_schedule(
                             freq=schedule.get("freq"),
-                            wkst=schedule.get("wkst"),
+                            wkst=wkst_value,
                             opens_at=schedule.get("opens_at"),
                             closes_at=schedule.get("closes_at"),
                             service_id=service_id_for_schedule,

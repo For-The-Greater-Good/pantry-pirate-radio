@@ -88,10 +88,10 @@ class MapSearchService:
                     '' as phone,  -- Skip phone join for performance
                     '' as services,  -- Will fetch if needed in full format
                     '' as languages,  -- Will fetch if needed in full format
-                    NULL as opens_at,
-                    NULL as closes_at,
-                    '' as byday,
-                    '' as schedule_description,
+                    s.opens_at,
+                    s.closes_at,
+                    s.byday,
+                    s.description as schedule_description,
                     l.confidence_score,
                     l.validation_status,
                     l.geocoding_source,
@@ -101,6 +101,19 @@ class MapSearchService:
                 LEFT JOIN address a ON a.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id
                 LEFT JOIN source_counts sc ON sc.location_id = l.id
+                LEFT JOIN LATERAL (
+                    SELECT opens_at, closes_at, byday, description
+                    FROM schedule
+                    WHERE schedule.location_id = l.id
+                       OR schedule.service_id IN (
+                           SELECT service_id
+                           FROM service_at_location
+                           WHERE location_id = l.id
+                       )
+                    ORDER BY
+                        CASE WHEN opens_at IS NOT NULL THEN 0 ELSE 1 END
+                    LIMIT 1
+                ) s ON true
                 WHERE l.latitude IS NOT NULL
                   AND l.longitude IS NOT NULL
                   AND l.latitude BETWEEN -90 AND 90

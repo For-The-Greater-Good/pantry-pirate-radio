@@ -29,7 +29,6 @@ from app.api.v1.service_at_location import router as service_at_location_router
 from app.api.v1.taxonomies import router as taxonomies_router
 from app.api.v1.taxonomy_terms import router as taxonomy_terms_router
 from app.api.v1.map import router as map_router
-from app.api.v1.export import router as export_router
 
 # Define locations/export-simple BEFORE including locations router to avoid conflicts
 @router.get("/locations/export-simple")
@@ -314,7 +313,6 @@ router.include_router(service_at_location_router)
 router.include_router(taxonomies_router)
 router.include_router(taxonomy_terms_router)
 router.include_router(map_router)
-router.include_router(export_router)
 
 
 
