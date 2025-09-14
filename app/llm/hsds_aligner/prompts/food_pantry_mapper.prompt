@@ -67,11 +67,12 @@ ENTITY EXTRACTION GUIDELINES:
 - One location entity for EACH unique address mentioned
 - service_at_location entries to connect services to their locations
 
-⚠️ CRITICAL: DO NOT hallucinate or add data that doesn't exist in the input!
-- Only include fields that are explicitly present or directly derivable from the input
-- Empty arrays/lists are acceptable - do not populate them with defaults
-- DO NOT add fields just to satisfy schema requirements
+⚠️ CRITICAL: Include ALL schema fields but DO NOT hallucinate data values!
+- Include ALL fields defined in the schema, even if they must be set to null or empty
+- Set field values to null, empty string "", or empty array [] when no data exists
+- DO NOT invent or hallucinate actual data values - only use what's explicitly in the input
 - NEVER generate ID values - the system handles all ID generation
+- The complete schema structure is required for downstream processing - omitting fields breaks the pipeline
 
 ✅ SAFE DEFAULTS (Only when the context clearly requires them):
 - country: "US" ONLY if the organization is clearly US-based (has US state/city)
@@ -81,8 +82,8 @@ ENTITY EXTRACTION GUIDELINES:
 
 ✅ CONTEXTUAL INFERENCE (Only when directly derivable):
 - state_province: From explicit mention or well-known city names (e.g., "New York City" → "NY")
-- organization.description: ONLY if you can create it from explicitly stated information
-- service.description: ONLY based on explicitly mentioned service details
+- organization.description: Generate from available context about the organization's purpose/activities
+- service.description: Generate from available service details and context
 - location.name: Can be inferred from event name or address if not explicitly given
 - Schedule patterns: Convert recurring text to RRULE format:
   • "Every Monday" → {freq: "WEEKLY", byday: "MO"}
@@ -129,11 +130,12 @@ ENTITY EXTRACTION GUIDELINES:
 - Geographic coordinates unless explicitly provided in the correct format
 
 🚫 ANTI-HALLUCINATION RULES:
-1. If data is missing, leave the field out or use an empty array/object
-2. DO NOT create placeholder or example data
-3. DO NOT add fields to "complete" the schema if they're not in the input
-4. When in doubt, leave it out
-5. It's better to have incomplete but accurate data than complete but fabricated data
+1. If data is missing, set the field to null, empty string "", or empty array [] as appropriate
+2. DO NOT create placeholder or example data values (EXCEPTION: descriptions can be generated from context)
+3. ALWAYS include ALL schema fields in the output structure, but with null/empty values when no data exists
+4. When in doubt about a value, use null - but always include the field
+5. The schema structure must be complete for tracking - it's better to have null fields than missing fields
+6. EXCEPTION: Description fields (organization.description, service.description) should be generated from available context
 
 📍 STATE VALIDATION:
 - Valid US state codes: AL, AK, AZ, AR, CA, CO, CT, DE, DC, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD, MA, MI, MN, MS, MO, MT, NE, NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC, SD, TN, TX, UT, VT, VA, WA, WV, WI, WY

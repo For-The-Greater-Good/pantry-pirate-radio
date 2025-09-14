@@ -221,13 +221,8 @@ class EndpointTester:
                   params={"q": "church"})
         
         # Export endpoints
-        self.test("GET", "/api/v1/locations/export", "Export Locations")
+        # Note: /export endpoint was removed as deprecated
         self.test("GET", "/api/v1/locations/export-simple", "Export Simple Format")
-        self.test("GET", "/api/v1/locations/export-working", "Export Working Format")
-        
-        # Test endpoints
-        self.test("GET", "/api/v1/locations/test-endpoint", "Test Endpoint")
-        self.test("GET", "/api/v1/locations/test-before-export", "Test Before Export")
         
         self.test("GET", f"/api/v1/locations/{sample_uuid}", "Get Location by ID", 
                   expected_status=[404])
@@ -280,8 +275,8 @@ class EndpointTester:
                   expected_status=[404])
         self.test("GET", "/api/v1/map/search", "Map Search", 
                   params={"q": "food pantry"})
-        self.test("POST", "/api/v1/map/geolocate", "Geolocate Address", 
-                  json_data={"address": "123 Main St, New York, NY 10001"})
+        self.test("GET", "/api/v1/map/geolocate", "Geolocate IP Address",
+                  params={"ip": "8.8.8.8"})
         
         # ============ TAXONOMY ENDPOINTS ============
         print(f"\n{Colors.BOLD}{Colors.MAGENTA}━━━ TAXONOMY ENDPOINTS ━━━{Colors.RESET}")
@@ -314,9 +309,9 @@ class EndpointTester:
         self.test("GET", "/api/v1/organizations/search", "XSS Test", 
                   params={"q": "<script>alert('xss')</script>"})
         
-        # Large radius search
-        self.test("GET", "/api/v1/locations/search", "Very Large Radius", 
-                  params={"latitude": valid_lat, "longitude": valid_lng, "radius_miles": 10000})
+        # Large radius search (within our 1000 mile limit)
+        self.test("GET", "/api/v1/locations/search", "Very Large Radius",
+                  params={"latitude": valid_lat, "longitude": valid_lng, "radius_miles": 999})
         
         # Empty search
         self.test("GET", "/api/v1/organizations/search", "Empty Search", 

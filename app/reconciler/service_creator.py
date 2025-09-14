@@ -737,7 +737,7 @@ class ServiceCreator(BaseReconciler):
             {
                 "id": str(schedule_id),
                 "freq": freq,
-                "wkst": wkst,
+                "wkst": wkst if wkst and wkst != "" and wkst != "string" else None,
                 "opens_at": opens_at_time,
                 "closes_at": closes_at_time,
                 "service_id": str(service_id) if service_id else None,

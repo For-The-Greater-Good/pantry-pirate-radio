@@ -21,6 +21,7 @@ from .models import (
     AddressModel,
     LocationModel,
     OrganizationModel,
+    ScheduleModel,
     ServiceAtLocationModel,
     ServiceModel,
 )
@@ -153,7 +154,8 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
         query = (
             select(self.model)
             .options(
-                selectinload(self.model.services).selectinload(ServiceModel.locations)
+                selectinload(self.model.services).selectinload(ServiceModel.locations),
+                selectinload(self.model.services).selectinload(ServiceModel.schedules)
             )
             .filter(
                 or_(
@@ -188,7 +190,8 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
         query = (
             select(self.model)
             .options(
-                selectinload(self.model.services).selectinload(ServiceModel.locations)
+                selectinload(self.model.services).selectinload(ServiceModel.locations),
+                selectinload(self.model.services).selectinload(ServiceModel.schedules)
             )
             .offset(skip)
             .limit(limit)
@@ -207,7 +210,11 @@ class LocationRepository(BaseRepository[LocationModel]):
         """Get location by ID with eager loading."""
         query = (
             select(self.model)
-            .options(selectinload(self.model.services_at_location))
+            .options(
+                selectinload(self.model.services_at_location)
+                # Temporarily disabled schedules due to async loading issues
+                # selectinload(self.model.schedules)
+            )
             .filter(self.model.id == str(id))
         )
         result = await self.session.execute(query)
@@ -222,6 +229,8 @@ class LocationRepository(BaseRepository[LocationModel]):
         """Get all locations with eager loading to prevent lazy load errors."""
         query = select(self.model).options(
             selectinload(self.model.services_at_location)
+            # Temporarily disabled schedules due to async loading issues
+            # selectinload(self.model.schedules)
         )
 
         # Apply filters
@@ -371,6 +380,8 @@ class LocationRepository(BaseRepository[LocationModel]):
                 selectinload(self.model.services_at_location).selectinload(
                     ServiceAtLocationModel.service
                 )
+                # Temporarily disabled schedules due to async loading issues
+                # selectinload(self.model.schedules)
             )
             .offset(skip)
             .limit(limit)
@@ -496,6 +507,7 @@ class ServiceRepository(BaseRepository[ServiceModel]):
             .options(
                 selectinload(self.model.organization),
                 selectinload(self.model.locations),
+                selectinload(self.model.schedules),
             )
             .filter(self.model.id == str(id))
         )
@@ -510,7 +522,9 @@ class ServiceRepository(BaseRepository[ServiceModel]):
     ) -> Sequence[ServiceModel]:
         """Get all services with eager loading to prevent lazy load errors."""
         query = select(self.model).options(
-            selectinload(self.model.organization), selectinload(self.model.locations)
+            selectinload(self.model.organization),
+            selectinload(self.model.locations),
+            selectinload(self.model.schedules)
         )
 
         # Apply filters
@@ -534,6 +548,7 @@ class ServiceRepository(BaseRepository[ServiceModel]):
             .options(
                 selectinload(self.model.organization),
                 selectinload(self.model.locations),
+                selectinload(self.model.schedules),
             )
             .filter(self.model.status == status)
             .offset(skip)
@@ -551,6 +566,7 @@ class ServiceRepository(BaseRepository[ServiceModel]):
             .options(
                 selectinload(self.model.organization),
                 selectinload(self.model.locations),
+                selectinload(self.model.schedules),
             )
             .filter(self.model.organization_id == str(organization_id))
             .offset(skip)
@@ -568,6 +584,7 @@ class ServiceRepository(BaseRepository[ServiceModel]):
             .options(
                 selectinload(self.model.organization),
                 selectinload(self.model.locations),
+                selectinload(self.model.schedules),
             )
             .filter(
                 or_(
@@ -605,9 +622,11 @@ class ServiceRepository(BaseRepository[ServiceModel]):
         query = (
             select(self.model)
             .options(
+                selectinload(self.model.organization),
                 selectinload(self.model.locations).selectinload(
                     ServiceAtLocationModel.location
-                )
+                ),
+                selectinload(self.model.schedules)
             )
             .offset(skip)
             .limit(limit)
@@ -627,7 +646,9 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         query = (
             select(self.model)
             .options(
-                selectinload(self.model.service), selectinload(self.model.location)
+                selectinload(self.model.service).selectinload(ServiceModel.schedules),
+                selectinload(self.model.location).selectinload(LocationModel.schedules),
+                selectinload(self.model.schedules)
             )
             .filter(self.model.id == str(id))
         )
@@ -643,7 +664,9 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         """Get all service at locations with eager loading to prevent lazy load errors."""
         query = select(self.model).options(
             selectinload(self.model.service).selectinload(ServiceModel.locations),
-            selectinload(self.model.location),
+            selectinload(self.model.service).selectinload(ServiceModel.schedules),
+            selectinload(self.model.location).selectinload(LocationModel.schedules),
+            selectinload(self.model.schedules),
         )
 
         # Apply filters
@@ -665,7 +688,9 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         query = (
             select(self.model)
             .options(
-                selectinload(self.model.service), selectinload(self.model.location)
+                selectinload(self.model.service).selectinload(ServiceModel.schedules),
+                selectinload(self.model.location).selectinload(LocationModel.schedules),
+                selectinload(self.model.schedules)
             )
             .filter(
                 and_(
@@ -683,7 +708,10 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
         """Get all services at a location."""
         query = (
             select(self.model)
-            .options(selectinload(self.model.service))
+            .options(
+                selectinload(self.model.service).selectinload(ServiceModel.schedules),
+                selectinload(self.model.schedules)
+            )
             .filter(self.model.location_id == str(location_id))
             .offset(skip)
             .limit(limit)
