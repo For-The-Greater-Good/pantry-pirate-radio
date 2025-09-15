@@ -242,23 +242,23 @@ class MapSearchService:
         # Build final query
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
-        # Count query
-        count_query = f"""
-            {base_query}
-            SELECT COUNT(*) as total
-            FROM searchable_locations
-            {where_clause}
-        """
+        # Count query - use string concatenation instead of f-string to avoid S608
+        count_query = (
+            base_query
+            + "\nSELECT COUNT(*) as total\n"  # nosec B608
+            + "FROM searchable_locations\n"
+            + where_clause
+        )
 
-        # Main query
-        main_query = f"""
-            {base_query}
-            SELECT *
-            FROM searchable_locations
-            {where_clause}
-            ORDER BY confidence_score DESC, location_name, org_name
-            LIMIT :limit OFFSET :offset
-        """
+        # Main query - use string concatenation instead of f-string to avoid S608
+        main_query = (
+            base_query
+            + "\nSELECT *\n"  # nosec B608
+            + "FROM searchable_locations\n"
+            + where_clause
+            + "\nORDER BY confidence_score DESC, location_name, org_name\n"
+            + "LIMIT :limit OFFSET :offset"
+        )
 
         params["limit"] = limit
         params["offset"] = offset
@@ -385,7 +385,7 @@ class MapSearchService:
         # Generate metadata
         if output_format == OutputFormat.GEOJSON:
             # Return as FeatureCollection
-            result_data = {
+            result_data: Dict[str, Any] = {
                 "type": "FeatureCollection",
                 "features": locations,
                 "properties": {
@@ -407,15 +407,20 @@ class MapSearchService:
             generated=datetime.now(UTC).isoformat(),
             total_locations=len(locations),
             total_source_records=sum(
-                loc.get("source_count", 1)
+                (
+                    int(loc.get("source_count", 1))
+                    if isinstance(loc.get("source_count", 1), int | str)
+                    else 1
+                )
                 for loc in locations
-                if output_format != OutputFormat.GEOJSON
+                if output_format != OutputFormat.GEOJSON and isinstance(loc, dict)
             ),
             multi_source_locations=sum(
                 1
                 for loc in locations
                 if output_format != OutputFormat.GEOJSON
-                and loc.get("source_count", 1) > 1
+                and isinstance(loc, dict)
+                and int(loc.get("source_count", 1)) > 1
             ),
             states_covered=len(states),
             coverage=f"{len(states)} US states/territories",

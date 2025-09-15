@@ -7,8 +7,7 @@ Run this to add indexes to an existing database for improved search performance.
 import asyncio
 import logging
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 import os
 from datetime import datetime
 
@@ -73,7 +72,9 @@ async def create_indexes(database_url: str):
 
     # Create async engine
     engine = create_async_engine(database_url, echo=False)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with async_session() as session:
         try:

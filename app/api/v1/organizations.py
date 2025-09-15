@@ -80,11 +80,11 @@ async def list_organizations(
                         else None
                     )
                 },
+                "services": [],  # Initialize services as empty list
             }
 
             # Add services if they were loaded
             if hasattr(org, "services") and org.services:
-                org_dict["services"] = []
                 for service in org.services:
                     service_dict = {
                         "id": str(service.id),
@@ -101,7 +101,9 @@ async def list_organizations(
                         ),
                     }
                     # Don't try to access nested locations to avoid greenlet error
-                    org_dict["services"].append(service_dict)
+                    services_list = org_dict.get("services")
+                    if isinstance(services_list, list):
+                        services_list.append(service_dict)
 
             org_data = OrganizationResponse.model_validate(org_dict)
         else:

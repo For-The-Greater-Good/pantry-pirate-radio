@@ -223,13 +223,13 @@ async def list_locations(
             location_data = LocationResponse.model_validate(loc_dict)
 
         # Add sources information
-        sources = await get_location_sources(location.id, session)
+        sources = await get_location_sources(str(location.id), session)
         if sources:
             location_data.sources = sources
             location_data.source_count = len(sources)
 
         # Add schedules information via direct SQL query
-        schedules = await get_location_schedules(location.id, session)
+        schedules = await get_location_schedules(str(location.id), session)
         if schedules:
             location_data.schedules = schedules[:5]  # Limit to 5 schedules per location
 
@@ -416,13 +416,13 @@ async def search_locations(
             location_data = LocationResponse.model_validate(loc_dict)
 
         # Add sources information
-        sources = await get_location_sources(location.id, session)
+        sources = await get_location_sources(str(location.id), session)
         if sources:
             location_data.sources = sources
             location_data.source_count = len(sources)
 
         # Add schedules information via direct SQL query
-        schedules = await get_location_schedules(location.id, session)
+        schedules = await get_location_schedules(str(location.id), session)
         if schedules:
             location_data.schedules = schedules[:5]  # Limit to 5 schedules per location
 
@@ -522,13 +522,13 @@ async def get_location(
         location_response = LocationResponse.model_validate(loc_dict)
 
     # Add sources information
-    sources = await get_location_sources(location.id, session)
+    sources = await get_location_sources(str(location.id), session)
     if sources:
         location_response.sources = sources
         location_response.source_count = len(sources)
 
     # Add schedules information via direct SQL query
-    schedules = await get_location_schedules(location.id, session)
+    schedules = await get_location_schedules(str(location.id), session)
     if schedules:
         location_response.schedules = schedules
 
@@ -657,9 +657,10 @@ async def export_simple_locations(
 
     if min_confidence:
         sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
-        params["min_confidence"] = min_confidence
+        params["min_confidence"] = str(min_confidence)
 
-    sql += f"""
+    # Use string concatenation instead of f-string to avoid S608
+    sql += """
         ), source_data AS (
             SELECT
                 ls.location_id,

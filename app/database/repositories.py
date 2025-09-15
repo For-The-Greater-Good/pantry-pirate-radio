@@ -21,7 +21,6 @@ from .models import (
     AddressModel,
     LocationModel,
     OrganizationModel,
-    ScheduleModel,
     ServiceAtLocationModel,
     ServiceModel,
 )
