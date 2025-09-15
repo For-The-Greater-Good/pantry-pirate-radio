@@ -88,14 +88,14 @@ class TestCLICommands:
     def test_dashboard_command_custom_host_port(self, mock_app):
         """Test dashboard command with custom host and port."""
         runner = CliRunner()
-        result = runner.invoke(dashboard, ["--host", "0.0.0.0", "--port", "8080"])
+        result = runner.invoke(dashboard, ["--host", "127.0.0.1", "--port", "8080"])
 
         # Verify
         assert result.exit_code == 0
         assert (
-            "Starting Content Store Dashboard on http://0.0.0.0:8080" in result.output
+            "Starting Content Store Dashboard on http://127.0.0.1:8080" in result.output
         )
-        mock_app.run.assert_called_once_with(host="0.0.0.0", port=8080, debug=False)
+        mock_app.run.assert_called_once_with(host="127.0.0.1", port=8080, debug=False)
 
     @patch("app.content_store.ContentStore")
     def test_inspect_command_valid_hash(self, mock_content_store_class):

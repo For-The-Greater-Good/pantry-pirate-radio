@@ -101,9 +101,9 @@ class TestNormalizeStateToCode:
 
     def test_all_states_covered(self):
         """Test that all states in mapping are valid."""
-        for state_name, state_code in STATE_NAME_TO_CODE.items():
-            assert normalize_state_to_code(state_name) == state_code
-            assert state_code in VALID_STATE_CODES
+        for state_name, expected_code in STATE_NAME_TO_CODE.items():
+            assert normalize_state_to_code(state_name) == expected_code
+            assert expected_code in VALID_STATE_CODES
 
     def test_all_valid_codes_work(self):
         """Test that all valid state codes return themselves."""
