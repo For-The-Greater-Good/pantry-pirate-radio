@@ -171,13 +171,13 @@ class TestStateMappingDataIntegrity:
 
     def test_no_duplicate_state_names(self):
         """Test that there are no duplicate state names in mapping."""
-        seen_codes = set()
-        for state_name, state_code in STATE_NAME_TO_CODE.items():
+        seen_names = set()
+        for state_name in STATE_NAME_TO_CODE.keys():
             # Each state code can have multiple names (like DC variations)
             # but we should ensure the mappings are consistent
-            if state_name in seen_codes:
+            if state_name in seen_names:
                 pytest.fail(f"Duplicate state name found: {state_name}")
-            seen_codes.add(state_name)
+            seen_names.add(state_name)
 
     def test_all_mapped_codes_are_valid(self):
         """Test that all codes in STATE_NAME_TO_CODE are in VALID_STATE_CODES."""
