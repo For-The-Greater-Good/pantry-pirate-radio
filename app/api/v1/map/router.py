@@ -723,14 +723,14 @@ async def geolocate_ip(
         client_ip = (
             request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
             or request.headers.get("X-Real-IP")
-            or request.client.host
+            or (request.client.host if request.client else None)
         )
 
     # Skip localhost/private IPs
     if (
         client_ip in ["127.0.0.1", "localhost", "::1"]
-        or client_ip.startswith("192.168.")
-        or client_ip.startswith("10.")
+        or (client_ip and client_ip.startswith("192.168."))
+        or (client_ip and client_ip.startswith("10."))
     ):
         # Return center of US for local development
         return GeoLocationResponse(
@@ -739,7 +739,7 @@ async def geolocate_ip(
             city="Geographic Center",
             state="US",
             country="US",
-            ip=client_ip,
+            ip=client_ip or "",
             source="default",
         )
 
@@ -777,6 +777,6 @@ async def geolocate_ip(
         city="United States",
         state="US",
         country="US",
-        ip=client_ip,
+        ip=client_ip or "",
         source="fallback",
     )

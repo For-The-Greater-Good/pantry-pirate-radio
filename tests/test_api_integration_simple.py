@@ -170,14 +170,27 @@ class TestOrganizationsAPI:
 class TestLocationsAPI:
     """Test locations API endpoints."""
 
+    @patch("app.api.v1.locations.get_location_schedules")
+    @patch("app.api.v1.locations.get_location_sources")
     @patch("app.api.v1.locations.LocationRepository")
-    def test_list_locations_basic(self, mock_repo_class, client, mock_location):
+    def test_list_locations_basic(
+        self,
+        mock_repo_class,
+        mock_get_sources,
+        mock_get_schedules,
+        client,
+        mock_location,
+    ):
         """Test basic location listing."""
         mock_repo = AsyncMock()
         mock_repo_class.return_value = mock_repo
 
         mock_repo.get_all.return_value = [mock_location]
         mock_repo.count.return_value = 1
+
+        # Mock helper functions to return empty lists
+        mock_get_sources.return_value = []
+        mock_get_schedules.return_value = []
 
         response = client.get("/api/v1/locations/")
 
@@ -186,9 +199,16 @@ class TestLocationsAPI:
         assert "data" in data
         assert "count" in data
 
+    @patch("app.api.v1.locations.get_location_schedules")
+    @patch("app.api.v1.locations.get_location_sources")
     @patch("app.api.v1.locations.LocationRepository")
     def test_list_locations_with_organization_filter(
-        self, mock_repo_class, client, mock_location
+        self,
+        mock_repo_class,
+        mock_get_sources,
+        mock_get_schedules,
+        client,
+        mock_location,
     ):
         """Test location listing with organization filter."""
         mock_repo = AsyncMock()
@@ -197,13 +217,26 @@ class TestLocationsAPI:
         mock_repo.get_all.return_value = [mock_location]
         mock_repo.count.return_value = 1
 
+        # Mock helper functions to return empty lists
+        mock_get_sources.return_value = []
+        mock_get_schedules.return_value = []
+
         org_id = str(uuid.uuid4())
         response = client.get(f"/api/v1/locations/?organization_id={org_id}")
 
         assert response.status_code == 200
 
+    @patch("app.api.v1.locations.get_location_schedules")
+    @patch("app.api.v1.locations.get_location_sources")
     @patch("app.api.v1.locations.LocationRepository")
-    def test_search_locations_radius(self, mock_repo_class, client, mock_location):
+    def test_search_locations_radius(
+        self,
+        mock_repo_class,
+        mock_get_sources,
+        mock_get_schedules,
+        client,
+        mock_location,
+    ):
         """Test location search with radius."""
         mock_repo = AsyncMock()
         mock_repo_class.return_value = mock_repo
@@ -211,15 +244,26 @@ class TestLocationsAPI:
         mock_repo.get_locations_by_radius.return_value = [mock_location]
         mock_repo.count_by_radius.return_value = 1
 
+        # Mock helper functions to return empty lists
+        mock_get_sources.return_value = []
+        mock_get_schedules.return_value = []
+
         response = client.get(
             "/api/v1/locations/search?latitude=40.7128&longitude=-74.0060&radius_miles=10"
         )
 
         assert response.status_code == 200
 
+    @patch("app.api.v1.locations.get_location_schedules")
+    @patch("app.api.v1.locations.get_location_sources")
     @patch("app.api.v1.locations.LocationRepository")
     def test_search_locations_bounding_box(
-        self, mock_repo_class, client, mock_location
+        self,
+        mock_repo_class,
+        mock_get_sources,
+        mock_get_schedules,
+        client,
+        mock_location,
     ):
         """Test location search with bounding box."""
         mock_repo = AsyncMock()
@@ -228,19 +272,36 @@ class TestLocationsAPI:
         mock_repo.get_locations_by_bbox.return_value = [mock_location]
         mock_repo.count_by_bbox.return_value = 1
 
+        # Mock helper functions to return empty lists
+        mock_get_sources.return_value = []
+        mock_get_schedules.return_value = []
+
         response = client.get(
             "/api/v1/locations/search?min_latitude=40.7&max_latitude=40.8&min_longitude=-74.1&max_longitude=-74.0"
         )
 
         assert response.status_code == 200
 
+    @patch("app.api.v1.locations.get_location_schedules")
+    @patch("app.api.v1.locations.get_location_sources")
     @patch("app.api.v1.locations.LocationRepository")
-    def test_get_location_by_id(self, mock_repo_class, client, mock_location):
+    def test_get_location_by_id(
+        self,
+        mock_repo_class,
+        mock_get_sources,
+        mock_get_schedules,
+        client,
+        mock_location,
+    ):
         """Test getting location by ID."""
         mock_repo = AsyncMock()
         mock_repo_class.return_value = mock_repo
 
         mock_repo.get_by_id.return_value = mock_location
+
+        # Mock helper functions to return empty lists
+        mock_get_sources.return_value = []
+        mock_get_schedules.return_value = []
 
         location_id = str(mock_location.id)
         response = client.get(f"/api/v1/locations/{location_id}")
