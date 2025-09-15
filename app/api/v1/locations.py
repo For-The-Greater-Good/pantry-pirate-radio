@@ -650,16 +650,25 @@ async def export_simple_locations(
 
     params = {}
 
-    # Add filters
+    # Add state filter with validation
     if state:
-        sql += " AND a.state_province = :state"
-        params["state"] = state.upper()
+        # Validate state format - 2 letter code only
+        if isinstance(state, str) and len(state.strip()) == 2 and state.strip().isalpha():
+            sql += " AND a.state_province = :state"
+            params["state"] = state.upper().strip()
 
+    # Add confidence filter with validation
     if min_confidence:
-        sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
-        params["min_confidence"] = str(min_confidence)
+        try:
+            confidence_val = int(min_confidence)
+            if 0 <= confidence_val <= 100:
+                sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
+                params["min_confidence"] = confidence_val
+        except (ValueError, TypeError):
+            # Invalid confidence value - skip this filter
+            pass
 
-    # Use string concatenation instead of f-string to avoid S608
+    # Continue building query with parameterized limit
     sql += """
         ), source_data AS (
             SELECT
@@ -698,8 +707,15 @@ async def export_simple_locations(
         FROM location_data ld
         LEFT JOIN source_data sd ON sd.location_id = ld.id
         ORDER BY ld.confidence_score DESC, ld.name
-        LIMIT {limit}
+        LIMIT :limit
     """
+    
+    # Validate and add limit parameter
+    try:
+        validated_limit = min(max(int(limit), 1), 10000)  # Between 1-10000 for export
+        params["limit"] = validated_limit
+    except (ValueError, TypeError):
+        params["limit"] = 1000  # Safe default for export
 
     # Execute query
     result = await session.execute(text(sql), params)
