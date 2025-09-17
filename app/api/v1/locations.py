@@ -648,12 +648,16 @@ async def export_simple_locations(
               AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
     """
 
-    params = {}
+    params: Dict[str, Any] = {}
 
     # Add state filter with validation
     if state:
         # Validate state format - 2 letter code only
-        if isinstance(state, str) and len(state.strip()) == 2 and state.strip().isalpha():
+        if (
+            isinstance(state, str)
+            and len(state.strip()) == 2
+            and state.strip().isalpha()
+        ):
             sql += " AND a.state_province = :state"
             params["state"] = state.upper().strip()
 
@@ -709,7 +713,7 @@ async def export_simple_locations(
         ORDER BY ld.confidence_score DESC, ld.name
         LIMIT :limit
     """
-    
+
     # Validate and add limit parameter
     try:
         validated_limit = min(max(int(limit), 1), 10000)  # Between 1-10000 for export

@@ -136,6 +136,7 @@ class MapSearchService:
                 sanitized_query = query.strip()[:100]  # Limit to 100 chars
                 # Only allow alphanumeric, spaces, hyphens, apostrophes, and periods
                 import re
+
                 if re.match(r"^[a-zA-Z0-9\s\-'.]+$", sanitized_query):
                     conditions.append("LOWER(location_name) LIKE :search_pattern")
                     params["search_pattern"] = f"%{sanitized_query.lower()}%"
@@ -145,9 +146,14 @@ class MapSearchService:
             try:
                 min_lat, min_lng, max_lat, max_lng = bbox
                 # Validate coordinate bounds
-                if (-90 <= min_lat <= 90 and -90 <= max_lat <= 90 and
-                    -180 <= min_lng <= 180 and -180 <= max_lng <= 180 and
-                    min_lat <= max_lat and min_lng <= max_lng):
+                if (
+                    -90 <= min_lat <= 90
+                    and -90 <= max_lat <= 90
+                    and -180 <= min_lng <= 180
+                    and -180 <= max_lng <= 180
+                    and min_lat <= max_lat
+                    and min_lng <= max_lng
+                ):
                     conditions.append("lat BETWEEN :min_lat AND :max_lat")
                     conditions.append("lng BETWEEN :min_lng AND :max_lng")
                     params.update(
@@ -170,8 +176,11 @@ class MapSearchService:
         ):
             try:
                 # Validate coordinates and radius
-                if (-90 <= center_lat <= 90 and -180 <= center_lng <= 180 and
-                    0 < radius_miles <= 1000):  # Max 1000 miles radius
+                if (
+                    -90 <= center_lat <= 90
+                    and -180 <= center_lng <= 180
+                    and 0 < radius_miles <= 1000
+                ):  # Max 1000 miles radius
                     conditions.append(
                         """
                         (
@@ -197,7 +206,11 @@ class MapSearchService:
         # State filter with validation
         if state:
             # Validate state format - 2 letter code only
-            if isinstance(state, str) and len(state.strip()) == 2 and state.strip().isalpha():
+            if (
+                isinstance(state, str)
+                and len(state.strip()) == 2
+                and state.strip().isalpha()
+            ):
                 conditions.append("state = :state")
                 params["state"] = state.upper().strip()
 
@@ -214,29 +227,37 @@ class MapSearchService:
         # Schedule filter with proper input validation and parameterized queries
         if schedule_days:
             day_conditions = []
-            valid_days = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
-            
+            valid_days = {
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            }
+
             for i, day in enumerate(schedule_days):
                 # Validate input - only allow known day names
                 if not isinstance(day, str) or day.lower() not in valid_days:
                     continue
-                    
+
                 # Days are stored as abbreviations (MO, TU, WE, TH, FR, SA, SU)
                 day_abbr = {
                     "monday": "MO",
-                    "tuesday": "TU", 
+                    "tuesday": "TU",
                     "wednesday": "WE",
                     "thursday": "TH",
                     "friday": "FR",
                     "saturday": "SA",
                     "sunday": "SU",
                 }.get(day.lower())
-                
+
                 if day_abbr:
                     param_name = f"day_pattern_{i}"
                     day_conditions.append(f"byday LIKE :{param_name}")
                     params[param_name] = f"%{day_abbr}%"
-                    
+
             if day_conditions:
                 conditions.append(f"({' OR '.join(day_conditions)})")
 
@@ -246,7 +267,7 @@ class MapSearchService:
 
             current_time = dt.now().time()
             current_day = dt.now().strftime("%a")[:2].upper()
-            
+
             # Validate current_day format - must be 2 uppercase letters
             if len(current_day) == 2 and current_day.isalpha():
                 conditions.append(
@@ -275,7 +296,10 @@ class MapSearchService:
         if validation_status:
             # Validate against allowed status values
             valid_statuses = {"needs_review", "verified", "rejected", "pending"}
-            if isinstance(validation_status, str) and validation_status.lower() in valid_statuses:
+            if (
+                isinstance(validation_status, str)
+                and validation_status.lower() in valid_statuses
+            ):
                 conditions.append("validation_status = :validation_status")
                 params["validation_status"] = validation_status.lower()
 
