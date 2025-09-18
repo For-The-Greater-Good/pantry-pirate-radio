@@ -158,6 +158,9 @@ def normalize_state_to_code(state_str: Optional[str]) -> str:
     state_no_periods = state_clean.replace(".", "")
     if state_no_periods in STATE_NAME_TO_CODE:
         return STATE_NAME_TO_CODE[state_no_periods]
+    # Also check if the version without periods is a valid state code
+    if state_no_periods in VALID_STATE_CODES:
+        return state_no_periods
 
     # Check if it's already a 2-letter code (might not be in our valid set)
     if len(state_clean) == 2:
