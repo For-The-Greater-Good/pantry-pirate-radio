@@ -6,25 +6,33 @@ from unittest.mock import MagicMock, patch
 
 
 def test_redis_connection_failure():
-    """Test Redis connection failure handling."""
+    """Test Redis connection failure handling and error logging."""
     # Remove module from cache if it exists
     if "app.llm.queue.queues" in sys.modules:
         del sys.modules["app.llm.queue.queues"]
 
     with patch("redis.ConnectionPool.from_url") as mock_pool_from_url:
         with patch("redis.Redis") as mock_redis_class:
-            # Mock connection pool
-            mock_pool = MagicMock()
-            mock_pool_from_url.return_value = mock_pool
+            with patch("logging.getLogger") as mock_get_logger:
+                # Mock logger
+                mock_logger = MagicMock()
+                mock_get_logger.return_value = mock_logger
 
-            # Mock Redis client that fails ping
-            mock_client = MagicMock()
-            mock_client.ping.side_effect = ConnectionError("Connection failed")
-            mock_redis_class.return_value = mock_client
+                # Mock connection pool
+                mock_pool = MagicMock()
+                mock_pool_from_url.return_value = mock_pool
 
-            # This should raise the exception from the queues module
-            with pytest.raises(ConnectionError):
-                import app.llm.queue.queues
+                # Mock Redis client that fails ping
+                mock_client = MagicMock()
+                mock_client.ping.side_effect = ConnectionError("Connection failed")
+                mock_redis_class.return_value = mock_client
+
+                # This should raise the exception from the queues module
+                with pytest.raises(ConnectionError):
+                    import app.llm.queue.queues
+
+                # Verify error was logged
+                mock_logger.error.assert_called_once()
 
 
 def test_redis_url_configuration():
