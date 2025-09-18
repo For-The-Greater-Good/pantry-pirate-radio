@@ -29,7 +29,7 @@ from app.api.v1.service_at_location import router as service_at_location_router
 from app.api.v1.taxonomies import router as taxonomies_router
 from app.api.v1.taxonomy_terms import router as taxonomy_terms_router
 from app.api.v1.map import router as map_router
-from app.api.v1.consumer import router as consumer_router
+from app.api.v1.consumer.router import router as consumer_router
 
 
 # Define locations/export-simple BEFORE including locations router to avoid conflicts
@@ -116,14 +116,14 @@ async def export_simple_priority(
                         cluster_id
                     FROM clustered_locations
                     WHERE cluster_id IS NOT NULL
-                    ORDER BY cluster_id, 
+                    ORDER BY cluster_id,
                              CASE WHEN is_canonical THEN 0 ELSE 1 END,
                              confidence_score DESC NULLS LAST,
                              id
                 )
                 SELECT * FROM cluster_representatives
                 UNION ALL
-                SELECT 
+                SELECT
                     id, lat, lng, name, org, address_1, city, state, zip,
                     phone, website, description, confidence_score,
                     validation_status, geocoding_source, NULL as cluster_id
@@ -174,7 +174,7 @@ async def export_simple_priority(
         if location_ids:
             schedule_query = text(
                 """
-                SELECT 
+                SELECT
                     s.location_id,
                     s.freq,
                     s.byday,
@@ -208,11 +208,11 @@ async def export_simple_priority(
                     }
 
         # Query services for all locations
-        services_dict = {}
+        services_dict: dict[str, list[str]] = {}
         if location_ids:
             services_query = text(
                 """
-                SELECT 
+                SELECT
                     sal.location_id,
                     sv.name as service_name
                 FROM service_at_location sal
@@ -290,6 +290,9 @@ async def export_simple_priority(
             "deduplication": {
                 "enabled": grouping_radius > 0,
                 "radius_meters": grouping_radius,
+                "locations_before": 0,
+                "locations_after": 0,
+                "locations_grouped": 0,
             },
         }
 
@@ -305,11 +308,11 @@ async def export_simple_priority(
             )
             count_result = await session.execute(count_query)
             total_before = count_result.scalar() or 0
-            metadata["deduplication"]["locations_before"] = total_before
-            metadata["deduplication"]["locations_after"] = len(locations)
-            metadata["deduplication"]["locations_grouped"] = total_before - len(
-                locations
-            )
+            dedup_info = metadata.get("deduplication")
+            if isinstance(dedup_info, dict):
+                dedup_info["locations_before"] = total_before
+                dedup_info["locations_after"] = len(locations)
+                dedup_info["locations_grouped"] = total_before - len(locations)
 
         return {"metadata": metadata, "locations": locations}
 

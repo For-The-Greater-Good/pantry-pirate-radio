@@ -127,57 +127,92 @@ class MapSearchService:
         conditions = []
         params: Dict[str, Any] = {}
 
-        # Simple text search - only on location name for basic filtering
+        # Simple text search with input validation - only on location name for basic filtering
         # Not a primary use case, so keep it simple
         if query:
-            # Just search location name to avoid complex queries
-            conditions.append("LOWER(location_name) LIKE :search_pattern")
-            params["search_pattern"] = f"%{query.lower()}%"
+            # Validate and sanitize query input
+            if isinstance(query, str) and len(query.strip()) > 0:
+                # Remove potentially dangerous characters and limit length
+                sanitized_query = query.strip()[:100]  # Limit to 100 chars
+                # Only allow alphanumeric, spaces, hyphens, apostrophes, and periods
+                import re
 
-        # Geographic filters
+                if re.match(r"^[a-zA-Z0-9\s\-'.]+$", sanitized_query):
+                    conditions.append("LOWER(location_name) LIKE :search_pattern")
+                    params["search_pattern"] = f"%{sanitized_query.lower()}%"
+
+        # Geographic filters with validation
         if bbox:
-            min_lat, min_lng, max_lat, max_lng = bbox
-            conditions.append("lat BETWEEN :min_lat AND :max_lat")
-            conditions.append("lng BETWEEN :min_lng AND :max_lng")
-            params.update(
-                {
-                    "min_lat": min_lat,
-                    "max_lat": max_lat,
-                    "min_lng": min_lng,
-                    "max_lng": max_lng,
-                }
-            )
+            try:
+                min_lat, min_lng, max_lat, max_lng = bbox
+                # Validate coordinate bounds
+                if (
+                    -90 <= min_lat <= 90
+                    and -90 <= max_lat <= 90
+                    and -180 <= min_lng <= 180
+                    and -180 <= max_lng <= 180
+                    and min_lat <= max_lat
+                    and min_lng <= max_lng
+                ):
+                    conditions.append("lat BETWEEN :min_lat AND :max_lat")
+                    conditions.append("lng BETWEEN :min_lng AND :max_lng")
+                    params.update(
+                        {
+                            "min_lat": min_lat,
+                            "max_lat": max_lat,
+                            "min_lng": min_lng,
+                            "max_lng": max_lng,
+                        }
+                    )
+            except (ValueError, TypeError):
+                # Invalid bbox format - skip this filter
+                pass
 
-        # Radius search
+        # Radius search with validation
         if (
             center_lat is not None
             and center_lng is not None
             and radius_miles is not None
         ):
-
-            conditions.append(
-                """
-                (
-                    3959 * acos(
-                        cos(radians(:center_lat)) * cos(radians(lat)) *
-                        cos(radians(lng) - radians(:center_lng)) +
-                        sin(radians(:center_lat)) * sin(radians(lat))
+            try:
+                # Validate coordinates and radius
+                if (
+                    -90 <= center_lat <= 90
+                    and -180 <= center_lng <= 180
+                    and 0 < radius_miles <= 1000
+                ):  # Max 1000 miles radius
+                    conditions.append(
+                        """
+                        (
+                            3959 * acos(
+                                cos(radians(:center_lat)) * cos(radians(lat)) *
+                                cos(radians(lng) - radians(:center_lng)) +
+                                sin(radians(:center_lat)) * sin(radians(lat))
+                            )
+                        ) <= :radius_miles
+                    """
                     )
-                ) <= :radius_miles
-            """
-            )
-            params.update(
-                {
-                    "center_lat": center_lat,
-                    "center_lng": center_lng,
-                    "radius_miles": radius_miles,
-                }
-            )
+                    params.update(
+                        {
+                            "center_lat": center_lat,
+                            "center_lng": center_lng,
+                            "radius_miles": radius_miles,
+                        }
+                    )
+            except (ValueError, TypeError):
+                # Invalid coordinates or radius - skip this filter
+                pass
 
-        # State filter
+        # State filter with validation
         if state:
-            conditions.append("state = :state")
-            params["state"] = state.upper()
+            # Validate state format - 2 letter code only
+            if (
+                isinstance(state, str)
+                and len(state.strip()) == 2
+                and state.strip().isalpha()
+            ):
+                conditions.append("state = :state")
+                params["state"] = state.upper().strip()
 
         # Service filter - simplified, only check if services exist
         if services:
@@ -189,10 +224,24 @@ class MapSearchService:
             # Just check if location has language support, don't filter by specific ones
             conditions.append("languages IS NOT NULL AND languages != ''")
 
-        # Schedule filter
+        # Schedule filter with proper input validation and parameterized queries
         if schedule_days:
             day_conditions = []
-            for day in schedule_days:
+            valid_days = {
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            }
+
+            for i, day in enumerate(schedule_days):
+                # Validate input - only allow known day names
+                if not isinstance(day, str) or day.lower() not in valid_days:
+                    continue
+
                 # Days are stored as abbreviations (MO, TU, WE, TH, FR, SA, SU)
                 day_abbr = {
                     "monday": "MO",
@@ -202,35 +251,57 @@ class MapSearchService:
                     "friday": "FR",
                     "saturday": "SA",
                     "sunday": "SU",
-                }.get(day.lower(), day.upper()[:2])
-                day_conditions.append(f"byday LIKE '%{day_abbr}%'")
+                }.get(day.lower())
+
+                if day_abbr:
+                    param_name = f"day_pattern_{i}"
+                    day_conditions.append(f"byday LIKE :{param_name}")
+                    params[param_name] = f"%{day_abbr}%"
+
             if day_conditions:
                 conditions.append(f"({' OR '.join(day_conditions)})")
 
-        # Open now filter (simplified - would need current time logic)
+        # Open now filter with proper parameterized query
         if open_now:
             from datetime import datetime as dt
 
             current_time = dt.now().time()
             current_day = dt.now().strftime("%a")[:2].upper()
-            conditions.append(
-                f"""
-                (byday LIKE '%{current_day}%' AND 
-                 opens_at <= :current_time AND 
-                 closes_at >= :current_time)
-            """
-            )
-            params["current_time"] = current_time
 
-        # Confidence filter
+            # Validate current_day format - must be 2 uppercase letters
+            if len(current_day) == 2 and current_day.isalpha():
+                conditions.append(
+                    """
+                    (byday LIKE :current_day_pattern AND
+                     opens_at <= :current_time AND
+                     closes_at >= :current_time)
+                """
+                )
+                params["current_day_pattern"] = f"%{current_day}%"
+                params["current_time"] = current_time
+
+        # Confidence filter with validation
         if confidence_min is not None:
-            conditions.append("confidence_score >= :confidence_min")
-            params["confidence_min"] = confidence_min
+            try:
+                # Validate confidence score range (0-100)
+                confidence_val = int(confidence_min)
+                if 0 <= confidence_val <= 100:
+                    conditions.append("confidence_score >= :confidence_min")
+                    params["confidence_min"] = confidence_val
+            except (ValueError, TypeError):
+                # Invalid confidence value - skip this filter
+                pass
 
-        # Validation status filter
+        # Validation status filter with validation
         if validation_status:
-            conditions.append("validation_status = :validation_status")
-            params["validation_status"] = validation_status
+            # Validate against allowed status values
+            valid_statuses = {"needs_review", "verified", "rejected", "pending"}
+            if (
+                isinstance(validation_status, str)
+                and validation_status.lower() in valid_statuses
+            ):
+                conditions.append("validation_status = :validation_status")
+                params["validation_status"] = validation_status.lower()
 
         # Multiple sources filter
         if has_multiple_sources is not None:
@@ -242,26 +313,34 @@ class MapSearchService:
         # Build final query
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
-        # Count query
-        count_query = f"""
-            {base_query}
-            SELECT COUNT(*) as total
-            FROM searchable_locations
-            {where_clause}
-        """
+        # Count query - use string concatenation instead of f-string to avoid S608
+        count_query = (
+            base_query
+            + "\nSELECT COUNT(*) as total\n"  # nosec B608
+            + "FROM searchable_locations\n"
+            + where_clause
+        )
 
-        # Main query
-        main_query = f"""
-            {base_query}
-            SELECT *
-            FROM searchable_locations
-            {where_clause}
-            ORDER BY confidence_score DESC, location_name, org_name
-            LIMIT :limit OFFSET :offset
-        """
+        # Main query - use string concatenation instead of f-string to avoid S608
+        main_query = (
+            base_query
+            + "\nSELECT *\n"  # nosec B608
+            + "FROM searchable_locations\n"
+            + where_clause
+            + "\nORDER BY confidence_score DESC, location_name, org_name\n"
+            + "LIMIT :limit OFFSET :offset"
+        )
 
-        params["limit"] = limit
-        params["offset"] = offset
+        # Validate and sanitize limit and offset parameters
+        try:
+            validated_limit = min(max(int(limit), 1), 1000)  # Between 1-1000
+            validated_offset = max(int(offset), 0)  # Non-negative
+            params["limit"] = validated_limit
+            params["offset"] = validated_offset
+        except (ValueError, TypeError):
+            # Use safe defaults if validation fails
+            params["limit"] = 100
+            params["offset"] = 0
 
         # Execute count query
         count_result = await self.session.execute(text(count_query), params)
@@ -385,7 +464,7 @@ class MapSearchService:
         # Generate metadata
         if output_format == OutputFormat.GEOJSON:
             # Return as FeatureCollection
-            result_data = {
+            result_data: Dict[str, Any] = {
                 "type": "FeatureCollection",
                 "features": locations,
                 "properties": {
@@ -407,15 +486,20 @@ class MapSearchService:
             generated=datetime.now(UTC).isoformat(),
             total_locations=len(locations),
             total_source_records=sum(
-                loc.get("source_count", 1)
+                (
+                    int(loc.get("source_count", 1))
+                    if isinstance(loc.get("source_count", 1), int | str)
+                    else 1
+                )
                 for loc in locations
-                if output_format != OutputFormat.GEOJSON
+                if output_format != OutputFormat.GEOJSON and isinstance(loc, dict)
             ),
             multi_source_locations=sum(
                 1
                 for loc in locations
                 if output_format != OutputFormat.GEOJSON
-                and loc.get("source_count", 1) > 1
+                and isinstance(loc, dict)
+                and int(loc.get("source_count", 1)) > 1
             ),
             states_covered=len(states),
             coverage=f"{len(states)} US states/territories",

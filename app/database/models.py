@@ -261,11 +261,11 @@ class ScheduleModel(Base):
     count = Column(Numeric, nullable=True)
 
     # Frequency enums
-    wkst = Column(
+    wkst: Column[str | None] = Column(
         Enum("MO", "TU", "WE", "TH", "FR", "SA", "SU", name="schedule_wkst_enum"),
         nullable=True,
     )
-    freq = Column(
+    freq: Column[str | None] = Column(
         Enum("WEEKLY", "MONTHLY", name="schedule_freq_enum"),
         nullable=True,
     )

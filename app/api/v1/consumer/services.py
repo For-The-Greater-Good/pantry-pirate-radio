@@ -9,8 +9,6 @@ from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.consumer.models import (
-    LocationPin,
-    GroupedPin,
     MapPinsMetadata,
     SourceData,
     CanonicalData,
@@ -74,7 +72,7 @@ class ConsumerLocationService:
                   AND (l.validation_status != 'rejected' OR l.validation_status IS NULL)
         """
 
-        params = {
+        params: dict[str, Any] = {
             "min_lat": min_lat,
             "max_lat": max_lat,
             "min_lng": min_lng,
@@ -93,10 +91,11 @@ class ConsumerLocationService:
                     SELECT 1 FROM service_at_location sal
                     JOIN service s ON s.id = sal.service_id
                     WHERE sal.location_id = l.id
-                      AND s.name IN :services
+                      AND s.name IN :service_list
                 )
             """
-            params["services"] = tuple(services)
+            # Store services parameter as tuple (don't assign to wrong type)
+            params["service_list"] = tuple(services)
 
         base_query += """
                 GROUP BY l.id, l.latitude, l.longitude, l.name, l.confidence_score
@@ -111,13 +110,13 @@ class ConsumerLocationService:
             eps_degrees = grouping_radius / 111000.0
 
             query = (
-                base_query
-                + f"""
+                base_query  # noqa: S608 # nosec B608
+                + """
             , clustered AS (
                 SELECT *,
                     ST_ClusterDBSCAN(
                         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-                        eps := {eps_degrees},
+                        eps := :eps_degrees,
                         minpoints := 1
                     ) OVER() as cluster_id
                 FROM viewport_locations
@@ -139,10 +138,11 @@ class ConsumerLocationService:
             GROUP BY cluster_id
             """
             )
+            params["eps_degrees"] = eps_degrees
         else:
             # No clustering - return individual locations
             query = (
-                base_query
+                base_query  # noqa: S608 # nosec B608
                 + """
             SELECT
                 id,
@@ -464,7 +464,7 @@ class ConsumerLocationService:
         )
 
         if not locations:
-            return None
+            return {}
 
         location = locations[0]
         result = {"location": location}

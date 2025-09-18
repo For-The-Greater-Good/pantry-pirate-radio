@@ -23,6 +23,7 @@ def test_page_model():
         "total": 123,
         "per_page": 25,
         "current_page": 1,
+        "page": 1,  # Add required page field
         "total_pages": 5,
         "links": {
             "first": "http://example.com/api/v1/services?page=1",
@@ -47,6 +48,7 @@ def test_page_model():
             total=123,
             per_page=25,
             current_page=1,
+            page=1,
             total_pages=5,
             links={},
             data=[],
