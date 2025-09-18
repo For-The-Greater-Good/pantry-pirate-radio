@@ -111,6 +111,37 @@ class TestNormalizeStateToCode:
             assert normalize_state_to_code(state_code) == state_code
             assert normalize_state_to_code(state_code.lower()) == state_code
 
+    def test_state_abbreviations_with_periods(self):
+        """Test state abbreviations with periods are handled."""
+        # This covers line 160 in state_mapping.py
+        assert normalize_state_to_code("N.Y.") == "NY"
+        assert normalize_state_to_code("N.J.") == "NJ"
+        assert normalize_state_to_code("D.C.") == "DC"
+        assert normalize_state_to_code("N.C.") == "NC"
+
+    def test_invalid_two_letter_codes(self):
+        """Test invalid two-letter codes that aren't states."""
+        # This covers line 166 - valid 2-letter code check
+        assert normalize_state_to_code("ZZ") == ""
+        assert normalize_state_to_code("QQ") == ""
+        assert normalize_state_to_code("XY") == ""
+
+    def test_multi_word_state_variations(self):
+        """Test multi-word state name edge cases."""
+        # This covers lines 187-189 for two-word states
+        assert normalize_state_to_code("Northern Mariana Islands") == "MP"
+        assert normalize_state_to_code("American Samoa") == "AS"
+        # Test three-word states (lines 193-195)
+        assert normalize_state_to_code("U.S. Virgin Islands") == "VI"
+        assert normalize_state_to_code("US Virgin Islands") == "VI"
+
+    def test_single_word_state_from_split(self):
+        """Test single word state when split is used."""
+        # This covers line 199 - single word after splitting
+        assert normalize_state_to_code("Ohio") == "OH"
+        assert normalize_state_to_code("Utah") == "UT"
+        assert normalize_state_to_code("Iowa") == "IA"
+
 
 class TestIsValidStateCode:
     """Test is_valid_state_code function."""
