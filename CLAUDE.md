@@ -512,7 +512,9 @@ FastAPI → Clients         JSON Archives → HAARRRvest Repository
 ### Key Components
 
 #### Pantry Pirate Radio Core Services
-- **Scrapers**: 12+ food source scrapers inheriting from `ScraperJob`
+- **Scraper Framework**: Public framework for building scrapers (`ScraperJob` base class, utilities)
+  - **Private Scrapers Submodule**: 30+ production scrapers in `app/scraper/scrapers/` (requires access)
+  - **Sample Scraper**: Example implementation available for all contributors
 - **Content Store**: SHA-256 deduplication preventing duplicate processing
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control

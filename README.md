@@ -192,9 +192,12 @@ flowchart TB
 ### Service Components
 
 #### **Scraper System** (`app/scraper/`)
-- **35+ Individual Scrapers**: Each targeting specific food security data sources
-- **Base Framework**: `ScraperJob` base class with utilities for geocoding and grid generation
-- **Data Sources**: NYC EFAP, FoodHelpline.org, Plentiful, Care & Share, Freshtrak, Feeding America network, state food banks, and more
+- **30+ Individual Scrapers** (Private Submodule): Production scrapers in `app/scraper/scrapers/`
+  - Requires access to private repository
+  - Data Sources: NYC EFAP, FoodHelpline.org, Plentiful, Care & Share, Freshtrak, Feeding America network, state food banks, and more
+- **Public Framework**: `ScraperJob` base class with utilities for geocoding and grid generation
+  - Available to all contributors
+  - Includes sample scraper implementation
 - **Testing Framework**: Comprehensive validation system for scraper outputs
 - **Geographic Coverage**: Continental US with intelligent grid generation for large areas
 - **Unified Geocoding**: Integrated with multi-provider geocoding service for accurate location data
@@ -284,14 +287,23 @@ flowchart TB
 git clone https://github.com/For-The-Greater-Good/pantry-pirate-radio.git
 cd pantry-pirate-radio
 
-# 2. Run interactive setup wizard (creates .env file)
+# 2. (Optional) Initialize scrapers submodule - only needed if you have access to private scrapers
+git submodule init
+git submodule update --remote
+
+# 3. Run interactive setup wizard (creates .env file)
 ./bouy setup
 
-# 3. Start all services with HAARRRvest data (recommended)
+# 4. Start all services with HAARRRvest data (recommended)
 ./bouy up --with-init
 
 # That's it! API will be available at http://localhost:8000/docs
 ```
+
+> **Note:** The scrapers are in a private submodule. If you don't have access, you can still:
+> - Use the scraper framework and sample scraper
+> - Contribute to API, LLM processing, validator, and other components
+> - Build your own scrapers using the public framework
 
 The setup wizard will guide you through:
 - Database password configuration
