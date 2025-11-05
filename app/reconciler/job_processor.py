@@ -569,7 +569,7 @@ class JobProcessor:
                         r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",  # 1-800-FLOWERS vanity
                     ]
 
-                    # Search in various fields including year_incorporated and legal_status
+                    # Search in various fields including flat phone fields from scrapers
                     search_fields = [
                         "description",
                         "email",
@@ -577,6 +577,9 @@ class JobProcessor:
                         "alternate_name",
                         "year_incorporated",
                         "legal_status",
+                        "phone",  # Flat phone field from scrapers like vivery
+                        "contactPhone",  # Contact phone field
+                        "contactInfo",  # Formatted contact info from scrapers
                     ]
                     search_text = ""
                     for field in search_fields:
@@ -997,7 +1000,7 @@ class JobProcessor:
                                 r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",  # 1-800-FLOWERS vanity
                             ]
 
-                            # Search in more location fields including website
+                            # Search in more location fields including website and flat phone fields
                             search_text = ""
                             for field in [
                                 "name",
@@ -1005,6 +1008,9 @@ class JobProcessor:
                                 "transportation",
                                 "alternate_name",
                                 "website",
+                                "phone",  # Flat phone field from scrapers
+                                "contactPhone",  # Contact phone field
+                                "contactInfo",  # Formatted contact info from scrapers
                             ]:
                                 if location.get(field):
                                     search_text += " " + str(location[field])
