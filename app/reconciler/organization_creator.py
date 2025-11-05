@@ -58,6 +58,7 @@ class OrganizationCreator(BaseReconciler):
             INSERT INTO organization (
                 id,
                 name,
+                normalized_name,
                 description,
                 website,
                 email,
@@ -73,6 +74,7 @@ class OrganizationCreator(BaseReconciler):
             ) VALUES (
                 :id,
                 :name,
+                normalize_organization_name(:name),
                 :description,
                 :website,
                 :email,
@@ -295,6 +297,9 @@ class OrganizationCreator(BaseReconciler):
             try:
                 return operation()
             except IntegrityError as e:
+                # Rollback the failed transaction before retrying
+                self.db.rollback()
+
                 if attempt == max_attempts - 1:
                     # Log constraint violation for monitoring
                     self._log_constraint_violation(
@@ -452,11 +457,11 @@ class OrganizationCreator(BaseReconciler):
             query = text(
                 """
                 INSERT INTO organization (
-                    id, name, description, website, email, year_incorporated,
+                    id, name, normalized_name, description, website, email, year_incorporated,
                     legal_status, tax_status, tax_id, uri, parent_organization_id,
                     confidence_score, validation_status, validation_notes
                 ) VALUES (
-                    :id, :name, :description, :website, :email, :year_incorporated,
+                    :id, :name, normalize_organization_name(:name), :description, :website, :email, :year_incorporated,
                     :legal_status, :tax_status, :tax_id, :uri, :parent_organization_id,
                     :confidence_score, :validation_status, :validation_notes
                 )
