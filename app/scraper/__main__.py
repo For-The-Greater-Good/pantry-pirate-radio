@@ -75,18 +75,28 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
 
 
 def list_available_scrapers() -> list[str]:
-    """List all available scrapers in the app/scraper directory.
+    """List all available scrapers from framework and private submodule.
 
     Returns:
-        List of scraper names (without '_scraper.py' suffix)
+        List of scraper names:
+        - Framework scrapers: 'sample'
+        - Private scrapers: 'scrapers.foodfinder_us', 'scrapers.maryland_food_bank_md', etc.
     """
     scraper_dir = Path(__file__).parent
     scrapers: list[str] = []
 
+    # Framework scrapers (in app/scraper/)
     for file in scraper_dir.glob("*_scraper.py"):
         name = file.stem.replace("_scraper", "")
         if name != "__init__":  # Skip __init__.py
             scrapers.append(name)
+
+    # Private scrapers (in app/scraper/scrapers/ submodule)
+    private_dir = scraper_dir / "scrapers"
+    if private_dir.exists():
+        for file in private_dir.glob("*_scraper.py"):
+            name = file.stem.replace("_scraper", "")
+            scrapers.append(f"scrapers.{name}")
 
     return sorted(scrapers)
 
