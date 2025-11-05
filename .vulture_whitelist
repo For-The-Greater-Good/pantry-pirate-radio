@@ -3,6 +3,7 @@
 # Type annotations used in protocols and type hints
 ConnectionPool  # app/core/events.py - used in type annotations
 GeoDataFrame    # app/models/geographic.py - used in type annotations
+section         # app/core/events.py:38 - Protocol method parameter for Redis.info()
 
 # Test fixture parameters that are required but not directly used in test body
 # These are dependencies required by fixtures but not used in the test functions themselves
