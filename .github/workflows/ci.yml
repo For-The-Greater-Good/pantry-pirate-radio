@@ -452,7 +452,8 @@ jobs:
         run: poetry install --no-interaction --no-ansi
 
       - name: Run Safety security check
-        run: poetry run safety check --policy-file .safety-policy.yml
+        # Ignore 79883 (pip CVE-2025-8869) - pip upgraded to >=25.3 in Dockerfile
+        run: poetry run safety check --ignore 79883
 
   pip-audit:
     needs: setup
