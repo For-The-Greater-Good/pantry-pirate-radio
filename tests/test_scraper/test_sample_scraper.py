@@ -85,7 +85,7 @@ async def test_sample_scraper_job_submission(
 
     # Mock __file__ to point to our test directory
     monkeypatch.setattr(
-        "scrapers.sample_scraper.__file__",
+        "app.scraper.sample_scraper.__file__",
         str(
             sample_geojson.parent.parent.parent.parent.parent
             / "app/scraper/sample_scraper.py"
