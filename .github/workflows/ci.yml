@@ -366,14 +366,11 @@ jobs:
           path: ~/.cache/pypoetry
           key: ${{ needs.setup.outputs.cache-key }}
 
-      - name: Upgrade pip
-        run: pip install --upgrade 'pip>=25.3'
-
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
 
       - name: Run Safety security check
-        run: poetry run safety check
+        run: poetry run safety check --policy-file .safety-policy.yml
 
   pip-audit:
     needs: setup
@@ -402,14 +399,13 @@ jobs:
           path: ~/.cache/pypoetry
           key: ${{ needs.setup.outputs.cache-key }}
 
-      - name: Upgrade pip
-        run: pip install --upgrade 'pip>=25.3'
-
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
 
       - name: Run pip-audit security check
-        run: poetry run pip-audit
+        # Ignore GHSA-4xh5-x5gv-qwph (pip CVE-2025-8869)
+        # pip upgraded to >=25.3 in Dockerfile (production environment)
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph
 
   xenon:
     needs: setup
