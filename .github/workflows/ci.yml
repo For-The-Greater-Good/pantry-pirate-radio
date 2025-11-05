@@ -35,7 +35,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true  # Initialize submodules
+
+      - name: Checkout public submodules only
+        run: |
+          # Checkout only public submodules, skip private scrapers
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          # app/scraper/scrapers is private and not needed for CI
 
       - name: Generate cache key
         id: cache-key
@@ -48,7 +54,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,7 +103,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -127,7 +141,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -254,7 +272,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -285,7 +307,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -316,7 +342,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -347,7 +377,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -378,7 +412,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
+
+      - name: Checkout public submodules only
+        run: |
+          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
