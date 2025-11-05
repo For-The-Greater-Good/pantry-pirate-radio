@@ -40,7 +40,6 @@ jobs:
           # Checkout only public submodules, skip private scrapers
           git submodule update --init docs/HSDS docs/GeoJson/States
           # app/scraper/scrapers is private and not needed for CI
-          # docs/rq is defined in .gitmodules but never initialized
 
       - name: Generate cache key
         id: cache-key
