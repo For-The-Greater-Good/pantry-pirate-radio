@@ -33,7 +33,9 @@ def test_framework_scrapers_present(available_scrapers: list[str]) -> None:
         available_scrapers: List of available scrapers
     """
     # Framework scrapers should always be present
-    framework_scrapers = [s for s in available_scrapers if not s.startswith("scrapers.")]
+    framework_scrapers = [
+        s for s in available_scrapers if not s.startswith("scrapers.")
+    ]
     assert (
         len(framework_scrapers) >= 1
     ), "No framework scrapers found (expected at least 'sample')"
@@ -54,7 +56,9 @@ def test_private_scrapers_optional(available_scrapers: list[str]) -> None:
         print(f"  - {scraper}")
 
     if len(private_scrapers) == 0:
-        print("  (No private scrapers available - this is OK for CI without credentials)")
+        print(
+            "  (No private scrapers available - this is OK for CI without credentials)"
+        )
 
 
 @pytest.mark.parametrize("scraper_name", list_available_scrapers())
@@ -82,7 +86,9 @@ def test_scraper_can_be_instantiated(scraper_name: str) -> None:
     scraper = scraper_class(scraper_id=scraper_name)
 
     assert scraper is not None, f"Failed to instantiate {scraper_name}"
-    assert isinstance(scraper, ScraperJob), f"{scraper_name} is not a ScraperJob instance"
+    assert isinstance(
+        scraper, ScraperJob
+    ), f"{scraper_name} is not a ScraperJob instance"
     assert scraper.scraper_id == scraper_name, f"Scraper ID mismatch for {scraper_name}"
 
 
@@ -109,7 +115,9 @@ def test_scraper_has_required_methods(scraper_name: str) -> None:
     assert inspect.iscoroutinefunction(
         scraper.scrape
     ), f"{scraper_name}.scrape() must be async"
-    assert inspect.iscoroutinefunction(scraper.run), f"{scraper_name}.run() must be async"
+    assert inspect.iscoroutinefunction(
+        scraper.run
+    ), f"{scraper_name}.run() must be async"
 
 
 def test_scraper_naming_conventions(available_scrapers: list[str]) -> None:

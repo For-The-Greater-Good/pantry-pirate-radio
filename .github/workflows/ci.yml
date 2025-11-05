@@ -366,6 +366,9 @@ jobs:
           path: ~/.cache/pypoetry
           key: ${{ needs.setup.outputs.cache-key }}
 
+      - name: Upgrade pip
+        run: pip install --upgrade 'pip>=25.3'
+
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
 
@@ -398,6 +401,9 @@ jobs:
         with:
           path: ~/.cache/pypoetry
           key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Upgrade pip
+        run: pip install --upgrade 'pip>=25.3'
 
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi

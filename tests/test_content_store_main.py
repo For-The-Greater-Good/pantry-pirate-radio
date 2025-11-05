@@ -5,7 +5,6 @@ import json
 import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, call
-from io import StringIO
 
 import pytest
 
