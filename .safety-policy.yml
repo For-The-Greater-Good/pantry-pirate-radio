@@ -1,0 +1,12 @@
+security:
+  ignore-vulnerabilities:
+    # CVE-2025-8869: pip vulnerability
+    # We upgrade pip to >=25.3 in Dockerfile (production environment)
+    # CI scans system Python where pip can't be easily upgraded
+    # This is safe because:
+    # 1. Production uses Docker with upgraded pip (see Dockerfile line 76)
+    # 2. Development uses Docker (./bouy commands)
+    # 3. This only affects CI runner's system Python, not our app
+    79883:
+      reason: "pip upgraded to >=25.3 in Dockerfile; CI system Python not used in production"
+      expires: "2025-12-31"
