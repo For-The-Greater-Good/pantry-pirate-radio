@@ -7,6 +7,3 @@
 [submodule "docs/GeoJson/States"]
 	path = docs/GeoJson/States
 	url = https://github.com/OpenDataDE/State-zip-code-GeoJSON
-[submodule "app/scraper"]
-	path = app/scraper
-	url = https://github.com/For-The-Greater-Good/scrapers.git
