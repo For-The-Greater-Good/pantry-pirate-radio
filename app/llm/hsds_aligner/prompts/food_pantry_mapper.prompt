@@ -53,6 +53,18 @@ FORMAT REQUIREMENTS:
 • Times: HH:MM format (24-hour)
 • Coordinates: Decimal degrees only (e.g., 40.7128, -74.0060)
 
+📞 PHONE NUMBER EXTRACTION:
+• Look for phone numbers in ANY of these field names: phone, contactPhone, phoneExt, phone_number, contact_phone, contact, main_phone, office_phone, etc.
+• Extract phone numbers from nested service contact fields (e.g., service.contactPhone)
+• Convert flat phone fields into the HSDS phones array structure
+• Include phone extensions when provided (phoneExt field)
+• Examples:
+  - Input: {"phone": "555-1234"} → Output: "phones": [{"number": "555-1234", "type": "voice"}]
+  - Input: {"phone": "555-1234", "contactPhone": "555-5678"} → Output: "phones": [{"number": "555-1234", "type": "voice"}, {"number": "555-5678", "type": "voice"}]
+  - Input: {"phone": "555-1234", "phoneExt": "123"} → Output: "phones": [{"number": "555-1234 ext. 123", "type": "voice"}]
+• Phone numbers from services array should be associated with those services in the output
+• Avoid duplicate phone numbers in the phones array
+
 ENTITY EXTRACTION GUIDELINES:
 
 🚫 ID GENERATION RULES:
