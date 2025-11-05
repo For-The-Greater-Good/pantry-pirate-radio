@@ -135,9 +135,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Checkout public submodules only
+      - name: Checkout public submodules
         run: |
           git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          # Try to checkout private scrapers if token is available
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            # Configure git to use the token
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Tests will run against public framework only"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
