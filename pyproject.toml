@@ -58,7 +58,7 @@ playwright = "^1.51.0"
 marshmallow = "^3.26.0"
 pyjwt = "^2.10.1"
 xlrd = "^2.0.1"
-starlette = ">=0.47.2"
+starlette = ">=0.49.1"
 db-to-sqlite = "^1.5"
 
 [tool.poetry.group.dev.dependencies]
@@ -359,6 +359,9 @@ max-complexity = 15
     "ARG005", # Unused lambda argument
 ]
 "tests/hsds/strategies/*" = ["C901"]
+"app/scraper/scrapers/tests/*" = [
+    "RUF001",  # Ambiguous unicode (preserve source data formatting)
+]
 "types/structlog-stubs/*" = ["N802"]
 "tests/fixtures/*" = ["S110", "B904", "B010", "RUF010"]
 "tests/test_core/*" = ["RUF010"]

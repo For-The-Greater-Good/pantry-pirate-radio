@@ -86,7 +86,7 @@ async def run_scraper_test(scraper_name: str) -> dict:
         class_name = f"{scraper_name.title()}Scraper"
 
         # Import the scraper module
-        module = importlib.import_module(f"app.scraper.{scraper_name}_scraper")
+        module = importlib.import_module(f"scrapers.{scraper_name}_scraper")
         scraper_class = getattr(module, class_name)
 
         # Create scraper instance

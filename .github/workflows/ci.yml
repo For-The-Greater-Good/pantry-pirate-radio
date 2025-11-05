@@ -34,8 +34,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Generate cache key
         id: cache-key
@@ -47,8 +63,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -92,8 +124,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -126,8 +174,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          # Try to checkout private scrapers if token is available
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            # Configure git to use the token
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Tests will run against public framework only"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -253,8 +319,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -284,8 +366,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -315,8 +413,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -338,7 +452,8 @@ jobs:
         run: poetry install --no-interaction --no-ansi
 
       - name: Run Safety security check
-        run: poetry run safety check
+        # Ignore 79883 (pip CVE-2025-8869) - pip upgraded to >=25.3 in Dockerfile
+        run: poetry run safety check --ignore 79883
 
   pip-audit:
     needs: setup
@@ -346,8 +461,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -369,7 +500,9 @@ jobs:
         run: poetry install --no-interaction --no-ansi
 
       - name: Run pip-audit security check
-        run: poetry run pip-audit
+        # Ignore GHSA-4xh5-x5gv-qwph (pip CVE-2025-8869)
+        # pip upgraded to >=25.3 in Dockerfile (production environment)
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph
 
   xenon:
     needs: setup
@@ -377,8 +510,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Checkout public submodules
+        run: |
+          git submodule update --init docs/HSDS docs/GeoJson/States
+
+      - name: Checkout private scrapers submodule (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            echo "Token available, checking out private scrapers submodule..."
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init app/scraper/scrapers
+            echo "Private scrapers submodule checked out successfully"
+          else
+            echo "No token available, skipping private scrapers submodule"
+            echo "Checks will run against public framework only"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
