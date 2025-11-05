@@ -38,8 +38,9 @@ jobs:
       - name: Checkout public submodules only
         run: |
           # Checkout only public submodules, skip private scrapers
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
           # app/scraper/scrapers is private and not needed for CI
+          # docs/rq is defined in .gitmodules but never initialized
 
       - name: Generate cache key
         id: cache-key
@@ -54,7 +55,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -101,7 +102,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -137,7 +138,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -266,7 +267,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -299,7 +300,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -332,7 +333,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -365,7 +366,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -398,7 +399,7 @@ jobs:
 
       - name: Checkout public submodules only
         run: |
-          git submodule update --init docs/HSDS docs/rq docs/GeoJson/States
+          git submodule update --init docs/HSDS docs/GeoJson/States
 
       - name: Set up Python
         uses: actions/setup-python@v5
