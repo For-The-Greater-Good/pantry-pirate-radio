@@ -478,6 +478,60 @@ open htmlcov/index.html                  # View HTML report
 ./bouy reconciler --force    # Force processing (bypass checks)
 ```
 
+### Scraper Development Workflow
+
+**Interactive Slash Command: `/scrape`**
+
+The `/scrape` command provides a guided workflow for creating new food bank scrapers from Feeding America GitHub issues.
+
+```bash
+# Pick next priority task (weighted by population served)
+/scrape next
+
+# Work on specific issue
+/scrape 123
+```
+
+**What it does:**
+1. **Issue Selection** - Fetches issue details and displays food bank info
+2. **Vivery Detection** - Critical check to avoid duplicate scrapers (Vivery sites already covered)
+3. **Website Analysis** - Uses browser tools to analyze page structure and suggest approach
+4. **Code Generation** - Creates scraper and test files from templates with smart suggestions
+5. **Testing** - Validates syntax and runs dry run to verify scraper works
+6. **Documentation** - Creates implementation notes capturing decisions and patterns
+
+**Manual Scripts (for advanced use):**
+```bash
+# List all Feeding America scraper issues
+gh issue list --label scraper --label feeding-america
+
+# Pick next priority task
+./bouy exec app python3 scripts/feeding-america/pick_next_scraper_task.py
+
+# Check if site uses Vivery (already covered)
+./bouy exec app python3 scripts/feeding-america/check_vivery_usage.py
+
+# Generate scraper boilerplate from issue
+./bouy exec app python3 scripts/feeding-america/create_scraper_from_issue.py [issue-number]
+
+# Update scraper progress on GitHub
+./bouy exec app python3 scripts/feeding-america/update_scraper_progress.py
+
+# Mark scraper as completed
+./bouy exec app python3 scripts/feeding-america/update_scraper_progress.py --completed [issue-number]
+```
+
+**Key Guidelines:**
+- **ALWAYS check for Vivery first** - Vivery sites are already covered by `vivery_api_scraper.py`
+- **NO geocoding in scrapers** - The validator service handles all geocoding automatically
+- **Use similar scrapers as reference** - Find patterns that work and adapt them
+- **Test before committing** - Run `./bouy scraper-test [name]` for dry run validation
+
+**Implementation Notes:**
+- Generated files: `.pirate/specs/[issue-number]-[name]/notes.md`
+- Scraper location: `app/scraper/scrapers/[name]_scraper.py`
+- Test location: `tests/test_scraper/test_[name]_scraper.py`
+
 ### Data Viewing and Endpoints
 When services are running, the following endpoints are available:
 - **API**: http://localhost:8000 (REST API)
