@@ -14,8 +14,7 @@ This command guides you through creating a new food bank scraper:
 2. **Vivery Detection** - Check if site is already covered (critical deduplication)
 3. **Website Analysis** - Analyze structure and suggest approach
 4. **Code Generation** - Create scraper and test files from templates
-5. **Testing & Validation** - Verify syntax and run initial tests
-6. **Documentation** - Capture implementation notes and next steps
+5. **Testing & Execution** - Run tests and execute scraper to verify it works
 
 ## Execution Steps
 
@@ -225,23 +224,29 @@ Recommended Approach: HTML Parsing with BeautifulSoup
 Ask the user to confirm approach using AskUserQuestion tool:
 
 **Question 1: Scraping Approach**
+
+**IMPORTANT: Always try approaches in this order:**
+1. **Simple HTML Parsing** (BeautifulSoup) - Try first, fastest and most reliable
+2. **API Investigation** - Look for JSON endpoints in network tab
+3. **Browser Automation** (Playwright) - Only if above methods fail
+
 ```
 Based on the website analysis, which approach should we use?
 
 A) HTML Parsing (BeautifulSoup)
    - Best for: Static HTML with data in source
    - Fast and reliable
-   - Recommended for this site
+   - TRY THIS FIRST
 
 B) API Endpoint
    - Best for: Sites with JSON APIs
-   - Need to discover API endpoint first
+   - Check network tab for API calls
    - Most reliable when available
 
 C) Browser Automation (Playwright)
    - Best for: JavaScript-heavy sites
    - Slower but handles dynamic content
-   - Use when HTML parsing fails
+   - USE ONLY WHEN HTML/API FAILS
 
 D) Hybrid Approach
    - Combination of above methods
@@ -288,13 +293,17 @@ Run the script:
 
 Parse the output to get:
 - Scraper file path: `app/scraper/scrapers/{name}_scraper.py`
-- Test file path: `tests/test_scraper/test_{name}_scraper.py`
+- Test file path: `app/scraper/scrapers/tests/test_{name}_scraper.py`
 
 **B) Read Generated Files**
 
 Use the Read tool to load both generated files:
 - `app/scraper/scrapers/{name}_scraper.py`
-- `tests/test_scraper/test_{name}_scraper.py`
+- `app/scraper/scrapers/tests/test_{name}_scraper.py`
+
+**IMPORTANT: All scrapers and tests must exist in the scrapers submodule:**
+- Scraper location: `app/scraper/scrapers/{name}_scraper.py`
+- Test location: `app/scraper/scrapers/tests/test_{name}_scraper.py`
 
 **C) Enhance Generated Code**
 
@@ -325,7 +334,7 @@ If **Browser Automation** selected:
 ✏️  Files Generated
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Scraper: app/scraper/scrapers/food_bank_of_example_ca_scraper.py
-Test:    tests/test_scraper/test_food_bank_of_example_ca_scraper.py
+Test:    app/scraper/scrapers/tests/test_food_bank_of_example_ca_scraper.py
 
 ✓ GitHub issue #123 marked as 'in-progress'
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -352,25 +361,22 @@ Would you like me to apply these enhancements automatically?
 If user says yes, use the Edit tool to update the scraper file with suggestions.
 If user says no, continue to testing phase.
 
-### Step 6: Testing & Validation
+### Step 6: Testing & Execution
 
-**A) Syntax Validation**
+**A) Run Unit Tests**
 
-Run pytest in collection mode (doesn't execute, just validates):
+Execute the generated test file:
 ```bash
-./bouy test --pytest tests/test_scraper/test_{name}_scraper.py --collect-only --quiet
+./bouy exec app pytest app/scraper/scrapers/tests/test_{name}_scraper.py -v
 ```
 
-If errors found:
-- Display syntax errors
-- Offer to fix common issues
-- Ask if user wants to proceed anyway
+Display test results and offer to help fix failures if any.
 
-**B) Dry Run Execution**
+**B) Run Full Scraper Execution**
 
-Run the scraper in test mode (doesn't commit to database):
+Execute the scraper for real (commits to database):
 ```bash
-./bouy scraper-test {scraper_name}
+./bouy scraper {scraper_name}
 ```
 
 Parse output for:
@@ -381,10 +387,10 @@ Parse output for:
 Display results:
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧪 Dry Run Results
+✅ Scraper Execution Results
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Status:    ✓ Success
-Locations: 15 found
+Locations: 15 found and saved to database
 Sample:
   - Example Food Pantry
     123 Main St, Example, CA 90210
@@ -394,119 +400,41 @@ Warnings: None
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-**C) Run Unit Tests**
+**C) Update GitHub Issue**
 
-Execute the generated test file:
+Add a comment to the GitHub issue documenting completion:
 ```bash
-./bouy test --pytest tests/test_scraper/test_{name}_scraper.py -v
+gh issue comment $ISSUE_NUMBER --body "Scraper implemented and tested successfully. Found {location_count} locations."
 ```
 
-Display test results and offer to help fix failures if any.
+### Step 7: Summary & Next Steps
 
-### Step 7: Documentation & Next Steps
-
-**A) Create Implementation Notes**
-
-Create directory structure:
-```bash
-mkdir -p .pirate/specs/{issue-number}-{scraper-name}/
-```
-
-Load the notes template (if it exists) or create a simple markdown file:
-`.pirate/specs/{issue-number}-{scraper-name}/notes.md`
-
-Populate with:
-```markdown
-# Scraper Implementation Notes: {Food Bank Name}
-
-**Issue:** #{issue-number}
-**Scraper:** {scraper_name}
-**Created:** {date}
-**Status:** In Progress
-
-## Website Analysis
-
-- **URL:** {url}
-- **Page Type:** {detected_type}
-- **Data Structure:** {structure_description}
-- **Approach:** {selected_approach}
-
-## Implementation Decisions
-
-- **Scraping Method:** {HTML/API/Browser}
-- **Key Selectors:**
-  - {selector1}
-  - {selector2}
-- **Fields Captured:** {field_list}
-
-## Similar Scrapers Referenced
-
-- {similar_scraper_1}
-- {similar_scraper_2}
-
-## Testing Results
-
-- **Dry Run:** {pass/fail} - {location_count} locations found
-- **Unit Tests:** {pass/fail}
-
-## Next Steps
-
-- [ ] Customize scraper implementation
-- [ ] Add error handling for edge cases
-- [ ] Verify all required fields are captured
-- [ ] Run full test suite
-- [ ] Execute scraper: `./bouy exec app python3 -m app.scraper {scraper_name}`
-- [ ] Create PR
-- [ ] Update progress: `./bouy exec app python3 scripts/feeding-america/update_scraper_progress.py`
-
-## Notes
-
-{Any additional observations or decisions made during implementation}
-```
-
-**B) Display Summary & Next Steps**
+Display final summary:
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Scraper Setup Complete!
+✅ Scraper Complete!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📁 Files Created:
    app/scraper/scrapers/food_bank_of_example_ca_scraper.py
-   tests/test_scraper/test_food_bank_of_example_ca_scraper.py
-   .pirate/specs/123-food-bank-of-example/notes.md
+   app/scraper/scrapers/tests/test_food_bank_of_example_ca_scraper.py
 
-🔧 Development Commands:
+📊 Results:
+   Locations Found: 15
+   Test Status: ✓ Passed
+   Execution Status: ✓ Success
 
-   # Test the scraper
-   ./bouy test --pytest tests/test_scraper/test_food_bank_of_example_ca_scraper.py
+🚀 Ready to Submit:
 
-   # Dry run (no database commit)
-   ./bouy scraper-test food_bank_of_example_ca
-
-   # Full execution
-   ./bouy exec app python3 -m app.scraper food_bank_of_example_ca
-
-   # Run full test suite before committing
-   ./bouy test
-
-📊 Progress Tracking:
-
-   # Update GitHub issue status
-   ./bouy exec app python3 scripts/feeding-america/update_scraper_progress.py
-
-   # Mark as completed (after PR merge)
-   ./bouy exec app python3 scripts/feeding-america/update_scraper_progress.py --completed $ISSUE_NUMBER
-
-🚀 When Ready to Submit:
-
-   # Create PR
+   # Create PR and link to issue
    gh pr create --title "Add Food Bank of Example (CA) scraper" \
-                --body "Implements scraper for issue #123"
+                --body "Implements scraper for issue #$ISSUE_NUMBER
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 Tip: The template includes TODO comments. Replace them with
-   the actual scraping logic based on the website analysis above.
+   Scraper successfully finds {location_count} locations.
+
+   Closes #$ISSUE_NUMBER"
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -530,10 +458,16 @@ Populate with:
   - Better error handling and fallback strategies
 
 ### Test Before Committing
-- Always run `./bouy test --pytest` on the specific test file
-- Always run `./bouy scraper-test {name}` for dry run validation
+- **IMPORTANT:** Use `./bouy exec app pytest` for testing scrapers, NOT `./bouy test`
+- Always run `./bouy exec app pytest app/scraper/scrapers/tests/test_{name}_scraper.py` on the specific test file
+- Always run `./bouy scraper {name}` for full execution and validation
 - Fix syntax errors before moving to implementation
 - Validate that locations are being extracted correctly
+
+### Scraper Development Approach Priority
+1. **Try Simple HTML Parsing First** - Use BeautifulSoup, fastest and most reliable
+2. **Investigate API Endpoints** - Check network tab for JSON APIs
+3. **Use Browser Automation Last** - Playwright only when HTML/API methods fail
 
 ### Use Existing Scrapers as Templates
 - Don't reinvent the wheel - find similar scrapers
@@ -541,12 +475,6 @@ Populate with:
 - HTML table scraping? Look at `food_bank_of_alaska_ak`
 - API endpoint? Look at `vivery_api_scraper`
 - Complex JavaScript? Look at browser-automation examples
-
-### Capture Knowledge
-- Document decisions in implementation notes
-- Include why you chose specific selectors
-- Note any tricky workarounds
-- Help future developers learn from your work
 
 ### GitHub Issue Management
 - The `create_scraper_from_issue.py` script automatically adds `in-progress` label
