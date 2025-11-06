@@ -11,6 +11,48 @@ services:
       - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
     # Removed sleep infinity - will use the base "app" command to run FastAPI
 
+  worker:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
+  recorder:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
+  scraper:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
+  reconciler:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
+  validator:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
+  haarrrvest-publisher:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
   datasette:
     build:
       context: ../..

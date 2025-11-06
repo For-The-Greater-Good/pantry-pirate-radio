@@ -119,7 +119,9 @@ async def run_scraper_parallel(scraper_name: str) -> tuple[str, bool, float, str
 
         # Load and run the scraper
         scraper_class = load_scraper_class(scraper_name)
-        scraper = scraper_class(scraper_id=scraper_name)
+        # Strip "scrapers." prefix for consistent scraper_id
+        actual_scraper_id = scraper_name.replace("scrapers.", "")
+        scraper = scraper_class(scraper_id=actual_scraper_id)
         await scraper.run()
 
         success = True
@@ -252,7 +254,9 @@ async def main() -> None:
                     try:
                         logger.info(f"Running scraper: {scraper_name}")
                         scraper_class = load_scraper_class(scraper_name)
-                        scraper = scraper_class(scraper_id=scraper_name)
+                        # Strip "scrapers." prefix for consistent scraper_id
+                        actual_scraper_id = scraper_name.replace("scrapers.", "")
+                        scraper = scraper_class(scraper_id=actual_scraper_id)
                         await scraper.run()
                         logger.info(f"Scraper {scraper_name} completed successfully")
                     except Exception as e:
@@ -262,7 +266,9 @@ async def main() -> None:
             # Run a single scraper
             logger.info(f"Running scraper: {args.scraper}")
             scraper_class = load_scraper_class(args.scraper)
-            scraper = scraper_class(scraper_id=args.scraper)
+            # Strip "scrapers." prefix for consistent scraper_id
+            actual_scraper_id = args.scraper.replace("scrapers.", "")
+            scraper = scraper_class(scraper_id=actual_scraper_id)
             await scraper.run()
             logger.info(f"Scraper {args.scraper} completed successfully")
 
