@@ -256,12 +256,12 @@ class HAARRRvestPublisher:
 
         # Alert if .git is too large
         git_size_mb = sizes.get("git_mb", 0)
-        if git_size_mb > 10000:  # 10GB threshold
+        if git_size_mb > 30000:  # 30GB threshold
             logger.warning(
-                f"⚠️ .git folder is {git_size_mb:.1f}MB - exceeds 10GB threshold!"
+                f"⚠️ .git folder is {git_size_mb:.1f}MB - exceeds 30GB threshold!"
             )
             self._perform_deep_cleanup()
-        elif git_size_mb > 5000:  # 5GB warning
+        elif git_size_mb > 20000:  # 20GB warning
             logger.warning(
                 f"⚠️ .git folder is {git_size_mb:.1f}MB - approaching size limit"
             )
@@ -1454,9 +1454,9 @@ This repository contains food resource data collected by Pantry Pirate Radio.
             try:
                 # Consider re-cloning if repository is too large
                 sizes = self._get_repository_size()
-                if sizes.get("git_mb", 0) > 20000:  # 20GB threshold for re-clone
+                if sizes.get("git_mb", 0) > 60000:  # 60GB threshold for re-clone
                     logger.warning(
-                        "Repository exceeds 20GB, considering fresh clone..."
+                        "Repository exceeds 60GB, considering fresh clone..."
                     )
                     self._perform_fresh_clone()
                 else:
