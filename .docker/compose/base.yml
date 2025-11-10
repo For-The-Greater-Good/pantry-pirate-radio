@@ -167,6 +167,7 @@ services:
     image: postgis/postgis:15-3.3
     env_file: ../../.env
     # Database credentials loaded from .env file
+    shm_size: 2gb  # Shared memory for PostGIS operations (clustering queries need substantial space)
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../../init-scripts:/docker-entrypoint-initdb.d
