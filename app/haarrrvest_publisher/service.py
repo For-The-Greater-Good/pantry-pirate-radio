@@ -256,7 +256,7 @@ class HAARRRvestPublisher:
 
         # Alert if .git is too large
         git_size_mb = sizes.get("git_mb", 0)
-        if git_size_mb > 30000:  # 30GB threshold
+        if git_size_mb > 7500000:  # 75GB threshold
             logger.warning(
                 f"⚠️ .git folder is {git_size_mb:.1f}MB - exceeds 30GB threshold!"
             )
