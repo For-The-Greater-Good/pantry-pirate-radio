@@ -4,6 +4,8 @@
 
 ⚠️ WARNING: Licensed under sandia-ftgg-nc-os-1.0 ⚠️
 
+> **🚧 Please pardon our dust while we cleanup some aggressive refactoring and get the CI passing again**
+
 *Breaking down barriers to food security through unified resource access*
 
 [![Build Status](https://github.com/For-The-Greater-Good/pantry-pirate-radio/workflows/CI/badge.svg)](https://github.com/For-The-Greater-Good/pantry-pirate-radio/actions)
@@ -145,9 +147,9 @@ The system consists of the following containerized services:
 ```mermaid
 flowchart TB
     %% Data Collection
-    Scrapers[Scrapers<br/>30+ sources]
+    Scrapers[Scrapers<br/>70+ Food Banks<br/>Aggregator Platforms]
     ContentStore[(Content Store)]
-    
+
     Scrapers --> ContentStore
     ContentStore -->|new| Queue[Redis Queue]
     ContentStore -.->|duplicate| Skip[Skip]
@@ -192,9 +194,48 @@ flowchart TB
 ### Service Components
 
 #### **Scraper System** (`app/scraper/`)
-- **30+ Individual Scrapers** (Private Submodule): Production scrapers in `app/scraper/scrapers/`
+- **90+ Individual Scrapers** (Private Submodule): Production scrapers in `app/scraper/scrapers/`
   - Requires access to private repository
-  - Data Sources: NYC EFAP, FoodHelpline.org, Plentiful, Care & Share, Freshtrak, Feeding America network, state food banks, and more
+  - **Data Aggregator Platforms**: Multiple nationwide food finder platforms and regional aggregators
+  - **Food Bank Coverage by State**:
+    - **Alabama**: Feeding the Gulf Coast, Heart of Alabama Food Bank
+    - **Alaska & Hawaii**: Hawaii Food Bank, Maui Food Bank, The Food Basket Inc.
+    - **California**: Central California Food Bank, Community Action of Napa Valley Food Bank, Community Action Partnership of Kern, Find Food Bank, Food Bank of Contra Costa and Solano, Second Harvest of Silicon Valley, SF-Marin Food Bank
+    - **Connecticut**: Connecticut Foodshare
+    - **Delaware**: Food Bank of Delaware
+    - **District of Columbia**: Capital Area Food Bank
+    - **Florida**: Second Harvest Food Bank of Central Florida, Feeding Tampa Bay, Treasure Coast Food Bank
+    - **Idaho**: The Idaho Foodbank
+    - **Kansas**: Kansas Food Bank
+    - **Kentucky**: Dare to Care Food Bank, Feeding America Kentucky's Heartland, God's Pantry Food Bank, Purchase Area Development District Food Bank
+    - **Louisiana**: Second Harvest Food Bank (multiple regions)
+    - **Maine**: Good Shepherd Food Bank
+    - **Maryland**: Maryland Food Bank
+    - **Massachusetts**: Food Bank of Western Massachusetts
+    - **Michigan**: Feeding America West Michigan
+    - **Minnesota**: North Country Food Bank
+    - **Mississippi**: Mississippi Food Network
+    - **Missouri**: Food Bank for Central & Northeast Missouri, Food Bank for the Heartland, Harvesters - The Community Food Network, Ozarks Food Harvest, Second Harvest Community Food Bank, Southeast Missouri Food Bank
+    - **Montana**: Montana Food Bank Network
+    - **Nebraska**: Food Bank for the Heartland, Food Bank of Lincoln
+    - **Nevada**: Food Bank of Northern Nevada, Three Square Food Bank
+    - **New Jersey**: Community Foodbank of New Jersey
+    - **New York**: Feed More Western New York, Food Bank for New York City, Food Bank of Central New York, Foodlink, Island Harvest, Long Island Cares
+    - **North Carolina**: Second Harvest Food Bank of Metrolina, Second Harvest Food Bank of Northwest North Carolina
+    - **North Dakota**: Great Plains Food Bank
+    - **Ohio**: Akron-Canton Regional Foodbank, Freestore Foodbank, Greater Cleveland Food Bank, Toledo Northwestern Ohio Food Bank
+    - **Oregon**: Oregon Food Bank
+    - **Pennsylvania**: Chester County Food Bank, Greater Pittsburgh Community Food Bank, Philabundance, Second Harvest Food Bank of Lehigh Valley and Northeast Pennsylvania
+    - **Puerto Rico**: Banco de Alimentos de Puerto Rico
+    - **Rhode Island**: Rhode Island Community Food Bank
+    - **South Carolina**: Harvest Hope Food Bank
+    - **South Dakota**: Feeding South Dakota
+    - **Tennessee**: Second Harvest Food Bank of East Tennessee, Second Harvest Food Bank of Middle Tennessee
+    - **Texas**: El Pasoans Fighting Hunger, West Texas Food Bank
+    - **Virginia**: Blue Ridge Area Food Bank, Feed More, Feeding Southwest Virginia, Foodbank of Southeastern Virginia and Eastern Shore, Healthy Harvest Food Bank
+    - **Washington**: Food Lifeline, Second Harvest Inland Northwest
+    - **West Virginia**: Mountaineer Food Bank
+    - **Wisconsin**: Feed My People Food Bank, Feeding America Eastern Wisconsin, Second Harvest Foodbank of Southern Wisconsin
 - **Public Framework**: `ScraperJob` base class with utilities for geocoding and grid generation
   - Available to all contributors
   - Includes sample scraper implementation
