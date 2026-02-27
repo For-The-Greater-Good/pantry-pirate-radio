@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+You must follow the constitution in [constitution.md](constitution.md) when doing any work in this repository.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Most Common Commands
@@ -639,6 +641,24 @@ psql -U postgres -d pantry_pirate_radio -c "SELECT 1;"
 # Check service health
 ./bouy ps                    # Shows all service statuses
 ```
+
+## Constitution Requirements
+
+See [constitution.md](constitution.md) for full details. Key principles:
+
+1. **Docker-First Development (NON-NEGOTIABLE)** - Everything via `./bouy`. No local Python/poetry/docker-compose.
+2. **HSDS Specification Compliance (NON-NEGOTIABLE)** - All data output conforms to HSDS. Pydantic models are canonical schema.
+3. **Test-Driven Development (NON-NEGOTIABLE)** - Tests before code. Coverage ratchet enforced (no regression).
+4. **Pipeline Stage Boundaries** - Clear contracts per stage. Scrapers don't geocode or write to DB.
+5. **Scraper Consistency** - All scrapers use `ScraperJob` base class, naming conventions, file patterns.
+6. **Data Quality for Vulnerable Populations (NON-NEGOTIABLE)** - Confidence scoring, test data rejection, validation before publish.
+7. **Privacy and Security** - No PII. Read-only public API. bandit/safety must pass.
+8. **Content Deduplication** - SHA-256 content store is mandatory path between scrapers and LLM queue.
+9. **File Size and Complexity Limits** - 600 lines max for app files. Cyclomatic complexity <=15.
+10. **Consistent Quality Gates** - black + ruff + mypy + bandit + pytest must all pass. No exceptions.
+11. **Pipeline Resilience** - Failures isolated per-scraper. Retry with backoff. No silent data loss.
+12. **Structured Logging** - structlog only. Structured context fields. Prometheus metrics.
+13. **Documentation Maintenance** - CLAUDE.md updated with code changes. Docs not deferred.
 
 ## Recent Updates and Features
 
