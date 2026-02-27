@@ -439,14 +439,14 @@ psql -U postgres -d pantry_pirate_radio
 ### Scraper Development
 
 ```bash
-# List available scrapers
+# List available scrapers (70+ food banks + aggregator platforms)
 ./bouy scraper --list
 
-# Test scraper (dry run)
-./bouy scraper-test freshtrak
+# Test scraper (dry run) - example with a food bank
+./bouy scraper-test scrapers.oregon_food_bank_or
 
 # Run single scraper
-./bouy scraper freshtrak
+./bouy scraper scrapers.maryland_food_bank_md
 
 # Run all scrapers
 ./bouy scraper --all
