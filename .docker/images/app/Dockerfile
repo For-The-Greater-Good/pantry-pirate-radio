@@ -75,8 +75,8 @@ RUN npm install -g @anthropic-ai/claude-code
 # Set working directory
 WORKDIR /app
 
-# Install Poetry (upgrade pip first to fix CVE-2025-8869)
-RUN pip install --upgrade pip>=25.3 && pip install poetry
+# Install Poetry (upgrade pip and wheel first to fix CVE-2025-8869 and CVE-2026-24049)
+RUN pip install --upgrade pip>=26.0 wheel>=0.46.2 && pip install poetry
 
 # Configure Poetry
 ENV POETRY_VIRTUALENVS_CREATE=false

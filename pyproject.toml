@@ -61,6 +61,7 @@ marshmallow = "^3.26.0"
 pyjwt = "^2.10.1"
 xlrd = "^2.0.1"
 starlette = ">=0.49.1"
+defusedxml = "^0.7.1"
 db-to-sqlite = "^1.5"
 
 [tool.poetry.group.dev.dependencies]
@@ -363,6 +364,17 @@ max-complexity = 15
 "tests/hsds/strategies/*" = ["C901"]
 "app/scraper/scrapers/tests/*" = [
     "RUF001",  # Ambiguous unicode (preserve source data formatting)
+    "RUF003",  # Comment contains ambiguous unicode (preserve source data formatting)
+    "N817",    # ElementTree imported as ET (standard convention)
+]
+"app/scraper/scrapers/hawaii_foodbank_inc_hi_scraper.py" = [
+    "RUF001",  # Hawaiian ʻokina character in strings
+]
+"app/scraper/scrapers/central_california_food_bank_ca_scraper.py" = [
+    "N817",  # ElementTree imported as ET (standard convention)
+]
+"app/scraper/scrapers/freestore_foodbank_oh_scraper.py" = [
+    "N817",  # ElementTree imported as ET (standard convention)
 ]
 "types/structlog-stubs/*" = ["N802"]
 "tests/fixtures/*" = ["S110", "B904", "B010", "RUF010"]
