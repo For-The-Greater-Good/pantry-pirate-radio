@@ -15,9 +15,7 @@ class TestJsonParsePreservation:
             "properties": {"name": {"type": "string"}},
         }
 
-        content, parsed = provider._process_json_content(
-            malformed, format_schema
-        )
+        content, parsed = provider._process_json_content(malformed, format_schema)
 
         assert content != "Invalid JSON response"
         assert "Test Food Bank" in content
@@ -29,9 +27,7 @@ class TestJsonParsePreservation:
         provider = OpenAIProvider(config)
 
         valid = '{"name": "Test"}'
-        content, parsed = provider._process_json_content(
-            valid, {"type": "object"}
-        )
+        content, parsed = provider._process_json_content(valid, {"type": "object"})
 
         assert content == '{"name": "Test"}'
         assert parsed == {"name": "Test"}

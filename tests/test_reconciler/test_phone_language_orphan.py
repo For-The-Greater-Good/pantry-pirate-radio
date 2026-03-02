@@ -61,13 +61,9 @@ class TestPhoneLanguageOrphan:
 
         with (
             patch.object(processor, "db", mock_db),
-            patch(
-                "app.reconciler.job_processor.OrganizationCreator"
-            ) as MockOrgCreator,
+            patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
             patch("app.reconciler.job_processor.LocationCreator"),
-            patch(
-                "app.reconciler.job_processor.ServiceCreator"
-            ) as MockSvcCreator,
+            patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
             patch("app.reconciler.job_processor.VersionTracker"),
         ):
             mock_org = MockOrgCreator.return_value
@@ -100,13 +96,9 @@ class TestPhoneLanguageOrphan:
 
         with (
             patch.object(processor, "db", mock_db),
-            patch(
-                "app.reconciler.job_processor.OrganizationCreator"
-            ) as MockOrgCreator,
+            patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
             patch("app.reconciler.job_processor.LocationCreator"),
-            patch(
-                "app.reconciler.job_processor.ServiceCreator"
-            ) as MockSvcCreator,
+            patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
             patch("app.reconciler.job_processor.VersionTracker"),
         ):
             mock_org = MockOrgCreator.return_value

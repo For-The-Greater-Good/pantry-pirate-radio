@@ -13,9 +13,7 @@ from app.validator.job_processor import ValidationProcessor
 class TestEnrichmentFailureRecovery:
     def _make_job_result(self):
         data = {
-            "organization": [
-                {"name": "Test Org", "description": "Test"}
-            ],
+            "organization": [{"name": "Test Org", "description": "Test"}],
             "location": [
                 {
                     "name": "Test Loc",
@@ -67,9 +65,7 @@ class TestEnrichmentFailureRecovery:
                 "_enrich_data",
                 side_effect=Exception("API timeout"),
             ),
-            patch(
-                "app.validator.job_processor.ValidationProcessor._commit_changes"
-            ),
+            patch("app.validator.job_processor.ValidationProcessor._commit_changes"),
         ):
             result = processor.process_job_result(self._make_job_result())
 

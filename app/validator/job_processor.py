@@ -383,7 +383,10 @@ class ValidationProcessor:
             locations_key = "location" if "location" in data else "locations"
             if locations_key in data and isinstance(data[locations_key], list):
                 for location in data[locations_key]:
-                    if location.get("latitude") is None or location.get("longitude") is None:
+                    if (
+                        location.get("latitude") is None
+                        or location.get("longitude") is None
+                    ):
                         location["enrichment_failed"] = True
             # Return original data if enrichment fails
             return data

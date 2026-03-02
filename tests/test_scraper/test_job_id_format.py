@@ -12,9 +12,7 @@ class TestJobIdFormat:
         with (
             patch("app.scraper.utils.llm_queue") as mock_queue,
             patch("app.scraper.utils.get_content_store", return_value=None),
-            patch.object(
-                ScraperUtils, "_load_system_prompt", return_value="prompt"
-            ),
+            patch.object(ScraperUtils, "_load_system_prompt", return_value="prompt"),
             patch.object(ScraperUtils, "_load_hsds_schema", return_value={}),
             patch("app.scraper.utils.get_setting") as mock_setting,
         ):

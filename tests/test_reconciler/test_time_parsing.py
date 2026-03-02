@@ -20,9 +20,7 @@ class TestTimeParsing:
             ("12:30 PM", 12, 30),
         ],
     )
-    def test_parse_time_various_formats(
-        self, time_str, expected_hour, expected_minute
-    ):
+    def test_parse_time_various_formats(self, time_str, expected_hour, expected_minute):
         """_parse_time must handle common time formats without crashing."""
         creator = ServiceCreator(MagicMock(spec=Session))
         result = creator._parse_time(time_str)
