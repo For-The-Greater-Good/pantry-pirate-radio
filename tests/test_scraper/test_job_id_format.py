@@ -18,7 +18,7 @@ class TestJobIdFormat:
             patch("app.scraper.utils.settings") as mock_settings,
         ):
             mock_settings.REDIS_TTL_SECONDS = 3600
-            mock_setting.side_effect = lambda key, type_, *a, **kw: {
+            mock_setting.side_effect = lambda key, type_, *a, **_kw: {
                 "llm_provider": "openai",
                 "llm_model_name": "test",
                 "llm_temperature": 0.7,
