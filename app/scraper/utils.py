@@ -2,6 +2,7 @@
 
 import os
 import random
+import uuid
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
@@ -234,7 +235,7 @@ class ScraperUtils:
         from app.llm.queue.job import LLMJob
 
         job = LLMJob(
-            id=str(datetime.now().timestamp()),
+            id=str(uuid.uuid4()),
             prompt=full_prompt,
             format=self.hsds_schema,  # Pass the entire schema structure as-is
             metadata=job_metadata,
