@@ -289,23 +289,26 @@ class JobProcessor:
             ValueError: If job result has no result
             json.JSONDecodeError: If result text is not valid JSON
         """
-        # Check for validation data in job_result.data (from validator)
+        # Use enriched data from validator when available, otherwise parse LLM text
         validation_data = None
-        if hasattr(job_result, "data") and job_result.data:
-            # Extract validation data from enriched job_result
-            validation_data = job_result.data
+        if hasattr(job_result, "data") and job_result.data and any(
+            key in job_result.data for key in ["organization", "service", "location"]
+        ):
+            # PRIMARY PATH: Use validator-enriched data
+            raw_data = job_result.data
+            validation_data = raw_data  # Same source for validation lookups
             logger.info(
-                f"Found validation data in job_result.data with {len(validation_data)} keys"
+                f"Using validator-enriched data as primary source "
+                f"({len(raw_data)} keys)"
             )
+        else:
+            # FALLBACK: Parse from original LLM text (validator disabled)
+            if not job_result.result:
+                raise ValueError("Job result has no result")
 
-        # Parse HSDS data
-        if not job_result.result:
-            raise ValueError("Job result has no result")
+            if not job_result.result.text or job_result.result.text.strip() == "":
+                raise ValueError("Job result has empty text")
 
-        if not job_result.result.text or job_result.result.text.strip() == "":
-            raise ValueError("Job result has empty text")
-
-        try:
             # Extract JSON from markdown code blocks if present
             json_text = self._extract_json_from_markdown(job_result.result.text)
 
@@ -345,6 +348,7 @@ class JobProcessor:
                         f"Failed to parse JSON: {demjson_error}"
                     ) from demjson_error
 
+        try:
             # With structured outputs, data should already be in HSDS format
             if not isinstance(raw_data, dict):
                 raise ValueError(
