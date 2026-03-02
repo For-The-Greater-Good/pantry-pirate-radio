@@ -619,8 +619,8 @@ class JobProcessor:
                             metadata=job_result.job.metadata,
                             transaction=self.db,
                         )
-                        # Add phone languages
-                        if "languages" in phone:
+                        # Add phone languages (only if phone was created)
+                        if phone_id and "languages" in phone:
                             for language in phone["languages"]:
                                 service_creator.create_language(
                                     name=language.get("name", ""),
@@ -1047,8 +1047,8 @@ class JobProcessor:
                                     metadata=job_result.job.metadata,
                                     transaction=self.db,
                                 )
-                                # Add phone languages
-                                if "languages" in phone:
+                                # Add phone languages (only if phone was created)
+                                if phone_id and "languages" in phone:
                                     for language in phone["languages"]:
                                         service_creator.create_language(
                                             name=language.get("name", ""),
@@ -1199,8 +1199,8 @@ class JobProcessor:
                             metadata=job_result.job.metadata,
                             transaction=self.db,
                         )
-                        # Add phone languages
-                        if "languages" in phone:
+                        # Add phone languages (only if phone was created)
+                        if phone_id and "languages" in phone:
                             for language in phone["languages"]:
                                 service_creator.create_language(
                                     name=language.get("name", ""),
