@@ -681,7 +681,10 @@ class ValidationProcessor:
         Returns:
             Rejection reason or None if not rejected
         """
-        if confidence_score >= 10:
+        from app.core.config import settings
+
+        threshold = getattr(settings, "VALIDATION_REJECTION_THRESHOLD", 10)
+        if confidence_score >= threshold:
             return None
 
         # Determine primary rejection reason
