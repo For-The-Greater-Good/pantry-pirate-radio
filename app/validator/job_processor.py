@@ -376,9 +376,15 @@ class ValidationProcessor:
             return enriched_data
 
         except Exception as e:
-            self.logger.warning(f"Enrichment failed: {e}", exc_info=True)
+            self.logger.error(f"Enrichment failed: {e}", exc_info=True)
             # Store error in validation notes
             self._enrichment_error = str(e)
+            # Flag locations that needed enrichment so they aren't auto-rejected
+            locations_key = "location" if "location" in data else "locations"
+            if locations_key in data and isinstance(data[locations_key], list):
+                for location in data[locations_key]:
+                    if location.get("latitude") is None or location.get("longitude") is None:
+                        location["enrichment_failed"] = True
             # Return original data if enrichment fails
             return data
 
@@ -546,6 +552,25 @@ class ValidationProcessor:
             total_locations = len(data[locations_key])
 
             for location in data[locations_key]:
+                # Handle locations that couldn't be enriched due to service failure
+                if location.get("enrichment_failed"):
+                    from app.core.config import settings
+
+                    threshold = getattr(settings, "VALIDATION_REJECTION_THRESHOLD", 10)
+                    confidence_score = max(15, threshold)
+                    location["confidence_score"] = confidence_score
+                    location["validation_status"] = "needs_review"
+                    location["validation_notes"] = {
+                        "enrichment_failed": True,
+                        "note": "Enrichment service unavailable; held for re-enrichment",
+                    }
+                    location_scores.append(confidence_score)
+                    self.logger.info(
+                        f"Location '{location.get('name', 'unknown')}': "
+                        f"confidence={confidence_score}, status=needs_review (enrichment failed)"
+                    )
+                    continue
+
                 # Run validation rules
                 validation_results = validator.validate_location(location)
 
