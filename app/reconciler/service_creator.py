@@ -641,6 +641,21 @@ class ServiceCreator(BaseReconciler):
 
         return language_id
 
+    def _parse_time(self, time_str: str | None) -> "datetime.time | None":
+        """Parse time string in various formats. Returns None for unparseable values."""
+        import datetime as dt_module
+
+        if not time_str:
+            return None
+        time_str = time_str.strip()
+        for fmt in ["%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p", "%I%p", "%I %p"]:
+            try:
+                return dt_module.datetime.strptime(time_str, fmt).time()
+            except ValueError:
+                continue
+        self.logger.warning(f"Could not parse time string: '{time_str}'")
+        return None
+
     def create_schedule(
         self,
         freq: str,
@@ -724,13 +739,9 @@ class ServiceCreator(BaseReconciler):
         """
         )
 
-        # Convert time strings to time objects (handle None values)
-        opens_at_time = (
-            datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
-        )
-        closes_at_time = (
-            datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
-        )
+        # Convert time strings to time objects (handle multiple formats)
+        opens_at_time = self._parse_time(opens_at)
+        closes_at_time = self._parse_time(closes_at)
 
         self.db.execute(
             query,
@@ -831,13 +842,9 @@ class ServiceCreator(BaseReconciler):
         Returns:
             Tuple of (Schedule ID, was_updated)
         """
-        # Convert time strings to time objects
-        opens_at_time = (
-            datetime.strptime(opens_at, "%H:%M").time() if opens_at else None
-        )
-        closes_at_time = (
-            datetime.strptime(closes_at, "%H:%M").time() if closes_at else None
-        )
+        # Convert time strings to time objects (handle multiple formats)
+        opens_at_time = self._parse_time(opens_at)
+        closes_at_time = self._parse_time(closes_at)
 
         # Check for existing schedule with same entity relationship
         existing_query = text(
