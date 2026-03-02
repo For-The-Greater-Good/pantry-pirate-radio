@@ -130,6 +130,9 @@ def test_job_metrics(registry):
     """Test job processing metrics."""
     registry.register(RECONCILER_JOBS)
 
+    # Reset metrics before test to avoid pollution from other tests
+    RECONCILER_JOBS._metrics.clear()
+
     RECONCILER_JOBS.labels(scraper_id="test", status="success").inc()
     RECONCILER_JOBS.labels(scraper_id="test", status="failure").inc()
     RECONCILER_JOBS.labels(scraper_id="test", status="success").inc()
