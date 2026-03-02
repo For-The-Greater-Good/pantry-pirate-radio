@@ -489,7 +489,7 @@ class ValidationProcessor:
             validation_metadata: Metadata to set for validation
         """
         # Extract common validation fields
-        confidence_score = validation_metadata.get("confidence_score", 1.0)
+        confidence_score = validation_metadata.get("confidence_score", 100)
         validation_status = validation_metadata.get("status", "pending")
         validation_notes = validation_metadata.get("notes", [])
 
@@ -709,13 +709,13 @@ class ValidationProcessor:
             Validation metadata dictionary
         """
         metadata = {
-            "confidence_score": 1.0,  # Default high confidence for passthrough
-            "status": "validated" if not self._validation_errors else "failed",
+            "confidence_score": 100,  # Default high confidence for passthrough (int 0-100)
+            "status": "verified" if not self._validation_errors else "needs_review",
             "notes": self._validation_errors.copy(),
             "field_count": len(data),
             "has_organization": "organization" in data,
-            "has_locations": "locations" in data,
-            "has_services": "services" in data,
+            "has_locations": "location" in data,
+            "has_services": "service" in data,
         }
 
         # Extract confidence from data if available
