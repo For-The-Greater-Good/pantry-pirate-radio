@@ -16,9 +16,7 @@ class TestEnrichmentDataUsage:
     def test_uses_enriched_coordinates(self):
         """When validator enriched coordinates, reconciler must use them, not skip."""
         original_data = {
-            "organization": [
-                {"name": "Test Org", "description": "Test"}
-            ],
+            "organization": [{"name": "Test Org", "description": "Test"}],
             "location": [
                 {
                     "name": "Test Loc",
@@ -84,12 +82,8 @@ class TestEnrichmentDataUsage:
         processor = JobProcessor(db=mock_db)
 
         with (
-            patch(
-                "app.reconciler.job_processor.OrganizationCreator"
-            ) as MockOrg,
-            patch(
-                "app.reconciler.job_processor.LocationCreator"
-            ) as MockLoc,
+            patch("app.reconciler.job_processor.OrganizationCreator") as MockOrg,
+            patch("app.reconciler.job_processor.LocationCreator") as MockLoc,
             patch("app.reconciler.job_processor.ServiceCreator"),
             patch("app.reconciler.job_processor.VersionTracker"),
         ):
@@ -110,9 +104,7 @@ class TestEnrichmentDataUsage:
     def test_falls_back_to_result_text_when_no_data(self):
         """When data is None (no validator), reconciler must parse result.text."""
         raw_data = {
-            "organization": [
-                {"name": "Test Org", "description": "Test"}
-            ],
+            "organization": [{"name": "Test Org", "description": "Test"}],
             "location": [
                 {
                     "name": "Test Loc",
@@ -156,12 +148,8 @@ class TestEnrichmentDataUsage:
         processor = JobProcessor(db=mock_db)
 
         with (
-            patch(
-                "app.reconciler.job_processor.OrganizationCreator"
-            ) as MockOrg,
-            patch(
-                "app.reconciler.job_processor.LocationCreator"
-            ) as MockLoc,
+            patch("app.reconciler.job_processor.OrganizationCreator") as MockOrg,
+            patch("app.reconciler.job_processor.LocationCreator") as MockLoc,
             patch("app.reconciler.job_processor.ServiceCreator"),
             patch("app.reconciler.job_processor.VersionTracker"),
         ):

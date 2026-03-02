@@ -14,9 +14,7 @@ class TestValidationMetadataTypes:
         ):
             processor = ValidationProcessor(db=MagicMock(spec=Session))
         processor._validation_errors = []
-        metadata = processor._extract_validation_metadata(
-            {"organization": []}
-        )
+        metadata = processor._extract_validation_metadata({"organization": []})
         assert isinstance(metadata["confidence_score"], int)
 
     def test_status_uses_valid_enum(self):
@@ -27,9 +25,7 @@ class TestValidationMetadataTypes:
         ):
             processor = ValidationProcessor(db=MagicMock(spec=Session))
         processor._validation_errors = []
-        metadata = processor._extract_validation_metadata(
-            {"organization": []}
-        )
+        metadata = processor._extract_validation_metadata({"organization": []})
         assert metadata["status"] in (
             "verified",
             "needs_review",

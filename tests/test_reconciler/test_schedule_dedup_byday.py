@@ -31,9 +31,7 @@ class TestScheduleDedupByday:
             ):
                 exists = True
                 break
-        assert (
-            not exists
-        ), "Different byday values must not be treated as duplicates"
+        assert not exists, "Different byday values must not be treated as duplicates"
 
     def test_same_byday_deduped(self):
         """Identical schedules (including byday) should be collapsed."""

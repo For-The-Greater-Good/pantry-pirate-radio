@@ -291,8 +291,13 @@ class JobProcessor:
         """
         # Use enriched data from validator when available, otherwise parse LLM text
         validation_data = None
-        if hasattr(job_result, "data") and job_result.data and any(
-            key in job_result.data for key in ["organization", "service", "location"]
+        if (
+            hasattr(job_result, "data")
+            and job_result.data
+            and any(
+                key in job_result.data
+                for key in ["organization", "service", "location"]
+            )
         ):
             # PRIMARY PATH: Use validator-enriched data
             raw_data = job_result.data

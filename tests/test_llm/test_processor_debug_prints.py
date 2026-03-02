@@ -33,9 +33,7 @@ class TestNoDebugPrints:
             patch("builtins.print") as mock_print,
             patch("app.llm.queue.processor.reconciler_queue"),
             patch("app.llm.queue.processor.recorder_queue"),
-            patch(
-                "app.content_store.config.get_content_store", return_value=None
-            ),
+            patch("app.content_store.config.get_content_store", return_value=None),
             patch(
                 "app.llm.queue.processor.should_use_validator",
                 return_value=False,
