@@ -1309,6 +1309,8 @@ class JobProcessor:
                                                     == loc_schedule["opens_at"]
                                                     and existing["closes_at"]
                                                     == loc_schedule["closes_at"]
+                                                    and existing.get("byday")
+                                                    == loc_schedule.get("byday")
                                                 ):
                                                     exists = True
                                                     break
