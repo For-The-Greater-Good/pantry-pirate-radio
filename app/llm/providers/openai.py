@@ -424,7 +424,7 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
                 )
                 if "cannot" in content.lower() or "refuse" in content.lower():
                     return content, None
-                return "Invalid JSON response", None
+                return content, None  # Preserve for demjson3 fallback in reconciler
         return content.strip(), parsed
 
     def _process_api_response(

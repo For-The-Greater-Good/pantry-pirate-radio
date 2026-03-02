@@ -116,12 +116,12 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     gen = cast(AsyncGenerator[LLMResponse, None], result)
                     llm_result = loop.run_until_complete(anext(gen))
 
-                # Validate the response
-                if llm_result.text == "Invalid JSON response":
+                # Validate the response — retry only on truly empty responses
+                if not llm_result.text or llm_result.text.strip() == "":
                     retry_count += 1
-                    last_error = "Received 'Invalid JSON response' from LLM"
+                    last_error = "Received empty response from LLM"
                     logger.warning(
-                        f"LLM returned 'Invalid JSON response' for job {job.id}, "
+                        f"LLM returned empty response for job {job.id}, "
                         f"retry {retry_count}/{max_retries}"
                     )
                     if retry_count < max_retries:
@@ -133,7 +133,7 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     else:
                         # Max retries reached, fail the job
                         raise ValueError(
-                            f"LLM consistently returned 'Invalid JSON response' after {max_retries} attempts"
+                            f"LLM consistently returned empty response after {max_retries} attempts"
                         )
 
                 # Response is valid, break out of retry loop
@@ -183,7 +183,7 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         # Validate response before storing in content store
         is_valid_response = (
             llm_result.text
-            and llm_result.text != "Invalid JSON response"
+            and llm_result.text.strip() != ""
             and llm_result.text != "No response from model"
             and llm_result.text != "Empty response from model"
         )
