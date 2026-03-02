@@ -171,6 +171,13 @@ class JobProcessor:
         self.db = db
         self.logger = logging.getLogger(__name__)
 
+    def _location_key(self, location: dict) -> str:
+        """Build composite key for location dedup mapping."""
+        name = location.get("name", "")
+        lat = location.get("latitude", "")
+        lon = location.get("longitude", "")
+        return f"{name}|{lat}|{lon}"
+
     def process_completed_jobs(self) -> None:
         """Process completed jobs.
 
@@ -1074,7 +1081,7 @@ class JobProcessor:
                                 )
 
                         # Store UUID in location_ids dictionary
-                        location_ids[location["name"]] = location_id
+                        location_ids[self._location_key(location)] = location_id
 
             # Process services (both top-level and organization-nested)
             services_to_process: list[ServiceDict] = []
@@ -1228,12 +1235,12 @@ class JobProcessor:
                 # Link service to locations and create schedules
                 if "location" in data:
                     for loc in data["location"]:
-                        # Get location identifier - could be 'name' or fallback to other fields
-                        loc_identifier = loc.get("name")
-                        if not loc_identifier:
-                            continue  # Skip if no identifier
+                        # Get location key using composite of name + coords
+                        loc_key = self._location_key(loc)
+                        if not loc.get("name"):
+                            continue  # Skip if no name
 
-                        if loc_identifier in location_ids:
+                        if loc_key in location_ids:
                             # Check for existing service_at_location
                             query = text(
                                 """
@@ -1247,7 +1254,7 @@ class JobProcessor:
                                 query,
                                 {
                                     "service_id": str(service_id),
-                                    "location_id": str(location_ids[loc["name"]]),
+                                    "location_id": str(location_ids[loc_key]),
                                 },
                             )
                             row = result.first()
@@ -1264,7 +1271,7 @@ class JobProcessor:
 
                                 sal_id = service_creator.create_service_at_location(
                                     service_id,
-                                    location_ids[loc["name"]],
+                                    location_ids[loc_key],
                                     sal_description,
                                     job_result.job.metadata,
                                 )
