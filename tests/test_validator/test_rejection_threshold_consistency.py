@@ -15,7 +15,7 @@ class TestRejectionThresholdConsistency:
         ):
             processor = ValidationProcessor(db=MagicMock(spec=Session))
 
-        with patch("app.validator.job_processor.settings") as mock_settings:
+        with patch("app.core.config.settings") as mock_settings:
             mock_settings.VALIDATION_REJECTION_THRESHOLD = 30
             reason = processor._get_rejection_reason(
                 confidence_score=25,
@@ -37,7 +37,7 @@ class TestRejectionThresholdConsistency:
         ):
             processor = ValidationProcessor(db=MagicMock(spec=Session))
 
-        with patch("app.validator.job_processor.settings") as mock_settings:
+        with patch("app.core.config.settings") as mock_settings:
             mock_settings.VALIDATION_REJECTION_THRESHOLD = 30
             reason = processor._get_rejection_reason(
                 confidence_score=35,

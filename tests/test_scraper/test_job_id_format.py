@@ -1,21 +1,23 @@
 """Regression test: job IDs must be UUID4, not timestamps."""
 
 import uuid
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 from app.scraper.utils import ScraperUtils
 
 
 class TestJobIdFormat:
     def test_job_id_is_valid_uuid4(self):
         """Job IDs must be UUID4 to prevent collisions in parallel scraping."""
-        # Capture the LLMJob created by queue_for_processing
         with (
             patch("app.scraper.utils.llm_queue") as mock_queue,
-            patch("app.scraper.utils.get_content_store", return_value=None),
-            patch.object(ScraperUtils, "_load_system_prompt", return_value="prompt"),
-            patch.object(ScraperUtils, "_load_hsds_schema", return_value={}),
-            patch("app.scraper.utils.get_setting") as mock_setting,
+            patch(
+                "app.content_store.config.get_content_store",
+                return_value=None,
+            ),
+            patch("app.core.events.get_setting") as mock_setting,
+            patch("app.scraper.utils.settings") as mock_settings,
         ):
+            mock_settings.REDIS_TTL_SECONDS = 3600
             mock_setting.side_effect = lambda key, type_, *a, **kw: {
                 "llm_provider": "openai",
                 "llm_model_name": "test",
