@@ -348,10 +348,20 @@ class JobProcessor:
                     logger.error(
                         f"Problematic JSON (first 500 chars): {json_text[:500]}"
                     )
-                    # Re-raise with more context
-                    raise ValueError(
-                        f"Failed to parse JSON: {demjson_error}"
-                    ) from demjson_error
+                    # Re-raise with structured error for downstream handling
+                    scraper_id = (
+                        job_result.job.metadata.get("scraper_id", "unknown")
+                        if job_result.job and job_result.job.metadata
+                        else "unknown"
+                    )
+                    error_info = json.dumps(
+                        {
+                            "status": "error",
+                            "scraper_id": scraper_id,
+                            "error": f"Failed to parse JSON: {demjson_error}",
+                        }
+                    )
+                    raise ValueError(error_info) from demjson_error
 
         try:
             # With structured outputs, data should already be in HSDS format

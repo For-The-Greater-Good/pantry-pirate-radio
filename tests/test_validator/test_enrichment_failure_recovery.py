@@ -58,11 +58,10 @@ class TestEnrichmentFailureRecovery:
         ):
             processor = ValidationProcessor(db=MagicMock(spec=Session))
 
-        # Make enrichment fail
+        # Make the GeocodingEnricher raise inside _enrich_data's try block
         with (
-            patch.object(
-                processor,
-                "_enrich_data",
+            patch(
+                "app.validator.enrichment.GeocodingEnricher.enrich_job_data",
                 side_effect=Exception("API timeout"),
             ),
             patch("app.validator.job_processor.ValidationProcessor._commit_changes"),

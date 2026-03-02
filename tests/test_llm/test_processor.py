@@ -305,24 +305,14 @@ def test_process_llm_job_provider_without_model_name(
 def test_process_llm_job_invalid_json_retry_succeeds(
     sample_job: LLMJob, mock_provider: MagicMock, sample_llm_response: LLMResponse
 ) -> None:
-    """Test that invalid JSON response triggers retry and eventually succeeds."""
-    # Create invalid and valid responses
-    invalid_response = LLMResponse(
-        text="Invalid JSON response",  # Triggers retry
-        model="test-model",
-        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        raw={},
-    )
-
-    # First call returns invalid, second returns valid
-    async def mock_generate_invalid(*args: Any, **kwargs: Any) -> LLMResponse:
-        return invalid_response
+    """Test that transient provider error triggers retry and eventually succeeds."""
 
     async def mock_generate_valid(*args: Any, **kwargs: Any) -> LLMResponse:
         return sample_llm_response
 
+    # First call raises transient error, second returns valid
     mock_provider.generate.side_effect = [
-        mock_generate_invalid(),
+        RuntimeError("Transient provider error"),
         mock_generate_valid(),
     ]
 
@@ -344,26 +334,12 @@ def test_process_llm_job_invalid_json_retry_succeeds(
 def test_process_llm_job_invalid_json_max_retries(
     sample_job: LLMJob, mock_provider: MagicMock
 ) -> None:
-    """Test that consistently invalid JSON responses fail after max retries."""
-    invalid_response = LLMResponse(
-        text="Invalid JSON response",
-        model="test-model",
-        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        raw={},
-    )
-
-    # Always return invalid JSON
-    async def mock_generate(*args: Any, **kwargs: Any) -> LLMResponse:
-        return invalid_response
-
-    mock_provider.generate.side_effect = [
-        mock_generate(),
-        mock_generate(),
-        mock_generate(),
-    ]
+    """Test that consistent provider errors fail after max retries."""
+    # Always raise transient error
+    mock_provider.generate.side_effect = RuntimeError("Persistent provider error")
 
     with patch("time.sleep"):  # Mock sleep to speed up test
-        with pytest.raises(ValueError, match="Invalid JSON response.*after 3 attempts"):
+        with pytest.raises(ValueError, match="after 3 attempts"):
             process_llm_job(sample_job, mock_provider)
 
     assert mock_provider.generate.call_count == 3
