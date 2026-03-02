@@ -83,10 +83,6 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         f"Starting to process LLM job {job.id} with provider {provider.model_name}"
     )
 
-    # DEBUG: Check metadata for content_hash
-    print(f"DEBUG: Job {job.id} metadata: {job.metadata}")
-    logger.warning(f"DEBUG: Job {job.id} metadata: {job.metadata}")
-
     # Run async generate in sync context
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
