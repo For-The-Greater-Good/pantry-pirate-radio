@@ -1,5 +1,6 @@
 """Tests for AWS Bedrock LLM provider."""
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,6 +47,15 @@ class TestBedrockProviderInit:
         config = BedrockConfig(model_name="anthropic.claude-sonnet-4-6")
         provider = BedrockProvider(config)
         assert provider.environment_key == "AWS_DEFAULT_REGION"
+
+    def test_should_raise_clear_error_when_boto3_missing(self):
+        """Test that a clear ImportError is raised when boto3 is not installed."""
+        config = BedrockConfig(model_name="anthropic.claude-sonnet-4-6")
+        provider = BedrockProvider(config)
+        provider._client = None
+        with patch.dict(sys.modules, {"boto3": None}):
+            with pytest.raises(ImportError, match="boto3 is required"):
+                _ = provider.model
 
 
 class TestBuildMessages:
@@ -143,6 +153,34 @@ class TestBuildToolConfig:
         """Test None schema returns None."""
         tool_config = self.provider._build_tool_config(None)
         assert tool_config is None
+
+    def test_build_tool_config_warns_on_non_dict_schema(self):
+        """Test that a non-dict inner schema returns None with a warning."""
+        # Wrap a string inside the pipeline json_schema format
+        schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "response",
+                "schema": "not-a-dict",
+            },
+        }
+        result = self.provider._build_tool_config(schema)
+        assert result is None
+
+    def test_build_tool_config_warns_on_missing_type_field(self):
+        """Test that a schema missing 'type' logs a warning but still builds config."""
+        schema = {"properties": {"name": {"type": "string"}}}
+        tool_config = self.provider._build_tool_config(schema)
+        assert tool_config is not None
+        tool_spec = tool_config["tools"][0]["toolSpec"]
+        assert tool_spec["inputSchema"]["json"] == schema
+
+    def test_build_tool_config_handles_empty_schema(self):
+        """Test that an empty dict schema warns but returns valid config."""
+        tool_config = self.provider._build_tool_config({})
+        assert tool_config is not None
+        tool_spec = tool_config["tools"][0]["toolSpec"]
+        assert tool_spec["inputSchema"]["json"] == {}
 
 
 class TestMapUsage:

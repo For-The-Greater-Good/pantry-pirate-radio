@@ -84,7 +84,13 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
     def model(self) -> Any:
         """Get or create the Bedrock runtime client (lazy import of boto3)."""
         if self._client is None:
-            import boto3
+            try:
+                import boto3
+            except ImportError:
+                raise ImportError(
+                    "boto3 is required for the Bedrock provider. "
+                    "Install it with: pip install boto3"
+                ) from None
 
             client_kwargs: dict[str, Any] = {
                 "service_name": "bedrock-runtime",
@@ -163,6 +169,21 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
         ):
             json_schema = schema["json_schema"]
             inner_schema = json_schema.get("schema", json_schema)
+
+        # Validate the unwrapped schema has minimum required structure
+        if not isinstance(inner_schema, dict):
+            logger.warning(
+                "Bedrock schema is not a dict, skipping tool config",
+                schema_type=type(inner_schema).__name__,
+            )
+            return None
+
+        if "type" not in inner_schema:
+            logger.warning(
+                "Bedrock schema missing 'type' field",
+                schema_keys=list(inner_schema.keys()),
+                model=self.config.model_name,
+            )
 
         return {
             "tools": [

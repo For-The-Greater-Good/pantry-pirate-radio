@@ -2,6 +2,7 @@
 
 from typing import Any, cast
 
+from app.llm.base import BaseModelConfig
 from app.llm.providers.base import BaseLLMProvider
 
 _PROVIDER_REGISTRY: dict[str, tuple[type, type]] = {}
@@ -14,7 +15,19 @@ def register_provider(name: str, config_class: type, provider_class: type) -> No
         name: Provider name (e.g. "openai", "claude", "bedrock")
         config_class: The config class to instantiate
         provider_class: The provider class to instantiate
+
+    Raises:
+        TypeError: If config_class or provider_class are not valid subclasses
     """
+    if not issubclass(config_class, BaseModelConfig):
+        raise TypeError(
+            f"config_class must be a subclass of BaseModelConfig, got {config_class}"
+        )
+    if not issubclass(provider_class, BaseLLMProvider):
+        raise TypeError(
+            f"provider_class must be a subclass of BaseLLMProvider, "
+            f"got {provider_class}"
+        )
     _PROVIDER_REGISTRY[name] = (config_class, provider_class)
 
 

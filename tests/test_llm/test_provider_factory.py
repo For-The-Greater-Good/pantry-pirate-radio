@@ -99,3 +99,17 @@ class TestRegisterCustomProvider:
         finally:
             # Clean up registry
             _PROVIDER_REGISTRY.pop("custom_test", None)
+
+
+class TestRegisterProviderValidation:
+    """Test that register_provider rejects invalid types."""
+
+    def test_register_provider_rejects_invalid_config_class(self):
+        """Test that registering with a non-BaseModelConfig config_class raises."""
+        with pytest.raises(TypeError, match="config_class must be a subclass"):
+            register_provider("bad_config", str, BaseLLMProvider)  # type: ignore[arg-type]
+
+    def test_register_provider_rejects_invalid_provider_class(self):
+        """Test that registering with a non-BaseLLMProvider provider_class raises."""
+        with pytest.raises(TypeError, match="provider_class must be a subclass"):
+            register_provider("bad_provider", LLMConfig, dict)  # type: ignore[arg-type]
