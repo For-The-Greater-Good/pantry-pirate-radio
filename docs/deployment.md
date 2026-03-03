@@ -79,6 +79,12 @@ LLM_PROVIDER=openai
 OPENROUTER_API_KEY=your_openrouter_api_key
 LLM_MODEL_NAME=gpt-4
 
+## Option 3: AWS Bedrock
+LLM_PROVIDER=bedrock
+LLM_MODEL_NAME=anthropic.claude-sonnet-4-6
+AWS_DEFAULT_REGION=us-east-1
+AWS_PROFILE=your_sso_profile  # Optional, uses IAM role if on EC2/ECS
+
 # Geocoding Configuration
 GEOCODING_PROVIDER=arcgis
 ARCGIS_API_KEY=your_arcgis_key  # Optional for higher limits

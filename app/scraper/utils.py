@@ -244,37 +244,25 @@ class ScraperUtils:
         )
 
         # Submit job using RQ
-        from typing import cast
         from app.core.events import get_setting
-        from app.llm.providers.base import BaseLLMProvider
-        from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
-        from app.llm.providers.claude import ClaudeConfig, ClaudeProvider
+        from app.llm.providers.factory import create_provider
 
         # Create provider based on configuration
         llm_provider = get_setting("llm_provider", str, required=True)
         llm_model = get_setting("llm_model_name", str, required=True)
         llm_temperature = get_setting("llm_temperature", float, required=True)
         llm_max_tokens = get_setting("llm_max_tokens", int, None, required=False)
+        aws_region = get_setting(
+            "aws_default_region", str, default=None, required=False
+        )
 
-        if llm_provider == "openai":
-            openai_config = OpenAIConfig(
-                model_name=llm_model,
-                temperature=llm_temperature,
-                max_tokens=llm_max_tokens,
-            )
-            provider = cast(BaseLLMProvider[Any, Any], OpenAIProvider(openai_config))
-        elif llm_provider == "claude":
-            claude_config = ClaudeConfig(
-                model_name=llm_model,
-                temperature=llm_temperature,
-                max_tokens=llm_max_tokens,
-            )
-            provider = cast(BaseLLMProvider[Any, Any], ClaudeProvider(claude_config))
-        else:
-            raise ValueError(
-                f"Unsupported LLM provider: {llm_provider}. "
-                f"Supported providers: openai, claude"
-            )
+        provider = create_provider(
+            llm_provider,
+            llm_model,
+            llm_temperature,
+            llm_max_tokens,
+            region_name=aws_region,
+        )
 
         result = llm_queue.enqueue_call(
             func="app.llm.queue.processor.process_llm_job",

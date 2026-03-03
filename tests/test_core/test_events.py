@@ -120,16 +120,26 @@ async def test_create_redis_pool_failure(mock_redis: AsyncMock) -> None:
 async def test_create_job_processor(mock_redis: AsyncMock) -> None:
     """Test job processor creation."""
     with patch("app.core.events.JobProcessor") as mock_processor_class, patch(
-        "app.core.events.settings"
-    ) as mock_settings:
+        "app.core.events.create_provider"
+    ) as mock_create_provider, patch("app.core.events.settings") as mock_settings:
         mock_settings.llm_provider = "openai"
         mock_settings.llm_model_name = "google/gemini-2.0-flash-001"
         mock_settings.llm_temperature = 0.7
         mock_settings.llm_max_tokens = 1000
+        mock_settings.aws_default_region = None
+        mock_provider = MagicMock()
+        mock_create_provider.return_value = mock_provider
         mock_processor = AsyncMock()
         mock_processor_class.return_value = mock_processor
         processor = await create_job_processor(mock_redis)
         assert processor == mock_processor
+        mock_create_provider.assert_called_once_with(
+            "openai",
+            "google/gemini-2.0-flash-001",
+            0.7,
+            1000,
+            region_name=None,
+        )
 
 
 @pytest.mark.asyncio

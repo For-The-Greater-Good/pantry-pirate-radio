@@ -124,10 +124,14 @@ The setup wizard configures these automatically, but you can also set them manua
 DATABASE_URL=postgresql://user:password@localhost:5432/pantry_pirate_radio
 REDIS_URL=redis://localhost:6379/0
 
-# LLM Provider (choose one)
-LLM_PROVIDER=claude  # or "openai"
+# LLM Provider (choose one: openai, claude, bedrock)
+LLM_PROVIDER=claude  # or "openai" or "bedrock"
 ANTHROPIC_API_KEY=your_key  # For Claude
 OPENROUTER_API_KEY=your_key  # For OpenAI
+
+# AWS Bedrock (if using bedrock provider)
+AWS_DEFAULT_REGION=us-east-1
+AWS_PROFILE=your_sso_profile
 
 # Validator Service Configuration
 VALIDATOR_ENABLED=true  # Enable/disable validation service
@@ -572,7 +576,7 @@ FastAPI → Clients         JSON Archives → HAARRRvest Repository
   - **Private Scrapers Submodule**: 30+ production scrapers in `app/scraper/scrapers/` (requires access)
   - **Sample Scraper**: Example implementation available for all contributors
 - **Content Store**: SHA-256 deduplication preventing duplicate processing
-- **LLM Workers**: HSDS schema alignment with OpenAI/Claude providers
+- **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
 - **API**: Read-only HSDS v3.1.1 compliant REST endpoints

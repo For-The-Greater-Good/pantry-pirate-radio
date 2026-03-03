@@ -3,6 +3,7 @@ services:
     volumes:
       - ../..:/app
       - vscode-server:/home/vscode/.vscode-server
+      - ${HOME}/.aws:/root/.aws:ro
     environment:
       - DEBUG=1
       - PYTHONPATH=/app
@@ -14,6 +15,7 @@ services:
   worker:
     volumes:
       - ../..:/app
+      - ${HOME}/.aws:/root/.aws:ro
     environment:
       - DEBUG=1
       - PYTHONPATH=/app
