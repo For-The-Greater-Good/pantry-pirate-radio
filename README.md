@@ -562,7 +562,7 @@ For complete documentation, see **[Bouy Command Reference](BOUY.md)**.
 
 ## LLM Provider Configuration
 
-The system supports two LLM providers for HSDS data alignment:
+The system supports three LLM providers for HSDS data alignment:
 
 ### Claude Provider (Recommended)
 ```bash
@@ -596,6 +596,25 @@ export LLM_MODEL_NAME=gpt-4
 # Start services
 ./bouy up
 ```
+
+### AWS Bedrock Provider
+```bash
+# Set environment variables
+export LLM_PROVIDER=bedrock
+export LLM_MODEL_NAME=anthropic.claude-sonnet-4-6
+export AWS_DEFAULT_REGION=us-east-1
+export AWS_PROFILE=your_sso_profile  # Optional: for SSO-based auth
+
+# Start services
+./bouy up
+```
+
+**Features:**
+- Uses AWS Bedrock Converse API with Claude models
+- Authenticates via AWS credential chain (IAM roles, SSO, environment variables)
+- No API keys required when using IAM roles (ideal for EC2/ECS deployments)
+- Structured output via forced tool use
+- See [LLM Documentation](docs/llm.md) for IAM permissions and model access setup
 
 ## Service URLs (Development)
 

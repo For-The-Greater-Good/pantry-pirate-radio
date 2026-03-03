@@ -16,9 +16,7 @@ from rq import Worker
 
 from app.core.config import settings
 from app.llm.jobs import JobProcessor
-from app.llm.providers.base import BaseLLMProvider
-from app.llm.providers.claude import ClaudeConfig, ClaudeProvider
-from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
+from app.llm.providers.factory import create_provider
 from app.llm.queue.queues import llm_queue
 
 
@@ -249,27 +247,12 @@ async def create_job_processor(redis: RedisType) -> JobProcessor:
     llm_model = get_setting("llm_model_name", str, required=True)
     llm_temperature = get_setting("llm_temperature", float, required=True)
     llm_max_tokens = get_setting("llm_max_tokens", int, None, required=False)
+    aws_region = get_setting("aws_default_region", str, default=None, required=False)
 
     # Create provider based on configuration
-    if llm_provider == "openai":
-        openai_config = OpenAIConfig(
-            model_name=llm_model,
-            temperature=llm_temperature,
-            max_tokens=llm_max_tokens,
-        )
-        provider = cast(BaseLLMProvider[Any, Any], OpenAIProvider(openai_config))
-    elif llm_provider == "claude":
-        claude_config = ClaudeConfig(
-            model_name=llm_model,
-            temperature=llm_temperature,
-            max_tokens=llm_max_tokens,
-        )
-        provider = cast(BaseLLMProvider[Any, Any], ClaudeProvider(claude_config))
-    else:
-        raise ValueError(
-            f"Unsupported LLM provider: {llm_provider}. "
-            f"Supported providers: openai, claude"
-        )
+    provider = create_provider(
+        llm_provider, llm_model, llm_temperature, llm_max_tokens, region_name=aws_region
+    )
 
     # Create processor
     processor = JobProcessor(

@@ -567,7 +567,8 @@ case "$1" in
         echo "Choose your LLM provider:"
         echo "1) OpenAI (via OpenRouter)"
         echo "2) Claude (Anthropic)"
-        read -p "Select provider (1 or 2) [1]: " provider_choice
+        echo "3) AWS Bedrock"
+        read -p "Select provider (1, 2, or 3) [1]: " provider_choice
         provider_choice="${provider_choice:-1}"
 
         if [ "$provider_choice" = "2" ]; then
@@ -585,6 +586,11 @@ case "$1" in
                 ANTHROPIC_API_KEY="use_claude_cli"
                 echo "You'll need to run './bouy claude-auth' after setup to authenticate"
             fi
+        elif [ "$provider_choice" = "3" ]; then
+            LLM_PROVIDER="bedrock"
+            prompt_with_default "AWS region" "us-east-1" "AWS_DEFAULT_REGION"
+            prompt_with_default "AWS SSO profile (or leave default)" "" "AWS_PROFILE"
+            echo "Ensure you have run 'aws sso login --profile \$AWS_PROFILE' before starting services"
         else
             LLM_PROVIDER="openai"
             prompt_with_default "OpenRouter API key" "your_openrouter_api_key_here" "OPENROUTER_API_KEY"
@@ -622,6 +628,12 @@ case "$1" in
             sed -i.tmp "s/ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY/" .env
         elif [ "$LLM_PROVIDER" = "openai" ]; then
             sed -i.tmp "s/OPENROUTER_API_KEY=.*/OPENROUTER_API_KEY=$OPENROUTER_API_KEY/" .env
+        elif [ "$LLM_PROVIDER" = "bedrock" ]; then
+            sed -i.tmp "s/# AWS_DEFAULT_REGION=.*/AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION/" .env
+            sed -i.tmp "s/# LLM_MODEL_NAME=anthropic.claude-sonnet-4-6/LLM_MODEL_NAME=anthropic.claude-sonnet-4-6/" .env
+            if [ -n "$AWS_PROFILE" ]; then
+                sed -i.tmp "s/# AWS_PROFILE=.*/AWS_PROFILE=$AWS_PROFILE/" .env
+            fi
         fi
 
         sed -i.tmp "s/PUBLISHER_PUSH_ENABLED=.*/PUBLISHER_PUSH_ENABLED=$PUBLISHER_PUSH_ENABLED/" .env
