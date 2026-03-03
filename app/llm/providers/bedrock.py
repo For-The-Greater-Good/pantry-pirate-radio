@@ -291,8 +291,14 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
             if format and text:
                 try:
                     parsed = json.loads(text)
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as parse_err:
+                    logger.warning(
+                        "Failed to parse JSON from Bedrock text response",
+                        error=str(parse_err),
+                        content_length=len(text),
+                        content_preview=text[:500],
+                        model=self.config.model_name,
+                    )
 
             response_data: dict[str, Any] = {
                 "text": text,
@@ -308,4 +314,4 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
             raise
         except Exception as e:
             logger.error("Error in Bedrock generation", exc_info=e)
-            raise ValueError(f"Error generating with Bedrock: {e}")
+            raise ValueError(f"Error generating with Bedrock: {e}") from e

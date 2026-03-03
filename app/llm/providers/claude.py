@@ -39,6 +39,7 @@ class ClaudeConfig(LLMConfig):
         model_name: str = "claude-sonnet-4-20250514",
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        **kwargs: Any,
     ) -> None:
         """Initialize Claude config.
 
@@ -46,12 +47,14 @@ class ClaudeConfig(LLMConfig):
             model_name: Name of the model to use
             temperature: Sampling temperature (0-1)
             max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional parameters (absorbed by parent)
         """
         super().__init__(
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             supports_structured=True,
+            **kwargs,
         )
 
 

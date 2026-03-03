@@ -252,9 +252,16 @@ class ScraperUtils:
         llm_model = get_setting("llm_model_name", str, required=True)
         llm_temperature = get_setting("llm_temperature", float, required=True)
         llm_max_tokens = get_setting("llm_max_tokens", int, None, required=False)
+        aws_region = get_setting(
+            "aws_default_region", str, default=None, required=False
+        )
 
         provider = create_provider(
-            llm_provider, llm_model, llm_temperature, llm_max_tokens
+            llm_provider,
+            llm_model,
+            llm_temperature,
+            llm_max_tokens,
+            region_name=aws_region,
         )
 
         result = llm_queue.enqueue_call(

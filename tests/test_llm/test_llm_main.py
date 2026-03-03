@@ -54,7 +54,8 @@ async def test_main_openai_provider():
             "llm_model_name": "gpt-3.5-turbo",
             "llm_temperature": 0.7,
             "llm_max_tokens": 1000,
-        }[key]
+            "aws_default_region": None,
+        }.get(key, default)
 
         # Mock Redis
         mock_redis_client = AsyncMock()
@@ -75,7 +76,7 @@ async def test_main_openai_provider():
         # Verify calls
         mock_redis.from_url.assert_called_once_with("redis://localhost:6379")
         mock_create_provider.assert_called_once_with(
-            "openai", "gpt-3.5-turbo", 0.7, 1000
+            "openai", "gpt-3.5-turbo", 0.7, 1000, region_name=None
         )
         mock_queue_worker.assert_called_once()
         assert mock_worker_instance.setup_called
@@ -102,7 +103,8 @@ async def test_main_claude_provider():
             "llm_model_name": "claude-3-sonnet",
             "llm_temperature": 0.7,
             "llm_max_tokens": 1000,
-        }[key]
+            "aws_default_region": None,
+        }.get(key, default)
 
         # Mock Redis
         mock_redis_client = AsyncMock()
@@ -123,7 +125,7 @@ async def test_main_claude_provider():
         # Verify calls
         mock_redis.from_url.assert_called_once_with("redis://localhost:6379")
         mock_create_provider.assert_called_once_with(
-            "claude", "claude-3-sonnet", 0.7, 1000
+            "claude", "claude-3-sonnet", 0.7, 1000, region_name=None
         )
         mock_queue_worker.assert_called_once()
         assert mock_worker_instance.setup_called
@@ -146,7 +148,8 @@ async def test_main_unsupported_provider():
             "llm_model_name": "some-model",
             "llm_temperature": 0.7,
             "llm_max_tokens": 1000,
-        }[key]
+            "aws_default_region": None,
+        }.get(key, default)
 
         # Make create_provider raise like the real implementation
         mock_create_provider.side_effect = ValueError(
@@ -181,7 +184,8 @@ async def test_main_worker_exception():
             "llm_model_name": "gpt-3.5-turbo",
             "llm_temperature": 0.7,
             "llm_max_tokens": 1000,
-        }[key]
+            "aws_default_region": None,
+        }.get(key, default)
 
         # Mock Redis
         mock_redis_client = AsyncMock()
@@ -226,8 +230,9 @@ async def test_main_with_none_max_tokens():
                 "llm_model_name": "gpt-3.5-turbo",
                 "llm_temperature": 0.7,
                 "llm_max_tokens": None,
+                "aws_default_region": None,
             }
-            if key == "llm_max_tokens":
+            if key in ("llm_max_tokens", "aws_default_region"):
                 return None
             return settings[key]
 
@@ -251,7 +256,7 @@ async def test_main_with_none_max_tokens():
 
         # Verify create_provider was called with None max_tokens
         mock_create_provider.assert_called_once_with(
-            "openai", "gpt-3.5-turbo", 0.7, None
+            "openai", "gpt-3.5-turbo", 0.7, None, region_name=None
         )
         mock_redis_client.close.assert_awaited_once()
 
@@ -274,7 +279,8 @@ async def test_main_redis_close_on_exception():
             "llm_model_name": "gpt-3.5-turbo",
             "llm_temperature": 0.7,
             "llm_max_tokens": 1000,
-        }[key]
+            "aws_default_region": None,
+        }.get(key, default)
 
         # Mock Redis
         mock_redis_client = AsyncMock()

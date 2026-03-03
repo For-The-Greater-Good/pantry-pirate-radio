@@ -23,6 +23,7 @@ def create_provider(
     model_name: str,
     temperature: float,
     max_tokens: int | None,
+    **kwargs: Any,
 ) -> BaseLLMProvider[Any, Any]:
     """Create a provider instance from the registry.
 
@@ -31,6 +32,7 @@ def create_provider(
         model_name: Model identifier
         temperature: Sampling temperature
         max_tokens: Max tokens to generate
+        **kwargs: Additional provider-specific parameters (e.g. region_name)
 
     Returns:
         Configured provider instance
@@ -50,6 +52,7 @@ def create_provider(
         model_name=model_name,
         temperature=temperature,
         max_tokens=max_tokens,
+        **kwargs,
     )
     return cast(BaseLLMProvider[Any, Any], provider_class(config))
 

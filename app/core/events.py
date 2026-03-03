@@ -247,9 +247,12 @@ async def create_job_processor(redis: RedisType) -> JobProcessor:
     llm_model = get_setting("llm_model_name", str, required=True)
     llm_temperature = get_setting("llm_temperature", float, required=True)
     llm_max_tokens = get_setting("llm_max_tokens", int, None, required=False)
+    aws_region = get_setting("aws_default_region", str, default=None, required=False)
 
     # Create provider based on configuration
-    provider = create_provider(llm_provider, llm_model, llm_temperature, llm_max_tokens)
+    provider = create_provider(
+        llm_provider, llm_model, llm_temperature, llm_max_tokens, region_name=aws_region
+    )
 
     # Create processor
     processor = JobProcessor(

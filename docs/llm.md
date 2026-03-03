@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LLM module provides HSDS (Human Services Data Specification) data alignment capabilities through RQ-based asynchronous job processing. It supports multiple LLM providers (OpenAI via OpenRouter, Claude via API or CLI), implements intelligent retry strategies, and integrates with the content deduplication store for cost optimization.
+The LLM module provides HSDS (Human Services Data Specification) data alignment capabilities through RQ-based asynchronous job processing. It supports multiple LLM providers (OpenAI via OpenRouter, Claude via API or CLI, AWS Bedrock), implements intelligent retry strategies, and integrates with the content deduplication store for cost optimization.
 
 ```plaintext
 ┌─────────────┐    ┌─────────────┐
@@ -14,7 +14,7 @@ The LLM module provides HSDS (Human Services Data Specification) data alignment 
 │      HSDS Alignment          │
 │ ┌────────────────────────┐   │
 │ │    Provider System     │   │
-│ │     (OpenAI/Claude)    │   │
+│ │ (OpenAI/Claude/Bedrock)│   │
 │ └────────────────────────┘   │
 │ ┌────────────────────────┐   │
 │ │    Validation Loop     │   │
@@ -484,6 +484,51 @@ config = ClaudeConfig(
 provider = ClaudeProvider(config=config)
 ```
 
+##### AWS Bedrock Provider (`providers/bedrock.py`)
+- **API-based**: Uses the AWS Bedrock Converse API via boto3
+- **Models**: Anthropic Claude models on Bedrock (e.g. `anthropic.claude-sonnet-4-6`)
+- **Authentication**: AWS credential chain (IAM roles, SSO profiles, environment variables)
+- **Features**: Structured output via forced tool use, regional endpoint selection
+- **Use Case**: AWS-native deployments, organizations with existing AWS infrastructure
+
+```python
+from app.llm.providers.bedrock import BedrockProvider, BedrockConfig
+
+# Configure Bedrock provider
+config = BedrockConfig(
+    model_name="anthropic.claude-sonnet-4-6",
+    temperature=0.3,
+    max_tokens=4000,
+    region_name="us-east-1",
+)
+
+provider = BedrockProvider(config=config)
+```
+
+**AWS Authentication Methods:**
+- **IAM Role** (recommended for EC2/ECS): No configuration needed, uses instance role
+- **SSO Profile**: Set `AWS_PROFILE=your_sso_profile` in `.env`
+- **Environment Variables**: Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+- **Credential File**: Standard `~/.aws/credentials` file
+
+**Required IAM Permissions:**
+```json
+{
+    "Effect": "Allow",
+    "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+    ],
+    "Resource": "arn:aws:bedrock:*::foundation-model/anthropic.*"
+}
+```
+
+**Bedrock Model Access:**
+Before using Bedrock, you must enable model access in the AWS Console:
+1. Navigate to Amazon Bedrock > Model access
+2. Request access to Anthropic Claude models
+3. Wait for approval (usually immediate for on-demand access)
+
 #### Claude Authentication Setup
 
 The Claude provider supports two authentication methods:
@@ -572,7 +617,7 @@ CLAUDE_QUOTA_BACKOFF_MULTIPLIER=1.5  # Exponential multiplier
 ##### Environment Variables
 ```bash
 # Provider selection
-LLM_PROVIDER=openai              # or 'claude'
+LLM_PROVIDER=openai              # or 'claude' or 'bedrock'
 LLM_MODEL_NAME=gpt-4o-mini      # Model to use
 LLM_TEMPERATURE=0.7              # Temperature (0-1)
 LLM_MAX_TOKENS=4000              # Max tokens to generate
@@ -585,13 +630,17 @@ OPENROUTER_API_KEY=your-key     # Required for OpenAI provider
 # Claude specific
 ANTHROPIC_API_KEY=your-key       # Option 1: API key
 # Or use CLI authentication (no API key needed)
+
+# AWS Bedrock specific
+AWS_DEFAULT_REGION=us-east-1     # AWS region for Bedrock endpoint
+AWS_PROFILE=your_sso_profile     # Optional: AWS SSO profile name
 ```
 
 ##### Provider Selection During Setup
 ```bash
 ./bouy setup
 # Interactive prompts will guide you through:
-# 1. Choose LLM provider (OpenAI or Claude)
+# 1. Choose LLM provider (OpenAI, Claude, or Bedrock)
 # 2. Configure authentication method
 # 3. Set model preferences
 ```
@@ -1106,6 +1155,12 @@ print(f'Coords corrected: {stats['corrected_count']}')
 # For OpenAI
 # Check API key in .env
 grep OPENROUTER_API_KEY .env
+
+# For Bedrock
+# Verify AWS credentials
+./bouy exec worker python -c "import boto3; boto3.client('sts').get_caller_identity()"
+# Check region configuration
+grep AWS_DEFAULT_REGION .env
 ```
 
 #### 3. Structured Output Errors
@@ -1136,7 +1191,8 @@ grep OPENROUTER_API_KEY .env
 ### 1. Provider Selection
 
 - **Development**: Use Claude CLI for better quotas
-- **Production**: Use API keys for predictability
+- **Production**: Use API keys for predictability, or Bedrock for AWS-native deployments
+- **AWS Environments**: Use Bedrock with IAM roles (no API keys to manage)
 - **Testing**: Use mock provider to avoid costs
 - **Fallback**: Configure secondary provider
 

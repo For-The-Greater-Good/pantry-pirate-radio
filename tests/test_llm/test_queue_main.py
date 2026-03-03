@@ -22,6 +22,7 @@ class TestLLMQueueMain:
                 "llm_model_name": "gpt-3.5-turbo",
                 "llm_temperature": 0.7,
                 "llm_max_tokens": None,
+                "aws_default_region": None,
             }.get(key)
 
             with patch("app.llm.queue.__main__.AsyncRedis.from_url") as mock_redis:
@@ -43,7 +44,7 @@ class TestLLMQueueMain:
 
                         # Assert
                         mock_create_provider.assert_called_once_with(
-                            "openai", "gpt-3.5-turbo", 0.7, None
+                            "openai", "gpt-3.5-turbo", 0.7, None, region_name=None
                         )
 
                         mock_worker.assert_called_once_with(
@@ -65,6 +66,7 @@ class TestLLMQueueMain:
                 "llm_model_name": "claude-3-opus-20240229",
                 "llm_temperature": 0.5,
                 "llm_max_tokens": 1000,
+                "aws_default_region": None,
             }.get(key)
 
             with patch("app.llm.queue.__main__.AsyncRedis.from_url") as mock_redis:
@@ -86,7 +88,11 @@ class TestLLMQueueMain:
 
                         # Assert
                         mock_create_provider.assert_called_once_with(
-                            "claude", "claude-3-opus-20240229", 0.5, 1000
+                            "claude",
+                            "claude-3-opus-20240229",
+                            0.5,
+                            1000,
+                            region_name=None,
                         )
 
                         mock_worker.assert_called_once_with(
@@ -106,6 +112,7 @@ class TestLLMQueueMain:
                 "llm_model_name": "some-model",
                 "llm_temperature": 0.7,
                 "llm_max_tokens": None,
+                "aws_default_region": None,
             }.get(key)
 
             with patch("app.llm.queue.__main__.AsyncRedis.from_url"):
@@ -127,6 +134,7 @@ class TestLLMQueueMain:
                 "llm_model_name": "gpt-3.5-turbo",
                 "llm_temperature": 0.7,
                 "llm_max_tokens": None,
+                "aws_default_region": None,
             }.get(key)
 
             with patch("app.llm.queue.__main__.AsyncRedis.from_url") as mock_redis:
@@ -191,6 +199,7 @@ class TestLLMQueueMain:
                     "llm_model_name": "gpt-3.5-turbo",
                     "llm_temperature": 0.7,
                     "llm_max_tokens": None,
+                    "aws_default_region": None,
                 }
                 if key == "redis_pool_size":
                     return default  # Use the default value
