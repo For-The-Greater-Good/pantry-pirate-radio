@@ -1,7 +1,7 @@
 """Tests for llm/queue/__main__.py module."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
 
 from app.llm.queue.__main__ import main
@@ -28,9 +28,11 @@ class TestLLMQueueMain:
                 mock_redis_instance = AsyncMock()
                 mock_redis.return_value = mock_redis_instance
 
-                with patch("app.llm.queue.__main__.OpenAIProvider") as mock_provider:
+                with patch(
+                    "app.llm.queue.__main__.create_provider"
+                ) as mock_create_provider:
                     mock_provider_instance = MagicMock()
-                    mock_provider.return_value = mock_provider_instance
+                    mock_create_provider.return_value = mock_provider_instance
 
                     with patch("app.llm.queue.__main__.QueueWorker") as mock_worker:
                         mock_worker_instance = AsyncMock()
@@ -40,14 +42,13 @@ class TestLLMQueueMain:
                         await main()
 
                         # Assert
-                        mock_provider.assert_called_once()
-                        config_call = mock_provider.call_args[0][0]
-                        assert config_call.model_name == "gpt-3.5-turbo"
-                        assert config_call.temperature == 0.7
-                        assert config_call.max_tokens is None
+                        mock_create_provider.assert_called_once_with(
+                            "openai", "gpt-3.5-turbo", 0.7, None
+                        )
 
                         mock_worker.assert_called_once_with(
-                            redis=mock_redis_instance, provider=mock_provider_instance
+                            redis=mock_redis_instance,
+                            provider=mock_provider_instance,
                         )
                         mock_worker_instance.setup.assert_called_once()
                         mock_worker_instance.run.assert_called_once()
@@ -70,9 +71,11 @@ class TestLLMQueueMain:
                 mock_redis_instance = AsyncMock()
                 mock_redis.return_value = mock_redis_instance
 
-                with patch("app.llm.queue.__main__.ClaudeProvider") as mock_provider:
+                with patch(
+                    "app.llm.queue.__main__.create_provider"
+                ) as mock_create_provider:
                     mock_provider_instance = MagicMock()
-                    mock_provider.return_value = mock_provider_instance
+                    mock_create_provider.return_value = mock_provider_instance
 
                     with patch("app.llm.queue.__main__.QueueWorker") as mock_worker:
                         mock_worker_instance = AsyncMock()
@@ -82,14 +85,13 @@ class TestLLMQueueMain:
                         await main()
 
                         # Assert
-                        mock_provider.assert_called_once()
-                        config_call = mock_provider.call_args[0][0]
-                        assert config_call.model_name == "claude-3-opus-20240229"
-                        assert config_call.temperature == 0.5
-                        assert config_call.max_tokens == 1000
+                        mock_create_provider.assert_called_once_with(
+                            "claude", "claude-3-opus-20240229", 0.5, 1000
+                        )
 
                         mock_worker.assert_called_once_with(
-                            redis=mock_redis_instance, provider=mock_provider_instance
+                            redis=mock_redis_instance,
+                            provider=mock_provider_instance,
                         )
 
     @pytest.mark.asyncio
@@ -131,7 +133,7 @@ class TestLLMQueueMain:
                 mock_redis_instance = AsyncMock()
                 mock_redis.return_value = mock_redis_instance
 
-                with patch("app.llm.queue.__main__.OpenAIProvider"):
+                with patch("app.llm.queue.__main__.create_provider"):
                     with patch("app.llm.queue.__main__.QueueWorker") as mock_worker:
                         mock_worker_instance = AsyncMock()
                         mock_worker.return_value = mock_worker_instance
@@ -200,7 +202,7 @@ class TestLLMQueueMain:
                 mock_redis_instance = AsyncMock()
                 mock_redis.return_value = mock_redis_instance
 
-                with patch("app.llm.queue.__main__.OpenAIProvider"):
+                with patch("app.llm.queue.__main__.create_provider"):
                     with patch("app.llm.queue.__main__.QueueWorker") as mock_worker:
                         mock_worker_instance = AsyncMock()
                         mock_worker.return_value = mock_worker_instance

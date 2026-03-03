@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
 
+    # AWS Bedrock Settings
+    AWS_DEFAULT_REGION: str | None = None
+    AWS_PROFILE: str | None = None
+
     # Claude Quota Management
     CLAUDE_QUOTA_RETRY_DELAY: int = 3600  # 1 hour initial delay when quota exceeded
     CLAUDE_QUOTA_MAX_DELAY: int = 14400  # 4 hours max delay

@@ -1,6 +1,5 @@
 """Tests for LLM worker main entry point."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -43,8 +42,8 @@ async def test_main_openai_provider():
     with patch("app.llm.__main__.get_setting") as mock_get_setting, patch(
         "app.llm.__main__.redis"
     ) as mock_redis, patch(
-        "app.llm.__main__.OpenAIProvider"
-    ) as mock_openai_provider, patch(
+        "app.llm.__main__.create_provider"
+    ) as mock_create_provider, patch(
         "app.llm.__main__.QueueWorker"
     ) as mock_queue_worker:
 
@@ -64,20 +63,20 @@ async def test_main_openai_provider():
 
         # Mock provider
         mock_provider_instance = MagicMock()
-        mock_openai_provider.return_value = mock_provider_instance
+        mock_create_provider.return_value = mock_provider_instance
 
         # Mock worker with proper async methods
         mock_worker_instance = AsyncWorkerMock()
-        # Mock the constructor call - QueueWorker[LLMJob](...)
         mock_queue_worker.return_value = mock_worker_instance
-        # Also handle the generic subscription
         mock_queue_worker.__getitem__ = MagicMock(return_value=mock_queue_worker)
 
         await main()
 
         # Verify calls
         mock_redis.from_url.assert_called_once_with("redis://localhost:6379")
-        mock_openai_provider.assert_called_once()
+        mock_create_provider.assert_called_once_with(
+            "openai", "gpt-3.5-turbo", 0.7, 1000
+        )
         mock_queue_worker.assert_called_once()
         assert mock_worker_instance.setup_called
         assert mock_worker_instance.run_called
@@ -91,8 +90,8 @@ async def test_main_claude_provider():
     with patch("app.llm.__main__.get_setting") as mock_get_setting, patch(
         "app.llm.__main__.redis"
     ) as mock_redis, patch(
-        "app.llm.__main__.ClaudeProvider"
-    ) as mock_claude_provider, patch(
+        "app.llm.__main__.create_provider"
+    ) as mock_create_provider, patch(
         "app.llm.__main__.QueueWorker"
     ) as mock_queue_worker:
 
@@ -112,19 +111,20 @@ async def test_main_claude_provider():
 
         # Mock provider
         mock_provider_instance = MagicMock()
-        mock_claude_provider.return_value = mock_provider_instance
+        mock_create_provider.return_value = mock_provider_instance
 
         # Mock worker
         mock_worker_instance = AsyncWorkerMock()
         mock_queue_worker.return_value = mock_worker_instance
-        # Also handle the generic subscription
         mock_queue_worker.__getitem__ = MagicMock(return_value=mock_queue_worker)
 
         await main()
 
         # Verify calls
         mock_redis.from_url.assert_called_once_with("redis://localhost:6379")
-        mock_claude_provider.assert_called_once()
+        mock_create_provider.assert_called_once_with(
+            "claude", "claude-3-sonnet", 0.7, 1000
+        )
         mock_queue_worker.assert_called_once()
         assert mock_worker_instance.setup_called
         assert mock_worker_instance.run_called
@@ -135,7 +135,9 @@ async def test_main_claude_provider():
 @pytest.mark.asyncio
 async def test_main_unsupported_provider():
     """Test main function with unsupported provider."""
-    with patch("app.llm.__main__.get_setting") as mock_get_setting:
+    with patch("app.llm.__main__.get_setting") as mock_get_setting, patch(
+        "app.llm.__main__.create_provider"
+    ) as mock_create_provider:
 
         # Mock settings with unsupported provider
         mock_get_setting.side_effect = lambda key, type_, default=None, required=True: {
@@ -146,8 +148,19 @@ async def test_main_unsupported_provider():
             "llm_max_tokens": 1000,
         }[key]
 
-        with pytest.raises(ValueError, match="Unsupported LLM provider: unsupported"):
-            await main()
+        # Make create_provider raise like the real implementation
+        mock_create_provider.side_effect = ValueError(
+            "Unsupported LLM provider: unsupported. Supported providers: claude, openai"
+        )
+
+        # Need to mock redis to avoid real connection attempt
+        with patch("app.llm.__main__.redis") as mock_redis:
+            mock_redis_client = AsyncMock()
+            mock_redis_client.close = AsyncMock()
+            mock_redis.from_url.return_value = mock_redis_client
+
+            with pytest.raises(ValueError, match="Unsupported LLM provider"):
+                await main()
 
 
 @pytest.mark.asyncio
@@ -156,8 +169,8 @@ async def test_main_worker_exception():
     with patch("app.llm.__main__.get_setting") as mock_get_setting, patch(
         "app.llm.__main__.redis"
     ) as mock_redis, patch(
-        "app.llm.__main__.OpenAIProvider"
-    ) as mock_openai_provider, patch(
+        "app.llm.__main__.create_provider"
+    ) as mock_create_provider, patch(
         "app.llm.__main__.QueueWorker"
     ) as mock_queue_worker:
 
@@ -177,13 +190,12 @@ async def test_main_worker_exception():
 
         # Mock provider
         mock_provider_instance = MagicMock()
-        mock_openai_provider.return_value = mock_provider_instance
+        mock_create_provider.return_value = mock_provider_instance
 
         # Mock worker that raises exception during run
         mock_worker_instance = AsyncWorkerMock()
         mock_worker_instance.should_raise_on_run = True
         mock_queue_worker.return_value = mock_worker_instance
-        # Also handle the generic subscription
         mock_queue_worker.__getitem__ = MagicMock(return_value=mock_queue_worker)
 
         await main()
@@ -201,8 +213,8 @@ async def test_main_with_none_max_tokens():
     with patch("app.llm.__main__.get_setting") as mock_get_setting, patch(
         "app.llm.__main__.redis"
     ) as mock_redis, patch(
-        "app.llm.__main__.OpenAIProvider"
-    ) as mock_openai_provider, patch(
+        "app.llm.__main__.create_provider"
+    ) as mock_create_provider, patch(
         "app.llm.__main__.QueueWorker"
     ) as mock_queue_worker:
 
@@ -216,7 +228,7 @@ async def test_main_with_none_max_tokens():
                 "llm_max_tokens": None,
             }
             if key == "llm_max_tokens":
-                return None  # Explicitly return None for max_tokens
+                return None
             return settings[key]
 
         mock_get_setting.side_effect = mock_setting
@@ -228,18 +240,19 @@ async def test_main_with_none_max_tokens():
 
         # Mock provider
         mock_provider_instance = MagicMock()
-        mock_openai_provider.return_value = mock_provider_instance
+        mock_create_provider.return_value = mock_provider_instance
 
         # Mock worker
         mock_worker_instance = AsyncWorkerMock()
         mock_queue_worker.return_value = mock_worker_instance
-        # Also handle the generic subscription
         mock_queue_worker.__getitem__ = MagicMock(return_value=mock_queue_worker)
 
         await main()
 
-        # Verify OpenAI provider was called with None max_tokens
-        mock_openai_provider.assert_called_once()
+        # Verify create_provider was called with None max_tokens
+        mock_create_provider.assert_called_once_with(
+            "openai", "gpt-3.5-turbo", 0.7, None
+        )
         mock_redis_client.close.assert_awaited_once()
 
 
@@ -249,8 +262,8 @@ async def test_main_redis_close_on_exception():
     with patch("app.llm.__main__.get_setting") as mock_get_setting, patch(
         "app.llm.__main__.redis"
     ) as mock_redis, patch(
-        "app.llm.__main__.OpenAIProvider"
-    ) as mock_openai_provider, patch(
+        "app.llm.__main__.create_provider"
+    ) as mock_create_provider, patch(
         "app.llm.__main__.QueueWorker"
     ) as mock_queue_worker:
 
@@ -270,13 +283,12 @@ async def test_main_redis_close_on_exception():
 
         # Mock provider
         mock_provider_instance = MagicMock()
-        mock_openai_provider.return_value = mock_provider_instance
+        mock_create_provider.return_value = mock_provider_instance
 
         # Mock worker that fails during stop
         mock_worker_instance = AsyncWorkerMock()
         mock_worker_instance.should_raise_on_stop = True
         mock_queue_worker.return_value = mock_worker_instance
-        # Also handle the generic subscription
         mock_queue_worker.__getitem__ = MagicMock(return_value=mock_queue_worker)
 
         await main()

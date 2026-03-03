@@ -8,6 +8,7 @@ from app.llm.hsds_aligner.type_defs import (
     AlignmentOutputDict as AlignmentOutput,
 )
 from app.llm.providers.base import BaseLLMProvider
+from app.llm.providers.bedrock import BedrockConfig, BedrockProvider
 from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
 
 __all__ = [
@@ -15,6 +16,8 @@ __all__ = [
     "AlignmentInput",
     "AlignmentOutput",
     "BaseLLMProvider",
+    "BedrockConfig",
+    "BedrockProvider",
     "OpenAIConfig",
     "OpenAIProvider",
 ]
