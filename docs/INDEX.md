@@ -101,6 +101,7 @@ Welcome to the Pantry Pirate Radio documentation hub! This index provides a comp
 | Document | Description | User Level |
 |----------|-------------|------------|
 | [deployment.md](deployment.md) | Production deployment guide | Admin |
+| [aws-deployment.md](aws-deployment.md) | AWS CDK infrastructure deployment | DevOps |
 | [GITHUB_WORKFLOWS.md](GITHUB_WORKFLOWS.md) | CI/CD pipeline documentation | DevOps |
 | [GITHUB_SECURITY_SETTINGS.md](GITHUB_SECURITY_SETTINGS.md) | Security configuration | Admin |
 | [setup-github-pages-data.md](setup-github-pages-data.md) | GitHub Pages data publishing | Admin |
