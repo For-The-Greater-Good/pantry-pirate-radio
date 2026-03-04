@@ -1,0 +1,314 @@
+"""Compute Stack for Pantry Pirate Radio.
+
+Creates ECS Fargate cluster and services for running LLM workers.
+"""
+
+from aws_cdk import Duration, Stack
+from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
+from aws_cdk import aws_ecs as ecs
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_logs as logs
+from constructs import Construct
+
+
+class ComputeStack(Stack):
+    """Compute infrastructure for LLM job processing.
+
+    Creates:
+    - VPC with public/private subnets
+    - ECS Fargate cluster
+    - Fargate service for LLM workers
+    - IAM roles with necessary permissions
+
+    Attributes:
+        vpc: VPC for ECS resources
+        cluster: ECS Fargate cluster
+        worker_service: ECS Fargate service for LLM workers
+    """
+
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        environment_name: str = "dev",
+        worker_cpu: int = 1024,
+        worker_memory_mib: int = 2048,
+        desired_count: int = 1,
+        max_capacity: int = 10,
+        ecr_repository_name: str | None = None,
+        image_tag: str = "latest",
+        **kwargs,
+    ) -> None:
+        """Initialize ComputeStack.
+
+        Args:
+            scope: CDK scope
+            construct_id: Unique identifier for this construct
+            environment_name: Environment name (dev, staging, prod)
+            worker_cpu: CPU units for worker task (1024 = 1 vCPU)
+            worker_memory_mib: Memory in MiB for worker task
+            desired_count: Desired number of worker tasks
+            max_capacity: Maximum number of worker tasks for scaling
+            ecr_repository_name: Name of ECR repository for worker image
+            image_tag: Docker image tag to deploy
+            **kwargs: Additional stack properties
+        """
+        super().__init__(scope, construct_id, **kwargs)
+
+        self.environment_name = environment_name
+        self.worker_cpu = worker_cpu
+        self.worker_memory_mib = worker_memory_mib
+        self.desired_count = desired_count
+        self.max_capacity = max_capacity
+        self.ecr_repository_name = (
+            ecr_repository_name
+            or f"pantry-pirate-radio-worker-{environment_name}"
+        )
+        self.image_tag = image_tag
+
+        # Create VPC
+        self.vpc = self._create_vpc()
+
+        # Create ECS cluster
+        self.cluster = self._create_cluster()
+
+        # Create log group
+        self.log_group = self._create_log_group()
+
+        # Create task execution role
+        self.task_execution_role = self._create_task_execution_role()
+
+        # Create task role (for Fargate worker permissions)
+        self.task_role = self._create_task_role()
+
+        # Create task definition
+        self.task_definition = self._create_task_definition()
+
+        # Create Fargate service
+        self.worker_service = self._create_worker_service()
+
+        # Expose worker security group for database wiring
+        self.worker_security_group = (
+            self.worker_service.connections.security_groups[0]
+        )
+
+    def _create_vpc(self) -> ec2.Vpc:
+        """Create VPC for ECS resources.
+
+        Uses NAT gateways for private subnet internet access.
+        For cost optimization in dev, we use 1 NAT gateway.
+        """
+        nat_gateways = 1 if self.environment_name == "dev" else 2
+
+        vpc = ec2.Vpc(
+            self,
+            "WorkerVPC",
+            vpc_name=f"pantry-pirate-radio-{self.environment_name}",
+            max_azs=2,
+            nat_gateways=nat_gateways,
+            subnet_configuration=[
+                ec2.SubnetConfiguration(
+                    name="Public",
+                    subnet_type=ec2.SubnetType.PUBLIC,
+                    cidr_mask=24,
+                ),
+                ec2.SubnetConfiguration(
+                    name="Private",
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    cidr_mask=24,
+                ),
+            ],
+        )
+
+        return vpc
+
+    def _create_cluster(self) -> ecs.Cluster:
+        """Create ECS Fargate cluster."""
+        cluster = ecs.Cluster(
+            self,
+            "WorkerCluster",
+            cluster_name=f"pantry-pirate-radio-{self.environment_name}",
+            vpc=self.vpc,
+            container_insights_v2=ecs.ContainerInsights.ENABLED,
+        )
+
+        return cluster
+
+    def _create_log_group(self) -> logs.LogGroup:
+        """Create CloudWatch log group for worker logs."""
+        log_group = logs.LogGroup(
+            self,
+            "WorkerLogs",
+            log_group_name=f"/ecs/pantry-pirate-radio-worker-{self.environment_name}",
+            retention=logs.RetentionDays.ONE_MONTH,
+        )
+
+        return log_group
+
+    def _create_task_execution_role(self) -> iam.Role:
+        """Create IAM role for ECS task execution.
+
+        This role is used by ECS to pull images and write logs.
+        """
+        role = iam.Role(
+            self,
+            "TaskExecutionRole",
+            role_name=f"pantry-pirate-radio-execution-{self.environment_name}",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AmazonECSTaskExecutionRolePolicy"
+                ),
+            ],
+        )
+
+        return role
+
+    def _create_task_role(self) -> iam.Role:
+        """Create IAM role for Fargate worker tasks.
+
+        This role grants permissions needed by the worker:
+        - SQS: Read/delete messages, change visibility
+        - DynamoDB: Read/write job status
+        - S3: Read/write content store
+        - Bedrock: Invoke LLM models
+        - Secrets Manager: Read API keys (if used)
+        """
+        role = iam.Role(
+            self,
+            "TaskRole",
+            role_name=f"pantry-pirate-radio-task-{self.environment_name}",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
+        # SQS permissions - will be granted by QueueStack
+        # DynamoDB permissions - will be granted by StorageStack
+        # S3 permissions - will be granted by StorageStack
+
+        # Bedrock permissions for LLM invocation - scoped to specific model families
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithResponseStream",
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-*",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
+                ],
+            )
+        )
+
+        return role
+
+    def _create_task_definition(self) -> ecs.FargateTaskDefinition:
+        """Create ECS Fargate task definition for worker."""
+        task_definition = ecs.FargateTaskDefinition(
+            self,
+            "WorkerTaskDef",
+            family=f"pantry-pirate-radio-worker-{self.environment_name}",
+            cpu=self.worker_cpu,
+            memory_limit_mib=self.worker_memory_mib,
+            execution_role=self.task_execution_role,
+            task_role=self.task_role,
+        )
+
+        # Grant ECR pull permissions to execution role
+        # GetAuthorizationToken requires resources=["*"]
+        self.task_execution_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["ecr:GetAuthorizationToken"],
+                resources=["*"],
+            )
+        )
+        # Other ECR actions scoped to the specific repository
+        self.task_execution_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:GetDownloadUrlForLayer",
+                    "ecr:BatchGetImage",
+                ],
+                resources=[
+                    f"arn:aws:ecr:{self.region}:{self.account}:repository/{self.ecr_repository_name}"
+                ],
+            )
+        )
+
+        # Add container - uses placeholder image, real image set during deployment
+        container = task_definition.add_container(
+            "WorkerContainer",
+            container_name="worker",
+            # Use ECR image - repository will be created separately
+            image=ecs.ContainerImage.from_registry(
+                f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/"
+                f"{self.ecr_repository_name}:{self.image_tag}"
+            ),
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="worker",
+                log_group=self.log_group,
+            ),
+            environment={
+                "ENVIRONMENT": self.environment_name,
+                "QUEUE_BACKEND": "sqs",
+                "LLM_PROVIDER": "bedrock",
+            },
+            # Health check for the worker
+            health_check=ecs.HealthCheck(
+                command=["CMD-SHELL", "exit 0"],
+                interval=Duration.seconds(30),
+                timeout=Duration.seconds(5),
+                retries=3,
+            ),
+        )
+
+        return task_definition
+
+    def _create_worker_service(self) -> ecs.FargateService:
+        """Create ECS Fargate service for workers."""
+        service = ecs.FargateService(
+            self,
+            "WorkerService",
+            service_name=f"pantry-pirate-radio-worker-{self.environment_name}",
+            cluster=self.cluster,
+            task_definition=self.task_definition,
+            desired_count=self.desired_count,
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+            ),
+            assign_public_ip=False,
+            enable_execute_command=True,  # Allow debugging via ECS Exec
+            circuit_breaker=ecs.DeploymentCircuitBreaker(
+                rollback=True,
+            ),
+            min_healthy_percent=100,  # Keep all tasks healthy during deployment
+            max_healthy_percent=200,  # Allow rolling deployment
+        )
+
+        return service
+
+    def grant_queue_access(self, queue) -> None:
+        """Grant worker service access to SQS queue.
+
+        Args:
+            queue: SQS queue to grant access to
+        """
+        queue.grant_consume_messages(self.task_role)
+        queue.grant_send_messages(self.task_role)
+
+    def grant_storage_access(self, bucket, jobs_table, content_index_table) -> None:
+        """Grant worker service access to storage resources.
+
+        Args:
+            bucket: S3 bucket for content store
+            jobs_table: DynamoDB table for job status
+            content_index_table: DynamoDB table for content index
+        """
+        bucket.grant_read_write(self.task_role)
+        jobs_table.grant_read_write_data(self.task_role)
+        content_index_table.grant_read_write_data(self.task_role)
