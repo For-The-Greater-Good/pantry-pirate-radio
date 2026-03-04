@@ -3,70 +3,71 @@
 import hashlib
 import json
 import re
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import redis
-from rq import Queue
+import structlog
+from rq.exceptions import NoSuchJobError
 from rq.job import Job
 
+logger = structlog.get_logger(__name__)
+
+from app.content_store.backend import ContentStoreBackend, FileContentStoreBackend
 from app.content_store.models import ContentEntry
-from app.content_store.retry import with_connection_retry, with_transaction_retry
 
 
 class ContentStore:
-    """Stores and deduplicates scraped content using SHA-256 hashing."""
+    """Stores and deduplicates scraped content using SHA-256 hashing.
+
+    Supports pluggable storage backends via the ContentStoreBackend protocol.
+    Default is FileContentStoreBackend (filesystem + SQLite).
+    """
 
     # SHA-256 produces 64 hex characters
     _HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
-    def __init__(self, store_path: Path, redis_url: str = "redis://cache:6379"):
+    def __init__(
+        self,
+        store_path: Optional[Path] = None,
+        redis_url: str = "redis://cache:6379",
+        backend: Optional[ContentStoreBackend] = None,
+    ):
         """Initialize content store.
 
         Args:
-            store_path: Base path for content store (e.g., HAARRRvest repo path)
+            store_path: Base path for content store (backward compat, creates FileBackend)
             redis_url: Redis connection URL for checking job status
+            backend: Storage backend (if None, FileContentStoreBackend is created from store_path)
+
+        Raises:
+            ValueError: If neither store_path nor backend is provided
         """
-        self.store_path = store_path
-        self.content_store_path = store_path / "content_store"
+        if backend is not None:
+            self._backend = backend
+        elif store_path is not None:
+            self._backend = FileContentStoreBackend(store_path=store_path)
+            self._backend.initialize()
+        else:
+            raise ValueError("Either store_path or backend must be provided")
+
         self.redis_conn = redis.from_url(redis_url)
 
-        # Create directory structure
-        self._init_directories()
+    @property
+    def backend(self) -> ContentStoreBackend:
+        """Get the storage backend."""
+        return self._backend
 
-        # Initialize SQLite index
-        self._init_database()
+    @property
+    def store_path(self) -> Path:
+        """Base path for the store (backward compat property)."""
+        return self._backend.store_path
 
-    def _init_directories(self):
-        """Create necessary directory structure."""
-        (self.content_store_path / "content").mkdir(parents=True, exist_ok=True)
-        (self.content_store_path / "results").mkdir(parents=True, exist_ok=True)
-
-    @with_connection_retry
-    def _init_database(self):
-        """Initialize SQLite database for content index."""
-        db_path = self.content_store_path / "index.db"
-
-        with sqlite3.connect(db_path) as conn:
-            # Enable WAL mode for better concurrent access
-            conn.execute("PRAGMA journal_mode=WAL")
-
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS content_index (
-                    hash TEXT PRIMARY KEY,
-                    status TEXT NOT NULL,
-                    content_path TEXT NOT NULL,
-                    result_path TEXT,
-                    job_id TEXT,
-                    created_at TIMESTAMP NOT NULL,
-                    processed_at TIMESTAMP
-                )
-            """
-            )
-            conn.commit()
+    @property
+    def content_store_path(self) -> Path:
+        """Path to the content_store subdirectory (backward compat property)."""
+        return self._backend.content_store_path
 
     def hash_content(self, content: str) -> str:
         """Generate SHA-256 hash of content.
@@ -92,11 +93,26 @@ class ContentStore:
             job = Job.fetch(job_id, connection=self.redis_conn)
             status = job.get_status()
             return status in ["queued", "started", "deferred", "scheduled"]
-        except Exception:
-            # Job doesn't exist or can't be fetched
+        except NoSuchJobError:
+            # Job doesn't exist - expected for old/expired jobs
             return False
+        except redis.ConnectionError as e:
+            logger.warning(
+                "redis_connection_failed_checking_job",
+                job_id=job_id,
+                error=str(e),
+            )
+            # Conservative: assume job might be active to prevent duplicate processing
+            return True
+        except Exception as e:
+            logger.error(
+                "unexpected_error_checking_job",
+                job_id=job_id,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
+            raise
 
-    @with_connection_retry
     def has_content(self, content_hash: str) -> bool:
         """Check if content exists in store.
 
@@ -110,13 +126,7 @@ class ContentStore:
             ValueError: If hash format is invalid
         """
         self._validate_hash(content_hash)
-        db_path = self.content_store_path / "index.db"
-
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.execute(
-                "SELECT 1 FROM content_index WHERE hash = ?", (content_hash,)
-            )
-            return cursor.fetchone() is not None
+        return self._backend.index_has_content(content_hash)
 
     def get_result(self, content_hash: str) -> Optional[str]:
         """Get processing result for content if available.
@@ -129,16 +139,12 @@ class ContentStore:
 
         Raises:
             ValueError: If hash format is invalid
-
-        Note:
-            Uses synchronous file I/O. For high-throughput scenarios,
-            consider async version (would require API changes).
         """
-        result_path = self._get_result_path(content_hash)
+        self._validate_hash(content_hash)
+        result_data = self._backend.read_result(content_hash)
 
-        if result_path.exists():
-            # TODO: Consider aiofiles for async I/O in high-throughput scenarios
-            data = json.loads(result_path.read_text())
+        if result_data:
+            data = json.loads(result_data)
             return data["result"]
 
         return None
@@ -156,16 +162,14 @@ class ContentStore:
         content_hash = self.hash_content(content)
 
         # Check if we have a result for this content
-        if result := self.get_result(content_hash):
-            # Get job_id from result file
-            result_path = self._get_result_path(content_hash)
-            result_data = json.loads(result_path.read_text())
-
+        result_data = self._backend.read_result(content_hash)
+        if result_data:
+            data = json.loads(result_data)
             return ContentEntry(
                 hash=content_hash,
                 status="completed",
-                result=result,
-                job_id=result_data.get("job_id"),
+                result=data["result"],
+                job_id=data.get("job_id"),
             )
 
         # Check if content already exists with a job_id (for cleanup only)
@@ -176,30 +180,28 @@ class ContentStore:
             self.clear_job_id(content_hash)
 
         # Store content if not already stored
-        content_path = self._get_content_path(content_hash)
-
-        if not content_path.exists():
-            # Create directory if needed
-            content_path.parent.mkdir(parents=True, exist_ok=True)
-
+        if not self._backend.content_exists(content_hash):
             # Write content
             content_data = {
                 "content": content,
                 "metadata": metadata,
                 "timestamp": datetime.utcnow().isoformat(),
             }
-            content_path.write_text(json.dumps(content_data, indent=2))
+            content_path = self._backend.write_content(
+                content_hash, json.dumps(content_data, indent=2)
+            )
 
-            # Update index with retry logic
-            self._store_content_index(content_hash, content_path)
+            # Update index
+            self._backend.index_insert_content(
+                content_hash, content_path, datetime.utcnow()
+            )
 
         # Return pending status without job_id (allow new processing)
         return ContentEntry(
             hash=content_hash, status="pending", result=None, job_id=None
         )
 
-    @with_transaction_retry
-    def store_result(self, content_hash: str, result: str, job_id: str):
+    def store_result(self, content_hash: str, result: str, job_id: str) -> None:
         """Store processing result for content.
 
         Args:
@@ -210,10 +212,7 @@ class ContentStore:
         Raises:
             ValueError: If hash format is invalid
         """
-        result_path = self._get_result_path(content_hash)
-
-        # Create directory if needed
-        result_path.parent.mkdir(parents=True, exist_ok=True)
+        self._validate_hash(content_hash)
 
         # Write result
         result_data = {
@@ -221,55 +220,15 @@ class ContentStore:
             "job_id": job_id,
             "timestamp": datetime.utcnow().isoformat(),
         }
-        result_path.write_text(json.dumps(result_data, indent=2))
+        result_path = self._backend.write_result(
+            content_hash, json.dumps(result_data, indent=2)
+        )
 
-        # Update index - use INSERT OR REPLACE to handle missing entries
-        db_path = self.content_store_path / "index.db"
-        with sqlite3.connect(db_path) as conn:
-            # First try to update existing entry
-            cursor = conn.execute(
-                """
-                UPDATE content_index
-                SET status = ?, result_path = ?, job_id = ?, processed_at = ?
-                WHERE hash = ?
-            """,
-                (
-                    "completed",
-                    str(result_path),
-                    job_id,
-                    datetime.utcnow(),
-                    content_hash,
-                ),
-            )
+        # Update index
+        self._backend.index_update_result(
+            content_hash, result_path, job_id, datetime.utcnow()
+        )
 
-            # If no rows were updated, insert a new entry
-            if cursor.rowcount == 0:
-                # Entry doesn't exist - this can happen if content was processed
-                # without going through store_content first
-                # Create a placeholder content path based on the hash
-                content_path = self._get_content_path(content_hash)
-                conn.execute(
-                    """
-                    INSERT INTO content_index
-                    (hash, status, content_path, result_path, job_id, created_at, processed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        content_hash,
-                        "completed",
-                        str(
-                            content_path
-                        ),  # Use expected content path even if file doesn't exist
-                        str(result_path),
-                        job_id,
-                        datetime.utcnow(),
-                        datetime.utcnow(),
-                    ),
-                )
-
-            conn.commit()
-
-    @with_connection_retry
     def get_job_id(self, content_hash: str) -> Optional[str]:
         """Get job ID for a content hash.
 
@@ -283,17 +242,9 @@ class ContentStore:
             ValueError: If hash format is invalid
         """
         self._validate_hash(content_hash)
-        db_path = self.content_store_path / "index.db"
+        return self._backend.index_get_job_id(content_hash)
 
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.execute(
-                "SELECT job_id FROM content_index WHERE hash = ?", (content_hash,)
-            )
-            result = cursor.fetchone()
-            return result[0] if result and result[0] else None
-
-    @with_connection_retry
-    def clear_job_id(self, content_hash: str):
+    def clear_job_id(self, content_hash: str) -> None:
         """Clear job ID for a content hash.
 
         Args:
@@ -303,16 +254,9 @@ class ContentStore:
             ValueError: If hash format is invalid
         """
         self._validate_hash(content_hash)
-        db_path = self.content_store_path / "index.db"
+        self._backend.index_clear_job_id(content_hash)
 
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE content_index SET job_id = NULL WHERE hash = ?", (content_hash,)
-            )
-            conn.commit()
-
-    @with_connection_retry
-    def link_job(self, content_hash: str, job_id: str):
+    def link_job(self, content_hash: str, job_id: str) -> None:
         """Link a job ID to a content hash.
 
         Args:
@@ -323,92 +267,28 @@ class ContentStore:
             ValueError: If hash format is invalid
         """
         self._validate_hash(content_hash)
-        db_path = self.content_store_path / "index.db"
+        self._backend.index_set_job_id(content_hash, job_id)
 
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                UPDATE content_index
-                SET job_id = ?
-                WHERE hash = ?
-            """,
-                (job_id, content_hash),
-            )
-            conn.commit()
-
-    @with_connection_retry
     def get_statistics(self) -> dict:
         """Get statistics about stored content.
 
         Returns:
             Dictionary with statistics
         """
-        db_path = self.content_store_path / "index.db"
-
-        # Use a single transaction to get all counts atomically
-        with sqlite3.connect(db_path) as conn:
-            # Enable WAL mode for better concurrent access
-            conn.execute("PRAGMA journal_mode=WAL")
-
-            # Get all statistics in a single query to ensure consistency
-            cursor = conn.execute(
-                """
-                SELECT
-                    COUNT(*) as total_content,
-                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as processed_content,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_content
-                FROM content_index
-            """
-            )
-
-            row = cursor.fetchone()
-            total = row[0] or 0
-            processed = row[1] or 0
-            pending = row[2] or 0
+        stats = self._backend.index_get_statistics()
+        total = stats["total_content"]
 
         # Calculate store size - skip for performance if store is large
-        # This is an expensive operation that scans all files
-        # For large stores (>1000 files), just estimate based on count
-        store_size = 0
-        if total < 1000:  # Only calculate for small stores
-            try:
-                # Limit scan to avoid performance issues
-                store_size = sum(
-                    f.stat().st_size for f in self.content_store_path.rglob("*.json")
-                )
-            except Exception:
-                # If file system access fails, default to 0 for compatibility
-                store_size = 0
+        if total < 1000:
+            store_size = self._backend.get_store_size_bytes()
         else:
             # For large stores, estimate: ~1KB per file average
             store_size = total * 1024
 
         return {
-            "total_content": total,
-            "processed_content": processed,
-            "pending_content": pending,
+            **stats,
             "store_size_bytes": store_size,
         }
-
-    @with_connection_retry
-    def _store_content_index(self, content_hash: str, content_path: Path):
-        """Store content entry in database index with retry logic.
-
-        Args:
-            content_hash: SHA-256 hash of content
-            content_path: Path to content file
-        """
-        db_path = self.content_store_path / "index.db"
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO content_index
-                (hash, status, content_path, created_at)
-                VALUES (?, ?, ?, ?)
-            """,
-                (content_hash, "pending", str(content_path), datetime.utcnow()),
-            )
-            conn.commit()
 
     def _validate_hash(self, content_hash: str) -> None:
         """Validate hash format for security.
@@ -425,7 +305,7 @@ class ContentStore:
             )
 
     def _get_content_path(self, content_hash: str) -> Path:
-        """Get path for content file.
+        """Get path for content file (backward compat helper).
 
         Args:
             content_hash: SHA-256 hash
@@ -441,7 +321,7 @@ class ContentStore:
         return self.content_store_path / "content" / prefix / f"{content_hash}.json"
 
     def _get_result_path(self, content_hash: str) -> Path:
-        """Get path for result file.
+        """Get path for result file (backward compat helper).
 
         Args:
             content_hash: SHA-256 hash

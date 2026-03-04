@@ -374,19 +374,29 @@ class TestContentStore:
 
             assert content_store._is_job_active("job-failed-999") is False
 
-        # Test when Job.fetch raises exception (job doesn't exist)
+        # Test when Job.fetch raises NoSuchJobError (job doesn't exist)
+        from rq.exceptions import NoSuchJobError
+
         with patch.object(Job, "fetch") as mock_fetch:
-            mock_fetch.side_effect = Exception("Job not found")
+            mock_fetch.side_effect = NoSuchJobError("Job not found")
 
             assert content_store._is_job_active("job-nonexistent-111") is False
             mock_fetch.assert_called_once_with(
                 "job-nonexistent-111", connection=content_store.redis_conn
             )
 
-        # Test with Redis connection error
+        # Test with Redis connection error - should return True (conservative)
         with patch.object(Job, "fetch") as mock_fetch:
             from redis.exceptions import ConnectionError
 
             mock_fetch.side_effect = ConnectionError("Redis connection failed")
 
-            assert content_store._is_job_active("job-redis-error-222") is False
+            # Returns True to prevent duplicate processing when Redis is down
+            assert content_store._is_job_active("job-redis-error-222") is True
+
+        # Test with unexpected exception - should raise
+        with patch.object(Job, "fetch") as mock_fetch:
+            mock_fetch.side_effect = ValueError("Unexpected error")
+
+            with pytest.raises(ValueError):
+                content_store._is_job_active("job-unexpected-333")
