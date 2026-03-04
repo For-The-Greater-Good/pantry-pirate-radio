@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from app.content_store.backend import ContentStoreBackend, FileContentStoreBackend
 from app.content_store.store import ContentStore
 
 # Global instance
@@ -17,6 +18,7 @@ def get_content_store() -> ContentStore | None:
     Reads configuration from environment variables:
     - CONTENT_STORE_PATH: Path to store content (required for enablement)
     - CONTENT_STORE_ENABLED: Explicitly enable/disable (default: enabled if path set)
+    - CONTENT_STORE_BACKEND: Backend type ("file" or "s3", default: "file")
 
     Returns:
         ContentStore instance or None if not configured/disabled
@@ -35,6 +37,59 @@ def reset_content_store() -> None:
     global _content_store_instance, _content_store_initialized
     _content_store_instance = None
     _content_store_initialized = False
+
+
+def _create_backend(store_path: Path, backend_type: str) -> ContentStoreBackend:
+    """Create the appropriate backend based on configuration.
+
+    Args:
+        store_path: Base path for content store (used for file backend)
+        backend_type: Backend type ("file" or "s3")
+
+    Returns:
+        Configured backend instance
+
+    Raises:
+        ValueError: If backend_type is not supported or required env vars missing
+    """
+    backend: ContentStoreBackend
+    if backend_type == "file":
+        backend = FileContentStoreBackend(store_path=store_path)
+        backend.initialize()
+        return backend
+    elif backend_type == "s3":
+        from app.content_store.backend_s3 import S3ContentStoreBackend
+
+        # S3 backend requires bucket and table names from environment
+        s3_bucket = os.environ.get("CONTENT_STORE_S3_BUCKET")
+        dynamodb_table = os.environ.get("CONTENT_STORE_DYNAMODB_TABLE")
+        region_name = os.environ.get("AWS_DEFAULT_REGION")
+        s3_prefix = os.environ.get("CONTENT_STORE_S3_PREFIX", "")
+
+        if not s3_bucket:
+            raise ValueError(
+                "CONTENT_STORE_S3_BUCKET is required when using S3 backend. "
+                "Set CONTENT_STORE_BACKEND=file for local development."
+            )
+        if not dynamodb_table:
+            raise ValueError(
+                "CONTENT_STORE_DYNAMODB_TABLE is required when using S3 backend. "
+                "Set CONTENT_STORE_BACKEND=file for local development."
+            )
+
+        backend = S3ContentStoreBackend(
+            s3_bucket=s3_bucket,
+            dynamodb_table=dynamodb_table,
+            region_name=region_name,
+            s3_prefix=s3_prefix,
+        )
+        backend.initialize()
+        return backend
+    else:
+        raise ValueError(
+            f"Unknown CONTENT_STORE_BACKEND: {backend_type}. "
+            "Supported values: file, s3"
+        )
 
 
 def _create_content_store() -> ContentStore | None:
@@ -73,10 +128,16 @@ def _create_content_store() -> ContentStore | None:
     else:
         store_path = Path(store_path_str)
 
-    # Create directory if it doesn't exist
+    # Create directory if it doesn't exist (for file backend)
     store_path.mkdir(parents=True, exist_ok=True)
+
+    # Get backend type from environment
+    backend_type = os.environ.get("CONTENT_STORE_BACKEND", "file").lower()
+
+    # Create backend
+    backend = _create_backend(store_path, backend_type)
 
     # Get Redis URL from environment
     redis_url = os.getenv("REDIS_URL", "redis://cache:6379")
 
-    return ContentStore(store_path=store_path, redis_url=redis_url)
+    return ContentStore(backend=backend, redis_url=redis_url)
