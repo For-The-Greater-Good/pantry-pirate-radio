@@ -144,6 +144,7 @@ DATA_REPO_TOKEN=github_pat_xxx  # GitHub PAT with repo access
 
 # Content Store
 CONTENT_STORE_PATH=/path/to/content-store
+CONTENT_STORE_BACKEND=file  # Backend type: "file" (default) or "s3" (AWS deployment)
 ```
 
 ### Test Environment
@@ -576,6 +577,7 @@ FastAPI → Clients         JSON Archives → HAARRRvest Repository
   - **Private Scrapers Submodule**: 30+ production scrapers in `app/scraper/scrapers/` (requires access)
   - **Sample Scraper**: Example implementation available for all contributors
 - **Content Store**: SHA-256 deduplication preventing duplicate processing
+  - **Backend Abstraction**: Pluggable `ContentStoreBackend` protocol supports local filesystem (`file`) or AWS S3+DynamoDB (`s3`)
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
@@ -738,3 +740,5 @@ See [constitution.md](constitution.md) for full details. Key principles:
 2. **Selective services** - Start only needed services: `./bouy up app worker`
 3. **Cached builds** - Reuse Docker cache unless changes require `--no-cache`
 4. **JSON output** - Use `--json` flag for machine-readable output in scripts
+- run all single test files using ./bouy exec app pytest \
+./bouy test does not properly handle selecting test files.
