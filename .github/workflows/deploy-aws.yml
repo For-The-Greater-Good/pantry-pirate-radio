@@ -1,0 +1,176 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+      - 'app/**'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-aws.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Run CDK tests
+        working-directory: infra
+        run: pytest -v
+
+  build-and-push:
+    name: Build and Push Docker Images
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.set-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: set-tag
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          docker build -t $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:$IMAGE_TAG \
+                     $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:latest
+          docker push $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:latest
+
+      - name: Build and push Worker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          docker build -t $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:$IMAGE_TAG \
+                 --target worker .
+          docker push $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:$IMAGE_TAG \
+                     $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:latest
+          docker push $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:latest
+
+  deploy-infrastructure:
+    name: Deploy CDK Infrastructure
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK Deploy
+        working-directory: infra
+        env:
+          CDK_DEPLOY_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          CDK_DEPLOY_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          CDK_DEPLOY_REGION: ${{ env.AWS_REGION }}
+          CDK_CERTIFICATE_ARN: ${{ secrets.CDK_CERTIFICATE_ARN }}
+          CDK_DOMAIN_NAME: ${{ secrets.CDK_DOMAIN_NAME }}
+          CDK_ALERT_EMAIL: ${{ secrets.CDK_ALERT_EMAIL }}
+        run: cdk deploy --all --require-approval never
+
+  update-services:
+    name: Update ECS Services
+    needs: [build-and-push, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update API service
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          aws ecs update-service \
+            --cluster pantry-pirate-radio-$ENVIRONMENT \
+            --service pantry-pirate-radio-api-$ENVIRONMENT \
+            --force-new-deployment
+
+      - name: Update Worker service
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          aws ecs update-service \
+            --cluster pantry-pirate-radio-$ENVIRONMENT \
+            --service pantry-pirate-radio-worker-$ENVIRONMENT \
+            --force-new-deployment
+
+      - name: Wait for API service stability
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          aws ecs wait services-stable \
+            --cluster pantry-pirate-radio-$ENVIRONMENT \
+            --services pantry-pirate-radio-api-$ENVIRONMENT

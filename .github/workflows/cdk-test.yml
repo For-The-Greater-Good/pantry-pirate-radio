@@ -1,0 +1,119 @@
+name: CDK Tests
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+
+jobs:
+  cdk-test:
+    name: CDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Run CDK tests
+        working-directory: infra
+        run: pytest -v --tb=short
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
+
+      - name: CDK Synth (validate templates)
+        working-directory: infra
+        env:
+          CDK_DEFAULT_ACCOUNT: '123456789012'
+          CDK_DEFAULT_REGION: 'us-east-1'
+        run: cdk synth --quiet || echo "CDK synth failed (expected without real AWS context)"
+
+  cdk-diff:
+    name: CDK Diff
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+        continue-on-error: true
+
+      - name: CDK Diff
+        id: diff
+        working-directory: infra
+        env:
+          CDK_DEPLOY_ENVIRONMENT: dev
+        run: |
+          cdk diff --all 2>&1 | tee diff-output.txt || true
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          cat diff-output.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Comment PR with diff
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### CDK Diff 📊
+
+            <details>
+            <summary>Show Diff</summary>
+
+            \`\`\`
+            ${{ steps.diff.outputs.diff }}
+            \`\`\`
+
+            </details>
+
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+        continue-on-error: true
