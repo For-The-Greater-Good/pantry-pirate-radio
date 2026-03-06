@@ -111,5 +111,8 @@ sql_dumps/*.sql
 sql_dumps/*.sql.gz
 sql_dumps/*.sql.bz2
 
+# CDK
+infra/cdk.out/
+
 # Claude
 .claude/settings.local.json
