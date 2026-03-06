@@ -32,34 +32,34 @@ class MonitoringStack(Stack):
         environment_name: str = "dev",
         api_service_name: str | None = None,
         worker_service_name: str | None = None,
+        validator_service_name: str | None = None,
+        reconciler_service_name: str | None = None,
+        recorder_service_name: str | None = None,
         cluster_name: str | None = None,
         queue_name: str | None = None,
+        validator_queue_name: str | None = None,
+        reconciler_queue_name: str | None = None,
+        recorder_queue_name: str | None = None,
         jobs_table_name: str | None = None,
+        bedrock_model_id: str | None = None,
         alert_email: str | None = None,
         **kwargs,
     ) -> None:
-        """Initialize MonitoringStack.
-
-        Args:
-            scope: CDK scope
-            construct_id: Unique identifier for this construct
-            environment_name: Environment name (dev, staging, prod)
-            api_service_name: Name of API ECS service
-            worker_service_name: Name of worker ECS service
-            cluster_name: Name of ECS cluster
-            queue_name: Name of SQS queue
-            jobs_table_name: Name of DynamoDB jobs table
-            alert_email: Email address for alerts (optional)
-            **kwargs: Additional stack properties
-        """
         super().__init__(scope, construct_id, **kwargs)
 
         self.environment_name = environment_name
         self.api_service_name = api_service_name or f"pantry-pirate-radio-api-{environment_name}"
         self.worker_service_name = worker_service_name or f"pantry-pirate-radio-worker-{environment_name}"
+        self.validator_service_name = validator_service_name or f"pantry-pirate-radio-validator-{environment_name}"
+        self.reconciler_service_name = reconciler_service_name or f"pantry-pirate-radio-reconciler-{environment_name}"
+        self.recorder_service_name = recorder_service_name or f"pantry-pirate-radio-recorder-{environment_name}"
         self.cluster_name = cluster_name or f"pantry-pirate-radio-{environment_name}"
         self.queue_name = queue_name or f"pantry-pirate-radio-llm-{environment_name}.fifo"
+        self.validator_queue_name = validator_queue_name or f"pantry-pirate-radio-validator-{environment_name}.fifo"
+        self.reconciler_queue_name = reconciler_queue_name or f"pantry-pirate-radio-reconciler-{environment_name}.fifo"
+        self.recorder_queue_name = recorder_queue_name or f"pantry-pirate-radio-recorder-{environment_name}.fifo"
         self.jobs_table_name = jobs_table_name or f"pantry-pirate-radio-jobs-{environment_name}"
+        self.bedrock_model_id = bedrock_model_id or "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
         # Create SNS topic for alerts
         self.alerts_topic = self._create_alerts_topic(alert_email)
@@ -104,8 +104,8 @@ class MonitoringStack(Stack):
         )
 
         dashboard.add_widgets(
-            self._create_api_cpu_widget(),
-            self._create_api_memory_widget(),
+            self._create_ecs_metric_widget("API CPU Utilization", "CPUUtilization", self.api_service_name),
+            self._create_ecs_metric_widget("API Memory Utilization", "MemoryUtilization", self.api_service_name),
             self._create_api_request_count_widget(),
             self._create_api_response_time_widget(),
         )
@@ -120,8 +120,8 @@ class MonitoringStack(Stack):
         )
 
         dashboard.add_widgets(
-            self._create_worker_cpu_widget(),
-            self._create_worker_memory_widget(),
+            self._create_ecs_metric_widget("Worker CPU Utilization", "CPUUtilization", self.worker_service_name),
+            self._create_ecs_metric_widget("Worker Memory Utilization", "MemoryUtilization", self.worker_service_name),
             self._create_queue_depth_widget(),
             self._create_queue_age_widget(),
         )
@@ -142,41 +142,55 @@ class MonitoringStack(Stack):
             self._create_dynamodb_errors_widget(),
         )
 
-        return dashboard
-
-    def _create_api_cpu_widget(self) -> cloudwatch.GraphWidget:
-        """Create API CPU utilization widget."""
-        return cloudwatch.GraphWidget(
-            title="API CPU Utilization",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ECS",
-                    metric_name="CPUUtilization",
-                    dimensions_map={
-                        "ClusterName": self.cluster_name,
-                        "ServiceName": self.api_service_name,
-                    },
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                )
-            ],
+        # Add Bedrock LLM metrics row
+        dashboard.add_widgets(
+            cloudwatch.TextWidget(
+                markdown="# Bedrock LLM Metrics",
+                width=24,
+                height=1,
+            )
         )
 
-    def _create_api_memory_widget(self) -> cloudwatch.GraphWidget:
-        """Create API memory utilization widget."""
+        dashboard.add_widgets(
+            self._create_bedrock_invocations_widget(),
+            self._create_bedrock_latency_widget(),
+            self._create_bedrock_token_cost_widget(),
+            self._create_bedrock_errors_widget(),
+        )
+
+        # Add Auto-Scaling metrics row
+        dashboard.add_widgets(
+            cloudwatch.TextWidget(
+                markdown="# Auto-Scaling Metrics",
+                width=24,
+                height=1,
+            )
+        )
+
+        dashboard.add_widgets(
+            self._create_scaling_widget("Worker Scaling", self.worker_service_name, self.queue_name),
+            self._create_scaling_widget("Validator Scaling", self.validator_service_name, self.validator_queue_name),
+            self._create_scaling_widget("Reconciler Scaling", self.reconciler_service_name, self.reconciler_queue_name),
+            self._create_scaling_widget("Recorder Scaling", self.recorder_service_name, self.recorder_queue_name),
+        )
+
+        return dashboard
+
+    def _create_ecs_metric_widget(
+        self, title: str, metric_name: str, service_name: str,
+    ) -> cloudwatch.GraphWidget:
+        """Create ECS metric widget for a given service."""
         return cloudwatch.GraphWidget(
-            title="API Memory Utilization",
+            title=title,
             width=6,
             height=6,
             left=[
                 cloudwatch.Metric(
                     namespace="AWS/ECS",
-                    metric_name="MemoryUtilization",
+                    metric_name=metric_name,
                     dimensions_map={
                         "ClusterName": self.cluster_name,
-                        "ServiceName": self.api_service_name,
+                        "ServiceName": service_name,
                     },
                     statistic="Average",
                     period=Duration.minutes(1),
@@ -210,46 +224,6 @@ class MonitoringStack(Stack):
                 cloudwatch.Metric(
                     namespace="AWS/ApplicationELB",
                     metric_name="TargetResponseTime",
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_worker_cpu_widget(self) -> cloudwatch.GraphWidget:
-        """Create worker CPU utilization widget."""
-        return cloudwatch.GraphWidget(
-            title="Worker CPU Utilization",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ECS",
-                    metric_name="CPUUtilization",
-                    dimensions_map={
-                        "ClusterName": self.cluster_name,
-                        "ServiceName": self.worker_service_name,
-                    },
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_worker_memory_widget(self) -> cloudwatch.GraphWidget:
-        """Create worker memory utilization widget."""
-        return cloudwatch.GraphWidget(
-            title="Worker Memory Utilization",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ECS",
-                    metric_name="MemoryUtilization",
-                    dimensions_map={
-                        "ClusterName": self.cluster_name,
-                        "ServiceName": self.worker_service_name,
-                    },
                     statistic="Average",
                     period=Duration.minutes(1),
                 )
@@ -365,6 +339,144 @@ class MonitoringStack(Stack):
             ],
         )
 
+    def _create_bedrock_invocations_widget(self) -> cloudwatch.GraphWidget:
+        """Create Bedrock invocation count widget."""
+        return cloudwatch.GraphWidget(
+            title="Bedrock Invocations",
+            width=6,
+            height=6,
+            left=[
+                cloudwatch.Metric(
+                    namespace="AWS/Bedrock",
+                    metric_name="Invocations",
+                    dimensions_map={"ModelId": self.bedrock_model_id},
+                    statistic="Sum",
+                    period=Duration.minutes(5),
+                )
+            ],
+        )
+
+    def _create_bedrock_latency_widget(self) -> cloudwatch.GraphWidget:
+        """Create Bedrock invocation latency widget."""
+        return cloudwatch.GraphWidget(
+            title="Bedrock Latency",
+            width=6,
+            height=6,
+            left=[
+                cloudwatch.Metric(
+                    namespace="AWS/Bedrock",
+                    metric_name="InvocationLatency",
+                    dimensions_map={"ModelId": self.bedrock_model_id},
+                    statistic="Average",
+                    period=Duration.minutes(5),
+                ),
+                cloudwatch.Metric(
+                    namespace="AWS/Bedrock",
+                    metric_name="InvocationLatency",
+                    dimensions_map={"ModelId": self.bedrock_model_id},
+                    statistic="p99",
+                    period=Duration.minutes(5),
+                ),
+            ],
+        )
+
+    def _create_bedrock_token_cost_widget(self) -> cloudwatch.GraphWidget:
+        """Create Bedrock token count and estimated cost widget."""
+        input_tokens = cloudwatch.Metric(
+            namespace="AWS/Bedrock",
+            metric_name="InputTokenCount",
+            dimensions_map={"ModelId": self.bedrock_model_id},
+            statistic="Sum",
+            period=Duration.minutes(5),
+        )
+        output_tokens = cloudwatch.Metric(
+            namespace="AWS/Bedrock",
+            metric_name="OutputTokenCount",
+            dimensions_map={"ModelId": self.bedrock_model_id},
+            statistic="Sum",
+            period=Duration.minutes(5),
+        )
+        estimated_cost = cloudwatch.MathExpression(
+            expression="(input * 0.80 / 1000000) + (output * 4.00 / 1000000)",
+            using_metrics={"input": input_tokens, "output": output_tokens},
+            label="Estimated Cost ($)",
+            period=Duration.minutes(5),
+        )
+        return cloudwatch.GraphWidget(
+            title="Bedrock Tokens & Cost",
+            width=6,
+            height=6,
+            left=[input_tokens, output_tokens],
+            right=[estimated_cost],
+        )
+
+    def _create_bedrock_errors_widget(self) -> cloudwatch.GraphWidget:
+        """Create Bedrock errors and throttles widget."""
+        return cloudwatch.GraphWidget(
+            title="Bedrock Errors",
+            width=6,
+            height=6,
+            left=[
+                cloudwatch.Metric(
+                    namespace="AWS/Bedrock",
+                    metric_name="InvocationClientErrors",
+                    dimensions_map={"ModelId": self.bedrock_model_id},
+                    statistic="Sum",
+                    period=Duration.minutes(5),
+                ),
+                cloudwatch.Metric(
+                    namespace="AWS/Bedrock",
+                    metric_name="InvocationServerErrors",
+                    dimensions_map={"ModelId": self.bedrock_model_id},
+                    statistic="Sum",
+                    period=Duration.minutes(5),
+                ),
+                cloudwatch.Metric(
+                    namespace="AWS/Bedrock",
+                    metric_name="InvocationThrottles",
+                    dimensions_map={"ModelId": self.bedrock_model_id},
+                    statistic="Sum",
+                    period=Duration.minutes(5),
+                ),
+            ],
+        )
+
+    def _create_scaling_widget(
+        self, title: str, service_name: str, queue_name: str,
+    ) -> cloudwatch.GraphWidget:
+        """Create auto-scaling widget showing task count vs queue depth."""
+        dims = {"ClusterName": self.cluster_name, "ServiceName": service_name}
+        return cloudwatch.GraphWidget(
+            title=title,
+            width=6,
+            height=6,
+            left=[
+                cloudwatch.Metric(
+                    namespace="AWS/ECS",
+                    metric_name="DesiredCount",
+                    dimensions_map=dims,
+                    statistic="Average",
+                    period=Duration.minutes(1),
+                ),
+                cloudwatch.Metric(
+                    namespace="AWS/ECS",
+                    metric_name="RunningCount",
+                    dimensions_map=dims,
+                    statistic="Average",
+                    period=Duration.minutes(1),
+                ),
+            ],
+            right=[
+                cloudwatch.Metric(
+                    namespace="AWS/SQS",
+                    metric_name="ApproximateNumberOfMessagesVisible",
+                    dimensions_map={"QueueName": queue_name},
+                    statistic="Sum",
+                    period=Duration.minutes(1),
+                ),
+            ],
+        )
+
     def _create_alarms(self) -> None:
         """Create CloudWatch alarms for critical metrics."""
         # API high CPU alarm
@@ -446,3 +558,22 @@ class MonitoringStack(Stack):
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         )
         throttle_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
+
+        # Bedrock throttle alarm
+        bedrock_throttle_alarm = cloudwatch.Alarm(
+            self,
+            "BedrockThrottleAlarm",
+            alarm_name=f"pantry-pirate-radio-bedrock-throttle-{self.environment_name}",
+            alarm_description="Bedrock LLM invocations are being throttled",
+            metric=cloudwatch.Metric(
+                namespace="AWS/Bedrock",
+                metric_name="InvocationThrottles",
+                dimensions_map={"ModelId": self.bedrock_model_id},
+                statistic="Sum",
+                period=Duration.minutes(5),
+            ),
+            threshold=5,
+            evaluation_periods=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        )
+        bedrock_throttle_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))

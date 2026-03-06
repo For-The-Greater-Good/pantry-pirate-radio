@@ -390,3 +390,75 @@ class TestJobProcessor:
                 result = input_value
 
             assert result == expected, f"Failed for input: {input_value!r}"
+
+
+class TestTransformScheduleWkstDefault:
+    """Test that _transform_schedule defaults wkst to 'MO' per RFC 5545."""
+
+    @pytest.fixture
+    def processor(self):
+        """Create a JobProcessor with a mock session."""
+        return JobProcessor(MagicMock(spec=Session))
+
+    def test_schedule_with_freq_and_no_wkst_gets_default(self, processor):
+        """Schedule with freq but no wkst should default wkst to 'MO'."""
+        schedule = {
+            "freq": "WEEKLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "byday": "TU,TH",
+        }
+        result = processor._transform_schedule(schedule)
+        assert result is not None
+        assert result["wkst"] == "MO"
+        assert result["freq"] == "WEEKLY"
+        assert result["byday"] == "TU,TH"
+
+    def test_schedule_with_freq_and_wkst_keeps_original(self, processor):
+        """Schedule with both freq and wkst should keep the original wkst."""
+        schedule = {
+            "freq": "WEEKLY",
+            "wkst": "SU",
+            "opens_at": "10:00",
+            "closes_at": "14:00",
+        }
+        result = processor._transform_schedule(schedule)
+        assert result is not None
+        assert result["wkst"] == "SU"
+
+    def test_schedule_without_freq_still_dropped(self, processor):
+        """Schedule without freq should still be dropped."""
+        schedule = {
+            "wkst": "MO",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+        }
+        result = processor._transform_schedule(schedule)
+        assert result is None
+
+    def test_monthly_schedule_without_wkst_gets_default(self, processor):
+        """Monthly schedule without wkst should also get 'MO' default."""
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "10:00",
+            "closes_at": "14:00",
+            "byday": "1SA,3SA",
+        }
+        result = processor._transform_schedule(schedule)
+        assert result is not None
+        assert result["wkst"] == "MO"
+        assert result["freq"] == "MONTHLY"
+
+    def test_once_freq_without_wkst_gets_default(self, processor):
+        """ONCE frequency (converted to WEEKLY) without wkst should get default."""
+        schedule = {
+            "freq": "ONCE",
+            "opens_at": "09:00",
+            "closes_at": "12:00",
+            "dtstart": "2025-01-15",
+        }
+        result = processor._transform_schedule(schedule)
+        assert result is not None
+        assert result["freq"] == "WEEKLY"
+        assert result["wkst"] == "MO"
+        assert result["count"] == 1

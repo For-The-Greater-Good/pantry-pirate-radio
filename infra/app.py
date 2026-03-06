@@ -41,6 +41,9 @@ region = os.environ.get("CDK_DEPLOY_REGION", os.environ.get("CDK_DEFAULT_REGION"
 certificate_arn = os.environ.get("CDK_CERTIFICATE_ARN")
 domain_name = os.environ.get("CDK_DOMAIN_NAME")
 alert_email = os.environ.get("CDK_ALERT_EMAIL")
+bedrock_model_id = os.environ.get(
+    "CDK_BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
 
 app = cdk.App()
 
@@ -176,6 +179,7 @@ monitoring_stack = MonitoringStack(
     app,
     f"MonitoringStack-{environment_name}",
     environment_name=environment_name,
+    bedrock_model_id=bedrock_model_id,
     alert_email=alert_email,
     env=env,
     description=f"Pantry Pirate Radio monitoring infrastructure ({environment_name})",

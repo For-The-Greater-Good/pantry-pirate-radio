@@ -97,11 +97,11 @@ ENTITY EXTRACTION GUIDELINES:
 - organization.description: Generate from available context about the organization's purpose/activities
 - service.description: Generate from available service details and context
 - location.name: Can be inferred from event name or address if not explicitly given
-- Schedule patterns: Convert recurring text to RRULE format:
-  • "Every Monday" → {freq: "WEEKLY", byday: "MO"}
-  • "2nd and 4th Tuesday" → {freq: "MONTHLY", byday: "2TU,4TU"}
-  • "Daily" → {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR,SA,SU"}
-  • "Weekdays" → {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+- Schedule patterns: Convert recurring text to RRULE format (always include wkst: "MO"):
+  • "Every Monday" → {freq: "WEEKLY", wkst: "MO", byday: "MO"}
+  • "2nd and 4th Tuesday" → {freq: "MONTHLY", wkst: "MO", byday: "2TU,4TU"}
+  • "Daily" → {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,FR,SA,SU"}
+  • "Weekdays" → {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,FR"}
 - Date/time conversion: Parse various formats to HSDS standards:
   • "January 15, 2024" → "2024-01-15"
   • "3:30 PM" → "15:30"
@@ -164,17 +164,17 @@ Use these fields for recurring schedules:
 - until: End date for recurrence (YYYY-MM-DD)
 - opens_at/closes_at: Time range (HH:MM format)
 
-Examples (ALWAYS include byday when days are mentioned):
+Examples (ALWAYS include byday when days are mentioned, ALWAYS include wkst: "MO"):
 - "Every Tuesday 10am-2pm":
-  {freq: "WEEKLY", byday: "TU", opens_at: "10:00", closes_at: "14:00"}
+  {freq: "WEEKLY", wkst: "MO", byday: "TU", opens_at: "10:00", closes_at: "14:00"}
 - "1st and 3rd Saturday of each month":
-  {freq: "MONTHLY", byday: "1SA,3SA"}
+  {freq: "MONTHLY", wkst: "MO", byday: "1SA,3SA"}
 - "Monday through Friday":
-  {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR"}
+  {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,FR"}
 - "Monday, Tuesday, Wednesday, Thursday, Sunday hours":
-  {freq: "WEEKLY", byday: "MO,TU,WE,TH,SU", opens_at: "09:00", closes_at: "12:00"}
+  {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,SU", opens_at: "09:00", closes_at: "12:00"}
 - "Open weekdays 9-5":
-  {freq: "WEEKLY", byday: "MO,TU,WE,TH,FR", opens_at: "09:00", closes_at: "17:00"}
+  {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,FR", opens_at: "09:00", closes_at: "17:00"}
 
 💡 PRACTICAL EXAMPLES:
 

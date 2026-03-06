@@ -80,9 +80,9 @@ class TestMetabaseAccessStackResources:
             },
         )
 
-    def test_creates_lambda_functions(self, template):
-        """Stack should create Lambda functions (IP sync + custom resource provider)."""
-        template.resource_count_is("AWS::Lambda::Function", 2)
+    def test_creates_lambda_function(self, template):
+        """Stack should create Lambda function for IP sync."""
+        template.resource_count_is("AWS::Lambda::Function", 1)
 
     def test_creates_eventbridge_rule(self, template):
         """Stack should create EventBridge rule for periodic IP sync."""
@@ -253,6 +253,7 @@ class TestMetabaseAccessStackLambda:
 
     def test_lambda_has_elbv2_permissions(self, template):
         """Lambda should have ELBv2 permissions for target management."""
+        # Register/Deregister scoped to target group
         template.has_resource_properties(
             "AWS::IAM::Policy",
             {
@@ -269,7 +270,14 @@ class TestMetabaseAccessStackLambda:
                                         ),
                                         "Effect": "Allow",
                                     }
-                                )
+                                ),
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": "elasticloadbalancing:DescribeTargetHealth",
+                                        "Effect": "Allow",
+                                        "Resource": "*",
+                                    }
+                                ),
                             ]
                         )
                     }

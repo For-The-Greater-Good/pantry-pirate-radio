@@ -9,14 +9,13 @@ Access is restricted to Metabase Cloud's published static IPs via security group
 
 import textwrap
 
-from aws_cdk import CfnOutput, Duration, Stack, CustomResource
+from aws_cdk import CfnOutput, Duration, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as _lambda
-from aws_cdk import custom_resources as cr
 from constructs import Construct
 
 # Metabase Cloud static IPs for us-east-1
@@ -37,8 +36,7 @@ class MetabaseAccessStack(Stack):
     - IP-based target group pointing at RDS Proxy IPs
     - TCP listener on port 5432
     - Lambda function to resolve proxy DNS and sync target IPs
-    - EventBridge rule triggering Lambda every minute
-    - Custom Resource to seed initial IPs at deploy time
+    - EventBridge rule triggering Lambda every minute (seeds IPs within 60s)
 
     Attributes:
         nlb: Network Load Balancer construct
@@ -182,35 +180,30 @@ class MetabaseAccessStack(Stack):
         )
 
         # IAM: allow Lambda to manage target group
+        # Register/Deregister support resource-level permissions
         ip_sync_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=[
                     "elasticloadbalancing:RegisterTargets",
                     "elasticloadbalancing:DeregisterTargets",
-                    "elasticloadbalancing:DescribeTargetHealth",
                 ],
                 resources=[target_group.target_group_arn],
             )
         )
+        # DescribeTargetHealth requires resource "*" per IAM docs
+        ip_sync_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["elasticloadbalancing:DescribeTargetHealth"],
+                resources=["*"],
+            )
+        )
 
-        # EventBridge rule — every 1 minute
+        # EventBridge rule — every 1 minute (seeds targets within 60s of deploy)
         events.Rule(
             self,
             "IpSyncSchedule",
             schedule=events.Schedule.rate(Duration.minutes(1)),
             targets=[targets.LambdaFunction(ip_sync_fn)],
-        )
-
-        # Custom Resource — trigger Lambda once at deploy to seed initial IPs
-        provider = cr.Provider(
-            self,
-            "IpSyncProvider",
-            on_event_handler=ip_sync_fn,
-        )
-        CustomResource(
-            self,
-            "IpSyncTrigger",
-            service_token=provider.service_token,
         )
 
         # Output NLB DNS name for Metabase Cloud configuration

@@ -35,7 +35,7 @@ infra/
 │   ├── database_stack.py     # Aurora Serverless v2 + RDS Proxy (22 tests)
 │   ├── ecr_stack.py          # ECR container repositories (16 tests)
 │   ├── metabase_access_stack.py # NLB for Metabase Cloud (dev only)
-│   ├── monitoring_stack.py   # CloudWatch + Alarms (13 tests)
+│   ├── monitoring_stack.py   # CloudWatch + Alarms (22 tests)
 │   ├── pipeline_stack.py     # Step Functions + EventBridge (12 tests)
 │   ├── queue_stack.py        # SQS FIFO queues (17 tests)
 │   ├── secrets_stack.py      # Secrets Manager (9 tests)
@@ -145,9 +145,9 @@ Fargate services for pipeline stages:
 - **No SSH**: Access via SSM only
 
 ### MonitoringStack
-- **CloudWatch Dashboard**: API, Worker, Queue, DynamoDB metrics
+- **CloudWatch Dashboard**: API, Worker, Queue, DynamoDB, Bedrock LLM, Auto-Scaling metrics
 - **SNS Topic**: Alert notifications
-- **Alarms**: API CPU, Queue depth, DLQ messages, DynamoDB throttles
+- **Alarms**: API CPU, Queue depth, DLQ messages, DynamoDB throttles, Bedrock throttles
 
 ## Environment Variables
 
@@ -161,6 +161,7 @@ CDK_DEPLOY_REGION=us-east-1
 CDK_CERTIFICATE_ARN=arn:aws:acm:...    # For HTTPS
 CDK_DOMAIN_NAME=api.example.com        # Custom domain
 CDK_ALERT_EMAIL=alerts@example.com     # Alert notifications
+CDK_BEDROCK_MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0  # Bedrock model for dashboard metrics
 ```
 
 ## Testing

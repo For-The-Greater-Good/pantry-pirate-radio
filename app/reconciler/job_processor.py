@@ -251,11 +251,14 @@ class JobProcessor:
             else:
                 transformed["freq"] = freq_value
 
-        # Only return if we have actual freq/wkst data, don't create defaults
-        if "freq" not in transformed or "wkst" not in transformed:
-            # Log that we're skipping incomplete schedule
-            logger.warning(f"Skipping schedule missing freq or wkst: {transformed}")
+        # Require freq to be present
+        if "freq" not in transformed:
+            logger.warning(f"Skipping schedule missing freq: {transformed}")
             return None
+
+        # Default wkst to Monday (RFC 5545 standard) if not provided
+        if "wkst" not in transformed:
+            transformed["wkst"] = "MO"
 
         return transformed
 
@@ -1537,7 +1540,7 @@ class JobProcessor:
 
                     description = schedule.get("description", "") if schedule else ""
 
-                    # Clean wkst value - convert empty string or placeholder to None
+                    # Clean wkst value - convert empty string or placeholder to default
                     wkst_value = schedule.get("wkst") or None
                     if wkst_value:
                         if wkst_value == "string":
@@ -1546,6 +1549,10 @@ class JobProcessor:
                         elif "," in wkst_value:
                             # If multiple days in wkst, take first one (rest should be in byday)
                             wkst_value = wkst_value.split(",")[0].strip()
+
+                    # Default wkst to Monday (RFC 5545 standard) if not provided
+                    if not wkst_value:
+                        wkst_value = "MO"
 
                     # Update or create schedule record
                     schedule_id, was_updated = (

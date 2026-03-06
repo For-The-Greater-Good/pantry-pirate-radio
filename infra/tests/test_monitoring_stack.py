@@ -39,8 +39,8 @@ class TestMonitoringStackResources:
 
     def test_creates_alarms(self, template):
         """MonitoringStack should create CloudWatch alarms."""
-        # Should create 4 alarms: API CPU, Queue Depth, DLQ, DynamoDB Throttle
-        template.resource_count_is("AWS::CloudWatch::Alarm", 4)
+        # Should create 5 alarms: API CPU, Queue Depth, DLQ, DynamoDB Throttle, Bedrock Throttle
+        template.resource_count_is("AWS::CloudWatch::Alarm", 5)
 
     def test_sns_topic_has_name(self, template):
         """SNS topic should have configured name."""
@@ -125,6 +125,17 @@ class TestMonitoringStackAlarms:
             },
         )
 
+    def test_bedrock_throttle_alarm_exists(self, template):
+        """Should create Bedrock throttle alarm."""
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-bedrock-throttle-dev",
+                "MetricName": "InvocationThrottles",
+                "Namespace": "AWS/Bedrock",
+            },
+        )
+
     def test_alarms_have_actions(self, template):
         """All alarms should have SNS action configured."""
         # Get all alarm resources
@@ -153,6 +164,7 @@ class TestMonitoringStackConfiguration:
             cluster_name="custom-cluster",
             queue_name="custom-queue.fifo",
             jobs_table_name="custom-jobs-table",
+            bedrock_model_id="custom-model-id",
         )
 
         assert stack.api_service_name == "custom-api"
@@ -160,6 +172,7 @@ class TestMonitoringStackConfiguration:
         assert stack.cluster_name == "custom-cluster"
         assert stack.queue_name == "custom-queue.fifo"
         assert stack.jobs_table_name == "custom-jobs-table"
+        assert stack.bedrock_model_id == "custom-model-id"
 
     def test_prod_environment_name(self, app):
         """Stack should work with prod environment."""
@@ -176,6 +189,100 @@ class TestMonitoringStackConfiguration:
                 "TopicName": "pantry-pirate-radio-alerts-prod",
             },
         )
+
+
+class TestMonitoringStackBedrock:
+    """Tests for Bedrock LLM metrics configuration."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    def test_default_bedrock_model_id(self, app):
+        """Stack should use Claude Haiku 4.5 as default model ID."""
+        stack = MonitoringStack(
+            app,
+            "DefaultBedrockStack",
+            environment_name="dev",
+        )
+        assert stack.bedrock_model_id == "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+    def test_custom_bedrock_model_id(self, app):
+        """Stack should accept custom Bedrock model ID."""
+        stack = MonitoringStack(
+            app,
+            "CustomBedrockStack",
+            environment_name="dev",
+            bedrock_model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        )
+        assert stack.bedrock_model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+
+    def test_bedrock_throttle_alarm_has_action(self, app):
+        """Bedrock throttle alarm should have SNS action."""
+        stack = MonitoringStack(
+            app,
+            "BedrockAlarmStack",
+            environment_name="dev",
+        )
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-bedrock-throttle-dev",
+                "AlarmActions": assertions.Match.any_value(),
+            },
+        )
+
+
+class TestMonitoringStackAutoScaling:
+    """Tests for auto-scaling metrics configuration."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def stack(self, app):
+        """Create stack for testing."""
+        return MonitoringStack(
+            app,
+            "ScalingStack",
+            environment_name="dev",
+        )
+
+    def test_default_scaling_service_names(self, stack):
+        """Stack should derive service names for auto-scaling services."""
+        assert stack.validator_service_name == "pantry-pirate-radio-validator-dev"
+        assert stack.reconciler_service_name == "pantry-pirate-radio-reconciler-dev"
+        assert stack.recorder_service_name == "pantry-pirate-radio-recorder-dev"
+
+    def test_default_scaling_queue_names(self, stack):
+        """Stack should derive queue names for auto-scaling services."""
+        assert stack.validator_queue_name == "pantry-pirate-radio-validator-dev.fifo"
+        assert stack.reconciler_queue_name == "pantry-pirate-radio-reconciler-dev.fifo"
+        assert stack.recorder_queue_name == "pantry-pirate-radio-recorder-dev.fifo"
+
+    def test_custom_scaling_service_names(self, app):
+        """Stack should accept custom service and queue names."""
+        stack = MonitoringStack(
+            app,
+            "CustomScalingStack",
+            environment_name="dev",
+            validator_service_name="custom-validator",
+            reconciler_service_name="custom-reconciler",
+            recorder_service_name="custom-recorder",
+            validator_queue_name="custom-validator.fifo",
+            reconciler_queue_name="custom-reconciler.fifo",
+            recorder_queue_name="custom-recorder.fifo",
+        )
+        assert stack.validator_service_name == "custom-validator"
+        assert stack.reconciler_service_name == "custom-reconciler"
+        assert stack.recorder_service_name == "custom-recorder"
+        assert stack.validator_queue_name == "custom-validator.fifo"
+        assert stack.reconciler_queue_name == "custom-reconciler.fifo"
+        assert stack.recorder_queue_name == "custom-recorder.fifo"
 
 
 class TestMonitoringStackAttributes:
