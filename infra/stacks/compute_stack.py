@@ -3,7 +3,7 @@
 Creates ECS Fargate cluster and services for running LLM workers.
 """
 
-from aws_cdk import Duration, Stack
+from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_applicationautoscaling as appscaling
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
@@ -158,6 +158,11 @@ class ComputeStack(Stack):
             "WorkerLogs",
             log_group_name=f"/ecs/pantry-pirate-radio-worker-{self.environment_name}",
             retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
         )
 
         return log_group

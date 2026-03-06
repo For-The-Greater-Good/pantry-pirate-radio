@@ -2212,6 +2212,26 @@ print(json.dumps(l))
                 fi
                 output info "Destroying all stacks..."
                 run_cdk destroy --all --force
+
+                # Clean up orphaned CloudWatch Log Groups
+                # AWS auto-creates log groups (Container Insights, Lambda, RDS Proxy)
+                # that CDK destroy doesn't remove, blocking future deploys
+                output info "Cleaning up orphaned CloudWatch Log Groups..."
+                ORPHAN_LOG_GROUPS=$(aws logs describe-log-groups --region "$CDK_DEPLOY_REGION" \
+                    --query "logGroups[?contains(logGroupName, 'pantry-pirate-radio') && contains(logGroupName, '${DEPLOY_ENV}')].logGroupName" \
+                    --output text 2>/dev/null)
+                if [ -n "$ORPHAN_LOG_GROUPS" ]; then
+                    for lg in $ORPHAN_LOG_GROUPS; do
+                        if aws logs delete-log-group --log-group-name "$lg" --region "$CDK_DEPLOY_REGION" 2>/dev/null; then
+                            output success "Deleted log group: $lg"
+                        else
+                            output warning "Could not delete log group: $lg"
+                        fi
+                    done
+                else
+                    output info "No orphaned log groups found"
+                fi
+                output success "Destroy complete"
                 ;;
             images)
                 build_app_image
