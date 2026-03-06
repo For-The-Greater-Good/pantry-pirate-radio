@@ -6,6 +6,7 @@ from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
 from stacks.ecr_stack import ECRStack
+from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
 from stacks.pipeline_stack import PipelineStack
 from stacks.queue_stack import QueueStack
@@ -20,6 +21,7 @@ __all__ = [
     "DatabaseStack",
     "DbInitStack",
     "ECRStack",
+    "MetabaseAccessStack",
     "MonitoringStack",
     "PipelineStack",
     "QueueStack",

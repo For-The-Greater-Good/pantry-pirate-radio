@@ -34,6 +34,7 @@ infra/
 │   ├── compute_stack.py      # VPC + ECS Fargate Workers (20 tests)
 │   ├── database_stack.py     # Aurora Serverless v2 + RDS Proxy (22 tests)
 │   ├── ecr_stack.py          # ECR container repositories (16 tests)
+│   ├── metabase_access_stack.py # NLB for Metabase Cloud (dev only)
 │   ├── monitoring_stack.py   # CloudWatch + Alarms (13 tests)
 │   ├── pipeline_stack.py     # Step Functions + EventBridge (12 tests)
 │   ├── queue_stack.py        # SQS FIFO queues (17 tests)
@@ -46,6 +47,7 @@ infra/
 │   ├── test_compute_stack.py
 │   ├── test_database_stack.py
 │   ├── test_ecr_stack.py
+│   ├── test_metabase_stack.py
 │   ├── test_monitoring_stack.py
 │   ├── test_pipeline_stack.py
 │   ├── test_queue_stack.py
@@ -129,6 +131,19 @@ Fargate services for pipeline stages:
 - **Auto-scaling**: CPU (70%) and request-based (1000/target)
 - **Health Check**: `/health` endpoint
 
+### MetabaseAccessStack (dev only)
+- **Network Load Balancer**: Internet-facing NLB in public subnets, TCP 5432
+- **NLB Security Group**: Restricted to Metabase Cloud static IPs (us-east-1)
+- **IP Target Group**: Points at RDS Proxy private IPs
+- **Lambda (IP Sync)**: Resolves proxy DNS every minute, syncs target group IPs
+- **EventBridge Rule**: Triggers IP sync Lambda every 1 minute
+- **Custom Resource**: Seeds initial IPs at deploy time
+- **Cost**: ~$17/month (NLB ~$16 + Lambda ~$0.50)
+
+### BastionStack (dev only)
+- **EC2 t4g.nano**: SSM Session Manager for ad-hoc port forwarding to Aurora
+- **No SSH**: Access via SSM only
+
 ### MonitoringStack
 - **CloudWatch Dashboard**: API, Worker, Queue, DynamoDB metrics
 - **SNS Topic**: Alert notifications
@@ -179,8 +194,8 @@ SecretsStack (standalone)
 ECRStack (standalone)
 
 StorageStack ─────┐
-                  ├──► ComputeStack ──┬──► DatabaseStack
-QueueStack ───────┘                   │
+                  ├──► ComputeStack ──┬──► DatabaseStack ──┬──► MetabaseAccessStack (dev)
+QueueStack ───────┘                   │                    └──► BastionStack (dev)
                                       ├──► ServicesStack ──► PipelineStack
                                       │
                                       └──► DbInitStack

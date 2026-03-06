@@ -4,11 +4,14 @@ Creates ECS Fargate cluster and services for running LLM workers.
 """
 
 from aws_cdk import Duration, Stack
+from aws_cdk import aws_applicationautoscaling as appscaling
+from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 
@@ -351,3 +354,46 @@ class ComputeStack(Stack):
         bucket.grant_read_write(self.task_role)
         jobs_table.grant_read_write_data(self.task_role)
         content_index_table.grant_read_write_data(self.task_role)
+
+    def configure_auto_scaling(self, llm_queue: sqs.IQueue) -> None:
+        """Configure SQS queue-depth-driven auto-scaling for the worker service.
+
+        Uses visible + not_visible message count to avoid premature scale-down
+        while messages are in-flight.
+
+        Args:
+            llm_queue: SQS queue to monitor for scaling decisions
+        """
+        scaling = self.worker_service.auto_scale_task_count(
+            min_capacity=0,
+            max_capacity=self.max_capacity,
+        )
+
+        total_messages = cloudwatch.MathExpression(
+            expression="visible + not_visible",
+            using_metrics={
+                "visible": llm_queue.metric_approximate_number_of_messages_visible(
+                    period=Duration.seconds(60),
+                    statistic="Average",
+                ),
+                "not_visible": llm_queue.metric_approximate_number_of_messages_not_visible(
+                    period=Duration.seconds(60),
+                    statistic="Average",
+                ),
+            },
+            period=Duration.seconds(60),
+        )
+
+        scaling.scale_on_metric(
+            "WorkerQueueDepthScaling",
+            metric=total_messages,
+            scaling_steps=[
+                appscaling.ScalingInterval(upper=0, change=-1),
+                appscaling.ScalingInterval(lower=0, upper=5, change=1),
+                appscaling.ScalingInterval(lower=5, upper=20, change=2),
+                appscaling.ScalingInterval(lower=20, upper=50, change=5),
+                appscaling.ScalingInterval(lower=50, change=10),
+            ],
+            adjustment_type=appscaling.AdjustmentType.CHANGE_IN_CAPACITY,
+            cooldown=Duration.seconds(120),
+        )

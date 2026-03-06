@@ -6,6 +6,7 @@ from aws_cdk import assertions
 
 from stacks.compute_stack import ComputeStack
 from stacks.ecr_stack import ECRStack
+from stacks.queue_stack import QueueStack
 
 
 class TestComputeStackResources:
@@ -324,5 +325,81 @@ class TestComputeStackWithECRRepository:
                         })
                     ])
                 })
+            },
+        )
+
+
+class TestComputeStackAutoScaling:
+    """Tests for SQS queue-depth-driven auto-scaling."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def queue_stack(self, app):
+        """Create queue stack for SQS queues."""
+        return QueueStack(
+            app, "AutoScaleQueueStack", environment_name="dev",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+
+    @pytest.fixture
+    def stack_with_scaling(self, app, queue_stack):
+        """Create compute stack with auto-scaling configured."""
+        stack = ComputeStack(
+            app, "AutoScaleComputeStack",
+            environment_name="dev",
+            max_capacity=20,
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        stack.configure_auto_scaling(queue_stack.llm_queue)
+        return stack
+
+    @pytest.fixture
+    def template_with_scaling(self, stack_with_scaling):
+        """Get CloudFormation template from stack with scaling."""
+        return assertions.Template.from_stack(stack_with_scaling)
+
+    def test_creates_scalable_target(self, template_with_scaling):
+        """Auto-scaling should create a ScalableTarget with min=0, max=20."""
+        template_with_scaling.has_resource_properties(
+            "AWS::ApplicationAutoScaling::ScalableTarget",
+            {
+                "MinCapacity": 0,
+                "MaxCapacity": 20,
+                "ScalableDimension": "ecs:service:DesiredCount",
+                "ServiceNamespace": "ecs",
+            },
+        )
+
+    def test_creates_scaling_policies(self, template_with_scaling):
+        """Auto-scaling should create step scaling policies (upper + lower)."""
+        template_with_scaling.resource_count_is(
+            "AWS::ApplicationAutoScaling::ScalingPolicy", 2
+        )
+
+    def test_creates_cloudwatch_alarms(self, template_with_scaling):
+        """Auto-scaling should create CloudWatch alarms for scaling triggers."""
+        template_with_scaling.resource_count_is("AWS::CloudWatch::Alarm", 2)
+
+    def test_without_configure_no_scaling_resources(self, app):
+        """Without configure_auto_scaling(), no scaling resources should exist."""
+        stack = ComputeStack(
+            app, "NoScaleStack",
+            environment_name="dev",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        template = assertions.Template.from_stack(stack)
+        template.resource_count_is("AWS::ApplicationAutoScaling::ScalableTarget", 0)
+        template.resource_count_is("AWS::ApplicationAutoScaling::ScalingPolicy", 0)
+
+    def test_scaling_uses_step_policy(self, template_with_scaling):
+        """Scaling policy should use StepScaling type."""
+        template_with_scaling.has_resource_properties(
+            "AWS::ApplicationAutoScaling::ScalingPolicy",
+            {
+                "PolicyType": "StepScaling",
             },
         )

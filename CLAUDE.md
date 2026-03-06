@@ -503,7 +503,13 @@ open htmlcov/index.html                  # View HTML report
 - Public SQLite URL: `https://pantry-pirate-radio-exports-{env}.s3.amazonaws.com/sqlite-exports/latest/pantry_pirate_radio.sqlite`
 - Daily archives kept for 30 days at `sqlite-exports/{date}/pantry_pirate_radio.sqlite`
 
-**Bastion / Metabase Access (dev only)**:
+**Metabase Cloud Access (dev only)**:
+- NLB in public subnets forwards TCP 5432 to RDS Proxy (MetabaseAccessStack)
+- Access restricted to Metabase Cloud static IPs via security group
+- Lambda resolves RDS Proxy DNS every minute and syncs NLB target IPs
+- Metabase Cloud DB config: Host = NLB DNS (from stack output `MetabaseAccessStack-dev.NlbDnsName`), Port = 5432, DB = `pantry_pirate_radio`, User = `pantry_pirate`, Password = from Secrets Manager, SSL = required
+
+**Bastion / Ad-hoc DB Access (dev only)**:
 ```bash
 # Connect to Aurora via SSM port forwarding (requires AWS CLI + Session Manager plugin)
 INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=BastionStack-dev" --query 'Reservations[0].Instances[0].InstanceId' --output text)
@@ -513,7 +519,7 @@ aws ssm start-session --target $INSTANCE_ID \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters "{\"host\":[\"$PROXY_ENDPOINT\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"5432\"]}"
 
-# Then connect Metabase to: localhost:5432, user: pantry_pirate, SSL: required
+# Then connect locally to: localhost:5432, user: pantry_pirate, SSL: required
 ```
 
 ### Data Reconciliation

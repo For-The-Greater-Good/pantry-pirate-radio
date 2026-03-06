@@ -13,12 +13,15 @@ And task definitions for one-shot tasks:
 from dataclasses import dataclass, field
 
 from aws_cdk import Duration, RemovalPolicy, Stack
+from aws_cdk import aws_applicationautoscaling as appscaling
+from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 
@@ -197,6 +200,110 @@ class ServicesStack(Stack):
                 to_port=5432,
                 description=f"Allow {name.lower()} to connect to RDS Proxy",
             )
+
+    def configure_auto_scaling(
+        self,
+        validator_queue: sqs.IQueue | None = None,
+        reconciler_queue: sqs.IQueue | None = None,
+        recorder_queue: sqs.IQueue | None = None,
+    ) -> None:
+        """Configure SQS queue-depth-driven auto-scaling for pipeline services.
+
+        Each service scales based on its input queue depth (visible + not_visible).
+        Pass only the queues for services you want to auto-scale.
+
+        Args:
+            validator_queue: SQS queue for validator scaling (0-2 instances)
+            reconciler_queue: SQS queue for reconciler scaling (0-1 instance)
+            recorder_queue: SQS queue for recorder scaling (0-2 instances)
+        """
+        if validator_queue:
+            self._configure_service_scaling(
+                service=self.validator_service,
+                queue=validator_queue,
+                name="Validator",
+                min_capacity=0,
+                max_capacity=2,
+                scaling_steps=[
+                    appscaling.ScalingInterval(upper=0, change=-1),
+                    appscaling.ScalingInterval(lower=0, upper=10, change=1),
+                    appscaling.ScalingInterval(lower=10, change=2),
+                ],
+            )
+
+        if reconciler_queue:
+            self._configure_service_scaling(
+                service=self.reconciler_service,
+                queue=reconciler_queue,
+                name="Reconciler",
+                min_capacity=0,
+                max_capacity=1,
+                scaling_steps=[
+                    appscaling.ScalingInterval(upper=0, change=-1),
+                    appscaling.ScalingInterval(lower=0, change=1),
+                ],
+            )
+
+        if recorder_queue:
+            self._configure_service_scaling(
+                service=self.recorder_service,
+                queue=recorder_queue,
+                name="Recorder",
+                min_capacity=0,
+                max_capacity=2,
+                scaling_steps=[
+                    appscaling.ScalingInterval(upper=0, change=-1),
+                    appscaling.ScalingInterval(lower=0, upper=20, change=1),
+                    appscaling.ScalingInterval(lower=20, change=2),
+                ],
+            )
+
+    def _configure_service_scaling(
+        self,
+        service: ecs.FargateService,
+        queue: sqs.IQueue,
+        name: str,
+        min_capacity: int,
+        max_capacity: int,
+        scaling_steps: list[appscaling.ScalingInterval],
+    ) -> None:
+        """Configure step scaling for a single service based on SQS queue depth.
+
+        Args:
+            service: ECS Fargate service to scale
+            queue: SQS queue to monitor
+            name: Service name for resource IDs
+            min_capacity: Minimum task count
+            max_capacity: Maximum task count
+            scaling_steps: Step scaling intervals
+        """
+        scaling = service.auto_scale_task_count(
+            min_capacity=min_capacity,
+            max_capacity=max_capacity,
+        )
+
+        total_messages = cloudwatch.MathExpression(
+            expression="visible + not_visible",
+            using_metrics={
+                "visible": queue.metric_approximate_number_of_messages_visible(
+                    period=Duration.seconds(60),
+                    statistic="Average",
+                ),
+                "not_visible": queue.metric_approximate_number_of_messages_not_visible(
+                    period=Duration.seconds(60),
+                    statistic="Average",
+                ),
+            },
+            period=Duration.seconds(60),
+        )
+
+        scaling.scale_on_metric(
+            f"{name}QueueDepthScaling",
+            metric=total_messages,
+            scaling_steps=scaling_steps,
+            adjustment_type=appscaling.AdjustmentType.CHANGE_IN_CAPACITY,
+            cooldown=Duration.seconds(120),
+        )
 
     def _create_service(
         self,

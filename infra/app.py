@@ -26,6 +26,7 @@ from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
 from stacks.ecr_stack import ECRStack
+from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
 from stacks.pipeline_stack import PipelineStack
 from stacks.queue_stack import QueueStack
@@ -87,6 +88,7 @@ compute_stack = ComputeStack(
     app,
     f"ComputeStack-{environment_name}",
     environment_name=environment_name,
+    max_capacity=20,
     ecr_repository=ecr_stack.repositories.get("worker"),
     llm_queue_url=queue_stack.llm_queue.queue_url,
     sqs_jobs_table_name=storage_stack.jobs_table.table_name,
@@ -271,6 +273,14 @@ database_stack.database_credentials_secret.grant_read(services_stack.scraper_tas
 queue_stack.validator_queue.grant_send_messages(compute_stack.task_role)
 secrets_stack.llm_api_keys_secret.grant_read(compute_stack.task_role)
 
+# Configure auto-scaling based on SQS queue depth
+compute_stack.configure_auto_scaling(queue_stack.llm_queue)
+services_stack.configure_auto_scaling(
+    validator_queue=queue_stack.validator_queue,
+    reconciler_queue=queue_stack.reconciler_queue,
+    recorder_queue=queue_stack.recorder_queue,
+)
+
 # Add stack dependencies (deployment order)
 
 # Compute depends on storage, queues, and ECR (needs image repos)
@@ -328,6 +338,31 @@ if environment_name == "dev":
         from_port=5432,
         to_port=5432,
         description="Allow bastion to connect to RDS Proxy",
+    )
+
+    # Metabase Access Stack — NLB for Metabase Cloud to reach Aurora via RDS Proxy
+    metabase_stack = MetabaseAccessStack(
+        app,
+        f"MetabaseAccessStack-{environment_name}",
+        vpc=compute_stack.vpc,
+        proxy_endpoint=database_stack.proxy_endpoint,
+        environment_name=environment_name,
+        env=env,
+        description=f"Pantry Pirate Radio NLB for Metabase Cloud access ({environment_name})",
+    )
+    metabase_stack.add_dependency(compute_stack)
+    metabase_stack.add_dependency(database_stack)
+
+    # Allow NLB targets to reach RDS Proxy
+    ec2.CfnSecurityGroupIngress(
+        metabase_stack,
+        "NlbToProxyIngress",
+        group_id=database_stack.proxy_security_group.security_group_id,
+        source_security_group_id=metabase_stack.nlb_security_group.security_group_id,
+        ip_protocol="tcp",
+        from_port=5432,
+        to_port=5432,
+        description="Allow NLB to reach RDS Proxy for Metabase Cloud",
     )
 
 # Monitoring depends on all other stacks
