@@ -1,12 +1,14 @@
 """Pipeline Stack for Pantry Pirate Radio.
 
 Creates Step Functions state machine for scraper orchestration
-with EventBridge schedule for automated daily runs.
+with EventBridge schedules for automated daily scraper runs
+and publisher (SQLite export to S3) tasks.
 """
 
 import json
 
 from aws_cdk import Duration, Stack
+from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
@@ -50,6 +52,8 @@ class PipelineStack(Stack):
         schedule_enabled: bool = False,
         max_concurrency: int = 10,
         scrapers: list[str] | None = None,
+        publisher_task_family: str | None = None,
+        publisher_schedule_enabled: bool = False,
         **kwargs,
     ) -> None:
         """Initialize PipelineStack.
@@ -62,9 +66,11 @@ class PipelineStack(Stack):
             scraper_task_definition: Task definition for scraper tasks (deprecated, use scraper_task_family)
             scraper_task_family: Task definition family name (avoids cross-stack export on ARN)
             scraper_container_name: Container name in the task definition
-            schedule_enabled: Whether to enable the daily schedule
+            schedule_enabled: Whether to enable the daily scraper schedule
             max_concurrency: Maximum concurrent scraper tasks
             scrapers: List of scraper names to run (defaults to DEFAULT_SCRAPERS)
+            publisher_task_family: Publisher task definition family name for SQLite export
+            publisher_schedule_enabled: Whether to enable the daily publisher schedule
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, **kwargs)
@@ -94,10 +100,19 @@ class PipelineStack(Stack):
             max_concurrency=max_concurrency,
         )
 
-        # Create EventBridge schedule rule
+        # Create EventBridge schedule rule for scrapers
         self.schedule_rule = self._create_schedule_rule(
             enabled=schedule_enabled
         )
+
+        # Create EventBridge schedule rule for publisher (SQLite export to S3)
+        self.publisher_schedule_rule: events.Rule | None = None
+        if publisher_task_family:
+            self.publisher_schedule_rule = self._create_publisher_schedule_rule(
+                cluster=cluster,
+                publisher_task_family=publisher_task_family,
+                enabled=publisher_schedule_enabled,
+            )
 
     def _create_state_machine(
         self,
@@ -289,6 +304,65 @@ class PipelineStack(Stack):
                 self.state_machine,
                 input=events.RuleTargetInput.from_object(
                     {"scrapers": self._scrapers}
+                ),
+            )
+        )
+
+        return rule
+
+    def _create_publisher_schedule_rule(
+        self,
+        cluster: ecs.ICluster,
+        publisher_task_family: str,
+        enabled: bool,
+    ) -> events.Rule:
+        """Create EventBridge rule for daily publisher (SQLite export) schedule.
+
+        Runs daily at 4 AM UTC (after scrapers complete at 2 AM).
+
+        Args:
+            cluster: ECS cluster for running publisher task
+            publisher_task_family: Publisher task definition family name
+            enabled: Whether the schedule is enabled
+
+        Returns:
+            EventBridge rule
+        """
+        rule = events.Rule(
+            self,
+            "DailyPublisherSchedule",
+            rule_name=f"pantry-pirate-publisher-schedule-{self.environment_name}",
+            description=f"Daily SQLite export schedule for {self.environment_name}",
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="4",  # 4 AM UTC (after scrapers at 2 AM)
+            ),
+            enabled=enabled,
+        )
+
+        # Import the publisher task definition by ARN for EventBridge target
+        imported_task_role = iam.Role.from_role_name(
+            self,
+            "ImportedPublisherTaskRole",
+            role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
+        )
+        imported_task_def = ecs.FargateTaskDefinition.from_fargate_task_definition_attributes(
+            self,
+            "ImportedPublisherTask",
+            task_definition_arn=(
+                f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}"
+                f":task-definition/{publisher_task_family}"
+            ),
+            network_mode=ecs.NetworkMode.AWS_VPC,
+            task_role=imported_task_role,
+        )
+
+        rule.add_target(
+            targets.EcsTask(
+                cluster=cluster,
+                task_definition=imported_task_def,
+                subnet_selection=ec2.SubnetSelection(
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
                 ),
             )
         )

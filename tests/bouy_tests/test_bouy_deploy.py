@@ -32,17 +32,13 @@ class TestBouyDeployHelp:
 
     def test_help_includes_deploy_command(self, bouy_path):
         """Help output should include deploy command."""
-        result = subprocess.run(
-            [bouy_path, "--help"], capture_output=True, text=True
-        )
+        result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
         assert result.returncode == 0
         assert "deploy" in result.stdout
 
     def test_help_includes_deploy_options(self, bouy_path):
         """Help output should include deploy options."""
-        result = subprocess.run(
-            [bouy_path, "--help"], capture_output=True, text=True
-        )
+        result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
         assert "--images-only" in result.stdout
         assert "--infra-only" in result.stdout
         assert "--diff" in result.stdout
@@ -67,11 +63,11 @@ class TestBouyDeployArgParsing:
         mock_bin.mkdir()
         mock_aws = mock_bin / "aws"
         mock_aws.write_text(
-            '#!/bin/bash\n'
+            "#!/bin/bash\n"
             'if [ "$1" = "sts" ]; then\n'
             '  echo "Unable to locate credentials" >&2\n'
-            '  exit 255\n'
-            'fi\n'
+            "  exit 255\n"
+            "fi\n"
             'echo "mock-aws"\n'
         )
         mock_aws.chmod(mock_aws.stat().st_mode | stat.S_IEXEC)
@@ -156,17 +152,13 @@ class TestBouyScraperAwsHelp:
 
     def test_help_includes_scraper_aws(self, bouy_path):
         """Help output should include scraper --aws options."""
-        result = subprocess.run(
-            [bouy_path, "--help"], capture_output=True, text=True
-        )
+        result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
         assert result.returncode == 0
         assert "--aws" in result.stdout
 
     def test_help_includes_scraper_aws_subcommands(self, bouy_path):
         """Help output should include scraper --aws subcommand options."""
-        result = subprocess.run(
-            [bouy_path, "--help"], capture_output=True, text=True
-        )
+        result = subprocess.run([bouy_path, "--help"], capture_output=True, text=True)
         assert "--status" in result.stdout
         assert "--logs" in result.stdout
         assert "Step Functions" in result.stdout
@@ -190,11 +182,11 @@ class TestBouyScraperAwsArgParsing:
         mock_bin.mkdir()
         mock_aws = mock_bin / "aws"
         mock_aws.write_text(
-            '#!/bin/bash\n'
+            "#!/bin/bash\n"
             'if [ "$1" = "sts" ]; then\n'
             '  echo "Unable to locate credentials" >&2\n'
-            '  exit 255\n'
-            'fi\n'
+            "  exit 255\n"
+            "fi\n"
             'echo "mock-aws"\n'
         )
         mock_aws.chmod(mock_aws.stat().st_mode | stat.S_IEXEC)
@@ -245,21 +237,21 @@ class TestBouyScraperAwsArgParsing:
         mock_aws = mock_bin / "aws"
         # Mock aws that passes sts but returns empty for stepfunctions
         mock_aws.write_text(
-            '#!/bin/bash\n'
+            "#!/bin/bash\n"
             'if [ "$1" = "sts" ]; then\n'
             '  echo \'{"Account": "123456789", "Arn": "arn:aws:iam::root"}\'\n'
-            '  exit 0\n'
-            'fi\n'
+            "  exit 0\n"
+            "fi\n"
             'if [ "$1" = "configure" ]; then\n'
             '  echo "us-east-1"\n'
-            '  exit 0\n'
-            'fi\n'
+            "  exit 0\n"
+            "fi\n"
             'if [ "$1" = "stepfunctions" ]; then\n'
             '  if [ "$2" = "list-state-machines" ]; then\n'
             '    echo "None"\n'
-            '    exit 0\n'
-            '  fi\n'
-            'fi\n'
+            "    exit 0\n"
+            "  fi\n"
+            "fi\n"
             'echo "mock-aws"\n'
         )
         mock_aws.chmod(mock_aws.stat().st_mode | stat.S_IEXEC)

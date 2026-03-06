@@ -50,12 +50,15 @@ class TestFargateWorkerInit:
         """FargateWorker should create LLM provider from settings."""
         from app.llm.queue.fargate_worker import FargateWorker
 
-        with patch.dict(os.environ, {
-            "LLM_PROVIDER": "bedrock",
-            "LLM_MODEL_NAME": "anthropic.claude-sonnet-4-x",
-            "LLM_TEMPERATURE": "0.7",
-            "AWS_DEFAULT_REGION": "us-east-1",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "LLM_PROVIDER": "bedrock",
+                "LLM_MODEL_NAME": "anthropic.claude-sonnet-4-x",
+                "LLM_TEMPERATURE": "0.7",
+                "AWS_DEFAULT_REGION": "us-east-1",
+            },
+        ):
             worker = FargateWorker(mock_sqs_backend)
 
         mock_create_provider.assert_called_once()

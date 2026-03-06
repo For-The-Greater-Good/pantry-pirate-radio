@@ -1,11 +1,12 @@
 """Storage Stack for Pantry Pirate Radio.
 
-Creates S3 bucket for content store and DynamoDB tables for
-job status tracking and content deduplication index.
+Creates S3 buckets for content store and public SQLite exports,
+and DynamoDB tables for job status tracking and content deduplication index.
 """
 
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_dynamodb as dynamodb
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
@@ -15,11 +16,13 @@ class StorageStack(Stack):
 
     Creates:
     - S3 bucket for content store (scraped content deduplication)
+    - S3 bucket for public SQLite exports
     - DynamoDB table for LLM job status tracking
     - DynamoDB table for content store index
 
     Attributes:
         content_bucket: S3 bucket for storing deduplicated content
+        exports_bucket: S3 bucket for public SQLite database exports
         jobs_table: DynamoDB table for LLM job status
         content_index_table: DynamoDB table for content hash lookups
     """
@@ -46,6 +49,9 @@ class StorageStack(Stack):
 
         # Create S3 bucket for content store
         self.content_bucket = self._create_content_bucket()
+
+        # Create S3 bucket for public SQLite exports
+        self.exports_bucket = self._create_exports_bucket()
 
         # Create DynamoDB tables
         self.jobs_table = self._create_jobs_table()
@@ -99,6 +105,61 @@ class StorageStack(Stack):
                     abort_incomplete_multipart_upload_after=Duration.days(7),
                 ),
             ],
+        )
+
+        return bucket
+
+    def _create_exports_bucket(self) -> s3.Bucket:
+        """Create public S3 bucket for SQLite database exports.
+
+        Features:
+        - Public read access for sqlite-exports/* prefix
+        - CORS enabled for GET from any origin
+        - Lifecycle rules to expire daily exports after 30 days
+        - No versioning (exports are reproducible from Aurora)
+        """
+        bucket = s3.Bucket(
+            self,
+            "ExportsBucket",
+            bucket_name=f"pantry-pirate-radio-exports-{self.environment_name}",
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess(
+                block_public_acls=True,
+                ignore_public_acls=True,
+                block_public_policy=False,
+                restrict_public_buckets=False,
+            ),
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
+            auto_delete_objects=self.environment_name != "prod",
+            cors=[
+                s3.CorsRule(
+                    allowed_methods=[s3.HttpMethods.GET],
+                    allowed_origins=["*"],
+                    allowed_headers=["*"],
+                )
+            ],
+            lifecycle_rules=[
+                s3.LifecycleRule(
+                    id="ExpireDailyExports",
+                    prefix="sqlite-exports/",
+                    expiration=Duration.days(30),
+                    enabled=True,
+                ),
+            ],
+        )
+
+        # Add bucket policy for public read on sqlite-exports/*
+        bucket.add_to_resource_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                principals=[iam.AnyPrincipal()],
+                actions=["s3:GetObject"],
+                resources=[bucket.arn_for_objects("sqlite-exports/*")],
+            )
         )
 
         return bucket

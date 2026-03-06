@@ -72,9 +72,7 @@ class TestValidationJobProcessor:
     def test_enqueue_to_reconciler(self, sample_hsds_job, mock_reconciler_queue):
         """Test enqueueing validated job to reconciler."""
         # Now that reconciler_queue is imported, we can patch it directly
-        with patch(
-            "app.llm.queue.queues.reconciler_queue", mock_reconciler_queue
-        ):
+        with patch("app.llm.queue.queues.reconciler_queue", mock_reconciler_queue):
             mock_reconciler_queue.enqueue_call.return_value = MagicMock(
                 id="test-job-id"
             )

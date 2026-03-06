@@ -497,6 +497,25 @@ open htmlcov/index.html                  # View HTML report
 ./bouy deploy dev --destroy          # Tear down all stacks
 ```
 
+**Daily SQLite Publisher (AWS)**:
+- Publisher runs daily at 4 AM UTC via EventBridge schedule (enabled in prod)
+- Exports Aurora data to SQLite, uploads to S3 exports bucket
+- Public SQLite URL: `https://pantry-pirate-radio-exports-{env}.s3.amazonaws.com/sqlite-exports/latest/pantry_pirate_radio.sqlite`
+- Daily archives kept for 30 days at `sqlite-exports/{date}/pantry_pirate_radio.sqlite`
+
+**Bastion / Metabase Access (dev only)**:
+```bash
+# Connect to Aurora via SSM port forwarding (requires AWS CLI + Session Manager plugin)
+INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=BastionStack-dev" --query 'Reservations[0].Instances[0].InstanceId' --output text)
+PROXY_ENDPOINT=$(aws rds describe-db-proxies --query 'DBProxies[?DBProxyName==`pantry-pirate-radio-proxy-dev`].Endpoint' --output text)
+
+aws ssm start-session --target $INSTANCE_ID \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters "{\"host\":[\"$PROXY_ENDPOINT\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"5432\"]}"
+
+# Then connect Metabase to: localhost:5432, user: pantry_pirate, SSL: required
+```
+
 ### Data Reconciliation
 ```bash
 ./bouy reconciler            # Run reconciler service
@@ -583,9 +602,11 @@ Web Sources → Scrapers → Content Store → Redis Queue → LLM Workers
                                                            ↓
 PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
     ↓                          ↓
-FastAPI → Clients         JSON Archives → HAARRRvest Repository
-                                              ↓
-                                        GitHub Pages → Public Access
+    ├→ FastAPI → Clients  JSON Archives → HAARRRvest Repository
+    │                                         ↓
+    │                                   GitHub Pages → Public Access
+    │
+    └→ Publisher (daily) → SQLite → S3 Exports Bucket → Public Access
 ```
 
 ### Key Components

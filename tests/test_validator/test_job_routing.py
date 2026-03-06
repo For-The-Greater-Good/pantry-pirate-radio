@@ -58,9 +58,7 @@ class TestValidatorJobRouting:
     ):
         """Test that LLM worker bypasses validator when disabled."""
         with patch("app.core.config.settings.VALIDATOR_ENABLED", False):
-            with patch(
-                "app.llm.queue.queues.reconciler_queue", mock_reconciler_queue
-            ):
+            with patch("app.llm.queue.queues.reconciler_queue", mock_reconciler_queue):
                 from app.llm.queue.processor import process_llm_job
 
                 # Mock LLM provider
@@ -86,9 +84,7 @@ class TestValidatorJobRouting:
         """Test that validator forwards jobs to reconciler after processing."""
         from app.validator.job_processor import process_validation_job
 
-        with patch(
-            "app.llm.queue.queues.reconciler_queue", mock_reconciler_queue
-        ):
+        with patch("app.llm.queue.queues.reconciler_queue", mock_reconciler_queue):
             # Process validation job
             result = process_validation_job(sample_hsds_job)
 

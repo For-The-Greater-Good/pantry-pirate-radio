@@ -112,6 +112,69 @@ class TestPipelineStackResources:
         assert stack.state_machine is not None
 
 
+class TestPublisherSchedule:
+    """Tests for the publisher EventBridge schedule."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    def test_creates_publisher_schedule_rule(self, app):
+        """PipelineStack should create publisher EventBridge rule when configured."""
+        compute_stack = ComputeStack(app, "PubSchedCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "PubSchedPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+            publisher_task_family="pantry-pirate-radio-publisher-dev",
+            publisher_schedule_enabled=True,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        # Should have 2 EventBridge rules: scraper schedule + publisher schedule
+        template.resource_count_is("AWS::Events::Rule", 2)
+
+    def test_publisher_schedule_disabled_by_default(self, app):
+        """Publisher schedule should be disabled by default."""
+        compute_stack = ComputeStack(app, "PubDefCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "PubDefPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+        )
+        template = assertions.Template.from_stack(stack)
+
+        # Only the scraper schedule should exist
+        template.resource_count_is("AWS::Events::Rule", 1)
+
+    def test_publisher_schedule_runs_at_4am_utc(self, app):
+        """Publisher schedule should run daily at 4 AM UTC."""
+        compute_stack = ComputeStack(app, "Pub4AMCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "Pub4AMPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+            publisher_task_family="pantry-pirate-radio-publisher-dev",
+            publisher_schedule_enabled=True,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::Events::Rule",
+            {
+                "ScheduleExpression": "cron(0 4 * * ? *)",
+                "State": "ENABLED",
+            },
+        )
+
+
 class TestPipelineStackEnvironments:
     """Tests for environment-specific configuration."""
 

@@ -1,6 +1,7 @@
 """CDK Stacks for Pantry Pirate Radio AWS infrastructure."""
 
 from stacks.api_stack import APIStack
+from stacks.bastion_stack import BastionStack
 from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
@@ -14,6 +15,7 @@ from stacks.storage_stack import StorageStack
 
 __all__ = [
     "APIStack",
+    "BastionStack",
     "ComputeStack",
     "DatabaseStack",
     "DbInitStack",

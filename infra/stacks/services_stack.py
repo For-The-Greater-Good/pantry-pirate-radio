@@ -3,9 +3,11 @@
 Creates Fargate services for the data processing pipeline:
 - Validator: Data enrichment and confidence scoring
 - Reconciler: Canonical record creation (single instance)
-- Publisher: HAARRRvest repository publishing
 - Recorder: Job result archiving
-- Scraper (task definition only): One-shot scraper tasks
+
+And task definitions for one-shot tasks:
+- Publisher: SQLite export to S3 (daily scheduled)
+- Scraper: Web scraping tasks (triggered by Step Functions)
 """
 
 from dataclasses import dataclass, field
@@ -48,6 +50,9 @@ class ServiceConfig:
     # Data repository URL
     data_repo_url: str = "https://github.com/For-The-Greater-Good/HAARRRvest.git"
 
+    # Exports bucket for publisher
+    exports_bucket_name: str = ""
+
 
 class ServicesStack(Stack):
     """Pipeline services infrastructure for Pantry Pirate Radio.
@@ -55,17 +60,17 @@ class ServicesStack(Stack):
     Creates Fargate services for:
     - Validator: Data enrichment and confidence scoring (1-5 instances)
     - Reconciler: Canonical record creation (single instance only)
-    - Publisher: HAARRRvest repository publishing (1 instance)
     - Recorder: Job result archiving (1-2 instances)
 
-    Also creates task definition for:
+    Also creates task definitions for:
+    - Publisher: SQLite export to S3 (daily EventBridge schedule)
     - Scraper: One-shot Fargate tasks (triggered by Step Functions)
 
     Attributes:
         validator_service: Validator Fargate service
         reconciler_service: Reconciler Fargate service
-        publisher_service: Publisher Fargate service
         recorder_service: Recorder Fargate service
+        publisher_task_definition: Publisher task definition for scheduled export
         scraper_task_definition: Scraper task definition for one-shot tasks
     """
 
@@ -134,21 +139,11 @@ class ServicesStack(Stack):
             )
         )
 
-        # NOTE: Publisher disabled - uses git-lfs to clone HAARRRvest, needs
-        # refactoring before AWS deployment. Set desired_count=0 to keep
-        # the service definition without running tasks.
-        self.publisher_service, self.publisher_security_group, self.publisher_task_role = (
-            self._create_service(
-                name="publisher",
-                cpu=256,
-                memory_mib=512,
-                desired_count=0,
-                log_retention=log_retention,
-                cluster=cluster,
-                vpc=vpc,
-                environment=self._get_publisher_environment(),
-                secrets=self._get_publisher_secrets(),
-                command=["python", "-m", "app.haarrrvest_publisher.service"],
+        # Publisher is a one-shot task (triggered by EventBridge schedule)
+        # Exports Aurora data to SQLite and uploads to S3
+        self.publisher_task_definition, self.publisher_security_group, self.publisher_task_role = (
+            self._create_publisher_task_definition(
+                log_retention=log_retention, vpc=vpc
             )
         )
 
@@ -317,6 +312,91 @@ class ServicesStack(Stack):
 
         return service, security_group, task_definition.task_role
 
+    def _create_publisher_task_definition(
+        self,
+        log_retention: logs.RetentionDays,
+        vpc: ec2.IVpc,
+    ) -> tuple[ecs.FargateTaskDefinition, ec2.ISecurityGroup, iam.IRole]:
+        """Create task definition for publisher one-shot export tasks.
+
+        The publisher exports Aurora data to SQLite and uploads to S3.
+        Triggered daily by EventBridge schedule.
+
+        Args:
+            log_retention: CloudWatch log retention period
+            vpc: VPC for security group
+
+        Returns:
+            Tuple of (Fargate task definition, security group, task role)
+        """
+        log_group = logs.LogGroup(
+            self,
+            "PublisherLogGroup",
+            log_group_name=f"/ecs/pantry-pirate-radio/publisher-{self.environment_name}",
+            retention=log_retention,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
+        )
+
+        task_definition = ecs.FargateTaskDefinition(
+            self,
+            "PublisherTaskDef",
+            cpu=512,
+            memory_limit_mib=1024,
+            family=f"pantry-pirate-radio-publisher-{self.environment_name}",
+        )
+
+        publisher_env = self._get_publisher_environment()
+        publisher_secrets = self._get_publisher_secrets()
+
+        # Build command for the exporter
+        command = [
+            "python",
+            "-m",
+            "app.datasette.exporter",
+            "--output",
+            "/tmp/pantry_pirate_radio.sqlite",
+            "--database-url-from-env",
+        ]
+        if self.config.exports_bucket_name:
+            command.extend(["--s3-bucket", self.config.exports_bucket_name])
+
+        if "publisher" in self.ecr_repositories:
+            image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repositories["publisher"], tag="latest"
+            )
+        else:
+            ecr_image = (
+                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
+                f"pantry-pirate-radio-publisher-{self.environment_name}:latest"
+            )
+            image = ecs.ContainerImage.from_registry(ecr_image)
+
+        task_definition.add_container(
+            "PublisherContainer",
+            image=image,
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="publisher",
+                log_group=log_group,
+            ),
+            environment=publisher_env,
+            secrets=publisher_secrets,
+            command=command,
+        )
+
+        security_group = ec2.SecurityGroup(
+            self,
+            "PublisherSecurityGroup",
+            vpc=vpc,
+            description=f"Security group for publisher tasks - {self.environment_name}",
+            allow_all_outbound=True,
+        )
+
+        return task_definition, security_group, task_definition.task_role
+
     def _create_scraper_task_definition(
         self,
         log_retention: logs.RetentionDays,
@@ -454,28 +534,27 @@ class ServicesStack(Stack):
         return secrets
 
     def _get_publisher_environment(self) -> dict[str, str]:
-        """Get environment variables for the Publisher service."""
-        env = {}
+        """Get environment variables for the Publisher task."""
+        env = {
+            "ENVIRONMENT": self.environment_name,
+            "SERVICE_NAME": "publisher",
+        }
         if self.config.database_host:
             env["DATABASE_HOST"] = self.config.database_host
         if self.config.database_name:
             env["DATABASE_NAME"] = self.config.database_name
         if self.config.database_user:
             env["DATABASE_USER"] = self.config.database_user
-        if self.config.data_repo_url:
-            env["DATA_REPO_URL"] = self.config.data_repo_url
+        if self.config.exports_bucket_name:
+            env["EXPORT_S3_BUCKET"] = self.config.exports_bucket_name
         return env
 
     def _get_publisher_secrets(self) -> dict[str, ecs.Secret]:
-        """Get secrets for the Publisher service."""
+        """Get secrets for the Publisher task."""
         secrets = {}
         if self.config.database_secret:
             secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
                 self.config.database_secret, "password"
-            )
-        if self.config.github_pat_secret:
-            secrets["GITHUB_PAT"] = ecs.Secret.from_secrets_manager(
-                self.config.github_pat_secret
             )
         return secrets
 

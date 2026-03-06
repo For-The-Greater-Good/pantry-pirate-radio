@@ -1170,12 +1170,39 @@ if __name__ == "__main__":
         nargs="+",
         help="Tables to exclude from export",
     )
+    parser.add_argument(
+        "--s3-bucket",
+        help="S3 bucket for upload after export (optional)",
+    )
+    parser.add_argument(
+        "--s3-prefix",
+        default="sqlite-exports",
+        help="S3 key prefix (default: sqlite-exports)",
+    )
+    parser.add_argument(
+        "--database-url-from-env",
+        action="store_true",
+        help="Build DATABASE_URL from component env vars (DATABASE_HOST, etc.)",
+    )
 
     args = parser.parse_args()
 
+    # Resolve database URL
+    db_url = args.database_url
+    if args.database_url_from_env:
+        from app.datasette.s3_upload import build_database_url_from_env
+
+        db_url = build_database_url_from_env()
+
     # Run the export
     export_to_sqlite(
-        pg_conn_string=args.database_url,
+        pg_conn_string=db_url,
         sqlite_path=args.output,
         exclude_tables=args.exclude,
     )
+
+    # Upload to S3 if bucket specified
+    if args.s3_bucket:
+        from app.datasette.s3_upload import upload_to_s3
+
+        upload_to_s3(args.output, args.s3_bucket, prefix=args.s3_prefix)

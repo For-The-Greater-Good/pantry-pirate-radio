@@ -35,9 +35,9 @@ class TestStorageStackResources:
         """Get CloudFormation template from prod stack."""
         return assertions.Template.from_stack(prod_stack)
 
-    def test_creates_s3_bucket(self, dev_template):
-        """StorageStack should create S3 bucket for content store."""
-        dev_template.resource_count_is("AWS::S3::Bucket", 1)
+    def test_creates_s3_buckets(self, dev_template):
+        """StorageStack should create content store and exports buckets."""
+        dev_template.resource_count_is("AWS::S3::Bucket", 2)
 
     def test_s3_bucket_has_encryption(self, dev_template):
         """S3 bucket should have server-side encryption enabled."""
@@ -251,6 +251,92 @@ class TestStorageStackAttributes:
         assert stack.content_index_table is not None
         assert hasattr(stack.content_index_table, "table_name")
 
+    def test_exposes_exports_bucket(self, stack):
+        """Stack should expose exports_bucket attribute."""
+        assert stack.exports_bucket is not None
+        assert hasattr(stack.exports_bucket, "bucket_name")
+
     def test_environment_name_stored(self, stack):
         """Stack should store environment name."""
         assert stack.environment_name == "dev"
+
+
+class TestExportsBucket:
+    """Tests for the public exports S3 bucket."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def dev_stack(self, app):
+        """Create dev environment stack."""
+        return StorageStack(app, "ExportsBucketStack", environment_name="dev")
+
+    @pytest.fixture
+    def dev_template(self, dev_stack):
+        """Get CloudFormation template."""
+        return assertions.Template.from_stack(dev_stack)
+
+    def test_exports_bucket_has_cors(self, dev_template):
+        """Exports bucket should have CORS configuration for GET."""
+        dev_template.has_resource_properties(
+            "AWS::S3::Bucket",
+            {
+                "CorsConfiguration": {
+                    "CorsRules": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "AllowedMethods": ["GET"],
+                                    "AllowedOrigins": ["*"],
+                                }
+                            )
+                        ]
+                    )
+                }
+            },
+        )
+
+    def test_exports_bucket_has_lifecycle_rule(self, dev_template):
+        """Exports bucket should expire daily exports after 30 days."""
+        dev_template.has_resource_properties(
+            "AWS::S3::Bucket",
+            {
+                "LifecycleConfiguration": {
+                    "Rules": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Id": "ExpireDailyExports",
+                                    "Status": "Enabled",
+                                    "ExpirationInDays": 30,
+                                }
+                            )
+                        ]
+                    )
+                }
+            },
+        )
+
+    def test_exports_bucket_has_public_read_policy(self, dev_template):
+        """Exports bucket should have a bucket policy allowing public GetObject."""
+        dev_template.has_resource_properties(
+            "AWS::S3::BucketPolicy",
+            {
+                "PolicyDocument": {
+                    "Statement": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Effect": "Allow",
+                                    "Principal": {"AWS": "*"},
+                                    "Action": "s3:GetObject",
+                                }
+                            )
+                        ]
+                    )
+                }
+            },
+        )

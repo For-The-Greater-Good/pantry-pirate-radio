@@ -21,6 +21,7 @@ import os
 import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
 
+from stacks.bastion_stack import BastionStack
 from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
@@ -118,6 +119,7 @@ service_config = ServiceConfig(
     github_pat_secret=secrets_stack.github_pat_secret,
     llm_api_keys_secret=secrets_stack.llm_api_keys_secret,
     data_repo_url="https://github.com/For-The-Greater-Good/HAARRRvest.git",
+    exports_bucket_name=storage_stack.exports_bucket.bucket_name,
 )
 
 # Services Stack - Fargate services for pipeline stages + Scraper task
@@ -150,14 +152,16 @@ db_init_stack = DbInitStack(
     description=f"Pantry Pirate Radio database initialization ({environment_name})",
 )
 
-# Pipeline Stack - Step Functions for scraper orchestration
+# Pipeline Stack - Step Functions for scraper orchestration + publisher schedule
 pipeline_stack = PipelineStack(
     app,
     f"PipelineStack-{environment_name}",
     cluster=compute_stack.cluster,
     scraper_task_family=f"pantry-pirate-radio-scraper-{environment_name}",
+    publisher_task_family=f"pantry-pirate-radio-publisher-{environment_name}",
     environment_name=environment_name,
     schedule_enabled=(environment_name == "prod"),  # Only enable schedule in prod
+    publisher_schedule_enabled=(environment_name == "prod"),
     env=env,
     description=f"Pantry Pirate Radio scraper pipeline ({environment_name})",
 )
@@ -238,9 +242,9 @@ queue_stack.recorder_queue.grant_send_messages(services_stack.reconciler_task_ro
 database_stack.database_credentials_secret.grant_read(services_stack.reconciler_task_role)
 
 # Publisher permissions:
-# - Read GitHub PAT for HAARRRvest repository access
+# - Write to exports bucket (upload SQLite)
 # - Read database credentials
-secrets_stack.github_pat_secret.grant_read(services_stack.publisher_task_role)
+storage_stack.exports_bucket.grant_write(services_stack.publisher_task_role)
 database_stack.database_credentials_secret.grant_read(services_stack.publisher_task_role)
 
 # Recorder permissions:
@@ -300,6 +304,31 @@ db_init_stack.add_dependency(compute_stack)
 db_init_stack.add_dependency(database_stack)
 # DbInit depends on secrets (needs GitHub PAT)
 db_init_stack.add_dependency(secrets_stack)
+
+# Bastion Stack (dev only) - SSM port forwarding to Aurora for Metabase
+if environment_name == "dev":
+    bastion_stack = BastionStack(
+        app,
+        f"BastionStack-{environment_name}",
+        vpc=compute_stack.vpc,
+        environment_name=environment_name,
+        env=env,
+        description=f"Pantry Pirate Radio bastion for SSM port forwarding ({environment_name})",
+    )
+    bastion_stack.add_dependency(compute_stack)
+    bastion_stack.add_dependency(database_stack)
+
+    # Allow bastion to connect to RDS Proxy
+    ec2.CfnSecurityGroupIngress(
+        bastion_stack,
+        "BastionToProxyIngress",
+        group_id=database_stack.proxy_security_group.security_group_id,
+        source_security_group_id=bastion_stack.bastion_security_group.security_group_id,
+        ip_protocol="tcp",
+        from_port=5432,
+        to_port=5432,
+        description="Allow bastion to connect to RDS Proxy",
+    )
 
 # Monitoring depends on all other stacks
 monitoring_stack.add_dependency(compute_stack)

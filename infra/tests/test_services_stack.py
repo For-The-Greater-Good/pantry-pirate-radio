@@ -37,18 +37,19 @@ class TestServicesStackResources:
         return assertions.Template.from_stack(dev_stack)
 
     def test_creates_validator_service(self, dev_template):
-        """ServicesStack should create Validator Fargate service."""
-        # Should have at least 4 services: validator, reconciler, publisher, recorder
-        dev_template.resource_count_is("AWS::ECS::Service", 4)
+        """ServicesStack should create Fargate services (validator, reconciler, recorder)."""
+        # 3 services: validator, reconciler, recorder
+        # Publisher is now a task definition, not a service
+        dev_template.resource_count_is("AWS::ECS::Service", 3)
 
     def test_creates_task_definitions(self, dev_template):
-        """ServicesStack should create task definitions for services."""
-        # 4 services + 1 scraper task definition
+        """ServicesStack should create task definitions for services and tasks."""
+        # 3 services + 1 scraper task + 1 publisher task = 5
         dev_template.resource_count_is("AWS::ECS::TaskDefinition", 5)
 
     def test_creates_log_groups(self, dev_template):
-        """ServicesStack should create log groups for each service."""
-        # At least 4 log groups for services + 1 for scraper
+        """ServicesStack should create log groups for each service and task."""
+        # 3 services + 1 scraper + 1 publisher = 5
         dev_template.resource_count_is("AWS::Logs::LogGroup", 5)
 
     def test_validator_service_has_correct_cpu(self, dev_template):
@@ -154,9 +155,9 @@ class TestServicesStackAttributes:
         """Stack should expose reconciler_service attribute."""
         assert stack.reconciler_service is not None
 
-    def test_exposes_publisher_service(self, stack):
-        """Stack should expose publisher_service attribute."""
-        assert stack.publisher_service is not None
+    def test_exposes_publisher_task_definition(self, stack):
+        """Stack should expose publisher_task_definition attribute."""
+        assert stack.publisher_task_definition is not None
 
     def test_exposes_recorder_service(self, stack):
         """Stack should expose recorder_service attribute."""
@@ -182,6 +183,10 @@ class TestServicesStackAttributes:
         """Stack should expose publisher security group for wiring."""
         assert stack.publisher_security_group is not None
 
+    def test_exposes_publisher_task_role(self, stack):
+        """Stack should expose publisher task role for IAM grants."""
+        assert stack.publisher_task_role is not None
+
     def test_exposes_recorder_security_group(self, stack):
         """Stack should expose recorder security group for wiring."""
         assert stack.recorder_security_group is not None
@@ -197,10 +202,6 @@ class TestServicesStackAttributes:
     def test_exposes_reconciler_task_role(self, stack):
         """Stack should expose reconciler task role for IAM grants."""
         assert stack.reconciler_task_role is not None
-
-    def test_exposes_publisher_task_role(self, stack):
-        """Stack should expose publisher task role for IAM grants."""
-        assert stack.publisher_task_role is not None
 
     def test_exposes_recorder_task_role(self, stack):
         """Stack should expose recorder task role for IAM grants."""
@@ -372,6 +373,128 @@ class TestServicesStackWithConfig:
                     })
                 ])
             }
+        )
+
+
+class TestPublisherTaskDefinition:
+    """Tests for publisher as a one-shot task definition (not a service)."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def compute_stack(self, app):
+        """Create compute stack for dependencies."""
+        return ComputeStack(app, "PubTestCompute", environment_name="dev")
+
+    def test_publisher_is_task_not_service(self, app, compute_stack):
+        """Publisher should be a task definition, not a Fargate service."""
+        from stacks.services_stack import ServiceConfig
+
+        stack = ServicesStack(
+            app,
+            "PubTaskStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=ServiceConfig(),
+        )
+        # publisher_task_definition should exist, publisher_service should not
+        assert stack.publisher_task_definition is not None
+        assert not hasattr(stack, "publisher_service")
+
+    def test_publisher_container_runs_exporter(self, app, compute_stack):
+        """Publisher container should run the exporter module."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig(exports_bucket_name="my-exports-bucket")
+        stack = ServicesStack(
+            app,
+            "PubCmdStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Command": assertions.Match.array_with([
+                            "python",
+                            "-m",
+                            "app.datasette.exporter",
+                        ]),
+                    })
+                ])
+            },
+        )
+
+    def test_publisher_has_exports_bucket_env(self, app, compute_stack):
+        """Publisher container should have EXPORT_S3_BUCKET env var."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig(exports_bucket_name="my-exports-bucket")
+        stack = ServicesStack(
+            app,
+            "PubEnvStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "EXPORT_S3_BUCKET",
+                                "Value": "my-exports-bucket",
+                            })
+                        ])
+                    })
+                ])
+            },
+        )
+
+    def test_publisher_has_database_env_vars(self, app, compute_stack):
+        """Publisher container should have DATABASE_HOST env var when configured."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig(database_host="my-proxy.rds.amazonaws.com")
+        stack = ServicesStack(
+            app,
+            "PubDbStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "DATABASE_HOST",
+                                "Value": "my-proxy.rds.amazonaws.com",
+                            })
+                        ])
+                    })
+                ])
+            },
         )
 
 
