@@ -113,6 +113,7 @@ sql_dumps/*.sql.bz2
 
 # CDK
 infra/cdk.out/
+infra/cdk.context.json
 
 # Claude
 .claude/settings.local.json
