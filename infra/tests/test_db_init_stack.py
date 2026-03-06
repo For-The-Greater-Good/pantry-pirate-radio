@@ -86,15 +86,18 @@ class TestDbInitStackResources:
         # Lambda functions: check-db, trigger, plus custom resource provider framework
         template.resource_count_is("AWS::Lambda::Function", 4)
 
-    def test_check_db_lambda_in_vpc(self, template):
-        """Check-db Lambda should be placed in VPC."""
+    def test_check_db_lambda_has_ssm_environment(self, template):
+        """Check-db Lambda should have SSM parameter name in environment."""
         template.has_resource_properties(
             "AWS::Lambda::Function",
             {
-                "VpcConfig": assertions.Match.object_like(
+                "Environment": assertions.Match.object_like(
                     {
-                        "SubnetIds": assertions.Match.any_value(),
-                        "SecurityGroupIds": assertions.Match.any_value(),
+                        "Variables": assertions.Match.object_like(
+                            {
+                                "SSM_PARAMETER_NAME": assertions.Match.any_value(),
+                            }
+                        ),
                     }
                 ),
             },
@@ -127,7 +130,7 @@ class TestDbInitStackResources:
                                     [
                                         assertions.Match.object_like(
                                             {
-                                                "Name": "DATABASE_PASSWORD",
+                                                "Name": "PGPASSWORD",
                                             }
                                         ),
                                     ]

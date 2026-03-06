@@ -5,16 +5,15 @@ This file provides guidance for working with the AWS CDK infrastructure for Pant
 ## Quick Reference
 
 ```bash
+# Deployment (all CDK operations run in Docker — no local Node.js/CDK needed)
+./bouy deploy dev                    # Full deploy (build + CDK + push + redeploy)
+./bouy deploy dev --diff             # Show CDK diff without deploying
+./bouy deploy dev --infra-only       # CDK deploy only (assumes images exist)
+./bouy deploy dev --images-only      # Build and push Docker images only
+./bouy deploy dev --destroy          # Tear down all stacks
+
 # Run CDK tests
-docker run --rm pantry-pirate-radio-cdk pytest -v
-
-# Build CDK Docker image
-docker build -t pantry-pirate-radio-cdk .
-
-# Local deployment (requires AWS credentials)
-./scripts/deploy.sh dev          # Deploy to dev
-./scripts/deploy.sh dev --diff   # Show changes without deploying
-./scripts/deploy.sh dev --synth  # Generate CloudFormation templates
+cd infra && docker build -t pantry-pirate-radio-cdk . && docker run --rm pantry-pirate-radio-cdk pytest -v
 
 # First-time setup
 ./scripts/bootstrap.sh dev       # Bootstrap CDK + create ECR repos + IAM roles
@@ -122,7 +121,9 @@ Fargate services for pipeline stages:
 - **Map State**: Runs scrapers in parallel (MaxConcurrency=10)
 - **Retry/Catch**: 2 attempts with 60s backoff, failures recorded
 
-### APIStack
+### APIStack (NOT DEPLOYED)
+- **Status**: Stack code exists but is not instantiated in app.py
+- **Reason**: FastAPI app requires Redis refactoring before AWS deployment
 - **Application Load Balancer**: Internet-facing, optional HTTPS
 - **Fargate API Service**: FastAPI application
 - **Auto-scaling**: CPU (70%) and request-based (1000/target)
@@ -182,10 +183,12 @@ StorageStack ─────┐
 QueueStack ───────┘                   │
                                       ├──► ServicesStack ──► PipelineStack
                                       │
-                                      └──► APIStack
+                                      └──► DbInitStack
                                                 │
                                                 ▼
                                          MonitoringStack
+
+(APIStack exists but is NOT deployed — needs Redis refactoring)
 ```
 
 Permissions are granted via helper methods:
@@ -193,8 +196,7 @@ Permissions are granted via helper methods:
 # In app.py
 compute_stack.grant_queue_access(queue_stack.llm_queue)
 compute_stack.grant_storage_access(storage_stack.content_bucket, ...)
-api_stack.grant_database_read(storage_stack.jobs_table, ...)
-api_stack.grant_queue_write(queue_stack.llm_queue)
+services_stack.grant_database_access(database_stack.proxy_security_group)
 ```
 
 ## Deployment Workflow
@@ -209,19 +211,19 @@ api_stack.grant_queue_write(queue_stack.llm_queue)
 #    AWS_ACCOUNT_ID
 
 # 3. Deploy infrastructure
-./scripts/deploy.sh dev
+./bouy deploy dev
 ```
 
 ### Regular Deployment
 ```bash
 # Via GitHub Actions (automatic on push to main)
 # Or manually:
-./scripts/deploy.sh dev
+./bouy deploy dev
 ```
 
 ### Destroying Infrastructure
 ```bash
-./scripts/deploy.sh dev --destroy
+./bouy deploy dev --destroy
 ```
 
 ## Common Tasks
@@ -236,8 +238,8 @@ api_stack.grant_queue_write(queue_stack.llm_queue)
 ### Modifying Resources
 1. Update the stack file
 2. Update corresponding tests
-3. Run `./scripts/deploy.sh dev --diff` to preview changes
-4. Deploy with `./scripts/deploy.sh dev`
+3. Run `./bouy deploy dev --diff` to preview changes
+4. Deploy with `./bouy deploy dev`
 
 ### Adding Environment-Specific Config
 Use the `environment_name` parameter in stacks:

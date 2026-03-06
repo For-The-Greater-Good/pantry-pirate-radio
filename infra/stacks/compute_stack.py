@@ -38,7 +38,11 @@ class ComputeStack(Stack):
         desired_count: int = 1,
         max_capacity: int = 10,
         ecr_repository_name: str | None = None,
+        ecr_repository: ecr.IRepository | None = None,
         image_tag: str = "latest",
+        llm_queue_url: str | None = None,
+        sqs_jobs_table_name: str | None = None,
+        validator_queue_url: str | None = None,
         **kwargs,
     ) -> None:
         """Initialize ComputeStack.
@@ -52,7 +56,11 @@ class ComputeStack(Stack):
             desired_count: Desired number of worker tasks
             max_capacity: Maximum number of worker tasks for scaling
             ecr_repository_name: Name of ECR repository for worker image
+            ecr_repository: ECR repository object for worker image (auto-grants pull permissions)
             image_tag: Docker image tag to deploy
+            llm_queue_url: SQS queue URL for LLM jobs
+            sqs_jobs_table_name: DynamoDB table name for job status tracking
+            validator_queue_url: SQS queue URL for forwarding results to validator
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, **kwargs)
@@ -66,7 +74,11 @@ class ComputeStack(Stack):
             ecr_repository_name
             or f"pantry-pirate-radio-worker-{environment_name}"
         )
+        self.ecr_repository = ecr_repository
         self.image_tag = image_tag
+        self.llm_queue_url = llm_queue_url
+        self.sqs_jobs_table_name = sqs_jobs_table_name
+        self.validator_queue_url = validator_queue_url
 
         # Create VPC
         self.vpc = self._create_vpc()
@@ -240,23 +252,36 @@ class ComputeStack(Stack):
             )
         )
 
-        # Add container - uses placeholder image, real image set during deployment
+        # Add container
+        if self.ecr_repository:
+            worker_image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repository, tag=self.image_tag
+            )
+        else:
+            worker_image = ecs.ContainerImage.from_registry(
+                f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/"
+                f"{self.ecr_repository_name}:{self.image_tag}"
+            )
         container = task_definition.add_container(
             "WorkerContainer",
             container_name="worker",
-            # Use ECR image - repository will be created separately
-            image=ecs.ContainerImage.from_registry(
-                f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/"
-                f"{self.ecr_repository_name}:{self.image_tag}"
-            ),
+            image=worker_image,
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="worker",
                 log_group=self.log_group,
             ),
+            command=["python", "-m", "app.llm.queue.fargate_worker"],
             environment={
-                "ENVIRONMENT": self.environment_name,
-                "QUEUE_BACKEND": "sqs",
-                "LLM_PROVIDER": "bedrock",
+                k: v
+                for k, v in {
+                    "ENVIRONMENT": self.environment_name,
+                    "QUEUE_BACKEND": "sqs",
+                    "LLM_PROVIDER": "bedrock",
+                    "SQS_QUEUE_URL": self.llm_queue_url,
+                    "SQS_JOBS_TABLE": self.sqs_jobs_table_name,
+                    "VALIDATOR_QUEUE_URL": self.validator_queue_url,
+                }.items()
+                if v is not None
             },
             # Health check for the worker
             health_check=ecs.HealthCheck(

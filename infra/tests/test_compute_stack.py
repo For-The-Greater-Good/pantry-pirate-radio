@@ -5,6 +5,7 @@ import pytest
 from aws_cdk import assertions
 
 from stacks.compute_stack import ComputeStack
+from stacks.ecr_stack import ECRStack
 
 
 class TestComputeStackResources:
@@ -271,3 +272,57 @@ class TestComputeStackEnvironments:
 
         # Prod should have 2 NAT gateways (one per AZ)
         template.resource_count_is("AWS::EC2::NatGateway", 2)
+
+
+class TestComputeStackWithECRRepository:
+    """Tests for ComputeStack with ECR repository object."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def ecr_stack(self, app):
+        """Create ECR stack for repository objects."""
+        return ECRStack(
+            app, "ECRTestStack", environment_name="dev",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+
+    def test_creates_with_ecr_repository(self, app, ecr_stack):
+        """ComputeStack should accept ECR repository object."""
+        stack = ComputeStack(
+            app,
+            "ECRComputeStack",
+            environment_name="dev",
+            ecr_repository=ecr_stack.repositories["worker"],
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        assert stack.worker_service is not None
+
+    def test_ecr_repo_auto_grants_pull_permissions(self, app, ecr_stack):
+        """Using ECR repo object should auto-grant image pull permissions."""
+        stack = ComputeStack(
+            app,
+            "ECRPermComputeStack",
+            environment_name="dev",
+            ecr_repository=ecr_stack.repositories["worker"],
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::IAM::Policy",
+            {
+                "PolicyDocument": assertions.Match.object_like({
+                    "Statement": assertions.Match.array_with([
+                        assertions.Match.object_like({
+                            "Action": assertions.Match.array_with([
+                                "ecr:BatchCheckLayerAvailability",
+                            ]),
+                            "Effect": "Allow",
+                        })
+                    ])
+                })
+            },
+        )

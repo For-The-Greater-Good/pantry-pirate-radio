@@ -13,6 +13,7 @@ Data loss prevention is the top priority.
 
 from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack, CustomResource
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -78,6 +79,7 @@ class DbInitStack(Stack):
         database_secret: secretsmanager.ISecret,
         github_pat_secret: secretsmanager.ISecret,
         proxy_security_group: ec2.ISecurityGroup,
+        ecr_repository: ecr.IRepository | None = None,
         **kwargs,
     ) -> None:
         """Initialize DbInitStack.
@@ -92,11 +94,13 @@ class DbInitStack(Stack):
             database_secret: Secret containing database credentials
             github_pat_secret: Secret containing GitHub PAT for migrations
             proxy_security_group: Security group that can access RDS Proxy
+            ecr_repository: ECR repository for the worker image
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, **kwargs)
 
         self.environment_name = environment_name
+        self._ecr_repository = ecr_repository
 
         # Environment-specific configuration
         is_prod = environment_name == "prod"
@@ -199,7 +203,7 @@ class DbInitStack(Stack):
         Returns:
             Lambda function for checking database state
         """
-        # Security group for Lambda
+        # Security group for Lambda (kept for cross-stack wiring compatibility)
         lambda_sg = ec2.SecurityGroup(
             self,
             "CheckDbLambdaSG",
@@ -209,10 +213,9 @@ class DbInitStack(Stack):
         )
 
         # Store reference for cross-stack wiring
-        # The caller (app.py) must grant this SG access to the RDS Proxy
         self._check_db_lambda_sg = lambda_sg
 
-        # Lambda function
+        # Lambda function — checks SSM parameter only (no DB connectivity needed)
         fn = lambda_.Function(
             self,
             "CheckDbLambda",
@@ -220,33 +223,13 @@ class DbInitStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="index.handler",
             code=lambda_.Code.from_inline(self._get_check_db_lambda_code()),
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ),
-            security_groups=[lambda_sg],
             timeout=Duration.seconds(30),
-            memory_size=256,
+            memory_size=128,
             environment={
-                "DATABASE_HOST": database_proxy_endpoint,
-                "DATABASE_NAME": "pantry_pirate_radio",
-                "DATABASE_SECRET_ARN": database_secret.secret_arn,
                 "SSM_PARAMETER_NAME": f"/pantry-pirate-radio/{self.environment_name}/db-initialized",
             },
             log_retention=log_retention,
-            # Include pg8000 layer for PostgreSQL connectivity
-            layers=[
-                lambda_.LayerVersion.from_layer_version_arn(
-                    self,
-                    "Pg8000Layer",
-                    # AWS-provided psycopg2 layer (pg8000 is bundled)
-                    f"arn:aws:lambda:{Stack.of(self).region}:898466741470:layer:psycopg2-py311:1",
-                )
-            ],
         )
-
-        # Grant Lambda permission to read database secret
-        database_secret.grant_read(fn)
 
         # Grant Lambda permission to read/write SSM parameter
         self.init_flag.grant_read(fn)
@@ -261,20 +244,21 @@ class DbInitStack(Stack):
             Python code as string
         """
         return '''
-import json
 import os
 import boto3
 
 def handler(event, context):
-    """Check if database has data and if init flag is set.
+    """Check if database initialization is needed via SSM parameter.
+
+    The SSM parameter tracks whether init has run. On first deploy it is
+    "false", so init will be triggered. After successful init, the Step
+    Functions state machine sets it to "true".
 
     Returns:
         dict with needs_init: True if initialization is needed
     """
     ssm = boto3.client("ssm")
-    secrets = boto3.client("secretsmanager")
 
-    # Check SSM parameter first (fast path)
     try:
         response = ssm.get_parameter(
             Name=os.environ["SSM_PARAMETER_NAME"]
@@ -282,64 +266,14 @@ def handler(event, context):
         if response["Parameter"]["Value"] == "true":
             print("SSM flag indicates DB already initialized")
             return {"needs_init": False}
-    except ssm.exceptions.ParameterNotFound:
-        print("SSM parameter not found, will check database")
-
-    # Get database credentials
-    secret_response = secrets.get_secret_value(
-        SecretId=os.environ["DATABASE_SECRET_ARN"]
-    )
-    secret = json.loads(secret_response["SecretString"])
-
-    # Check if database has data
-    try:
-        import psycopg2
-
-        conn = psycopg2.connect(
-            host=os.environ["DATABASE_HOST"],
-            database=os.environ["DATABASE_NAME"],
-            user=secret["username"],
-            password=secret["password"],
-            sslmode="require",
-            connect_timeout=10,
-        )
-
-        with conn.cursor() as cur:
-            # Check if organization table exists and has data
-            cur.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables
-                    WHERE table_name = 'organization'
-                )
-            """)
-            table_exists = cur.fetchone()[0]
-
-            if not table_exists:
-                print("Organization table does not exist, needs init")
-                return {"needs_init": True}
-
-            cur.execute("SELECT COUNT(*) FROM organization")
-            count = cur.fetchone()[0]
-
-        conn.close()
-
-        if count > 0:
-            print(f"Database has {count} organizations, no init needed")
-            # Update SSM flag since DB is initialized
-            ssm.put_parameter(
-                Name=os.environ["SSM_PARAMETER_NAME"],
-                Value="true",
-                Overwrite=True,
-            )
-            return {"needs_init": False}
         else:
-            print("Database is empty, needs init")
+            print("SSM flag is not true, initialization needed")
             return {"needs_init": True}
-
+    except ssm.exceptions.ParameterNotFound:
+        print("SSM parameter not found, initialization needed")
+        return {"needs_init": True}
     except Exception as e:
-        print(f"Error checking database: {e}")
-        # If we can't connect or check, assume init is needed
-        # The init task will handle the actual state safely
+        print(f"Error checking SSM parameter: {e}")
         return {"needs_init": True}
 '''
 
@@ -388,30 +322,48 @@ def handler(event, context):
             family=f"pantry-pirate-radio-db-init-{self.environment_name}",
         )
 
-        # Container
+        # Container image from ECR or fallback to registry URL
+        if self._ecr_repository:
+            image = ecs.ContainerImage.from_ecr_repository(
+                self._ecr_repository, tag="latest"
+            )
+        else:
+            ecr_image = (
+                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
+                f"pantry-pirate-radio-worker-{self.environment_name}:latest"
+            )
+            image = ecs.ContainerImage.from_registry(ecr_image)
+
+        # Container runs init-scripts/*.sql files via psql
         task_def.add_container(
             "DbInitContainer",
-            image=ecs.ContainerImage.from_registry(
-                "pantry-pirate-radio-app:latest"
-            ),
+            image=image,
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="db-init",
                 log_group=log_group,
             ),
             environment={
                 "ENVIRONMENT": self.environment_name,
-                "DATABASE_HOST": database_proxy_endpoint,
-                "DATABASE_NAME": "pantry_pirate_radio",
-                "DATABASE_USER": "pantry_pirate",
+                "PGHOST": database_proxy_endpoint,
+                "PGDATABASE": "pantry_pirate_radio",
+                "PGUSER": "pantry_pirate",
+                "PGPORT": "5432",
             },
             secrets={
-                "DATABASE_PASSWORD": ecs.Secret.from_secrets_manager(
+                "PGPASSWORD": ecs.Secret.from_secrets_manager(
                     database_secret, "password"
                 ),
-                "GITHUB_PAT": ecs.Secret.from_secrets_manager(github_pat_secret),
             },
-            # Override the default command to run migrations
-            command=["python", "-m", "app.db.init"],
+            entry_point=["/bin/bash", "-c"],
+            command=[
+                "echo 'Starting database initialization...' && "
+                "for f in /app/init-scripts/*.sql; do "
+                "echo \"Running $f...\"; "
+                "psql -v ON_ERROR_STOP=1 < \"$f\" || "
+                "{ echo \"ERROR: $f failed\"; exit 1; }; "
+                "done && "
+                "echo 'Database initialization complete!'"
+            ],
         )
 
         # Security group

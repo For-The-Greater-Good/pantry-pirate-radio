@@ -58,8 +58,8 @@ def test_process_llm_job_coroutine_success(
 
     # Mock the queue operations
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_reconciler_queue:
+            with patch("app.llm.queue.queues.recorder_queue") as mock_recorder_queue:
                 with patch(
                     "app.content_store.config.get_content_store", return_value=None
                 ):
@@ -111,8 +111,8 @@ def test_process_llm_job_async_generator_success(
 
     # Mock the queue operations
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler_queue:
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder_queue:
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_reconciler_queue:
+            with patch("app.llm.queue.queues.recorder_queue") as mock_recorder_queue:
                 with patch(
                     "app.content_store.config.get_content_store", return_value=None
                 ):
@@ -138,7 +138,7 @@ def test_process_llm_job_claude_not_authenticated_updates_state(
     )
     mock_provider.generate.side_effect = auth_error
 
-    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+    with patch("app.llm.queue.queues.llm_queue") as mock_queue:
         with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
             mock_auth_instance = MagicMock()
             mock_auth_manager.return_value = mock_auth_instance
@@ -164,7 +164,7 @@ def test_process_llm_job_claude_not_authenticated_always_raises(
     auth_error = ClaudeNotAuthenticatedException("Authentication required")
     mock_provider.generate.side_effect = auth_error
 
-    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+    with patch("app.llm.queue.queues.llm_queue") as mock_queue:
         with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
             mock_auth_instance = MagicMock()
             mock_auth_manager.return_value = mock_auth_instance
@@ -186,7 +186,7 @@ def test_process_llm_job_claude_quota_exceeded_updates_state(
     quota_error = ClaudeQuotaExceededException("Quota exceeded", retry_after=3600)
     mock_provider.generate.side_effect = quota_error
 
-    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+    with patch("app.llm.queue.queues.llm_queue") as mock_queue:
         with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
             mock_auth_instance = MagicMock()
             mock_auth_manager.return_value = mock_auth_instance
@@ -250,8 +250,8 @@ def test_process_llm_job_event_loop_cleanup(
 
     with patch("asyncio.new_event_loop", return_value=mock_loop):
         with patch("asyncio.set_event_loop"):
-            with patch("app.llm.queue.processor.reconciler_queue"):
-                with patch("app.llm.queue.processor.recorder_queue"):
+            with patch("app.llm.queue.queues.reconciler_queue"):
+                with patch("app.llm.queue.queues.recorder_queue"):
                     with patch(
                         "app.content_store.config.get_content_store", return_value=None
                     ):
@@ -294,8 +294,8 @@ def test_process_llm_job_provider_without_model_name(
 
     mock_provider.generate.return_value = mock_generate()
 
-    with patch("app.llm.queue.processor.reconciler_queue"):
-        with patch("app.llm.queue.processor.recorder_queue"):
+    with patch("app.llm.queue.queues.reconciler_queue"):
+        with patch("app.llm.queue.queues.recorder_queue"):
             with patch("app.content_store.config.get_content_store", return_value=None):
                 result = process_llm_job(sample_job, mock_provider)
 
@@ -316,8 +316,8 @@ def test_process_llm_job_invalid_json_retry_succeeds(
         mock_generate_valid(),
     ]
 
-    with patch("app.llm.queue.processor.reconciler_queue"):
-        with patch("app.llm.queue.processor.recorder_queue"):
+    with patch("app.llm.queue.queues.reconciler_queue"):
+        with patch("app.llm.queue.queues.recorder_queue"):
             with patch(
                 "app.content_store.config.get_content_store"
             ) as mock_store_factory:
@@ -357,8 +357,8 @@ def test_process_llm_job_content_store_error(
 
     mock_provider.generate.return_value = mock_generate()
 
-    with patch("app.llm.queue.processor.reconciler_queue"):
-        with patch("app.llm.queue.processor.recorder_queue"):
+    with patch("app.llm.queue.queues.reconciler_queue"):
+        with patch("app.llm.queue.queues.recorder_queue"):
             with patch(
                 "app.content_store.config.get_content_store"
             ) as mock_store_factory:
@@ -385,8 +385,8 @@ def test_process_llm_job_recorder_failure(
 
     mock_provider.generate.return_value = mock_generate()
 
-    with patch("app.llm.queue.processor.reconciler_queue"):
-        with patch("app.llm.queue.processor.recorder_queue") as mock_recorder:
+    with patch("app.llm.queue.queues.reconciler_queue"):
+        with patch("app.llm.queue.queues.recorder_queue") as mock_recorder:
             with patch("app.content_store.config.get_content_store", return_value=None):
                 # Recorder enqueue fails
                 mock_recorder.enqueue_call.side_effect = Exception("Queue error")
@@ -410,8 +410,8 @@ def test_process_llm_job_reconciler_failure(
     mock_provider.generate.return_value = mock_generate()
 
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
-            with patch("app.llm.queue.processor.recorder_queue"):
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_reconciler:
+            with patch("app.llm.queue.queues.recorder_queue"):
                 with patch(
                     "app.content_store.config.get_content_store", return_value=None
                 ):

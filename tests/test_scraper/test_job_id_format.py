@@ -8,23 +8,27 @@ from app.scraper.utils import ScraperUtils
 class TestJobIdFormat:
     def test_job_id_is_valid_uuid4(self):
         """Job IDs must be UUID4 to prevent collisions in parallel scraping."""
+        mock_backend = MagicMock()
+        mock_backend.enqueue.return_value = "result-id"
+
         with (
-            patch("app.scraper.utils.llm_queue") as mock_queue,
+            patch(
+                "app.llm.queue.backend.get_queue_backend",
+                return_value=mock_backend,
+            ),
             patch(
                 "app.content_store.config.get_content_store",
                 return_value=None,
             ),
             patch("app.core.events.get_setting") as mock_setting,
-            patch("app.scraper.utils.settings") as mock_settings,
+            patch.dict("os.environ", {"QUEUE_BACKEND": "sqs"}),
         ):
-            mock_settings.REDIS_TTL_SECONDS = 3600
             mock_setting.side_effect = lambda key, type_, *a, **_kw: {
                 "llm_provider": "openai",
                 "llm_model_name": "test",
                 "llm_temperature": 0.7,
                 "llm_max_tokens": 100,
             }.get(key)
-            mock_queue.enqueue_call.return_value = MagicMock(id="result-id")
 
             utils = ScraperUtils.__new__(ScraperUtils)
             utils.scraper_id = "test"
@@ -33,9 +37,10 @@ class TestJobIdFormat:
             utils.schema_converter = MagicMock()
             utils.queue_for_processing("test content")
 
-            call_args = mock_queue.enqueue_call.call_args
-            # job_id is passed as keyword arg to enqueue_call
-            job_id = call_args[1].get("job_id")
+            call_args = mock_backend.enqueue.call_args
+            # First positional arg is the LLMJob
+            job = call_args[0][0]
+            job_id = job.id
             assert job_id is not None
             # Must be a valid UUID4, not a timestamp float
             parsed = uuid.UUID(job_id, version=4)

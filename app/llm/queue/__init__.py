@@ -16,8 +16,11 @@ from app.llm.queue.models import (
     QueueResult,
     RedisQueue,
 )
-from app.llm.queue.queues import llm_queue, reconciler_queue, recorder_queue
-from app.llm.queue.worker import QueueWorker
+
+# NOTE: llm_queue, reconciler_queue, recorder_queue are NOT imported here
+# because queues.py creates a Redis connection at module load time, which
+# crashes in SQS-based environments (AWS Fargate). Import them directly
+# from app.llm.queue.queues where needed.
 
 __all__ = [
     "JobResult",
@@ -27,11 +30,7 @@ __all__ = [
     "QueueResult",
     "RedisQueue",
     "RedisQueueBackend",
-    "QueueWorker",
     "SQSQueueBackend",
     "get_queue_backend",
-    "llm_queue",
-    "reconciler_queue",
-    "recorder_queue",
     "reset_queue_backend",
 ]

@@ -35,72 +35,44 @@ def mock_sqs_backend():
     return backend
 
 
-@pytest.fixture
-def mock_provider_settings():
-    """Patch environment settings for LLM provider."""
-    with patch.dict(
-        os.environ,
-        {
-            "LLM_PROVIDER": "openai",
-            "LLM_MODEL_NAME": "gpt-4",
-            "LLM_TEMPERATURE": "0.7",
-        },
-    ):
-        yield
+PROVIDER_ENV = {
+    "LLM_PROVIDER": "openai",
+    "LLM_MODEL_NAME": "gpt-4",
+    "LLM_TEMPERATURE": "0.7",
+}
 
 
 class TestFargateWorkerInit:
     """Tests for FargateWorker initialization."""
 
     @patch("app.llm.queue.fargate_worker.create_provider")
-    @patch("app.llm.queue.fargate_worker.get_setting")
-    def test_init_creates_provider(
-        self, mock_get_setting, mock_create_provider, mock_sqs_backend
-    ):
+    def test_init_creates_provider(self, mock_create_provider, mock_sqs_backend):
         """FargateWorker should create LLM provider from settings."""
         from app.llm.queue.fargate_worker import FargateWorker
 
-        # Configure get_setting mock
-        def setting_side_effect(name, type_=None, default=None, **kwargs):
-            settings = {
-                "llm_provider": "bedrock",
-                "llm_model_name": "anthropic.claude-sonnet-4-x",
-                "llm_temperature": 0.7,
-                "llm_max_tokens": None,
-                "aws_default_region": "us-east-1",
-            }
-            return settings.get(name, default)
-
-        mock_get_setting.side_effect = setting_side_effect
-
-        worker = FargateWorker(mock_sqs_backend)
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "bedrock",
+            "LLM_MODEL_NAME": "anthropic.claude-sonnet-4-x",
+            "LLM_TEMPERATURE": "0.7",
+            "AWS_DEFAULT_REGION": "us-east-1",
+        }):
+            worker = FargateWorker(mock_sqs_backend)
 
         mock_create_provider.assert_called_once()
         assert worker.backend == mock_sqs_backend
 
     @patch("app.llm.queue.fargate_worker.create_provider")
-    @patch("app.llm.queue.fargate_worker.get_setting")
-    def test_init_accepts_custom_settings(
-        self, mock_get_setting, mock_create_provider, mock_sqs_backend
-    ):
+    def test_init_accepts_custom_settings(self, mock_create_provider, mock_sqs_backend):
         """FargateWorker should accept custom polling settings."""
         from app.llm.queue.fargate_worker import FargateWorker
 
-        def setting_side_effect(name, type_=None, default=None, **kwargs):
-            return {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4",
-                "llm_temperature": 0.7,
-            }.get(name, default)
-
-        mock_get_setting.side_effect = setting_side_effect
-
-        worker = FargateWorker(
-            mock_sqs_backend,
-            max_messages=5,
-            wait_time_seconds=10,
-            visibility_extension_interval=60,
-        )
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(
+                mock_sqs_backend,
+                max_messages=5,
+                wait_time_seconds=10,
+                visibility_extension_interval=60,
+            )
 
         assert worker.max_messages == 5
         assert worker.wait_time_seconds == 10
@@ -112,10 +84,8 @@ class TestFargateWorkerProcessing:
 
     @patch("app.llm.queue.fargate_worker.process_llm_job")
     @patch("app.llm.queue.fargate_worker.create_provider")
-    @patch("app.llm.queue.fargate_worker.get_setting")
     def test_process_single_job_success(
         self,
-        mock_get_setting,
         mock_create_provider,
         mock_process_job,
         mock_sqs_backend,
@@ -123,15 +93,6 @@ class TestFargateWorkerProcessing:
     ):
         """Should process job and update status on success."""
         from app.llm.queue.fargate_worker import FargateWorker
-
-        def setting_side_effect(name, type_=None, default=None, **kwargs):
-            return {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4",
-                "llm_temperature": 0.7,
-            }.get(name, default)
-
-        mock_get_setting.side_effect = setting_side_effect
 
         # Mock successful processing
         mock_result = LLMResponse(
@@ -141,7 +102,8 @@ class TestFargateWorkerProcessing:
         )
         mock_process_job.return_value = mock_result
 
-        worker = FargateWorker(mock_sqs_backend)
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend)
 
         message = {
             "job_id": sample_llm_job.id,
@@ -159,10 +121,8 @@ class TestFargateWorkerProcessing:
 
     @patch("app.llm.queue.fargate_worker.process_llm_job")
     @patch("app.llm.queue.fargate_worker.create_provider")
-    @patch("app.llm.queue.fargate_worker.get_setting")
     def test_process_single_job_failure(
         self,
-        mock_get_setting,
         mock_create_provider,
         mock_process_job,
         mock_sqs_backend,
@@ -171,19 +131,11 @@ class TestFargateWorkerProcessing:
         """Should update status to failed and not delete message on failure."""
         from app.llm.queue.fargate_worker import FargateWorker
 
-        def setting_side_effect(name, type_=None, default=None, **kwargs):
-            return {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4",
-                "llm_temperature": 0.7,
-            }.get(name, default)
-
-        mock_get_setting.side_effect = setting_side_effect
-
         # Mock processing failure
         mock_process_job.side_effect = ValueError("LLM processing failed")
 
-        worker = FargateWorker(mock_sqs_backend)
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend)
 
         message = {
             "job_id": sample_llm_job.id,
@@ -205,26 +157,15 @@ class TestFargateWorkerMainLoop:
     """Tests for FargateWorker main loop."""
 
     @patch("app.llm.queue.fargate_worker.create_provider")
-    @patch("app.llm.queue.fargate_worker.get_setting")
-    def test_run_polls_for_messages(
-        self, mock_get_setting, mock_create_provider, mock_sqs_backend
-    ):
+    def test_run_polls_for_messages(self, mock_create_provider, mock_sqs_backend):
         """Worker run() should poll SQS for messages."""
         from app.llm.queue.fargate_worker import FargateWorker
-
-        def setting_side_effect(name, type_=None, default=None, **kwargs):
-            return {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4",
-                "llm_temperature": 0.7,
-            }.get(name, default)
-
-        mock_get_setting.side_effect = setting_side_effect
 
         # Return empty messages then stop
         mock_sqs_backend.receive_messages.return_value = []
 
-        worker = FargateWorker(mock_sqs_backend, wait_time_seconds=1)
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend, wait_time_seconds=1)
 
         # Stop after first poll
         def stop_on_call(*args, **kwargs):
@@ -238,23 +179,13 @@ class TestFargateWorkerMainLoop:
         mock_sqs_backend.receive_messages.assert_called()
 
     @patch("app.llm.queue.fargate_worker.create_provider")
-    @patch("app.llm.queue.fargate_worker.get_setting")
-    def test_stop_graceful_shutdown(
-        self, mock_get_setting, mock_create_provider, mock_sqs_backend
-    ):
+    def test_stop_graceful_shutdown(self, mock_create_provider, mock_sqs_backend):
         """Worker stop() should request graceful shutdown."""
         from app.llm.queue.fargate_worker import FargateWorker
 
-        def setting_side_effect(name, type_=None, default=None, **kwargs):
-            return {
-                "llm_provider": "openai",
-                "llm_model_name": "gpt-4",
-                "llm_temperature": 0.7,
-            }.get(name, default)
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend)
 
-        mock_get_setting.side_effect = setting_side_effect
-
-        worker = FargateWorker(mock_sqs_backend)
         worker.stop()
 
         assert worker._shutdown_requested is True

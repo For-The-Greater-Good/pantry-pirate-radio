@@ -4,13 +4,14 @@ Creates Step Functions state machine for scraper orchestration
 with EventBridge schedule for automated daily runs.
 """
 
+import json
+
 from aws_cdk import Duration, Stack
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_stepfunctions as sfn
-from aws_cdk import aws_stepfunctions_tasks as tasks
 from constructs import Construct
 
 
@@ -43,7 +44,9 @@ class PipelineStack(Stack):
         *,
         environment_name: str = "dev",
         cluster: ecs.ICluster,
-        scraper_task_definition: ecs.FargateTaskDefinition,
+        scraper_task_definition: ecs.FargateTaskDefinition | None = None,
+        scraper_task_family: str | None = None,
+        scraper_container_name: str = "ScraperContainer",
         schedule_enabled: bool = False,
         max_concurrency: int = 10,
         scrapers: list[str] | None = None,
@@ -56,7 +59,9 @@ class PipelineStack(Stack):
             construct_id: Unique identifier for this construct
             environment_name: Environment name (dev, staging, prod)
             cluster: ECS cluster for running scraper tasks
-            scraper_task_definition: Task definition for scraper tasks
+            scraper_task_definition: Task definition for scraper tasks (deprecated, use scraper_task_family)
+            scraper_task_family: Task definition family name (avoids cross-stack export on ARN)
+            scraper_container_name: Container name in the task definition
             schedule_enabled: Whether to enable the daily schedule
             max_concurrency: Maximum concurrent scraper tasks
             scrapers: List of scraper names to run (defaults to DEFAULT_SCRAPERS)
@@ -67,10 +72,25 @@ class PipelineStack(Stack):
         self.environment_name = environment_name
         self._scrapers = scrapers or self.DEFAULT_SCRAPERS
 
+        # Resolve task family name: prefer string (no cross-stack export) over object reference
+        if scraper_task_family:
+            task_family = scraper_task_family
+            container_name = scraper_container_name
+        elif scraper_task_definition:
+            task_family = scraper_task_definition.family
+            container_name = (
+                scraper_task_definition.default_container.container_name
+                if scraper_task_definition.default_container
+                else scraper_container_name
+            )
+        else:
+            raise ValueError("Either scraper_task_family or scraper_task_definition must be provided")
+
         # Create state machine
         self.state_machine = self._create_state_machine(
             cluster=cluster,
-            task_definition=scraper_task_definition,
+            task_family=task_family,
+            container_name=container_name,
             max_concurrency=max_concurrency,
         )
 
@@ -82,103 +102,159 @@ class PipelineStack(Stack):
     def _create_state_machine(
         self,
         cluster: ecs.ICluster,
-        task_definition: ecs.FargateTaskDefinition,
+        task_family: str,
+        container_name: str,
         max_concurrency: int,
     ) -> sfn.StateMachine:
         """Create Step Functions state machine for scraper orchestration.
 
-        The state machine:
-        1. Takes a list of scraper names as input
-        2. Runs each scraper as a Fargate task in parallel
-        3. Collects results and failures
+        Uses a raw JSON definition to avoid CDK cross-stack export issues.
+        The task definition is referenced by family name (a stable string)
+        rather than by ARN (which changes on every task definition revision).
 
         Args:
             cluster: ECS cluster for tasks
-            task_definition: Scraper task definition
+            task_family: Task definition family name
+            container_name: Name of the container in the task definition
             max_concurrency: Maximum concurrent tasks
 
         Returns:
             Step Functions state machine
         """
-        # Define the ECS RunTask action for a single scraper
-        run_scraper_task = tasks.EcsRunTask(
-            self,
-            "RunScraperTask",
-            integration_pattern=sfn.IntegrationPattern.RUN_JOB,
-            cluster=cluster,
-            task_definition=task_definition,
-            launch_target=tasks.EcsFargateLaunchTarget(
-                platform_version=ecs.FargatePlatformVersion.LATEST,
-            ),
-            container_overrides=[
-                tasks.ContainerOverride(
-                    container_definition=task_definition.default_container,
-                    environment=[
-                        tasks.TaskEnvironmentVariable(
-                            name="SCRAPER_NAME",
-                            value=sfn.JsonPath.string_at("$.scraper_name"),
-                        ),
-                    ],
-                ),
-            ],
-            result_path="$.taskResult",
-        )
+        # Build subnet list from cluster's private subnets
+        subnet_ids = [s.subnet_id for s in cluster.vpc.private_subnets]
 
-        # Add retry configuration for transient failures
-        run_scraper_task.add_retry(
-            errors=["States.TaskFailed", "ECS.AmazonECSException"],
-            interval=Duration.seconds(60),
-            max_attempts=2,
-            backoff_rate=2.0,
-        )
-
-        # Add catch for permanent failures - continue with other scrapers
-        run_scraper_task.add_catch(
-            handler=sfn.Pass(
-                self,
-                "RecordFailure",
-                result=sfn.Result.from_object({"status": "FAILED"}),
-                result_path="$.taskResult",
-            ),
-            errors=["States.ALL"],
-            result_path="$.errorInfo",
-        )
-
-        # Create Map state to run scrapers in parallel
-        map_state = sfn.Map(
-            self,
-            "RunAllScrapers",
-            items_path="$.scrapers",
-            parameters={
-                "scraper_name.$": "$$.Map.Item.Value",
-                "execution_id.$": "$$.Execution.Id",
+        # Build the state machine definition as JSON
+        # This avoids CDK's EcsRunTask construct which requires concrete
+        # TaskDefinition and ContainerDefinition objects (incompatible
+        # with imported/cross-stack task definitions)
+        definition = {
+            "Comment": f"Scraper pipeline for {self.environment_name}",
+            "StartAt": "RunAllScrapers",
+            "States": {
+                "RunAllScrapers": {
+                    "Type": "Map",
+                    "ItemsPath": "$.scrapers",
+                    "ItemSelector": {
+                        "scraper_name.$": "$$.Map.Item.Value",
+                        "execution_id.$": "$$.Execution.Id",
+                    },
+                    "MaxConcurrency": max_concurrency,
+                    "ResultPath": "$.results",
+                    "ItemProcessor": {
+                        "ProcessorConfig": {"Mode": "INLINE"},
+                        "StartAt": "RunScraperTask",
+                        "States": {
+                            "RunScraperTask": {
+                                "Type": "Task",
+                                "Resource": "arn:aws:states:::ecs:runTask.sync",
+                                "Parameters": {
+                                    "Cluster": cluster.cluster_arn,
+                                    "TaskDefinition": task_family,
+                                    "LaunchType": "FARGATE",
+                                    "NetworkConfiguration": {
+                                        "AwsvpcConfiguration": {
+                                            "Subnets": subnet_ids,
+                                            "AssignPublicIp": "DISABLED",
+                                        }
+                                    },
+                                    "Overrides": {
+                                        "ContainerOverrides": [
+                                            {
+                                                "Name": container_name,
+                                                "Environment": [
+                                                    {
+                                                        "Name": "SERVICE_TYPE",
+                                                        "Value": "scraper",
+                                                    },
+                                                    {
+                                                        "Name": "SCRAPER_NAME",
+                                                        "Value.$": "$.scraper_name",
+                                                    },
+                                                ],
+                                            }
+                                        ]
+                                    },
+                                },
+                                "ResultPath": "$.taskResult",
+                                "Retry": [
+                                    {
+                                        "ErrorEquals": [
+                                            "States.TaskFailed",
+                                            "ECS.AmazonECSException",
+                                        ],
+                                        "IntervalSeconds": 60,
+                                        "MaxAttempts": 2,
+                                        "BackoffRate": 2.0,
+                                    }
+                                ],
+                                "Catch": [
+                                    {
+                                        "ErrorEquals": ["States.ALL"],
+                                        "ResultPath": "$.errorInfo",
+                                        "Next": "RecordFailure",
+                                    }
+                                ],
+                                "Next": "TaskComplete",
+                            },
+                            "RecordFailure": {
+                                "Type": "Pass",
+                                "Result": {"status": "FAILED"},
+                                "ResultPath": "$.taskResult",
+                                "End": True,
+                            },
+                            "TaskComplete": {
+                                "Type": "Succeed",
+                            },
+                        },
+                    },
+                    "Next": "PipelineSummary",
+                },
+                "PipelineSummary": {
+                    "Type": "Pass",
+                    "Parameters": {
+                        "execution_id.$": "$$.Execution.Id",
+                        "results.$": "$.results",
+                    },
+                    "End": True,
+                },
             },
-            max_concurrency=max_concurrency,
-            result_path="$.results",
-        )
-        map_state.iterator(run_scraper_task)
+        }
 
-        # Create pipeline summary step
-        pipeline_summary = sfn.Pass(
-            self,
-            "PipelineSummary",
-            parameters={
-                "execution_id.$": "$$.Execution.Id",
-                "results.$": "$.results",
-                "scraper_count.$": "States.ArrayLength($.scrapers)",
-            },
-        )
-
-        # Build the state machine definition
-        definition = map_state.next(pipeline_summary)
-
-        # Create the state machine
+        # Create state machine with JSON definition
         state_machine = sfn.StateMachine(
             self,
             "ScraperPipeline",
             state_machine_name=f"pantry-pirate-scraper-pipeline-{self.environment_name}",
-            definition=definition,
-            timeout=Duration.hours(4),  # Max 4 hours for all scrapers
+            definition_body=sfn.DefinitionBody.from_string(
+                json.dumps(definition)
+            ),
+            timeout=Duration.hours(4),
+        )
+
+        # Grant permissions for ECS task management
+        state_machine.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:RunTask", "ecs:StopTask", "ecs:DescribeTasks"],
+                resources=["*"],
+            )
+        )
+        state_machine.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["iam:PassRole"],
+                resources=["*"],
+            )
+        )
+        # Required for .sync integration (waits for task completion)
+        state_machine.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "events:PutTargets",
+                    "events:PutRule",
+                    "events:DescribeRule",
+                ],
+                resources=["*"],
+            )
         )
 
         return state_machine

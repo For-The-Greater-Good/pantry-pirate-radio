@@ -39,7 +39,7 @@ class TestValidatorJobRouting:
                 )
                 mock_get_val_queue.return_value = mock_val_queue
 
-                with patch("app.llm.queue.processor.recorder_queue") as mock_recorder:
+                with patch("app.llm.queue.queues.recorder_queue") as mock_recorder:
                     mock_recorder.enqueue_call.return_value = MagicMock(
                         id="recorder-123"
                     )
@@ -59,7 +59,7 @@ class TestValidatorJobRouting:
         """Test that LLM worker bypasses validator when disabled."""
         with patch("app.core.config.settings.VALIDATOR_ENABLED", False):
             with patch(
-                "app.llm.queue.processor.reconciler_queue", mock_reconciler_queue
+                "app.llm.queue.queues.reconciler_queue", mock_reconciler_queue
             ):
                 from app.llm.queue.processor import process_llm_job
 
@@ -87,7 +87,7 @@ class TestValidatorJobRouting:
         from app.validator.job_processor import process_validation_job
 
         with patch(
-            "app.validator.job_processor.reconciler_queue", mock_reconciler_queue
+            "app.llm.queue.queues.reconciler_queue", mock_reconciler_queue
         ):
             # Process validation job
             result = process_validation_job(sample_hsds_job)
@@ -127,7 +127,7 @@ class TestValidatorJobRouting:
         """Test error handling when validator queue fails."""
         from app.validator.job_processor import process_validation_job
 
-        with patch("app.validator.job_processor.reconciler_queue") as mock_queue:
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
             mock_queue.enqueue_call.side_effect = Exception("Queue error")
 
             # Process should handle error and still return result

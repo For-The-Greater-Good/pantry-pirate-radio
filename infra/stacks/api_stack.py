@@ -7,6 +7,7 @@ for the FastAPI application.
 from aws_cdk import Duration, Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
@@ -45,6 +46,7 @@ class APIStack(Stack):
         certificate_arn: str | None = None,
         domain_name: str | None = None,
         ecr_repository_name: str | None = None,
+        ecr_repository: ecr.IRepository | None = None,
         image_tag: str = "latest",
         **kwargs,
     ) -> None:
@@ -64,6 +66,7 @@ class APIStack(Stack):
             certificate_arn: ACM certificate ARN for HTTPS
             domain_name: Custom domain name for API
             ecr_repository_name: Name of ECR repository for API image
+            ecr_repository: ECR repository object for API image (auto-grants pull permissions)
             image_tag: Docker image tag to deploy
             **kwargs: Additional stack properties
         """
@@ -82,6 +85,7 @@ class APIStack(Stack):
         self.ecr_repository_name = (
             ecr_repository_name or f"pantry-pirate-radio-api-{environment_name}"
         )
+        self.ecr_repository = ecr_repository
         self.image_tag = image_tag
 
         # Create log group
@@ -138,6 +142,17 @@ class APIStack(Stack):
             redirect_http = True
             protocol = elbv2.ApplicationProtocol.HTTPS
 
+        # Resolve container image
+        if self.ecr_repository:
+            api_image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repository, tag=self.image_tag
+            )
+        else:
+            api_image = ecs.ContainerImage.from_registry(
+                f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/"
+                f"{self.ecr_repository_name}:{self.image_tag}"
+            )
+
         service = ecs_patterns.ApplicationLoadBalancedFargateService(
             self,
             "APIService",
@@ -147,10 +162,7 @@ class APIStack(Stack):
             memory_limit_mib=self.api_memory_mib,
             desired_count=self.desired_count,
             task_image_options=ecs_patterns.ApplicationLoadBalancedTaskImageOptions(
-                image=ecs.ContainerImage.from_registry(
-                    f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/"
-                    f"{self.ecr_repository_name}:{self.image_tag}"
-                ),
+                image=api_image,
                 container_port=8000,
                 task_role=self.task_role,
                 log_driver=ecs.LogDrivers.aws_logs(

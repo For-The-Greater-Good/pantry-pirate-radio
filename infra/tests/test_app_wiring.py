@@ -94,7 +94,7 @@ class TestAppStackWiring:
         pipeline_stack = PipelineStack(
             app, f"PipelineStack-{environment_name}",
             cluster=compute_stack.cluster,
-            scraper_task_definition=services_stack.scraper_task_definition,
+            scraper_task_family=f"pantry-pirate-radio-scraper-{environment_name}",
             environment_name=environment_name, env=env,
         )
 
@@ -383,6 +383,7 @@ class TestScraperIAMPermissions:
         queue_stack.llm_queue.grant_send_messages(services_stack.scraper_task_role)
         storage_stack.content_bucket.grant_read_write(services_stack.scraper_task_role)
         storage_stack.content_index_table.grant_read_write_data(services_stack.scraper_task_role)
+        storage_stack.jobs_table.grant_read_write_data(services_stack.scraper_task_role)
         database_stack.database_credentials_secret.grant_read(services_stack.scraper_task_role)
 
         return assertions.Template.from_stack(services_stack)

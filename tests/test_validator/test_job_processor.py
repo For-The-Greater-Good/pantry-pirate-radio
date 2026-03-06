@@ -73,7 +73,7 @@ class TestValidationJobProcessor:
         """Test enqueueing validated job to reconciler."""
         # Now that reconciler_queue is imported, we can patch it directly
         with patch(
-            "app.validator.job_processor.reconciler_queue", mock_reconciler_queue
+            "app.llm.queue.queues.reconciler_queue", mock_reconciler_queue
         ):
             mock_reconciler_queue.enqueue_call.return_value = MagicMock(
                 id="test-job-id"

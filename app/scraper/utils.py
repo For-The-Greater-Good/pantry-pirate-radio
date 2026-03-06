@@ -7,13 +7,9 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
 from prometheus_client import Counter
-from redis import Redis
 
-# Job import removed - not used
-from app.core.config import settings
 from app.core.grid import GridGenerator
 from app.llm.hsds_aligner.schema_converter import SchemaConverter
-from app.llm.queue.queues import llm_queue
 from app.models.geographic import BoundingBox, GridPoint
 
 
@@ -152,15 +148,18 @@ class ScraperUtils:
             FileNotFoundError: If required files are missing
             ConnectionError: If Redis connection fails
         """
-        # Check for required environment variables
-        if not os.getenv("REDIS_URL"):
-            raise KeyError("REDIS_URL environment variable is required")
+        queue_backend_type = os.environ.get("QUEUE_BACKEND", "redis").lower()
 
-        # Test Redis connection
-        try:
-            Redis.from_url(os.environ["REDIS_URL"]).ping()
-        except Exception as e:
-            raise ConnectionError(f"Failed to connect to Redis: {e}")
+        if queue_backend_type == "redis":
+            from redis import Redis
+
+            if not os.getenv("REDIS_URL"):
+                raise KeyError("REDIS_URL environment variable is required")
+            try:
+                Redis.from_url(os.environ["REDIS_URL"]).ping()
+            except Exception as e:
+                raise ConnectionError(f"Failed to connect to Redis: {e}")
+        # SQS validation happens lazily in get_queue_backend()
 
         self.scraper_id = scraper_id
 
@@ -243,45 +242,46 @@ class ScraperUtils:
             created_at=datetime.now(),
         )
 
-        # Submit job using RQ
-        from app.core.events import get_setting
-        from app.llm.providers.factory import create_provider
+        # Submit job using queue backend abstraction (Redis/RQ or SQS)
+        from app.llm.queue.backend import get_queue_backend
 
-        # Create provider based on configuration
-        llm_provider = get_setting("llm_provider", str, required=True)
-        llm_model = get_setting("llm_model_name", str, required=True)
-        llm_temperature = get_setting("llm_temperature", float, required=True)
-        llm_max_tokens = get_setting("llm_max_tokens", int, None, required=False)
-        aws_region = get_setting(
-            "aws_default_region", str, default=None, required=False
-        )
+        backend_type = os.environ.get("QUEUE_BACKEND", "redis").lower()
+        queue_backend = get_queue_backend()
 
-        provider = create_provider(
-            llm_provider,
-            llm_model,
-            llm_temperature,
-            llm_max_tokens,
-            region_name=aws_region,
-        )
+        if backend_type == "sqs":
+            # SQS path: Fargate worker creates its own provider from env vars
+            job_id = queue_backend.enqueue(job, provider=None)
+        else:
+            # Redis/RQ path: needs provider for inline processing
+            from app.core.events import get_setting
+            from app.llm.providers.factory import create_provider
 
-        result = llm_queue.enqueue_call(
-            func="app.llm.queue.processor.process_llm_job",
-            args=(job, provider),
-            job_id=job.id,
-            meta={"job": job.model_dump()},
-            result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-            failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-        )
-        if result is None:
-            raise RuntimeError("Failed to enqueue job")
+            llm_provider = get_setting("llm_provider", str, required=True)
+            llm_model = get_setting("llm_model_name", str, required=True)
+            llm_temperature = get_setting("llm_temperature", float, required=True)
+            llm_max_tokens = get_setting(
+                "llm_max_tokens", int, None, required=False
+            )
+            aws_region = get_setting(
+                "aws_default_region", str, default=None, required=False
+            )
+
+            provider = create_provider(
+                llm_provider,
+                llm_model,
+                llm_temperature,
+                llm_max_tokens,
+                region_name=aws_region,
+            )
+            job_id = queue_backend.enqueue(job, provider=provider)
 
         # Link job to content hash if using content store
         if content_store and content_entry:
-            content_store.link_job(content_entry.hash, str(result.id))
+            content_store.link_job(content_entry.hash, job_id)
 
         # Increment counter
         SCRAPER_JOBS.labels(scraper_id=self.scraper_id).inc()
-        return str(result.id)
+        return job_id
 
 
 class GeocoderUtils:

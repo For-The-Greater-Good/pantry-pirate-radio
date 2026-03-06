@@ -4,6 +4,7 @@ import aws_cdk as cdk
 import pytest
 from aws_cdk import assertions
 
+from stacks.ecr_stack import ECRStack
 from stacks.services_stack import ServicesStack
 from stacks.compute_stack import ComputeStack
 from stacks.queue_stack import QueueStack
@@ -290,4 +291,145 @@ class TestServicesStackWithConfig:
                     })
                 ])
             }
+        )
+
+    def test_scraper_container_has_service_type(self, app, compute_stack):
+        """Scraper container should have SERVICE_TYPE=scraper env var."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig()
+        stack = ServicesStack(
+            app,
+            "ScraperEnvStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "SERVICE_TYPE",
+                                "Value": "scraper",
+                            })
+                        ])
+                    })
+                ])
+            }
+        )
+
+    def test_scraper_container_has_sqs_env_vars(self, app, compute_stack):
+        """Scraper container should have SQS_QUEUE_URL and SQS_JOBS_TABLE when configured."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig(
+            queue_urls={"llm": "https://sqs.us-east-1.amazonaws.com/123456/llm-queue.fifo"},
+            jobs_table_name="test-jobs-table",
+        )
+        stack = ServicesStack(
+            app,
+            "ScraperSQSStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "SQS_QUEUE_URL",
+                                "Value": "https://sqs.us-east-1.amazonaws.com/123456/llm-queue.fifo",
+                            }),
+                        ])
+                    })
+                ])
+            }
+        )
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "SQS_JOBS_TABLE",
+                                "Value": "test-jobs-table",
+                            }),
+                        ])
+                    })
+                ])
+            }
+        )
+
+
+class TestServicesStackWithECRRepositories:
+    """Tests for ServicesStack with ECR repository objects."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def compute_stack(self, app):
+        """Create compute stack for dependencies."""
+        return ComputeStack(app, "ECRTestCompute", environment_name="dev")
+
+    @pytest.fixture
+    def ecr_stack(self, app):
+        """Create ECR stack for repository objects."""
+        return ECRStack(app, "ECRTestECR", environment_name="dev")
+
+    def test_creates_with_ecr_repositories(self, app, compute_stack, ecr_stack):
+        """Stack should accept ECR repository objects."""
+        stack = ServicesStack(
+            app,
+            "ECRRepoStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            ecr_repositories=ecr_stack.repositories,
+        )
+        assert stack.validator_service is not None
+        assert stack.scraper_task_definition is not None
+
+    def test_ecr_repos_auto_grant_pull_permissions(self, app, compute_stack, ecr_stack):
+        """Using ECR repo objects should auto-grant image pull permissions."""
+        stack = ServicesStack(
+            app,
+            "ECRPermStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            ecr_repositories=ecr_stack.repositories,
+        )
+        template = assertions.Template.from_stack(stack)
+        # ECR repositories auto-grant pull permissions via IAM policy
+        template.has_resource_properties(
+            "AWS::IAM::Policy",
+            {
+                "PolicyDocument": assertions.Match.object_like({
+                    "Statement": assertions.Match.array_with([
+                        assertions.Match.object_like({
+                            "Action": assertions.Match.array_with([
+                                "ecr:BatchCheckLayerAvailability",
+                            ]),
+                            "Effect": "Allow",
+                        })
+                    ])
+                })
+            },
         )

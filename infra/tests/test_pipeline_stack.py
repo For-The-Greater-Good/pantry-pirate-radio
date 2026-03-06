@@ -1,5 +1,7 @@
 """Tests for PipelineStack CDK stack."""
 
+import json
+
 import aws_cdk as cdk
 import pytest
 from aws_cdk import assertions
@@ -21,19 +23,12 @@ class TestPipelineStackResources:
     def dev_stack(self, app):
         """Create dev environment stack with dependencies."""
         compute_stack = ComputeStack(app, "TestComputeStack", environment_name="dev")
-        services_stack = ServicesStack(
-            app,
-            "TestServicesStack",
-            environment_name="dev",
-            vpc=compute_stack.vpc,
-            cluster=compute_stack.cluster,
-        )
         return PipelineStack(
             app,
             "TestPipelineStack",
             environment_name="dev",
             cluster=compute_stack.cluster,
-            scraper_task_definition=services_stack.scraper_task_definition,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
         )
 
     @pytest.fixture
@@ -67,6 +62,55 @@ class TestPipelineStackResources:
             {"State": "DISABLED"},
         )
 
+    def test_container_overrides_include_service_type(self, dev_stack):
+        """Container overrides should set SERVICE_TYPE=scraper."""
+        template = assertions.Template.from_stack(dev_stack)
+        raw_template = template.to_json()
+        # Find the state machine and parse its definition string
+        for resource_id, resource in raw_template["Resources"].items():
+            if resource["Type"] == "AWS::StepFunctions::StateMachine":
+                def_string = resource["Properties"]["DefinitionString"]
+                # May be plain string or Fn::Join
+                if isinstance(def_string, str):
+                    definition = json.loads(def_string)
+                else:
+                    parts = def_string["Fn::Join"]
+                    definition = json.loads("".join(str(p) for p in parts[1]))
+
+                # Navigate to container overrides
+                run_task = definition["States"]["RunAllScrapers"]["ItemProcessor"]["States"]["RunScraperTask"]
+                overrides = run_task["Parameters"]["Overrides"]["ContainerOverrides"][0]
+                env_vars = {e["Name"]: e.get("Value", e.get("Value.$")) for e in overrides["Environment"]}
+
+                assert env_vars.get("SERVICE_TYPE") == "scraper", (
+                    "SERVICE_TYPE should be 'scraper'"
+                )
+                assert env_vars.get("SCRAPER_NAME") == "$.scraper_name", (
+                    "SCRAPER_NAME should reference input path"
+                )
+                break
+        else:
+            pytest.fail("No StateMachine resource found")
+
+    def test_backward_compat_with_task_definition_object(self, app):
+        """PipelineStack should still work with scraper_task_definition object."""
+        compute_stack = ComputeStack(app, "CompatCompute", environment_name="dev")
+        services_stack = ServicesStack(
+            app,
+            "CompatServices",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+        )
+        stack = PipelineStack(
+            app,
+            "CompatPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_definition=services_stack.scraper_task_definition,
+        )
+        assert stack.state_machine is not None
+
 
 class TestPipelineStackEnvironments:
     """Tests for environment-specific configuration."""
@@ -79,19 +123,12 @@ class TestPipelineStackEnvironments:
     def test_prod_rule_enabled(self, app):
         """Prod environment should have schedule enabled."""
         compute_stack = ComputeStack(app, "ComputeStack1", environment_name="prod")
-        services_stack = ServicesStack(
-            app,
-            "ServicesStack1",
-            environment_name="prod",
-            vpc=compute_stack.vpc,
-            cluster=compute_stack.cluster,
-        )
         stack = PipelineStack(
             app,
             "ProdStack",
             environment_name="prod",
             cluster=compute_stack.cluster,
-            scraper_task_definition=services_stack.scraper_task_definition,
+            scraper_task_family="pantry-pirate-radio-scraper-prod",
             schedule_enabled=True,
         )
         template = assertions.Template.from_stack(stack)
@@ -114,19 +151,12 @@ class TestPipelineStackAttributes:
     def stack(self, app):
         """Create stack for testing."""
         compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev")
-        services_stack = ServicesStack(
-            app,
-            "ServicesStack",
-            environment_name="dev",
-            vpc=compute_stack.vpc,
-            cluster=compute_stack.cluster,
-        )
         return PipelineStack(
             app,
             "AttrTestStack",
             environment_name="dev",
             cluster=compute_stack.cluster,
-            scraper_task_definition=services_stack.scraper_task_definition,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
         )
 
     def test_exposes_state_machine(self, stack):

@@ -26,35 +26,19 @@ from app.validator.config import (
     get_validation_thresholds,
     get_feature_flags,
 )
-from app.validator.job_processor import (
-    ValidationProcessor,
-    process_validation_job,
-    enqueue_to_reconciler,
-)
-from app.validator.queues import (
-    get_validator_queue,
-    setup_validator_queues,
-    get_queue_chain,
-)
 
-# Import the actual queue object
-from app.validator.queues import validator_queue
+# NOTE: job_processor and queues are NOT imported here because queues.py
+# imports from app.llm.queue.queues which creates a Redis connection at
+# module load time, crashing in SQS-based environments (AWS Fargate).
+# Import them directly from app.validator.job_processor and
+# app.validator.queues where needed.
 
 __version__ = "1.0.0"
 
 __all__ = [
     # Core classes
     "ValidationService",
-    "ValidationProcessor",
     "ValidatorConfig",
-    # Main functions
-    "process_validation_job",
-    "enqueue_to_reconciler",
-    # Queue management
-    "validator_queue",
-    "get_validator_queue",
-    "setup_validator_queues",
-    "get_queue_chain",
     # Configuration
     "is_validator_enabled",
     "get_validator_config",

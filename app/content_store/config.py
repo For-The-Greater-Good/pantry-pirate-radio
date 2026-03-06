@@ -137,7 +137,11 @@ def _create_content_store() -> ContentStore | None:
     # Create backend
     backend = _create_backend(store_path, backend_type)
 
-    # Get Redis URL from environment
-    redis_url = os.getenv("REDIS_URL", "redis://cache:6379")
+    # Get Redis URL from environment (only needed for Redis queue backend)
+    queue_backend = os.environ.get("QUEUE_BACKEND", "redis").lower()
+    if queue_backend == "redis":
+        redis_url = os.getenv("REDIS_URL", "redis://cache:6379")
+    else:
+        redis_url = None
 
     return ContentStore(backend=backend, redis_url=redis_url)

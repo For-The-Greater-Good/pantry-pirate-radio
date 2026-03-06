@@ -224,7 +224,7 @@ class DatabaseStack(Stack):
             "AuroraCluster",
             cluster_identifier=f"pantry-pirate-radio-{self.environment_name}",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_15_4
+                version=rds.AuroraPostgresEngineVersion.VER_15_15
             ),
             credentials=rds.Credentials.from_secret(self.database_credentials_secret),
             writer=rds.ClusterInstance.serverless_v2(

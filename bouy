@@ -105,6 +105,7 @@ usage() {
     echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
     echo "  replay [OPTIONS]    Replay recorded JSON files"
     echo "  pull [TAG]          Pull all container images (default: latest)"
+    echo "  deploy [ENV]        Deploy to AWS (build images + CDK deploy)"
     echo "  clean               Stop services and remove volumes"
     echo ""
     echo "Test options:"
@@ -126,10 +127,16 @@ usage() {
     echo "    test --pytest -- tests/test_bouy_unit.py::TestBouyFunctions::test_output_function_json_mode"
     echo ""
     echo "Scraper options:"
-    echo "  scraper --list         List all available scrapers"
-    echo "  scraper --all          Run all scrapers sequentially"
-    echo "  scraper full-broadside Run all scrapers in parallel (max firepower!)"
-    echo "  scraper NAME        Run specific scraper by name"
+    echo "  scraper --list              List all available scrapers"
+    echo "  scraper --all               Run all scrapers sequentially (local)"
+    echo "  scraper full-broadside      Run all scrapers in parallel (max firepower!)"
+    echo "  scraper NAME                Run specific scraper by name (local)"
+    echo "  scraper --aws NAME          Run scraper on AWS via Step Functions"
+    echo "  scraper --aws NAME1 NAME2   Run multiple scrapers on AWS"
+    echo "  scraper --aws --all         Run all default scrapers on AWS"
+    echo "  scraper --aws scouting-party Run all scrapers on AWS (parallel)"
+    echo "  scraper --aws --status [ARN] Check AWS pipeline execution status"
+    echo "  scraper --aws --logs        Tail AWS scraper CloudWatch logs"
     echo ""
     echo "Claude auth options:"
     echo "  claude-auth         Interactive Claude authentication"
@@ -157,6 +164,13 @@ usage() {
     echo "  replay --use-default-output-dir Use default outputs directory"
     echo "  replay --dry-run                Preview without executing"
     echo "  replay --skip-validation        Skip validation (legacy mode)"
+    echo ""
+    echo "Deploy options:"
+    echo "  deploy [env]                Full deploy (build + push + CDK)"
+    echo "  deploy [env] --images-only  Build and push Docker images only"
+    echo "  deploy [env] --infra-only   CDK deploy only (assumes images exist)"
+    echo "  deploy [env] --diff         Show CDK diff without deploying"
+    echo "  deploy [env] --destroy      Tear down all stacks"
     echo ""
     echo "Scraper test options:"
     echo "  scraper-test --all     Test all scrapers (dry run)"
@@ -1210,74 +1224,182 @@ case "$1" in
         shift
         parse_mode "$@"
 
-        # Ensure cache is running for job queue
-        if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
-            output info "Cache service is not running. Starting it..."
-            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
-                if $COMPOSE_CMD $COMPOSE_FILES up -d cache >/dev/null 2>&1; then
-                    sleep 2  # Give it a moment to start
-                else
-                    output error "Failed to start cache service"
-                    exit 1
-                fi
-            else
-                if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
-                    sleep 2  # Give it a moment to start
-                else
-                    output error "Failed to start cache service"
-                    exit 1
-                fi
-            fi
-        fi
-
-        # Check Redis connectivity
-        if ! check_redis_connectivity; then
-            output error "Redis is required for scraper job queue"
-            exit 1
-        fi
-
-        # Check if scraper service is running
-        if ! wait_for_service scraper 1 0; then
-            output info "Scraper service is not running. Starting it..."
-            if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
-                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper >/dev/null 2>&1; then
-                    if wait_for_service scraper; then
-                        output success "Scraper service started successfully"
+        # Skip local Docker checks when running on AWS
+        if [ "${1:-}" != "--aws" ]; then
+            # Ensure cache is running for job queue
+            if ! $COMPOSE_CMD $COMPOSE_FILES ps cache 2>/dev/null | grep -q "Up"; then
+                output info "Cache service is not running. Starting it..."
+                if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                    if $COMPOSE_CMD $COMPOSE_FILES up -d cache >/dev/null 2>&1; then
+                        sleep 2  # Give it a moment to start
                     else
-                        output error "Scraper service failed to start properly"
+                        output error "Failed to start cache service"
                         exit 1
                     fi
                 else
-                    output error "Failed to start scraper service"
-                    exit 1
-                fi
-            else
-                if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
-                    if wait_for_service scraper; then
-                        output success "Scraper service started successfully"
+                    if $COMPOSE_CMD $COMPOSE_FILES up -d cache; then
+                        sleep 2  # Give it a moment to start
                     else
-                        output error "Scraper service failed to start properly"
+                        output error "Failed to start cache service"
+                        exit 1
+                    fi
+                fi
+            fi
+
+            # Check Redis connectivity
+            if ! check_redis_connectivity; then
+                output error "Redis is required for scraper job queue"
+                exit 1
+            fi
+
+            # Check if scraper service is running
+            if ! wait_for_service scraper 1 0; then
+                output info "Scraper service is not running. Starting it..."
+                if [ $JSON_OUTPUT -eq 1 ] || [ $QUIET -eq 1 ]; then
+                    if $COMPOSE_CMD $COMPOSE_FILES up -d scraper >/dev/null 2>&1; then
+                        if wait_for_service scraper; then
+                            output success "Scraper service started successfully"
+                        else
+                            output error "Scraper service failed to start properly"
+                            exit 1
+                        fi
+                    else
+                        output error "Failed to start scraper service"
                         exit 1
                     fi
                 else
-                    output error "Failed to start scraper service"
-                    exit 1
+                    if $COMPOSE_CMD $COMPOSE_FILES up -d scraper; then
+                        if wait_for_service scraper; then
+                            output success "Scraper service started successfully"
+                        else
+                            output error "Scraper service failed to start properly"
+                            exit 1
+                        fi
+                    else
+                        output error "Failed to start scraper service"
+                        exit 1
+                    fi
                 fi
             fi
-        fi
 
-        # Check content store if enabled
-        if $COMPOSE_CMD $COMPOSE_FILES exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
-            output info "Content store is enabled, checking configuration..."
-            if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content_store" 2>/dev/null; then
-                output warning "Content store directory not found - deduplication may not work"
-            else
-                output success "Content store directory found"
+            # Check content store if enabled
+            if $COMPOSE_CMD $COMPOSE_FILES exec -T scraper printenv CONTENT_STORE_ENABLED 2>/dev/null | grep -q "true"; then
+                output info "Content store is enabled, checking configuration..."
+                if ! $COMPOSE_CMD $COMPOSE_FILES exec -T scraper test -d "/data-repo/content_store" 2>/dev/null; then
+                    output warning "Content store directory not found - deduplication may not work"
+                else
+                    output success "Content store directory found"
+                fi
             fi
         fi
 
         # Parse scraper options
         case "${1:-help}" in
+            --aws)
+                shift  # consume --aws
+
+                # Verify AWS CLI is available
+                if ! command -v aws &>/dev/null; then
+                    output error "AWS CLI not found. Install it first: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+                    exit 1
+                fi
+
+                # Verify AWS credentials
+                AWS_IDENTITY=$(aws sts get-caller-identity 2>&1) || {
+                    output error "AWS credentials not configured. Run: aws configure"
+                    exit 1
+                }
+                AWS_REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
+
+                # Get state machine ARN
+                DEPLOY_ENV="${DEPLOY_ENV:-dev}"
+                SM_NAME="pantry-pirate-scraper-pipeline-${DEPLOY_ENV}"
+                SM_ARN=$(aws stepfunctions list-state-machines \
+                    --query "stateMachines[?name=='${SM_NAME}'].stateMachineArn" \
+                    --output text 2>/dev/null)
+
+                if [ -z "$SM_ARN" ] || [ "$SM_ARN" = "None" ]; then
+                    output error "State machine '${SM_NAME}' not found in ${AWS_REGION}. Deploy first: ./bouy deploy ${DEPLOY_ENV}"
+                    exit 1
+                fi
+
+                case "${1:-}" in
+                    --status)
+                        shift
+                        EXEC_ARN="${1:-}"
+                        if [ -z "$EXEC_ARN" ]; then
+                            output info "Recent executions for ${SM_NAME}:"
+                            aws stepfunctions list-executions \
+                                --state-machine-arn "$SM_ARN" \
+                                --max-results 5 \
+                                --query "executions[].{Name:name,Status:status,Start:startDate}" \
+                                --output table
+                        else
+                            output info "Execution status:"
+                            aws stepfunctions describe-execution \
+                                --execution-arn "$EXEC_ARN" \
+                                --query "{Status:status,Start:startDate,Stop:stopDate,Input:input}" \
+                                --output table
+                        fi
+                        ;;
+                    --logs)
+                        output info "Tailing scraper logs for ${DEPLOY_ENV}..."
+                        LOG_GROUP="/ecs/pantry-pirate-radio/scraper-${DEPLOY_ENV}"
+                        aws logs tail "$LOG_GROUP" --follow
+                        ;;
+                    --all|scouting-party)
+                        output info "Starting all scrapers on AWS via Step Functions..."
+                        # Default scraper list for AWS runs
+                        SCRAPERS_JSON='{"scrapers": ["vivery_api", "feeding_america", "the_food_pantries_org"]}'
+                        ;;
+                    "")
+                        output error "No scraper specified."
+                        echo "Usage: ./bouy scraper --aws NAME [NAME2 ...]"
+                        echo "       ./bouy scraper --aws --all"
+                        echo "       ./bouy scraper --aws scouting-party"
+                        echo "       ./bouy scraper --aws --status [EXEC_ARN]"
+                        echo "       ./bouy scraper --aws --logs"
+                        exit 1
+                        ;;
+                    *)
+                        # Collect all scraper names as positional arguments
+                        SCRAPERS="[]"
+                        while [ $# -gt 0 ]; do
+                            case "$1" in
+                                --*) break ;;
+                                *)
+                                    SCRAPERS=$(echo "$SCRAPERS" | python3 -c "
+import sys, json
+l = json.load(sys.stdin)
+l.append('$1')
+print(json.dumps(l))
+")
+                                    shift
+                                    ;;
+                            esac
+                        done
+                        SCRAPERS_JSON="{\"scrapers\": $SCRAPERS}"
+                        ;;
+                esac
+
+                # Start execution if we have scrapers to run (--status and --logs exit above)
+                if [ -n "${SCRAPERS_JSON:-}" ]; then
+                    output info "Starting scraper pipeline on AWS (${DEPLOY_ENV})..."
+                    output info "Input: $SCRAPERS_JSON"
+                    EXEC_RESULT=$(aws stepfunctions start-execution \
+                        --state-machine-arn "$SM_ARN" \
+                        --input "$SCRAPERS_JSON" \
+                        2>&1) || {
+                        output error "Failed to start execution: $EXEC_RESULT"
+                        exit 1
+                    }
+                    EXEC_ARN=$(echo "$EXEC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['executionArn'])")
+                    output success "Pipeline execution started!"
+                    output info "Execution ARN: $EXEC_ARN"
+                    output info "Monitor with: ./bouy scraper --aws --status $EXEC_ARN"
+                    output info "View logs:    ./bouy scraper --aws --logs"
+                fi
+                ;;
             --list)
                 output info "Listing available scrapers..."
                 # Use -T flag to disable TTY in programmatic mode
@@ -1352,13 +1474,21 @@ case "$1" in
                 ;;
             help|"")
                 if [ $PROGRAMMATIC_MODE -eq 0 ]; then
-                    echo "Usage: ./bouy scraper [--list|--all|scouting-party [N]|SCRAPER_NAME]"
+                    echo "Usage: ./bouy scraper [--list|--all|scouting-party [N]|--aws ...|SCRAPER_NAME]"
                     echo ""
-                    echo "Options:"
+                    echo "Local options:"
                     echo "  --list              List all available scrapers"
                     echo "  --all               Run all scrapers sequentially"
                     echo "  scouting-party [N]  Run all scrapers in parallel \(N concurrent, default 5\)"
                     echo "  SCRAPER_NAME        Run a specific scraper"
+                    echo ""
+                    echo "AWS options:"
+                    echo "  --aws NAME          Run scraper on AWS via Step Functions"
+                    echo "  --aws NAME1 NAME2   Run multiple scrapers on AWS"
+                    echo "  --aws --all         Run all default scrapers on AWS"
+                    echo "  --aws scouting-party Run all scrapers on AWS (parallel)"
+                    echo "  --aws --status [ARN] Check execution status"
+                    echo "  --aws --logs        Tail AWS scraper CloudWatch logs"
                     echo ""
                     echo "Available scrapers:"
                     $COMPOSE_CMD $COMPOSE_FILES exec scraper python -m app.scraper --list
@@ -1934,6 +2064,220 @@ case "$1" in
             output warning "Some images failed to pull:$failed_pulls"
             output info "You may need to authenticate with: docker login ghcr.io"
         fi
+        ;;
+
+    deploy)
+        shift
+        DEPLOY_ENV="${1:-dev}"
+        shift || true
+
+        # Parse deploy flags
+        DEPLOY_MODE="full"
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --images-only)
+                    DEPLOY_MODE="images"
+                    shift
+                    ;;
+                --infra-only)
+                    DEPLOY_MODE="infra"
+                    shift
+                    ;;
+                --diff)
+                    DEPLOY_MODE="diff"
+                    shift
+                    ;;
+                --destroy)
+                    DEPLOY_MODE="destroy"
+                    shift
+                    ;;
+                *)
+                    output error "Unknown deploy option: $1"
+                    echo ""
+                    echo "Usage: bouy deploy [env] [OPTIONS]"
+                    echo ""
+                    echo "Options:"
+                    echo "  --images-only    Build and push Docker images only"
+                    echo "  --infra-only     CDK deploy only (assumes images exist)"
+                    echo "  --diff           Show CDK diff without deploying"
+                    echo "  --destroy        Tear down all stacks"
+                    exit 1
+                    ;;
+            esac
+        done
+
+        output info "Deploy mode: $DEPLOY_MODE | Environment: $DEPLOY_ENV"
+
+        # Verify AWS CLI is available
+        if ! command -v aws &> /dev/null; then
+            output error "AWS CLI not found. Install it: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+            exit 1
+        fi
+
+        # Verify AWS credentials
+        output info "Verifying AWS credentials..."
+        if ! AWS_IDENTITY=$(aws sts get-caller-identity 2>&1); then
+            output error "AWS credentials not configured or expired."
+            output error "Run: aws sso login --profile <profile>"
+            exit 1
+        fi
+        AWS_ACCOUNT=$(echo "$AWS_IDENTITY" | grep -o '"Account": "[^"]*"' | cut -d'"' -f4)
+        AWS_REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
+        AWS_PROFILE="${AWS_PROFILE:-$(aws configure get profile 2>/dev/null || echo "default")}"
+        output success "AWS Account: $AWS_ACCOUNT | Region: $AWS_REGION"
+
+        # CDK operations via Docker (no local Node.js/CDK required)
+        CDK_IMAGE="pantry-pirate-radio-cdk"
+
+        output info "Building CDK Docker image..."
+        if ! docker build -t "$CDK_IMAGE" infra/ 2>/dev/null; then
+            output error "Failed to build CDK Docker image"
+            exit 1
+        fi
+        output success "CDK image built"
+
+        # Export AWS credentials for Docker container
+        CREDS=$(aws configure export-credentials --format env-no-export 2>/dev/null) || {
+            output error "Failed to export AWS credentials"
+            exit 1
+        }
+        CDK_AWS_ACCESS_KEY_ID=$(echo "$CREDS" | grep AWS_ACCESS_KEY_ID | cut -d= -f2)
+        CDK_AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | grep AWS_SECRET_ACCESS_KEY | cut -d= -f2)
+        CDK_AWS_SESSION_TOKEN=$(echo "$CREDS" | grep AWS_SESSION_TOKEN | cut -d= -f2)
+
+        run_cdk() {
+            docker run --rm \
+                -e CDK_DEPLOY_ENVIRONMENT="$DEPLOY_ENV" \
+                -e CDK_DEPLOY_ACCOUNT="$AWS_ACCOUNT" \
+                -e CDK_DEPLOY_REGION="$AWS_REGION" \
+                -e AWS_ACCESS_KEY_ID="$CDK_AWS_ACCESS_KEY_ID" \
+                -e AWS_SECRET_ACCESS_KEY="$CDK_AWS_SECRET_ACCESS_KEY" \
+                -e AWS_SESSION_TOKEN="$CDK_AWS_SESSION_TOKEN" \
+                -e AWS_DEFAULT_REGION="$AWS_REGION" \
+                "$CDK_IMAGE" cdk "$@"
+        }
+
+        # Helper: build unified Docker image
+        build_app_image() {
+            output info "Building unified Docker image..."
+            DOCKERFILE=".docker/images/app/Dockerfile"
+            IMAGE_TAG="latest"
+
+            if ! docker build -t "pantry-pirate-radio-unified:${IMAGE_TAG}" \
+                --platform linux/amd64 \
+                --target unified \
+                -f "$DOCKERFILE" .; then
+                output error "Docker build failed"
+                exit 1
+            fi
+            output success "Docker build complete"
+        }
+
+        # Helper: push images to ECR
+        push_images_to_ecr() {
+            IMAGE_TAG="latest"
+            output info "Logging in to ECR..."
+            if ! aws ecr get-login-password --region "$AWS_REGION" | \
+                docker login --username AWS --password-stdin "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com" 2>/dev/null; then
+                output error "ECR login failed"
+                exit 1
+            fi
+            output success "ECR login successful"
+
+            SERVICES="worker validator reconciler recorder scraper"
+            for svc in $SERVICES; do
+                ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
+                output info "Pushing ${svc}..."
+                docker tag "pantry-pirate-radio-unified:${IMAGE_TAG}" "${ECR_REPO}:${IMAGE_TAG}"
+                if ! docker push "${ECR_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                    output error "Failed to push ${svc}"
+                    exit 1
+                fi
+                output success "Pushed ${svc}"
+            done
+            output success "All images pushed to ECR"
+        }
+
+        case "$DEPLOY_MODE" in
+            diff)
+                output info "Running CDK diff..."
+                run_cdk diff --all
+                ;;
+            destroy)
+                output warning "This will destroy all stacks in $DEPLOY_ENV!"
+                read -r -p "Type 'yes' to confirm: " CONFIRM
+                if [ "$CONFIRM" != "yes" ]; then
+                    output info "Destroy cancelled."
+                    exit 0
+                fi
+                output info "Destroying all stacks..."
+                run_cdk destroy --all --force
+                ;;
+            images)
+                build_app_image
+                push_images_to_ecr
+
+                # Force ECS services to pull new images
+                output info "Forcing ECS service redeployment..."
+                ECS_SERVICES="worker validator reconciler recorder"
+                CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
+                for svc in $ECS_SERVICES; do
+                    SERVICE_NAME="pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
+                    if aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE_NAME" --force-new-deployment --no-cli-pager > /dev/null 2>&1; then
+                        output success "Redeployed ${svc}"
+                    else
+                        output warning "Could not redeploy ${svc} (may not exist yet)"
+                    fi
+                done
+                output success "Image build, push, and redeploy complete."
+                ;;
+            infra)
+                output info "Deploying CDK stacks..."
+                if ! run_cdk deploy --all --require-approval never; then
+                    output error "CDK deployment failed"
+                    exit 1
+                fi
+                output success "CDK deployment complete"
+                ;;
+            full)
+                build_app_image
+
+                # Phase 1: Deploy ECR repos first (needed before pushing images)
+                output info "Phase 1: Deploying ECR + Secrets stacks..."
+                if ! run_cdk deploy "ECRStack-${DEPLOY_ENV}" "SecretsStack-${DEPLOY_ENV}" --require-approval never; then
+                    output error "ECR/Secrets deployment failed"
+                    exit 1
+                fi
+                output success "ECR repos ready"
+
+                # Phase 2: Push images to ECR (must happen before ECS services start)
+                output info "Phase 2: Pushing images to ECR..."
+                push_images_to_ecr
+
+                # Phase 3: Deploy all remaining stacks (ECS services will find images)
+                output info "Phase 3: Deploying all CDK stacks..."
+                if ! run_cdk deploy --all --require-approval never; then
+                    output error "CDK deployment failed"
+                    exit 1
+                fi
+                output success "CDK deployment complete"
+
+                # Phase 4: Force ECS services to pull new images
+                output info "Phase 4: Forcing ECS service redeployment..."
+                ECS_SERVICES="worker validator reconciler recorder"
+                CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
+                for svc in $ECS_SERVICES; do
+                    SERVICE_NAME="pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
+                    if aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE_NAME" --force-new-deployment --no-cli-pager > /dev/null 2>&1; then
+                        output success "Redeployed ${svc}"
+                    else
+                        output warning "Could not redeploy ${svc} (may not exist yet)"
+                    fi
+                done
+                ;;
+        esac
+
+        output success "Deploy complete!"
         ;;
 
     version)

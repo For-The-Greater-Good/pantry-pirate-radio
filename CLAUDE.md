@@ -60,7 +60,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy test --pip-audit      # Pip audit for vulnerabilities
 ./bouy test --xenon          # Code complexity analysis
 
-# Scraper Commands
+# Scraper Commands (Local)
 ./bouy scraper --list         # List all available scrapers
 ./bouy scraper --all          # Run all scrapers sequentially
 ./bouy scraper NAME           # Run specific scraper by name
@@ -69,6 +69,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy scraper full-broadside # Run all scrapers in parallel (max firepower!)
 ./bouy scraper-test NAME      # Test specific scraper (dry run)
 ./bouy scraper-test --all     # Test all scrapers (dry run)
+
+# Scraper Commands (AWS)
+./bouy scraper --aws NAME              # Run scraper on AWS via Step Functions
+./bouy scraper --aws NAME1 NAME2       # Run multiple scrapers on AWS
+./bouy scraper --aws --all             # Run all default scrapers on AWS
+./bouy scraper --aws scouting-party    # Run all scrapers on AWS (parallel)
+./bouy scraper --aws --status          # List recent pipeline executions
+./bouy scraper --aws --status EXEC_ARN # Check specific execution status
+./bouy scraper --aws --logs            # Tail AWS scraper CloudWatch logs
 
 # Service Management
 ./bouy build                # Build all services
@@ -477,6 +486,15 @@ open htmlcov/index.html                  # View HTML report
 ./bouy claude-auth status    # Check authentication status
 ./bouy claude-auth test      # Test Claude connection
 ./bouy claude-auth config    # Show Claude configuration
+```
+
+### AWS Deployment
+```bash
+./bouy deploy dev                    # Full deploy (build + CDK + push + redeploy)
+./bouy deploy dev --diff             # Show CDK diff without deploying
+./bouy deploy dev --infra-only       # CDK deploy only (assumes images exist)
+./bouy deploy dev --images-only      # Build and push Docker images only
+./bouy deploy dev --destroy          # Tear down all stacks
 ```
 
 ### Data Reconciliation

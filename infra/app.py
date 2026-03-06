@@ -19,8 +19,8 @@ Environment Configuration:
 import os
 
 import aws_cdk as cdk
+from aws_cdk import aws_ec2 as ec2
 
-from stacks.api_stack import APIStack
 from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
@@ -86,6 +86,10 @@ compute_stack = ComputeStack(
     app,
     f"ComputeStack-{environment_name}",
     environment_name=environment_name,
+    ecr_repository=ecr_stack.repositories.get("worker"),
+    llm_queue_url=queue_stack.llm_queue.queue_url,
+    sqs_jobs_table_name=storage_stack.jobs_table.table_name,
+    validator_queue_url=queue_stack.validator_queue.queue_url,
     env=env,
     description=f"Pantry Pirate Radio compute infrastructure ({environment_name})",
 )
@@ -110,6 +114,7 @@ service_config = ServiceConfig(
     content_bucket_name=storage_stack.content_bucket.bucket_name,
     content_index_table_name=storage_stack.content_index_table.table_name,
     geocoding_cache_table_name=database_stack.geocoding_cache_table.table_name,
+    jobs_table_name=storage_stack.jobs_table.table_name,
     github_pat_secret=secrets_stack.github_pat_secret,
     llm_api_keys_secret=secrets_stack.llm_api_keys_secret,
     data_repo_url="https://github.com/For-The-Greater-Good/HAARRRvest.git",
@@ -123,6 +128,7 @@ services_stack = ServicesStack(
     cluster=compute_stack.cluster,
     environment_name=environment_name,
     config=service_config,
+    ecr_repositories=ecr_stack.repositories,
     env=env,
     description=f"Pantry Pirate Radio pipeline services ({environment_name})",
 )
@@ -138,6 +144,7 @@ db_init_stack = DbInitStack(
     database_secret=database_stack.database_credentials_secret,
     github_pat_secret=secrets_stack.github_pat_secret,
     proxy_security_group=database_stack.proxy_security_group,
+    ecr_repository=ecr_stack.repositories.get("worker"),
     environment_name=environment_name,
     env=env,
     description=f"Pantry Pirate Radio database initialization ({environment_name})",
@@ -148,25 +155,15 @@ pipeline_stack = PipelineStack(
     app,
     f"PipelineStack-{environment_name}",
     cluster=compute_stack.cluster,
-    scraper_task_definition=services_stack.scraper_task_definition,
+    scraper_task_family=f"pantry-pirate-radio-scraper-{environment_name}",
     environment_name=environment_name,
     schedule_enabled=(environment_name == "prod"),  # Only enable schedule in prod
     env=env,
     description=f"Pantry Pirate Radio scraper pipeline ({environment_name})",
 )
 
-# API Stack - ALB + Fargate for FastAPI (keeping local for now, but stack exists)
-api_stack = APIStack(
-    app,
-    f"APIStack-{environment_name}",
-    vpc=compute_stack.vpc,
-    cluster=compute_stack.cluster,
-    environment_name=environment_name,
-    certificate_arn=certificate_arn,
-    domain_name=domain_name,
-    env=env,
-    description=f"Pantry Pirate Radio API infrastructure ({environment_name})",
-)
+# NOTE: APIStack removed from deployment - API needs Redis refactoring before
+# it can run in AWS. Stack code preserved in stacks/api_stack.py for future use.
 
 # Monitoring Stack - CloudWatch dashboards and alarms
 monitoring_stack = MonitoringStack(
@@ -188,26 +185,37 @@ compute_stack.grant_storage_access(
     storage_stack.content_index_table,
 )
 
-# API Stack - needs read access to storage and write access to LLM queue
-api_stack.grant_database_read(
-    storage_stack.jobs_table,
-    storage_stack.content_index_table,
-)
-api_stack.grant_queue_write(queue_stack.llm_queue)
-
 # Wire security groups for database access
 # Services that need to connect to the database via RDS Proxy
-database_stack.allow_connection_from(services_stack.validator_security_group)
-database_stack.allow_connection_from(services_stack.reconciler_security_group)
-database_stack.allow_connection_from(services_stack.publisher_security_group)
-database_stack.allow_connection_from(services_stack.recorder_security_group)
-database_stack.allow_connection_from(services_stack.scraper_security_group)
+# Note: ServicesStack grants its own access to avoid circular cross-stack
+# references (ServicesStack depends on DatabaseStack, so DatabaseStack
+# cannot reference ServicesStack security groups).
+services_stack.grant_database_access(database_stack.proxy_security_group)
 database_stack.allow_connection_from(compute_stack.worker_security_group)
-database_stack.allow_connection_from(api_stack.api_service.service.connections.security_groups[0])
 
 # DbInit Stack - needs database access for Lambda and ECS tasks
-database_stack.allow_connection_from(db_init_stack.check_db_lambda_security_group)
-database_stack.allow_connection_from(db_init_stack.init_task_security_group)
+# Use L1 constructs scoped to db_init_stack to avoid circular cross-stack
+# references (DbInitStack depends on DatabaseStack).
+ec2.CfnSecurityGroupIngress(
+    db_init_stack,
+    "CheckDbLambdaToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=db_init_stack.check_db_lambda_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow check-db Lambda to connect to RDS Proxy",
+)
+ec2.CfnSecurityGroupIngress(
+    db_init_stack,
+    "InitTaskToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=db_init_stack.init_task_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow init task to connect to RDS Proxy",
+)
 
 # Grant IAM permissions to services
 
@@ -245,10 +253,12 @@ storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_
 # Scraper permissions:
 # - Send messages to LLM queue
 # - Read/write content bucket and content index table
+# - Read/write jobs table (SQS backend needs job status tracking)
 # - Read database credentials
 queue_stack.llm_queue.grant_send_messages(services_stack.scraper_task_role)
 storage_stack.content_bucket.grant_read_write(services_stack.scraper_task_role)
 storage_stack.content_index_table.grant_read_write_data(services_stack.scraper_task_role)
+storage_stack.jobs_table.grant_read_write_data(services_stack.scraper_task_role)
 database_stack.database_credentials_secret.grant_read(services_stack.scraper_task_role)
 
 # Worker (LLM) permissions:
@@ -259,9 +269,10 @@ secrets_stack.llm_api_keys_secret.grant_read(compute_stack.task_role)
 
 # Add stack dependencies (deployment order)
 
-# Compute depends on storage and queues
+# Compute depends on storage, queues, and ECR (needs image repos)
 compute_stack.add_dependency(storage_stack)
 compute_stack.add_dependency(queue_stack)
+compute_stack.add_dependency(ecr_stack)
 
 # Database depends on compute (needs VPC)
 database_stack.add_dependency(compute_stack)
@@ -276,8 +287,11 @@ services_stack.add_dependency(secrets_stack)
 services_stack.add_dependency(storage_stack)
 # Services depends on queue (needs queue URLs)
 services_stack.add_dependency(queue_stack)
+# Services depends on ECR (needs image repos)
+services_stack.add_dependency(ecr_stack)
 
-# Pipeline depends on services (needs scraper task definition)
+# Pipeline depends on compute (needs cluster) and services (task def must exist)
+pipeline_stack.add_dependency(compute_stack)
 pipeline_stack.add_dependency(services_stack)
 
 # DbInit depends on compute (needs VPC and cluster)
@@ -287,12 +301,8 @@ db_init_stack.add_dependency(database_stack)
 # DbInit depends on secrets (needs GitHub PAT)
 db_init_stack.add_dependency(secrets_stack)
 
-# API depends on compute
-api_stack.add_dependency(compute_stack)
-
 # Monitoring depends on all other stacks
 monitoring_stack.add_dependency(compute_stack)
-monitoring_stack.add_dependency(api_stack)
 monitoring_stack.add_dependency(database_stack)
 monitoring_stack.add_dependency(services_stack)
 monitoring_stack.add_dependency(pipeline_stack)

@@ -33,7 +33,7 @@ def test_process_llm_job_claude_auth_error_updates_state_and_raises(
     auth_error = ClaudeNotAuthenticatedException("Auth failed", retry_after=300)
     mock_provider.generate.side_effect = auth_error
 
-    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+    with patch("app.llm.queue.queues.llm_queue") as mock_queue:
         with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
             mock_auth_instance = MagicMock()
             mock_auth_manager.return_value = mock_auth_instance
@@ -57,7 +57,7 @@ def test_process_llm_job_claude_quota_error_updates_state_and_raises(
     quota_error = ClaudeQuotaExceededException("Quota exceeded", retry_after=3600)
     mock_provider.generate.side_effect = quota_error
 
-    with patch("app.llm.queue.processor.llm_queue") as mock_queue:
+    with patch("app.llm.queue.queues.llm_queue") as mock_queue:
         with patch("app.llm.queue.auth_state.AuthStateManager") as mock_auth_manager:
             mock_auth_instance = MagicMock()
             mock_auth_manager.return_value = mock_auth_instance
@@ -109,8 +109,8 @@ def test_process_llm_job_success_enqueues_follow_up_jobs(sample_job: LLMJob) -> 
     mock_provider.generate.return_value = mock_generate()
 
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
-            with patch("app.llm.queue.processor.recorder_queue") as mock_recorder:
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_reconciler:
+            with patch("app.llm.queue.queues.recorder_queue") as mock_recorder:
                 mock_reconciler_job = MagicMock()
                 mock_reconciler_job.id = "reconciler-123"
                 mock_reconciler.enqueue_call.return_value = mock_reconciler_job

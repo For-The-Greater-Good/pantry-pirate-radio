@@ -19,6 +19,7 @@ Usage:
 """
 
 import asyncio
+import os
 import signal
 import sys
 import time
@@ -26,7 +27,6 @@ from typing import Any
 
 import structlog
 
-from app.core.events import get_setting
 from app.llm.providers.factory import create_provider
 from app.llm.queue.backend import get_queue_backend
 from app.llm.queue.backend_sqs import SQSQueueBackend
@@ -66,14 +66,16 @@ class FargateWorker:
         self._shutdown_requested = False
         self._current_receipt_handle: str | None = None
 
-        # Create LLM provider from configuration
-        llm_provider = get_setting("llm_provider", str, required=True)
-        llm_model = get_setting("llm_model_name", str, required=True)
-        llm_temperature = get_setting("llm_temperature", float, required=True)
-        llm_max_tokens = get_setting("llm_max_tokens", int, None, required=False)
-        aws_region = get_setting(
-            "aws_default_region", str, default=None, required=False
+        # Create LLM provider from configuration (read from env directly
+        # to avoid importing app.core.events which pulls in Redis)
+        llm_provider = os.environ.get("LLM_PROVIDER", "bedrock")
+        llm_model = os.environ.get(
+            "LLM_MODEL_NAME", "anthropic.claude-sonnet-4-20250514"
         )
+        llm_temperature = float(os.environ.get("LLM_TEMPERATURE", "0.1"))
+        llm_max_tokens_str = os.environ.get("LLM_MAX_TOKENS")
+        llm_max_tokens = int(llm_max_tokens_str) if llm_max_tokens_str else None
+        aws_region = os.environ.get("AWS_DEFAULT_REGION")
 
         self.provider = create_provider(
             llm_provider,

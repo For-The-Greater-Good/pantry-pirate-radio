@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
@@ -40,6 +41,9 @@ class ServiceConfig:
     # Secrets
     github_pat_secret: secretsmanager.ISecret | None = None
     llm_api_keys_secret: secretsmanager.ISecret | None = None
+
+    # Job status tracking
+    jobs_table_name: str = ""
 
     # Data repository URL
     data_repo_url: str = "https://github.com/For-The-Greater-Good/HAARRRvest.git"
@@ -74,6 +78,7 @@ class ServicesStack(Stack):
         vpc: ec2.IVpc,
         cluster: ecs.ICluster,
         config: ServiceConfig | None = None,
+        ecr_repositories: dict[str, ecr.IRepository] | None = None,
         **kwargs,
     ) -> None:
         """Initialize ServicesStack.
@@ -85,12 +90,14 @@ class ServicesStack(Stack):
             vpc: VPC for service placement
             cluster: ECS cluster for services
             config: Optional service configuration for environment variables and secrets
+            ecr_repositories: ECR repositories by service name for container images
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, **kwargs)
 
         self.environment_name = environment_name
         self.config = config or ServiceConfig()
+        self.ecr_repositories = ecr_repositories or {}
 
         # Environment-specific configuration
         is_prod = environment_name == "prod"
@@ -108,6 +115,7 @@ class ServicesStack(Stack):
                 vpc=vpc,
                 environment=self._get_validator_environment(),
                 secrets=self._get_validator_secrets(),
+                command=["python", "-m", "app.validator.fargate_worker"],
             )
         )
 
@@ -122,20 +130,25 @@ class ServicesStack(Stack):
                 vpc=vpc,
                 environment=self._get_reconciler_environment(),
                 secrets=self._get_reconciler_secrets(),
+                command=["python", "-m", "app.reconciler.fargate_worker"],
             )
         )
 
+        # NOTE: Publisher disabled - uses git-lfs to clone HAARRRvest, needs
+        # refactoring before AWS deployment. Set desired_count=0 to keep
+        # the service definition without running tasks.
         self.publisher_service, self.publisher_security_group, self.publisher_task_role = (
             self._create_service(
                 name="publisher",
                 cpu=256,
                 memory_mib=512,
-                desired_count=1,
+                desired_count=0,
                 log_retention=log_retention,
                 cluster=cluster,
                 vpc=vpc,
                 environment=self._get_publisher_environment(),
                 secrets=self._get_publisher_secrets(),
+                command=["python", "-m", "app.haarrrvest_publisher.service"],
             )
         )
 
@@ -150,6 +163,7 @@ class ServicesStack(Stack):
                 vpc=vpc,
                 environment=self._get_recorder_environment(),
                 secrets=self._get_recorder_secrets(),
+                command=["python", "-m", "app.recorder.fargate_worker"],
             )
         )
 
@@ -157,6 +171,37 @@ class ServicesStack(Stack):
         self.scraper_task_definition, self.scraper_security_group, self.scraper_task_role = (
             self._create_scraper_task_definition(log_retention=log_retention, vpc=vpc)
         )
+
+    def grant_database_access(self, proxy_security_group: ec2.ISecurityGroup) -> None:
+        """Allow all pipeline services to connect to the RDS Proxy.
+
+        Creates ingress rules on the proxy security group allowing connections
+        from each service's security group. Rules are created as L1 constructs
+        within this stack to avoid circular cross-stack references (since
+        ServicesStack depends on DatabaseStack, the proxy SG's L2 add_ingress_rule
+        would create a reverse reference back to ServicesStack).
+
+        Args:
+            proxy_security_group: RDS Proxy security group to allow connections to
+        """
+        service_sgs = {
+            "Validator": self.validator_security_group,
+            "Reconciler": self.reconciler_security_group,
+            "Publisher": self.publisher_security_group,
+            "Recorder": self.recorder_security_group,
+            "Scraper": self.scraper_security_group,
+        }
+        for name, sg in service_sgs.items():
+            ec2.CfnSecurityGroupIngress(
+                self,
+                f"{name}ToProxyIngress",
+                group_id=proxy_security_group.security_group_id,
+                source_security_group_id=sg.security_group_id,
+                ip_protocol="tcp",
+                from_port=5432,
+                to_port=5432,
+                description=f"Allow {name.lower()} to connect to RDS Proxy",
+            )
 
     def _create_service(
         self,
@@ -169,6 +214,7 @@ class ServicesStack(Stack):
         vpc: ec2.IVpc,
         environment: dict[str, str] | None = None,
         secrets: dict[str, ecs.Secret] | None = None,
+        command: list[str] | None = None,
     ) -> tuple[ecs.FargateService, ec2.ISecurityGroup, iam.IRole]:
         """Create a Fargate service.
 
@@ -182,6 +228,7 @@ class ServicesStack(Stack):
             vpc: VPC for service
             environment: Environment variables for the container
             secrets: Secrets for the container
+            command: Container command override (bypasses entrypoint)
 
         Returns:
             Tuple of (Fargate service, security group, task role)
@@ -216,18 +263,31 @@ class ServicesStack(Stack):
         if environment:
             env_vars.update(environment)
 
-        # Add container
-        task_definition.add_container(
-            f"{name.title()}Container",
-            image=ecs.ContainerImage.from_registry(
-                f"pantry-pirate-radio-{name}:latest"
-            ),
-            logging=ecs.LogDrivers.aws_logs(
+        # Add container with ECR image
+        if name in self.ecr_repositories:
+            image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repositories[name], tag="latest"
+            )
+        else:
+            ecr_image = (
+                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
+                f"pantry-pirate-radio-{name}-{self.environment_name}:latest"
+            )
+            image = ecs.ContainerImage.from_registry(ecr_image)
+        container_props: dict = {
+            "image": image,
+            "logging": ecs.LogDrivers.aws_logs(
                 stream_prefix=name,
                 log_group=log_group,
             ),
-            environment=env_vars,
-            secrets=secrets or {},
+            "environment": env_vars,
+            "secrets": secrets or {},
+        }
+        if command:
+            container_props["command"] = command
+        task_definition.add_container(
+            f"{name.title()}Container",
+            **container_props,
         )
 
         # Create security group for service
@@ -300,13 +360,21 @@ class ServicesStack(Stack):
         scraper_env = self._get_scraper_environment()
         scraper_secrets = self._get_scraper_secrets()
 
-        # Add container
+        # Add container with ECR image
         # SCRAPER_NAME will be overridden at runtime by Step Functions
+        if "scraper" in self.ecr_repositories:
+            scraper_image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repositories["scraper"], tag="latest"
+            )
+        else:
+            ecr_image = (
+                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
+                f"pantry-pirate-radio-scraper-{self.environment_name}:latest"
+            )
+            scraper_image = ecs.ContainerImage.from_registry(ecr_image)
         task_definition.add_container(
             "ScraperContainer",
-            image=ecs.ContainerImage.from_registry(
-                "pantry-pirate-radio-scraper:latest"
-            ),
+            image=scraper_image,
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="scraper",
                 log_group=log_group,
@@ -434,10 +502,13 @@ class ServicesStack(Stack):
         """Get environment variables for the Scraper tasks."""
         env = {
             "ENVIRONMENT": self.environment_name,
+            "SERVICE_TYPE": "scraper",
             "SERVICE_NAME": "scraper",
             "SCRAPER_NAME": "placeholder",  # Overridden at runtime by Step Functions
             "QUEUE_BACKEND": "sqs",
             "CONTENT_STORE_BACKEND": "s3",
+            "CONTENT_STORE_ENABLED": "true",
+            "CONTENT_STORE_PATH": "/tmp/content_store",
         }
         if self.config.database_host:
             env["DATABASE_HOST"] = self.config.database_host
@@ -447,6 +518,9 @@ class ServicesStack(Stack):
             env["DATABASE_USER"] = self.config.database_user
         if self.config.queue_urls.get("llm"):
             env["LLM_QUEUE_URL"] = self.config.queue_urls["llm"]
+            env["SQS_QUEUE_URL"] = self.config.queue_urls["llm"]
+        if self.config.jobs_table_name:
+            env["SQS_JOBS_TABLE"] = self.config.jobs_table_name
         if self.config.content_bucket_name:
             env["CONTENT_STORE_S3_BUCKET"] = self.config.content_bucket_name
         if self.config.content_index_table_name:

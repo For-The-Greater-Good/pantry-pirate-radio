@@ -1,7 +1,8 @@
-"""Job processor for RQ."""
+"""Job processor for RQ and SQS backends."""
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator, Coroutine
 from datetime import datetime
 from typing import Any, cast
@@ -10,9 +11,13 @@ from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.models import JobResult, JobStatus, LLMJob
-from app.llm.queue.queues import reconciler_queue, recorder_queue, llm_queue
 
 logger = logging.getLogger(__name__)
+
+
+def _is_sqs_backend() -> bool:
+    """Check if the queue backend is SQS."""
+    return os.environ.get("QUEUE_BACKEND", "redis").lower() == "sqs"
 
 
 def get_next_queue(current_queue: str) -> str:
@@ -47,12 +52,30 @@ def should_use_validator() -> bool:
 def enqueue_to_validator(job_result: JobResult) -> str:
     """Enqueue job to validator queue.
 
+    Uses SQS when QUEUE_BACKEND=sqs, otherwise falls back to RQ.
+
     Args:
         job_result: Job result to enqueue
 
     Returns:
-        Job ID
+        Job ID or SQS message ID
     """
+    if _is_sqs_backend():
+        from app.pipeline.sqs_sender import send_to_sqs
+
+        queue_url = os.environ.get("VALIDATOR_QUEUE_URL", "")
+        scraper_id = "default"
+        if job_result.job and job_result.job.metadata:
+            scraper_id = job_result.job.metadata.get("scraper_id", "default")
+
+        return send_to_sqs(
+            queue_url=queue_url,
+            message_body=job_result.model_dump(mode="json"),
+            message_group_id=scraper_id,
+            deduplication_id=job_result.job_id,
+            source="llm-worker",
+        )
+
     from app.validator.queues import get_validator_queue
 
     validator_queue = get_validator_queue()
@@ -232,15 +255,33 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         else:
             # Route directly to reconciler (backward compatibility)
             try:
-                reconciler_job = reconciler_queue.enqueue_call(
-                    func="app.reconciler.job_processor.process_job_result",
-                    args=(job_result,),
-                    result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                    failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-                )
-                logger.info(
-                    f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
-                )
+                if _is_sqs_backend():
+                    from app.pipeline.sqs_sender import send_to_sqs
+
+                    reconciler_url = os.environ.get("RECONCILER_QUEUE_URL", "")
+                    scraper_id = job.metadata.get("scraper_id", "default")
+                    msg_id = send_to_sqs(
+                        queue_url=reconciler_url,
+                        message_body=job_result.model_dump(mode="json"),
+                        message_group_id=scraper_id,
+                        deduplication_id=job.id,
+                        source="llm-worker",
+                    )
+                    logger.info(
+                        f"Successfully sent reconciler SQS message {msg_id} for LLM job {job.id}"
+                    )
+                else:
+                    from app.llm.queue.queues import reconciler_queue
+
+                    reconciler_job = reconciler_queue.enqueue_call(
+                        func="app.reconciler.job_processor.process_job_result",
+                        args=(job_result,),
+                        result_ttl=settings.REDIS_TTL_SECONDS,
+                        failure_ttl=settings.REDIS_TTL_SECONDS,
+                    )
+                    logger.info(
+                        f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
+                    )
             except Exception as e:
                 logger.error(
                     f"Failed to enqueue reconciler job for LLM job {job.id}: {e}"
@@ -248,23 +289,39 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 # Re-raise to ensure the LLM job fails and can be retried
                 raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
 
+        recorder_data = {
+            "job_id": job.id,
+            "job": job.model_dump(),
+            "result": llm_result,
+            "error": None,
+        }
         try:
-            recorder_job = recorder_queue.enqueue_call(
-                func="app.recorder.utils.record_result",
-                args=(
-                    {
-                        "job_id": job.id,
-                        "job": job.model_dump(),
-                        "result": llm_result,
-                        "error": None,
-                    },
-                ),
-                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-            )
-            logger.info(
-                f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
-            )
+            if _is_sqs_backend():
+                from app.pipeline.sqs_sender import send_to_sqs
+
+                recorder_url = os.environ.get("RECORDER_QUEUE_URL", "")
+                scraper_id = job.metadata.get("scraper_id", "default")
+                msg_id = send_to_sqs(
+                    queue_url=recorder_url,
+                    message_body=recorder_data,
+                    message_group_id=scraper_id,
+                    source="llm-worker",
+                )
+                logger.info(
+                    f"Successfully sent recorder SQS message {msg_id} for LLM job {job.id}"
+                )
+            else:
+                from app.llm.queue.queues import recorder_queue
+
+                recorder_job = recorder_queue.enqueue_call(
+                    func="app.recorder.utils.record_result",
+                    args=(recorder_data,),
+                    result_ttl=settings.REDIS_TTL_SECONDS,
+                    failure_ttl=settings.REDIS_TTL_SECONDS,
+                )
+                logger.info(
+                    f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
+                )
         except Exception as e:
             # Log error but don't fail the job - recording is optional
             logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
@@ -288,11 +345,13 @@ def handle_claude_errors(e: Exception, job: LLMJob) -> None:
         )
 
         if isinstance(e, ClaudeNotAuthenticatedException):
-            # Update auth state in Redis
-            from app.llm.queue.auth_state import AuthStateManager
+            # Update auth state in Redis (only available with Redis backend)
+            if not _is_sqs_backend():
+                from app.llm.queue.auth_state import AuthStateManager
+                from app.llm.queue.queues import llm_queue
 
-            auth_manager = AuthStateManager(llm_queue.connection)
-            auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
+                auth_manager = AuthStateManager(llm_queue.connection)
+                auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
 
             logger.error(
                 f"Claude authentication failed: {e}. "
@@ -302,11 +361,13 @@ def handle_claude_errors(e: Exception, job: LLMJob) -> None:
             raise
 
         elif isinstance(e, ClaudeQuotaExceededException):
-            # Update quota state in Redis
-            from app.llm.queue.auth_state import AuthStateManager
+            # Update quota state in Redis (only available with Redis backend)
+            if not _is_sqs_backend():
+                from app.llm.queue.auth_state import AuthStateManager
+                from app.llm.queue.queues import llm_queue
 
-            auth_manager = AuthStateManager(llm_queue.connection)
-            auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
+                auth_manager = AuthStateManager(llm_queue.connection)
+                auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
 
             logger.error(
                 f"Claude quota exceeded: {e}. " f"Worker will pause job processing."

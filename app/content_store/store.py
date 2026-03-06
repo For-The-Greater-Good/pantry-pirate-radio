@@ -31,14 +31,14 @@ class ContentStore:
     def __init__(
         self,
         store_path: Optional[Path] = None,
-        redis_url: str = "redis://cache:6379",
+        redis_url: Optional[str] = "redis://cache:6379",
         backend: Optional[ContentStoreBackend] = None,
     ):
         """Initialize content store.
 
         Args:
             store_path: Base path for content store (backward compat, creates FileBackend)
-            redis_url: Redis connection URL for checking job status
+            redis_url: Redis connection URL for checking job status (None to skip Redis)
             backend: Storage backend (if None, FileContentStoreBackend is created from store_path)
 
         Raises:
@@ -52,7 +52,10 @@ class ContentStore:
         else:
             raise ValueError("Either store_path or backend must be provided")
 
-        self.redis_conn = redis.from_url(redis_url)
+        if redis_url:
+            self.redis_conn = redis.from_url(redis_url)
+        else:
+            self.redis_conn = None
 
     @property
     def backend(self) -> ContentStoreBackend:
@@ -89,6 +92,10 @@ class ContentStore:
         Returns:
             True if job is queued or running, False otherwise
         """
+        if self.redis_conn is None:
+            # Without Redis (SQS mode), can't check RQ job status.
+            # Return False to allow reprocessing (SQS has its own dedup).
+            return False
         try:
             job = Job.fetch(job_id, connection=self.redis_conn)
             status = job.get_status()

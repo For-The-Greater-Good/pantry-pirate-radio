@@ -71,30 +71,27 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push API image
+      - name: Build unified Docker image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
-          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
         run: |
-          docker build -t $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:$IMAGE_TAG \
-                     $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:latest
-          docker push $ECR_REGISTRY/pantry-pirate-radio-api-$ENVIRONMENT:latest
+          docker build -t pantry-pirate-radio-unified:$IMAGE_TAG \
+                 --target unified \
+                 -f .docker/images/app/Dockerfile .
 
-      - name: Build and push Worker image
+      - name: Tag and push to all ECR repos
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
           ENVIRONMENT: ${{ inputs.environment || 'dev' }}
         run: |
-          docker build -t $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:$IMAGE_TAG \
-                 --target worker .
-          docker push $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:$IMAGE_TAG \
-                     $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:latest
-          docker push $ECR_REGISTRY/pantry-pirate-radio-worker-$ENVIRONMENT:latest
+          for svc in worker validator reconciler recorder scraper; do
+            ECR_REPO="$ECR_REGISTRY/pantry-pirate-radio-${svc}-$ENVIRONMENT"
+            docker tag pantry-pirate-radio-unified:$IMAGE_TAG ${ECR_REPO}:${IMAGE_TAG}
+            docker push ${ECR_REPO}:${IMAGE_TAG}
+            docker tag pantry-pirate-radio-unified:$IMAGE_TAG ${ECR_REPO}:latest
+            docker push ${ECR_REPO}:latest
+          done
 
   deploy-infrastructure:
     name: Deploy CDK Infrastructure
@@ -149,28 +146,18 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Update API service
+      - name: Update all ECS services
         env:
           ENVIRONMENT: ${{ inputs.environment || 'dev' }}
         run: |
-          aws ecs update-service \
-            --cluster pantry-pirate-radio-$ENVIRONMENT \
-            --service pantry-pirate-radio-api-$ENVIRONMENT \
-            --force-new-deployment
+          CLUSTER="pantry-pirate-radio-$ENVIRONMENT"
+          for svc in worker validator reconciler recorder; do
+            SERVICE="pantry-pirate-radio-${svc}-$ENVIRONMENT"
+            echo "Redeploying $SERVICE..."
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$SERVICE" \
+              --force-new-deployment \
+              --no-cli-pager || echo "Warning: Could not redeploy $SERVICE (may not exist yet)"
+          done
 
-      - name: Update Worker service
-        env:
-          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-        run: |
-          aws ecs update-service \
-            --cluster pantry-pirate-radio-$ENVIRONMENT \
-            --service pantry-pirate-radio-worker-$ENVIRONMENT \
-            --force-new-deployment
-
-      - name: Wait for API service stability
-        env:
-          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-        run: |
-          aws ecs wait services-stable \
-            --cluster pantry-pirate-radio-$ENVIRONMENT \
-            --services pantry-pirate-radio-api-$ENVIRONMENT

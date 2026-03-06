@@ -7,6 +7,7 @@ from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 
 from stacks.api_stack import APIStack
+from stacks.ecr_stack import ECRStack
 
 
 class TestAPIStackResources:
@@ -312,3 +313,78 @@ class TestAPIStackAttributes:
     def test_environment_name_stored(self, api_stack):
         """Stack should store environment name."""
         assert api_stack.environment_name == "dev"
+
+
+class TestAPIStackWithECRRepository:
+    """Tests for APIStack with ECR repository object."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def vpc_stack(self, app):
+        """Create a VPC stack for testing."""
+        stack = cdk.Stack(app, "VPCStack5", env=cdk.Environment(
+            account="123456789012", region="us-east-1"
+        ))
+        vpc = ec2.Vpc(stack, "VPC", max_azs=2)
+        return stack, vpc
+
+    @pytest.fixture
+    def cluster(self, vpc_stack):
+        """Create ECS cluster for testing."""
+        stack, vpc = vpc_stack
+        return ecs.Cluster(stack, "Cluster", vpc=vpc)
+
+    @pytest.fixture
+    def ecr_stack(self, app):
+        """Create ECR stack for repository objects."""
+        return ECRStack(
+            app, "ECRTestStack", environment_name="dev",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+
+    def test_creates_with_ecr_repository(self, app, vpc_stack, cluster, ecr_stack):
+        """APIStack should accept ECR repository object."""
+        stack, vpc = vpc_stack
+        api_stack = APIStack(
+            app,
+            "ECRAPIStack",
+            vpc=vpc,
+            cluster=cluster,
+            environment_name="dev",
+            ecr_repository=ecr_stack.repositories["app"],
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        assert api_stack.api_service is not None
+
+    def test_ecr_repo_auto_grants_pull_permissions(self, app, vpc_stack, cluster, ecr_stack):
+        """Using ECR repo object should auto-grant image pull permissions."""
+        stack, vpc = vpc_stack
+        api_stack = APIStack(
+            app,
+            "ECRPermAPIStack",
+            vpc=vpc,
+            cluster=cluster,
+            environment_name="dev",
+            ecr_repository=ecr_stack.repositories["app"],
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        template = assertions.Template.from_stack(api_stack)
+        template.has_resource_properties(
+            "AWS::IAM::Policy",
+            {
+                "PolicyDocument": assertions.Match.object_like({
+                    "Statement": assertions.Match.array_with([
+                        assertions.Match.object_like({
+                            "Action": assertions.Match.array_with([
+                                "ecr:BatchCheckLayerAvailability",
+                            ]),
+                            "Effect": "Allow",
+                        })
+                    ])
+                })
+            },
+        )
