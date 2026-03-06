@@ -357,9 +357,12 @@ def handler(event, context):
             entry_point=["/bin/bash", "-c"],
             command=[
                 "echo 'Starting database initialization...' && "
+                "echo 'Dropping and recreating public schema for clean init...' && "
+                "psql -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS postgis;' && "
                 "for f in /app/init-scripts/*.sql; do "
                 "echo \"Running $f...\"; "
-                "psql -v ON_ERROR_STOP=1 < \"$f\" || "
+                "sed 's/OWNER TO postgres/OWNER TO '\"$PGUSER\"'/g' \"$f\" | "
+                "psql -v ON_ERROR_STOP=1 || "
                 "{ echo \"ERROR: $f failed\"; exit 1; }; "
                 "done && "
                 "echo 'Database initialization complete!'"

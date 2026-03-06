@@ -77,7 +77,7 @@ class GeocodingEnricher:
                 # Test connection
                 self.redis_client.ping()
                 logger.debug("Redis connection established for geocoding cache")
-            except (redis.ConnectionError, redis.TimeoutError) as e:
+            except (redis.ConnectionError, redis.TimeoutError, OSError, Exception) as e:
                 logger.warning(f"Redis not available for caching: {e}")
                 self.redis_client = None
 

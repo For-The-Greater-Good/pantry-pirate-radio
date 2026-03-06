@@ -163,6 +163,22 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
+    def build_database_url_from_components(self) -> "Settings":
+        """Build DATABASE_URL from individual env vars if DATABASE_HOST is set."""
+        import os
+
+        db_host = os.environ.get("DATABASE_HOST")
+        if db_host and "localhost" in self.DATABASE_URL:
+            db_name = os.environ.get("DATABASE_NAME", "pantry_pirate_radio")
+            db_user = os.environ.get("DATABASE_USER", "postgres")
+            db_password = os.environ.get("DATABASE_PASSWORD", "")
+            db_port = os.environ.get("DATABASE_PORT", "5432")
+            self.DATABASE_URL = (
+                f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_origins(self) -> "Settings":
         """Validate CORS origins."""
         if self.cors_origins == ["*"]:

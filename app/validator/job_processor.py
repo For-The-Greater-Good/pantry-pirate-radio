@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.llm.queue.models import JobResult, JobStatus
 from app.validator.base import ValidationService
-from app.validator.queues import setup_validator_queues
 
 
 # Configure logging based on environment variables

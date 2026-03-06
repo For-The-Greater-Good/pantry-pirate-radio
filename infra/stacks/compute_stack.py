@@ -208,9 +208,22 @@ class ComputeStack(Stack):
                     "bedrock:InvokeModelWithResponseStream",
                 ],
                 resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-*",
-                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
+                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+                    "arn:aws:bedrock:*::foundation-model/amazon.titan-*",
+                    f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/us.anthropic.*",
                 ],
+            )
+        )
+
+        # Marketplace permissions for first-time Bedrock model activation
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "aws-marketplace:ViewSubscriptions",
+                    "aws-marketplace:Subscribe",
+                ],
+                resources=["*"],
             )
         )
 
@@ -277,6 +290,7 @@ class ComputeStack(Stack):
                     "ENVIRONMENT": self.environment_name,
                     "QUEUE_BACKEND": "sqs",
                     "LLM_PROVIDER": "bedrock",
+                    "LLM_MODEL_NAME": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
                     "SQS_QUEUE_URL": self.llm_queue_url,
                     "SQS_JOBS_TABLE": self.sqs_jobs_table_name,
                     "VALIDATOR_QUEUE_URL": self.validator_queue_url,

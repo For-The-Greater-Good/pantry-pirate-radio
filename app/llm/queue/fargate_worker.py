@@ -12,7 +12,7 @@ Usage:
         SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123/my-queue
         SQS_JOBS_TABLE=my-jobs-table
         LLM_PROVIDER=bedrock
-        LLM_MODEL_NAME=anthropic.claude-sonnet-4-x
+        LLM_MODEL_NAME=us.anthropic.claude-haiku-4-5-20251001-v1:0
 
     Then run:
         python -m app.llm.queue.fargate_worker
@@ -70,7 +70,7 @@ class FargateWorker:
         # to avoid importing app.core.events which pulls in Redis)
         llm_provider = os.environ.get("LLM_PROVIDER", "bedrock")
         llm_model = os.environ.get(
-            "LLM_MODEL_NAME", "anthropic.claude-sonnet-4-20250514"
+            "LLM_MODEL_NAME", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         )
         llm_temperature = float(os.environ.get("LLM_TEMPERATURE", "0.1"))
         llm_max_tokens_str = os.environ.get("LLM_MAX_TOKENS")
