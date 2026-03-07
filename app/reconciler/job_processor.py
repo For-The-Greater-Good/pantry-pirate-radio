@@ -1346,6 +1346,46 @@ class JobProcessor:
                                             if not exists:
                                                 schedules_to_create.append(loc_schedule)
 
+                                    # Add schedules from LLM service_at_location entries
+                                    # The LLM often nests schedules inside service_at_location objects
+                                    if "service_at_location" in data:
+                                        for sal_entry in data["service_at_location"]:
+                                            if "schedules" not in sal_entry:
+                                                continue
+                                            for sal_schedule in sal_entry["schedules"]:
+                                                transformed_sched = (
+                                                    self._transform_schedule(
+                                                        sal_schedule
+                                                    )
+                                                )
+                                                if not transformed_sched:
+                                                    continue
+                                                # Deduplicate against already collected schedules
+                                                exists = False
+                                                for existing in schedules_to_create:
+                                                    if (
+                                                        existing["freq"]
+                                                        == transformed_sched["freq"]
+                                                        and existing["wkst"]
+                                                        == transformed_sched["wkst"]
+                                                        and existing["opens_at"]
+                                                        == transformed_sched["opens_at"]
+                                                        and existing["closes_at"]
+                                                        == transformed_sched[
+                                                            "closes_at"
+                                                        ]
+                                                        and existing.get("byday")
+                                                        == transformed_sched.get(
+                                                            "byday"
+                                                        )
+                                                    ):
+                                                        exists = True
+                                                        break
+                                                if not exists:
+                                                    schedules_to_create.append(
+                                                        transformed_sched
+                                                    )
+
                                     # Create or update schedules for this service_at_location
                                     for schedule in schedules_to_create:
                                         # Get byday from the schedule data if available
