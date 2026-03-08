@@ -29,9 +29,7 @@ class TestValidationJobProcessor:
                 ) as mock_process:
                     mock_process.return_value = {"status": "validated"}
 
-                    with patch(
-                        "app.llm.queue.queues.reconciler_queue"
-                    ) as mock_queue:
+                    with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
                         mock_queue.enqueue_call.return_value = MagicMock(
                             id="mock-reconciler-job"
                         )

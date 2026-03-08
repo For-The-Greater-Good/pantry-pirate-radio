@@ -59,6 +59,8 @@ id_ed25519*
 *api_key*
 *apikey*
 *secret*
+!infra/stacks/secrets_stack.py
+!infra/tests/test_secrets_stack.py
 *.secret
 secrets/
 credentials/

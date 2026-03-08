@@ -18,9 +18,7 @@ def _has_api_key() -> bool:
     return bool(key)
 
 
-@pytest.mark.skipif(
-    not _has_api_key(), reason="OpenRouter API key not available"
-)
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_pattern_enforcement_in_structured_output():
     """Test that pattern constraints are enforced when generating with real API."""
@@ -192,9 +190,7 @@ async def test_pattern_enforcement_in_structured_output():
     print(f"Date: {schedule['date']} (YYYY-MM-DD)")
 
 
-@pytest.mark.skipif(
-    not _has_api_key(), reason="OpenRouter API key not available"
-)
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_pattern_rejection_of_invalid_formats():
     """Test that the LLM correctly formats data to match patterns, not that it rejects."""

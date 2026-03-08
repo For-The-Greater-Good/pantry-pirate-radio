@@ -19,9 +19,7 @@ def _has_api_key() -> bool:
     return bool(key)
 
 
-@pytest.mark.skipif(
-    not _has_api_key(), reason="OpenRouter API key not available"
-)
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_openai_structured_output_real_api():
     """Test native structured output with real OpenRouter API."""
@@ -99,9 +97,7 @@ async def test_openai_structured_output_real_api():
     print(f"\nReceived structured output: {response.parsed}")
 
 
-@pytest.mark.skipif(
-    not _has_api_key(), reason="OpenRouter API key not available"
-)
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_openai_without_structured_output():
     """Test that regular generation still works without structured output."""
@@ -132,9 +128,7 @@ async def test_openai_without_structured_output():
     print(f"\nReceived text response: {response.text}")
 
 
-@pytest.mark.skipif(
-    not _has_api_key(), reason="OpenRouter API key not available"
-)
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_shortened_prompt_with_structured_output():
     """Test that our shortened prompts work with real API."""
