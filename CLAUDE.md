@@ -512,6 +512,8 @@ open htmlcov/index.html                  # View HTML report
 ./bouy deploy dev --infra-only       # CDK deploy only (assumes images exist)
 ./bouy deploy dev --images-only      # Build and push Docker images only
 ./bouy deploy dev --destroy          # Tear down all stacks
+./bouy deploy dev --infra-only --stack BatchStack  # Deploy single stack
+./bouy deploy dev --diff --stack ComputeStack      # Diff single stack
 ```
 
 **Daily SQLite Publisher (AWS)**:

@@ -171,6 +171,7 @@ usage() {
     echo "  deploy [env] --infra-only   CDK deploy only (assumes images exist)"
     echo "  deploy [env] --diff         Show CDK diff without deploying"
     echo "  deploy [env] --destroy      Tear down all stacks"
+    echo "  deploy [env] --stack NAME   Target specific stack (repeatable)"
     echo ""
     echo "Scraper test options:"
     echo "  scraper-test --all     Test all scrapers (dry run)"
@@ -2073,8 +2074,23 @@ print(json.dumps(l))
 
         # Parse deploy flags
         DEPLOY_MODE="full"
+        DEPLOY_STACKS=""
         while [[ $# -gt 0 ]]; do
             case $1 in
+                --stack)
+                    shift
+                    if [[ -z "${1:-}" ]]; then
+                        output error "--stack requires a stack name"
+                        exit 1
+                    fi
+                    # Auto-append env suffix if not present
+                    if [[ "$1" == *-${DEPLOY_ENV} ]]; then
+                        DEPLOY_STACKS="$DEPLOY_STACKS $1"
+                    else
+                        DEPLOY_STACKS="$DEPLOY_STACKS ${1}-${DEPLOY_ENV}"
+                    fi
+                    shift
+                    ;;
                 --images-only)
                     DEPLOY_MODE="images"
                     shift
@@ -2101,6 +2117,7 @@ print(json.dumps(l))
                     echo "  --infra-only     CDK deploy only (assumes images exist)"
                     echo "  --diff           Show CDK diff without deploying"
                     echo "  --destroy        Tear down all stacks"
+                    echo "  --stack NAME     Target specific stack (repeatable, auto-appends -env)"
                     exit 1
                     ;;
             esac
@@ -2165,6 +2182,15 @@ print(json.dumps(l))
                 -e AWS_SESSION_TOKEN="$CDK_AWS_SESSION_TOKEN" \
                 -e AWS_DEFAULT_REGION="$AWS_REGION" \
                 "$CDK_IMAGE" cdk "$@"
+        }
+
+        # Helper: resolve CDK target args (specific stacks or --all)
+        cdk_target_args() {
+            if [ -n "$DEPLOY_STACKS" ]; then
+                echo "$DEPLOY_STACKS"
+            else
+                echo "--all"
+            fi
         }
 
         # Helper: build unified Docker image
@@ -2254,7 +2280,7 @@ print(json.dumps(l))
         case "$DEPLOY_MODE" in
             diff)
                 output info "Running CDK diff..."
-                run_cdk diff --all
+                run_cdk diff $(cdk_target_args)
                 ;;
             destroy)
                 output warning "This will destroy all stacks in $DEPLOY_ENV!"
@@ -2264,7 +2290,7 @@ print(json.dumps(l))
                     exit 0
                 fi
                 output info "Destroying all stacks..."
-                run_cdk destroy --all --force
+                run_cdk destroy $(cdk_target_args) --force
 
                 # Clean up orphaned CloudWatch Log Groups
                 # AWS auto-creates log groups (Container Insights, Lambda, RDS Proxy)
@@ -2316,7 +2342,7 @@ print(json.dumps(l))
                 ;;
             infra)
                 output info "Deploying CDK stacks..."
-                if ! run_cdk deploy --all --require-approval never; then
+                if ! run_cdk deploy $(cdk_target_args) --require-approval never; then
                     output error "CDK deployment failed"
                     exit 1
                 fi
@@ -2339,7 +2365,7 @@ print(json.dumps(l))
 
                 # Phase 3: Deploy all remaining stacks (ECS services will find images)
                 output info "Phase 3: Deploying all CDK stacks..."
-                if ! run_cdk deploy --all --require-approval never; then
+                if ! run_cdk deploy $(cdk_target_args) --require-approval never; then
                     output error "CDK deployment failed"
                     exit 1
                 fi
