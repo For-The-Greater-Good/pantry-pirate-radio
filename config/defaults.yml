@@ -1,0 +1,41 @@
+# Shared Pipeline Configuration
+# Single source of truth for values that must be identical across
+# local Docker (./bouy up) and AWS deployments.
+#
+# Consumed by:
+#   - app/core/config.py (app runtime defaults)
+#   - infra/shared_config.py (CDK stack environment variables)
+#
+# Environment variables ALWAYS override these defaults.
+# Sensitive values MUST NOT go here — use .env or AWS SM.
+
+llm:
+  temperature: 0.7
+  max_tokens: 64768
+  timeout: 30
+  retries: 3
+
+validation:
+  enabled: true
+  rejection_threshold: 10
+
+enrichment:
+  enabled: true
+  cache_ttl: 86400
+  timeout: 30
+  geocoding_providers:
+    - arcgis
+    - nominatim
+    - census
+
+geocoding:
+  provider: arcgis
+  enable_fallback: true
+  max_retries: 3
+  timeout: 10
+
+content_store:
+  enabled: true
+
+reconciler:
+  location_tolerance: 0.0001

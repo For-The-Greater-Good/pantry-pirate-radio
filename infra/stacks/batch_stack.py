@@ -21,6 +21,7 @@ from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
+from shared_config import SHARED
 
 
 class BatchInferenceStack(Stack):
@@ -252,14 +253,15 @@ class BatchInferenceStack(Stack):
             ),
             timeout=Duration.seconds(300),
             memory_size=512,
+            tracing=_lambda.Tracing.ACTIVE,
             environment={
                 "STAGING_QUEUE_URL": self.staging_queue.queue_url,
                 "LLM_QUEUE_URL": llm_queue.queue_url,
                 "BATCH_BUCKET": self.batch_bucket.bucket_name,
                 "BEDROCK_MODEL_ID": bedrock_model_id,
                 "BEDROCK_SERVICE_ROLE_ARN": self.bedrock_service_role.role_arn,
-                "LLM_TEMPERATURE": "0.7",
-                "LLM_MAX_TOKENS": "8192",
+                "LLM_TEMPERATURE": SHARED["LLM_TEMPERATURE"],
+                "LLM_MAX_TOKENS": SHARED["LLM_MAX_TOKENS"],
                 "SQS_JOBS_TABLE": jobs_table.table_name,
                 "BATCH_THRESHOLD": str(batch_threshold),
             },
@@ -320,6 +322,7 @@ class BatchInferenceStack(Stack):
             ),
             timeout=Duration.seconds(900),
             memory_size=1024,
+            tracing=_lambda.Tracing.ACTIVE,
             dead_letter_queue_enabled=True,
             dead_letter_queue=result_processor_dlq,
             environment={
@@ -328,7 +331,7 @@ class BatchInferenceStack(Stack):
                 "RECONCILER_QUEUE_URL": reconciler_queue.queue_url,
                 "RECORDER_QUEUE_URL": recorder_queue.queue_url,
                 "LLM_QUEUE_URL": llm_queue.queue_url,
-                "VALIDATOR_ENABLED": "true",
+                "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
                 "SQS_JOBS_TABLE": jobs_table.table_name,
                 "BEDROCK_MODEL_ID": bedrock_model_id,
             },

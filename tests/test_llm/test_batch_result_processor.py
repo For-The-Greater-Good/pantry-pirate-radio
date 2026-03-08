@@ -121,7 +121,9 @@ class TestCompletedRouting:
         def s3_get_object(**kwargs):
             key = kwargs.get("Key", "")
             if "original_jobs" in key:
-                return {"Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())}
+                return {
+                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
+                }
             return {"Body": MagicMock(read=lambda: json.dumps(output_record).encode())}
 
         mock_s3.get_object.side_effect = s3_get_object
@@ -180,7 +182,9 @@ class TestCompletedRouting:
         def s3_get_object(**kwargs):
             key = kwargs.get("Key", "")
             if "original_jobs" in key:
-                return {"Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())}
+                return {
+                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
+                }
             return {"Body": MagicMock(read=lambda: json.dumps(output_record).encode())}
 
         mock_s3.get_object.side_effect = s3_get_object
@@ -236,7 +240,9 @@ class TestCompletedRouting:
         def s3_get_object(**kwargs):
             key = kwargs.get("Key", "")
             if "original_jobs" in key:
-                return {"Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())}
+                return {
+                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
+                }
             return {"Body": MagicMock(read=lambda: json.dumps(output_record).encode())}
 
         mock_s3.get_object.side_effect = s3_get_object
@@ -350,7 +356,9 @@ class TestFailureHandling:
         def s3_get_object(**kwargs):
             key = kwargs.get("Key", "")
             if "original_jobs" in key:
-                return {"Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())}
+                return {
+                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
+                }
             return {"Body": MagicMock(read=lambda: jsonl_output.encode())}
 
         mock_s3.get_object.side_effect = s3_get_object

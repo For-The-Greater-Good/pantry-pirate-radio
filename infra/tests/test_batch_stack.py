@@ -168,6 +168,59 @@ class TestBatchInferenceStackResources:
                     )
 
 
+class TestBatchInferenceStackTracing:
+    """Tests for X-Ray tracing on batch Lambdas."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def template(self, app):
+        storage = StorageStack(app, "TracingStorageStack", environment_name="dev")
+        queues = QueueStack(app, "TracingQueueStack", environment_name="dev")
+        compute = ComputeStack(app, "TracingComputeStack", environment_name="dev")
+        ecr = ECRStack(app, "TracingECRStack", environment_name="dev")
+        stack = BatchInferenceStack(
+            app,
+            "TracingBatchStack",
+            environment_name="dev",
+            content_bucket=storage.content_bucket,
+            jobs_table=storage.jobs_table,
+            llm_queue=queues.llm_queue,
+            validator_queue=queues.validator_queue,
+            reconciler_queue=queues.reconciler_queue,
+            recorder_queue=queues.recorder_queue,
+            vpc=compute.vpc,
+            ecr_repository=ecr.repositories.get("batch-lambda"),
+        )
+        return assertions.Template.from_stack(stack)
+
+    def test_batcher_lambda_has_xray_tracing(self, template):
+        """Batcher Lambda should have X-Ray tracing enabled."""
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "PackageType": "Image",
+                "Timeout": 300,
+                "MemorySize": 512,
+                "TracingConfig": {"Mode": "Active"},
+            },
+        )
+
+    def test_result_processor_lambda_has_xray_tracing(self, template):
+        """Result Processor Lambda should have X-Ray tracing enabled."""
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "PackageType": "Image",
+                "Timeout": 900,
+                "MemorySize": 1024,
+                "TracingConfig": {"Mode": "Active"},
+            },
+        )
+
+
 class TestBatchInferenceStackAttributes:
     """Tests for stack attributes."""
 

@@ -284,6 +284,7 @@ class PipelineStack(Stack):
                 json.dumps(definition)
             ),
             timeout=Duration.hours(4),
+            tracing_enabled=True,
         )
 
         # Grant permissions for ECS task management

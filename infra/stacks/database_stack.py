@@ -7,6 +7,7 @@ and other services that need PostgreSQL access.
 from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
@@ -219,6 +220,18 @@ class DatabaseStack(Stack):
         deletion_protection = is_prod
         removal_policy = RemovalPolicy.RETAIN if is_prod else RemovalPolicy.DESTROY
 
+        # Enhanced Monitoring IAM role
+        monitoring_role = iam.Role(
+            self,
+            "AuroraMonitoringRole",
+            assumed_by=iam.ServicePrincipal("monitoring.rds.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AmazonRDSEnhancedMonitoringRole"
+                )
+            ],
+        )
+
         cluster = rds.DatabaseCluster(
             self,
             "AuroraCluster",
@@ -230,6 +243,8 @@ class DatabaseStack(Stack):
             writer=rds.ClusterInstance.serverless_v2(
                 "WriterInstance",
                 auto_minor_version_upgrade=True,
+                enable_performance_insights=True,
+                performance_insight_retention=rds.PerformanceInsightRetention.DEFAULT,
             ),
             serverless_v2_min_capacity=min_capacity,
             serverless_v2_max_capacity=max_capacity,
@@ -244,6 +259,9 @@ class DatabaseStack(Stack):
             deletion_protection=deletion_protection,
             removal_policy=removal_policy,
             storage_encrypted=True,
+            monitoring_interval=Duration.seconds(60),
+            monitoring_role=monitoring_role,
+            cloudwatch_logs_exports=["postgresql"],
         )
 
         return cluster

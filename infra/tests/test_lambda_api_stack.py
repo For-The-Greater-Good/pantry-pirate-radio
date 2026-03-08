@@ -109,6 +109,28 @@ class TestLambdaApiStackResources:
             },
         )
 
+    def test_stage_has_access_log_settings(self, template):
+        """Stage should have access log settings configured."""
+        template.has_resource_properties(
+            "AWS::ApiGatewayV2::Stage",
+            {
+                "AccessLogSettings": assertions.Match.object_like({
+                    "DestinationArn": assertions.Match.any_value(),
+                }),
+            },
+        )
+
+    def test_creates_access_log_group(self, template):
+        """Should create a CloudWatch log group for API Gateway access logs."""
+        template.has_resource_properties(
+            "AWS::Logs::LogGroup",
+            assertions.Match.object_like({
+                "LogGroupName": assertions.Match.string_like_regexp(
+                    "/aws/apigateway/pantry-pirate-radio-api-.*"
+                ),
+            }),
+        )
+
     def test_creates_lambda_integration(self, template):
         """Should create a Lambda integration with payload format 2.0."""
         template.has_resource_properties(

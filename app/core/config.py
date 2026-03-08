@@ -5,12 +5,37 @@ from typing import Any, Dict
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+try:
+    from config import load_defaults as _load_shared_defaults  # type: ignore[attr-defined]
+
+    _SHARED = _load_shared_defaults()
+except Exception:
+    _SHARED = {
+        "LLM_TEMPERATURE": 0.7,
+        "LLM_MAX_TOKENS": 64768,
+        "LLM_TIMEOUT": 30,
+        "LLM_RETRIES": 3,
+        "VALIDATOR_ENABLED": True,
+        "VALIDATION_REJECTION_THRESHOLD": 10,
+        "VALIDATOR_ENRICHMENT_ENABLED": True,
+        "ENRICHMENT_CACHE_TTL": 86400,
+        "ENRICHMENT_TIMEOUT": 30,
+        "ENRICHMENT_GEOCODING_PROVIDERS": ["arcgis", "nominatim", "census"],
+        "GEOCODING_PROVIDER": "arcgis",
+        "GEOCODING_ENABLE_FALLBACK": True,
+        "GEOCODING_MAX_RETRIES": 3,
+        "GEOCODING_TIMEOUT": 10,
+        "CONTENT_STORE_ENABLED": True,
+        "RECONCILER_LOCATION_TOLERANCE": 0.0001,
+    }
+
 
 class Settings(BaseSettings):
     """
     Application settings.
 
     Environment variables will be loaded and validated using Pydantic.
+    Shared pipeline defaults are loaded from config/defaults.yml.
     """
 
     app_name: str = "Pantry Pirate Radio"
@@ -39,10 +64,10 @@ class Settings(BaseSettings):
     # LLM Settings
     LLM_PROVIDER: str = "openai"  # Default to openai
     LLM_MODEL_NAME: str = "gpt-4o-mini"
-    LLM_TEMPERATURE: float = 0.7
-    LLM_MAX_TOKENS: int | None = None
-    LLM_TIMEOUT: int = 30
-    LLM_RETRIES: int = 3
+    LLM_TEMPERATURE: float = _SHARED["LLM_TEMPERATURE"]
+    LLM_MAX_TOKENS: int = _SHARED["LLM_MAX_TOKENS"]
+    LLM_TIMEOUT: int = _SHARED["LLM_TIMEOUT"]
+    LLM_RETRIES: int = _SHARED["LLM_RETRIES"]
     LLM_WORKER_COUNT: int = 2
     LLM_QUEUE_KEY: str = "llm:jobs"
     LLM_CONSUMER_GROUP: str = "llm-workers"
@@ -62,7 +87,7 @@ class Settings(BaseSettings):
 
     # Reconciler Settings
     RECONCILER_LOCATION_TOLERANCE: float = Field(
-        default=0.0001,
+        default=_SHARED["RECONCILER_LOCATION_TOLERANCE"],
         description="Coordinate matching tolerance in degrees for location deduplication. "
         "0.0001 = ~11 meters (default, good for precise matching), "
         "0.001 = ~111 meters (looser matching for sparse areas), "
@@ -72,7 +97,7 @@ class Settings(BaseSettings):
     )
 
     # Validator Settings
-    VALIDATOR_ENABLED: bool = True  # Enable validator service by default
+    VALIDATOR_ENABLED: bool = _SHARED["VALIDATOR_ENABLED"]
     VALIDATOR_QUEUE_NAME: str = "validator"
     VALIDATOR_REDIS_TTL: int = 3600
     VALIDATOR_LOG_DATA_FLOW: bool = False
@@ -81,7 +106,7 @@ class Settings(BaseSettings):
 
     # Validation Rules Settings
     VALIDATION_REJECTION_THRESHOLD: int = Field(
-        default=10,
+        default=_SHARED["VALIDATION_REJECTION_THRESHOLD"],
         description="Confidence score below this threshold triggers rejection. "
         "Default of 10 filters out clearly invalid data (0,0 coords, missing data) "
         "while preserving borderline cases for review",
@@ -118,14 +143,14 @@ class Settings(BaseSettings):
     )
 
     # Enrichment Settings
-    VALIDATOR_ENRICHMENT_ENABLED: bool = True  # Enable geocoding enrichment
+    VALIDATOR_ENRICHMENT_ENABLED: bool = _SHARED["VALIDATOR_ENRICHMENT_ENABLED"]
     ENRICHMENT_GEOCODING_PROVIDERS: list[str] = Field(
-        default=["arcgis", "nominatim", "census"],
+        default=_SHARED["ENRICHMENT_GEOCODING_PROVIDERS"],
         description="Geocoding providers in priority order. ArcGIS is fastest and most reliable, "
         "Nominatim is open-source but rate-limited, Census is US government data.",
     )
-    ENRICHMENT_TIMEOUT: int = 30  # Global timeout for enrichment operations in seconds
-    ENRICHMENT_CACHE_TTL: int = 86400  # Cache TTL in seconds (24 hours default)
+    ENRICHMENT_TIMEOUT: int = _SHARED["ENRICHMENT_TIMEOUT"]
+    ENRICHMENT_CACHE_TTL: int = _SHARED["ENRICHMENT_CACHE_TTL"]
 
     # Provider-specific configuration
     ENRICHMENT_PROVIDER_CONFIG: Dict[str, Dict[str, Any]] = Field(

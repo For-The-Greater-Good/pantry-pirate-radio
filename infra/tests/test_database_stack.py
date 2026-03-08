@@ -135,6 +135,35 @@ class TestDatabaseStackResources:
             },
         )
 
+    def test_aurora_instance_has_performance_insights(self, dev_template):
+        """Aurora writer instance should have Performance Insights enabled."""
+        dev_template.has_resource_properties(
+            "AWS::RDS::DBInstance",
+            {
+                "EnablePerformanceInsights": True,
+                "PerformanceInsightsRetentionPeriod": 7,
+            },
+        )
+
+    def test_aurora_cluster_has_enhanced_monitoring(self, dev_template):
+        """Aurora cluster should have Enhanced Monitoring enabled (60s interval)."""
+        dev_template.has_resource_properties(
+            "AWS::RDS::DBInstance",
+            {
+                "MonitoringInterval": 60,
+                "MonitoringRoleArn": assertions.Match.any_value(),
+            },
+        )
+
+    def test_aurora_cluster_exports_postgresql_logs(self, dev_template):
+        """Aurora cluster should export postgresql logs to CloudWatch."""
+        dev_template.has_resource_properties(
+            "AWS::RDS::DBCluster",
+            {
+                "EnableCloudwatchLogsExports": ["postgresql"],
+            },
+        )
+
 
 class TestDatabaseStackEnvironments:
     """Tests for environment-specific configuration."""

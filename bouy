@@ -2146,7 +2146,17 @@ print(json.dumps(l))
         CDK_AWS_SESSION_TOKEN=$(echo "$CREDS" | grep AWS_SESSION_TOKEN | cut -d= -f2)
 
         run_cdk() {
+            local mount_args=()
+            # Mount shared config (single source of truth for pipeline defaults)
+            if [ -d "$(pwd)/config" ]; then
+                mount_args+=(-v "$(pwd)/config:/config:ro")
+            fi
+            # Mount .env for API key reading at synth time
+            if [ -f "$(pwd)/.env" ]; then
+                mount_args+=(-v "$(pwd)/.env:/app/.env:ro")
+            fi
             docker run --rm \
+                "${mount_args[@]}" \
                 -e CDK_DEPLOY_ENVIRONMENT="$DEPLOY_ENV" \
                 -e CDK_DEPLOY_ACCOUNT="$AWS_ACCOUNT" \
                 -e CDK_DEPLOY_REGION="$AWS_REGION" \

@@ -23,6 +23,7 @@ from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
+from shared_config import SECRETS, SHARED
 
 
 @dataclass
@@ -586,7 +587,21 @@ class ServicesStack(Stack):
         env = {
             "QUEUE_BACKEND": "sqs",
             "CONTENT_STORE_BACKEND": "s3",
+            # Shared pipeline config — geocoding and validation
+            "GEOCODING_PROVIDER": SHARED["GEOCODING_PROVIDER"],
+            "GEOCODING_ENABLE_FALLBACK": SHARED["GEOCODING_ENABLE_FALLBACK"],
+            "GEOCODING_MAX_RETRIES": SHARED["GEOCODING_MAX_RETRIES"],
+            "GEOCODING_TIMEOUT": SHARED["GEOCODING_TIMEOUT"],
+            "ENRICHMENT_GEOCODING_PROVIDERS": SHARED["ENRICHMENT_GEOCODING_PROVIDERS"],
+            "ENRICHMENT_CACHE_TTL": SHARED["ENRICHMENT_CACHE_TTL"],
+            "ENRICHMENT_TIMEOUT": SHARED["ENRICHMENT_TIMEOUT"],
+            "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
+            "VALIDATION_REJECTION_THRESHOLD": SHARED["VALIDATION_REJECTION_THRESHOLD"],
+            "VALIDATOR_ENRICHMENT_ENABLED": SHARED["VALIDATOR_ENRICHMENT_ENABLED"],
         }
+        # Pass ARCGIS_API_KEY from .env if available
+        if SECRETS.get("ARCGIS_API_KEY"):
+            env["ARCGIS_API_KEY"] = SECRETS["ARCGIS_API_KEY"]
         if self.config.database_host:
             env["DATABASE_HOST"] = self.config.database_host
         if self.config.database_name:

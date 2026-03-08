@@ -16,6 +16,7 @@ from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as _lambda
+from aws_cdk import aws_logs as logs
 from constructs import Construct
 
 # Metabase Cloud static IPs for us-east-1
@@ -177,6 +178,7 @@ class MetabaseAccessStack(Stack):
                 "TARGET_GROUP_ARN": target_group.target_group_arn,
             },
             function_name=f"metabase-ip-sync-{environment_name}",
+            log_retention=logs.RetentionDays.ONE_WEEK,
         )
 
         # IAM: allow Lambda to manage target group

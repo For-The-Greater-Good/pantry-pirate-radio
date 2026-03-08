@@ -11,12 +11,9 @@ class TestValidatorMain:
 
     def test_validator_module_imports(self):
         """Test that validator module can be imported."""
-        from app.validator import (
-            ValidationService,
-            ValidationProcessor,
-            validator_queue,
-            process_validation_job,
-        )
+        from app.validator import ValidationService
+        from app.validator.job_processor import ValidationProcessor, process_validation_job
+        from app.validator.queues import validator_queue
 
         assert ValidationService is not None
         assert ValidationProcessor is not None
@@ -272,10 +269,9 @@ class TestValidatorMain:
         """Test that validator module exports the expected interface."""
         import app.validator as validator_module
 
-        # Should export key classes and functions
+        # Top-level exports (safe for all environments)
         assert hasattr(validator_module, "ValidationService")
-        assert hasattr(validator_module, "ValidationProcessor")
-        assert hasattr(validator_module, "validator_queue")
-        assert hasattr(validator_module, "process_validation_job")
         assert hasattr(validator_module, "is_validator_enabled")
         assert hasattr(validator_module, "get_validator_config")
+        # ValidationProcessor, validator_queue, process_validation_job
+        # live in submodules to avoid Redis import at module load time

@@ -12,52 +12,38 @@ class TestMonitoringStackResources:
 
     @pytest.fixture
     def app(self):
-        """Create CDK app for testing."""
         return cdk.App()
 
     @pytest.fixture
     def stack(self, app):
-        """Create stack for testing."""
-        return MonitoringStack(
-            app,
-            "TestMonitoringStack",
-            environment_name="dev",
-        )
+        return MonitoringStack(app, "TestMonitoringStack", environment_name="dev")
 
     @pytest.fixture
     def template(self, stack):
-        """Get CloudFormation template from stack."""
         return assertions.Template.from_stack(stack)
 
     def test_creates_sns_topic(self, template):
-        """MonitoringStack should create SNS topic for alerts."""
         template.resource_count_is("AWS::SNS::Topic", 1)
 
     def test_creates_dashboard(self, template):
-        """MonitoringStack should create CloudWatch dashboard."""
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        """MonitoringStack should create CloudWatch alarms."""
-        # Should create 5 alarms: API CPU, Queue Depth, DLQ, DynamoDB Throttle, Bedrock Throttle
-        template.resource_count_is("AWS::CloudWatch::Alarm", 5)
+        # 13 alarms: API errors, API throttle, Queue depth, DLQ, Staging DLQ,
+        # DynamoDB throttle, Bedrock throttle, Aurora ACU, Pipeline failure,
+        # Validator DLQ, Reconciler DLQ, Recorder DLQ, Result Processor DLQ
+        template.resource_count_is("AWS::CloudWatch::Alarm", 13)
 
     def test_sns_topic_has_name(self, template):
-        """SNS topic should have configured name."""
         template.has_resource_properties(
             "AWS::SNS::Topic",
-            {
-                "TopicName": "pantry-pirate-radio-alerts-dev",
-            },
+            {"TopicName": "pantry-pirate-radio-alerts-dev"},
         )
 
     def test_dashboard_has_name(self, template):
-        """Dashboard should have configured name."""
         template.has_resource_properties(
             "AWS::CloudWatch::Dashboard",
-            {
-                "DashboardName": "PantryPirateRadio-dev",
-            },
+            {"DashboardName": "PantryPirateRadio-dev"},
         )
 
 
@@ -66,36 +52,37 @@ class TestMonitoringStackAlarms:
 
     @pytest.fixture
     def app(self):
-        """Create CDK app for testing."""
         return cdk.App()
 
     @pytest.fixture
     def stack(self, app):
-        """Create stack for testing."""
-        return MonitoringStack(
-            app,
-            "AlarmStack",
-            environment_name="dev",
-        )
+        return MonitoringStack(app, "AlarmStack", environment_name="dev")
 
     @pytest.fixture
     def template(self, stack):
-        """Get CloudFormation template from stack."""
         return assertions.Template.from_stack(stack)
 
-    def test_api_cpu_alarm_exists(self, template):
-        """Should create API CPU alarm."""
+    def test_api_lambda_errors_alarm_exists(self, template):
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
             {
-                "AlarmName": "pantry-pirate-radio-api-cpu-dev",
-                "MetricName": "CPUUtilization",
-                "Namespace": "AWS/ECS",
+                "AlarmName": "pantry-pirate-radio-api-lambda-errors-dev",
+                "MetricName": "Errors",
+                "Namespace": "AWS/Lambda",
+            },
+        )
+
+    def test_api_lambda_throttle_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-api-lambda-throttle-dev",
+                "MetricName": "Throttles",
+                "Namespace": "AWS/Lambda",
             },
         )
 
     def test_queue_depth_alarm_exists(self, template):
-        """Should create queue depth alarm."""
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
             {
@@ -106,16 +93,18 @@ class TestMonitoringStackAlarms:
         )
 
     def test_dlq_alarm_exists(self, template):
-        """Should create DLQ alarm."""
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
-            {
-                "AlarmName": "pantry-pirate-radio-dlq-dev",
-            },
+            {"AlarmName": "pantry-pirate-radio-dlq-dev"},
+        )
+
+    def test_staging_dlq_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {"AlarmName": "pantry-pirate-radio-staging-dlq-dev"},
         )
 
     def test_dynamodb_throttle_alarm_exists(self, template):
-        """Should create DynamoDB throttle alarm."""
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
             {
@@ -126,7 +115,6 @@ class TestMonitoringStackAlarms:
         )
 
     def test_bedrock_throttle_alarm_exists(self, template):
-        """Should create Bedrock throttle alarm."""
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
             {
@@ -136,13 +124,92 @@ class TestMonitoringStackAlarms:
             },
         )
 
+    def test_aurora_acu_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-aurora-acu-high-dev",
+                "MetricName": "ServerlessDatabaseCapacity",
+                "Namespace": "AWS/RDS",
+            },
+        )
+
+    def test_aurora_acu_dev_threshold(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-aurora-acu-high-dev",
+                "Threshold": 1.5,
+            },
+        )
+
+    def test_aurora_acu_prod_threshold(self):
+        app = cdk.App()
+        stack = MonitoringStack(app, "ProdACUStack", environment_name="prod")
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-aurora-acu-high-prod",
+                "Threshold": 14,
+            },
+        )
+
+    def test_pipeline_failure_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-pipeline-failure-dev",
+                "MetricName": "ExecutionsFailed",
+                "Namespace": "AWS/States",
+            },
+        )
+
+    def test_validator_dlq_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-validator-dlq-dev",
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+            },
+        )
+
+    def test_reconciler_dlq_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-reconciler-dlq-dev",
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+            },
+        )
+
+    def test_recorder_dlq_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-recorder-dlq-dev",
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+            },
+        )
+
+    def test_result_processor_dlq_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-result-processor-dlq-dev",
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+            },
+        )
+
     def test_alarms_have_actions(self, template):
-        """All alarms should have SNS action configured."""
-        # Get all alarm resources
         alarms = template.find_resources("AWS::CloudWatch::Alarm")
-        for _name, alarm in alarms.items():
+        for name, alarm in alarms.items():
             props = alarm.get("Properties", {})
-            assert "AlarmActions" in props, f"Alarm {_name} should have AlarmActions"
+            assert "AlarmActions" in props, f"Alarm {name} should have AlarmActions"
 
 
 class TestMonitoringStackConfiguration:
@@ -150,45 +217,67 @@ class TestMonitoringStackConfiguration:
 
     @pytest.fixture
     def app(self):
-        """Create CDK app for testing."""
         return cdk.App()
 
     def test_custom_service_names(self, app):
-        """Stack should accept custom service names."""
         stack = MonitoringStack(
-            app,
-            "CustomNamesStack",
+            app, "CustomNamesStack",
             environment_name="prod",
-            api_service_name="custom-api",
             worker_service_name="custom-worker",
             cluster_name="custom-cluster",
             queue_name="custom-queue.fifo",
             jobs_table_name="custom-jobs-table",
             bedrock_model_id="custom-model-id",
+            api_function_name="custom-api-fn",
+            aurora_cluster_id="custom-cluster-id",
+            state_machine_name="custom-state-machine",
+            content_bucket_name="custom-content-bucket",
         )
 
-        assert stack.api_service_name == "custom-api"
         assert stack.worker_service_name == "custom-worker"
         assert stack.cluster_name == "custom-cluster"
         assert stack.queue_name == "custom-queue.fifo"
         assert stack.jobs_table_name == "custom-jobs-table"
         assert stack.bedrock_model_id == "custom-model-id"
+        assert stack.api_function_name == "custom-api-fn"
+        assert stack.aurora_cluster_id == "custom-cluster-id"
+        assert stack.state_machine_name == "custom-state-machine"
+        assert stack.content_bucket_name == "custom-content-bucket"
+
+    def test_default_parameter_values(self, app):
+        stack = MonitoringStack(app, "DefaultsStack", environment_name="dev")
+
+        assert stack.api_function_name == "pantry-pirate-radio-api-dev"
+        assert stack.aurora_cluster_id == "pantry-pirate-radio-dev"
+        assert stack.state_machine_name == "pantry-pirate-scraper-pipeline-dev"
+        assert stack.staging_queue_name == "pantry-pirate-radio-staging-dev.fifo"
+        assert stack.content_index_table_name == "pantry-pirate-radio-content-index-dev"
+        assert stack.geocoding_cache_table_name == "pantry-pirate-radio-geocoding-cache-dev"
+        assert stack.content_bucket_name == "pantry-pirate-radio-content-dev"
+        assert stack.batch_bucket_name == "pantry-pirate-radio-batch-dev"
+        assert stack.exports_bucket_name == "pantry-pirate-radio-exports-dev"
 
     def test_prod_environment_name(self, app):
-        """Stack should work with prod environment."""
-        stack = MonitoringStack(
-            app,
-            "ProdStack",
-            environment_name="prod",
-        )
+        stack = MonitoringStack(app, "ProdStack", environment_name="prod")
         template = assertions.Template.from_stack(stack)
-
         template.has_resource_properties(
             "AWS::SNS::Topic",
-            {
-                "TopicName": "pantry-pirate-radio-alerts-prod",
-            },
+            {"TopicName": "pantry-pirate-radio-alerts-prod"},
         )
+
+    def test_batch_inference_section_conditional(self, app):
+        """Batch inference section only renders when batcher_function_name provided."""
+        stack_without = MonitoringStack(
+            app, "NoBatchStack", environment_name="dev",
+        )
+        stack_with = MonitoringStack(
+            app, "WithBatchStack", environment_name="dev",
+            batcher_function_name="my-batcher",
+            result_processor_function_name="my-processor",
+        )
+        # Both should synth without error
+        assertions.Template.from_stack(stack_without)
+        assertions.Template.from_stack(stack_with)
 
 
 class TestMonitoringStackBedrock:
@@ -196,35 +285,21 @@ class TestMonitoringStackBedrock:
 
     @pytest.fixture
     def app(self):
-        """Create CDK app for testing."""
         return cdk.App()
 
     def test_default_bedrock_model_id(self, app):
-        """Stack should use Claude Haiku 4.5 as default model ID."""
-        stack = MonitoringStack(
-            app,
-            "DefaultBedrockStack",
-            environment_name="dev",
-        )
+        stack = MonitoringStack(app, "DefaultBedrockStack", environment_name="dev")
         assert stack.bedrock_model_id == "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
     def test_custom_bedrock_model_id(self, app):
-        """Stack should accept custom Bedrock model ID."""
         stack = MonitoringStack(
-            app,
-            "CustomBedrockStack",
-            environment_name="dev",
+            app, "CustomBedrockStack", environment_name="dev",
             bedrock_model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
         )
         assert stack.bedrock_model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
     def test_bedrock_throttle_alarm_has_action(self, app):
-        """Bedrock throttle alarm should have SNS action."""
-        stack = MonitoringStack(
-            app,
-            "BedrockAlarmStack",
-            environment_name="dev",
-        )
+        stack = MonitoringStack(app, "BedrockAlarmStack", environment_name="dev")
         template = assertions.Template.from_stack(stack)
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
@@ -240,36 +315,25 @@ class TestMonitoringStackAutoScaling:
 
     @pytest.fixture
     def app(self):
-        """Create CDK app for testing."""
         return cdk.App()
 
     @pytest.fixture
     def stack(self, app):
-        """Create stack for testing."""
-        return MonitoringStack(
-            app,
-            "ScalingStack",
-            environment_name="dev",
-        )
+        return MonitoringStack(app, "ScalingStack", environment_name="dev")
 
     def test_default_scaling_service_names(self, stack):
-        """Stack should derive service names for auto-scaling services."""
         assert stack.validator_service_name == "pantry-pirate-radio-validator-dev"
         assert stack.reconciler_service_name == "pantry-pirate-radio-reconciler-dev"
         assert stack.recorder_service_name == "pantry-pirate-radio-recorder-dev"
 
     def test_default_scaling_queue_names(self, stack):
-        """Stack should derive queue names for auto-scaling services."""
         assert stack.validator_queue_name == "pantry-pirate-radio-validator-dev.fifo"
         assert stack.reconciler_queue_name == "pantry-pirate-radio-reconciler-dev.fifo"
         assert stack.recorder_queue_name == "pantry-pirate-radio-recorder-dev.fifo"
 
     def test_custom_scaling_service_names(self, app):
-        """Stack should accept custom service and queue names."""
         stack = MonitoringStack(
-            app,
-            "CustomScalingStack",
-            environment_name="dev",
+            app, "CustomScalingStack", environment_name="dev",
             validator_service_name="custom-validator",
             reconciler_service_name="custom-reconciler",
             recorder_service_name="custom-recorder",
@@ -290,27 +354,18 @@ class TestMonitoringStackAttributes:
 
     @pytest.fixture
     def app(self):
-        """Create CDK app for testing."""
         return cdk.App()
 
     @pytest.fixture
     def stack(self, app):
-        """Create stack for testing."""
-        return MonitoringStack(
-            app,
-            "AttrStack",
-            environment_name="dev",
-        )
+        return MonitoringStack(app, "AttrStack", environment_name="dev")
 
     def test_exposes_alerts_topic(self, stack):
-        """Stack should expose alerts_topic attribute."""
         assert stack.alerts_topic is not None
         assert hasattr(stack.alerts_topic, "topic_arn")
 
     def test_exposes_dashboard(self, stack):
-        """Stack should expose dashboard attribute."""
         assert stack.dashboard is not None
 
     def test_environment_name_stored(self, stack):
-        """Stack should store environment name."""
         assert stack.environment_name == "dev"

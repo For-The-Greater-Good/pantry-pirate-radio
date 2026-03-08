@@ -285,6 +285,30 @@ class TestBatcherIntegration:
             pytest.fail("No StateMachine resource found")
 
 
+class TestPipelineStackTracing:
+    """Tests for X-Ray tracing configuration."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    def test_state_machine_has_xray_tracing_enabled(self, app):
+        """State machine should have X-Ray tracing enabled."""
+        compute_stack = ComputeStack(app, "TracingCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "TracingPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+        )
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::StepFunctions::StateMachine",
+            {"TracingConfiguration": {"Enabled": True}},
+        )
+
+
 class TestPipelineStackEnvironments:
     """Tests for environment-specific configuration."""
 

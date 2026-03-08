@@ -109,7 +109,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     execution_id = event.get("execution_id", "unknown")
     # Extract the UUID portion from the Step Functions ARN for S3-safe paths.
     # ARN format: arn:aws:states:...:execution:name:uuid
-    s3_safe_id = execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
+    s3_safe_id = (
+        execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
+    )
     staging_queue_url = os.environ.get("STAGING_QUEUE_URL", "")
     llm_queue_url = os.environ.get("LLM_QUEUE_URL", "")
     batch_bucket = os.environ.get("BATCH_BUCKET", "")

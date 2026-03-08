@@ -173,13 +173,27 @@ class LambdaApiStack(Stack):
             target=f"integrations/{integration.ref}",
         )
 
-        # Auto-deploy stage
+        # Access log group for API Gateway
+        access_log_group = logs.LogGroup(
+            self,
+            "ApiGwAccessLogs",
+            log_group_name=f"/aws/apigateway/pantry-pirate-radio-api-{environment_name}",
+            retention=logs.RetentionDays.TWO_WEEKS
+            if environment_name != "prod"
+            else logs.RetentionDays.THREE_MONTHS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+        # Auto-deploy stage with access logging
         apigwv2.CfnStage(
             self,
             "DefaultStage",
             api_id=self.http_api.ref,
             stage_name="$default",
             auto_deploy=True,
+            access_log_settings=apigwv2.CfnStage.AccessLogSettingsProperty(
+                destination_arn=access_log_group.log_group_arn,
+            ),
         )
 
         # Grant API Gateway permission to invoke Lambda

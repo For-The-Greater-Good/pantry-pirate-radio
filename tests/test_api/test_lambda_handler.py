@@ -85,8 +85,6 @@ class TestLambdaConditionalEndpoints:
         """Redis health endpoint should not exist when Lambda env var is set."""
         with patch.dict(os.environ, {"AWS_LAMBDA_FUNCTION_NAME": "test-fn"}):
             # Need to reload the actual module, not the router object
-            import app.api.v1.router as router_module
-
             importlib.reload(sys.modules["app.api.v1.router"])
             # Re-import after reload
             from app.api.v1.router import router

@@ -124,6 +124,19 @@ The setup wizard will:
 
 ## Environment Configuration
 
+### Shared Pipeline Config (`config/defaults.yml`)
+
+`config/defaults.yml` is the **single source of truth** for values that must be identical across local Docker and AWS deployments. Both `app/core/config.py` (runtime) and `infra/shared_config.py` (CDK) read from it.
+
+**Variable categories:**
+1. **Shared Pipeline Config** → `config/defaults.yml` (LLM params, validation, geocoding, enrichment)
+2. **Environment-Specific** → `.env` (local) / CDK hardcoded (AWS) — legitimately different per env
+3. **Secrets** → `.env` locally, Secrets Manager on AWS. CDK reads `.env` at deploy time via `infra/shared_config.py`
+4. **Local-Only** → `.env` only (backup settings, rate limits, etc.)
+5. **AWS-Only** → CDK only (SQS URLs, DB host, S3 buckets, etc.)
+
+Environment variables **always override** shared defaults. Never put secrets in `config/defaults.yml`.
+
 ### Required Environment Variables
 
 The setup wizard configures these automatically, but you can also set them manually:

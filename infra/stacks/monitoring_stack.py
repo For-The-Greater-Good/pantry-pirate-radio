@@ -30,7 +30,6 @@ class MonitoringStack(Stack):
         construct_id: str,
         *,
         environment_name: str = "dev",
-        api_service_name: str | None = None,
         worker_service_name: str | None = None,
         validator_service_name: str | None = None,
         reconciler_service_name: str | None = None,
@@ -43,537 +42,483 @@ class MonitoringStack(Stack):
         jobs_table_name: str | None = None,
         bedrock_model_id: str | None = None,
         alert_email: str | None = None,
+        aurora_cluster_id: str | None = None,
+        api_function_name: str | None = None,
+        api_gateway_id: str | None = None,
+        batcher_function_name: str | None = None,
+        result_processor_function_name: str | None = None,
+        staging_queue_name: str | None = None,
+        content_index_table_name: str | None = None,
+        geocoding_cache_table_name: str | None = None,
+        state_machine_name: str | None = None,
+        content_bucket_name: str | None = None,
+        batch_bucket_name: str | None = None,
+        exports_bucket_name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         self.environment_name = environment_name
-        self.api_service_name = api_service_name or f"pantry-pirate-radio-api-{environment_name}"
-        self.worker_service_name = worker_service_name or f"pantry-pirate-radio-worker-{environment_name}"
-        self.validator_service_name = validator_service_name or f"pantry-pirate-radio-validator-{environment_name}"
-        self.reconciler_service_name = reconciler_service_name or f"pantry-pirate-radio-reconciler-{environment_name}"
-        self.recorder_service_name = recorder_service_name or f"pantry-pirate-radio-recorder-{environment_name}"
-        self.cluster_name = cluster_name or f"pantry-pirate-radio-{environment_name}"
-        self.queue_name = queue_name or f"pantry-pirate-radio-llm-{environment_name}.fifo"
-        self.validator_queue_name = validator_queue_name or f"pantry-pirate-radio-validator-{environment_name}.fifo"
-        self.reconciler_queue_name = reconciler_queue_name or f"pantry-pirate-radio-reconciler-{environment_name}.fifo"
-        self.recorder_queue_name = recorder_queue_name or f"pantry-pirate-radio-recorder-{environment_name}.fifo"
-        self.jobs_table_name = jobs_table_name or f"pantry-pirate-radio-jobs-{environment_name}"
+        env = environment_name
+
+        # ECS service names
+        self.worker_service_name = worker_service_name or f"pantry-pirate-radio-worker-{env}"
+        self.validator_service_name = validator_service_name or f"pantry-pirate-radio-validator-{env}"
+        self.reconciler_service_name = reconciler_service_name or f"pantry-pirate-radio-reconciler-{env}"
+        self.recorder_service_name = recorder_service_name or f"pantry-pirate-radio-recorder-{env}"
+        self.cluster_name = cluster_name or f"pantry-pirate-radio-{env}"
+
+        # Queue names
+        self.queue_name = queue_name or f"pantry-pirate-radio-llm-{env}.fifo"
+        self.validator_queue_name = validator_queue_name or f"pantry-pirate-radio-validator-{env}.fifo"
+        self.reconciler_queue_name = reconciler_queue_name or f"pantry-pirate-radio-reconciler-{env}.fifo"
+        self.recorder_queue_name = recorder_queue_name or f"pantry-pirate-radio-recorder-{env}.fifo"
+        self.staging_queue_name = staging_queue_name or f"pantry-pirate-radio-staging-{env}.fifo"
+
+        # DynamoDB tables
+        self.jobs_table_name = jobs_table_name or f"pantry-pirate-radio-jobs-{env}"
+        self.content_index_table_name = content_index_table_name or f"pantry-pirate-radio-content-index-{env}"
+        self.geocoding_cache_table_name = geocoding_cache_table_name or f"pantry-pirate-radio-geocoding-cache-{env}"
+
+        # Lambda / API Gateway
+        self.api_function_name = api_function_name or f"pantry-pirate-radio-api-{env}"
+        self.api_gateway_id = api_gateway_id
+        self.batcher_function_name = batcher_function_name
+        self.result_processor_function_name = result_processor_function_name
+
+        # Aurora
+        self.aurora_cluster_id = aurora_cluster_id or f"pantry-pirate-radio-{env}"
+
+        # Step Functions
+        self.state_machine_name = state_machine_name or f"pantry-pirate-scraper-pipeline-{env}"
+
+        # Bedrock
         self.bedrock_model_id = bedrock_model_id or "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
-        # Create SNS topic for alerts
+        # S3 buckets
+        self.content_bucket_name = content_bucket_name or f"pantry-pirate-radio-content-{env}"
+        self.batch_bucket_name = batch_bucket_name or f"pantry-pirate-radio-batch-{env}"
+        self.exports_bucket_name = exports_bucket_name or f"pantry-pirate-radio-exports-{env}"
+
         self.alerts_topic = self._create_alerts_topic(alert_email)
-
-        # Create CloudWatch dashboard
         self.dashboard = self._create_dashboard()
-
-        # Create alarms
         self._create_alarms()
 
+    # --- Generic helpers ---
+
+    def _m(
+        self, ns: str, name: str, dims: dict, stat: str = "Sum", period: Duration = Duration.minutes(5),
+    ) -> cloudwatch.Metric:
+        return cloudwatch.Metric(
+            namespace=ns, metric_name=name, dimensions_map=dims, statistic=stat, period=period,
+        )
+
+    def _graph(
+        self,
+        title: str,
+        left: list,
+        right: list | None = None,
+        width: int = 6,
+    ) -> cloudwatch.GraphWidget:
+        kw: dict = {"title": title, "width": width, "height": 6, "left": left}
+        if right:
+            kw["right"] = right
+        return cloudwatch.GraphWidget(**kw)
+
+    def _section(self, title: str) -> cloudwatch.TextWidget:
+        return cloudwatch.TextWidget(markdown=f"# {title}", width=24, height=1)
+
+    def _alarm(
+        self,
+        cid: str,
+        name: str,
+        metric: cloudwatch.Metric,
+        threshold: float,
+        periods: int,
+        op: cloudwatch.ComparisonOperator,
+        description: str,
+    ) -> cloudwatch.Alarm:
+        alarm = cloudwatch.Alarm(
+            self, cid, alarm_name=name, alarm_description=description,
+            metric=metric, threshold=threshold, evaluation_periods=periods, comparison_operator=op,
+        )
+        alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
+        return alarm
+
+    # --- Alerts topic ---
+
     def _create_alerts_topic(self, alert_email: str | None) -> sns.Topic:
-        """Create SNS topic for alert notifications."""
         topic = sns.Topic(
-            self,
-            "AlertsTopic",
+            self, "AlertsTopic",
             topic_name=f"pantry-pirate-radio-alerts-{self.environment_name}",
             display_name=f"Pantry Pirate Radio Alerts ({self.environment_name})",
         )
-
         if alert_email:
-            topic.add_subscription(
-                sns.subscriptions.EmailSubscription(alert_email)
-            )
-
+            topic.add_subscription(sns.subscriptions.EmailSubscription(alert_email))
         return topic
 
+    # --- Dashboard ---
+
     def _create_dashboard(self) -> cloudwatch.Dashboard:
-        """Create CloudWatch dashboard for operational visibility."""
-        dashboard = cloudwatch.Dashboard(
-            self,
-            "OperationalDashboard",
+        db = cloudwatch.Dashboard(
+            self, "OperationalDashboard",
             dashboard_name=f"PantryPirateRadio-{self.environment_name}",
         )
 
-        # Add API metrics row
-        dashboard.add_widgets(
-            cloudwatch.TextWidget(
-                markdown="# API Service Metrics",
-                width=24,
-                height=1,
-            )
+        self._add_lambda_api_section(db)
+        self._add_worker_section(db)
+        self._add_pipeline_section(db)
+        self._add_aurora_section(db)
+        self._add_dynamodb_section(db)
+        self._add_bedrock_section(db)
+        if self.batcher_function_name:
+            self._add_batch_inference_section(db)
+        self._add_autoscaling_section(db)
+        self._add_s3_section(db)
+
+        return db
+
+    # --- Section 1: Lambda API ---
+
+    def _add_lambda_api_section(self, db: cloudwatch.Dashboard) -> None:
+        fn_dims = {"FunctionName": self.api_function_name}
+        ns = "AWS/Lambda"
+        p1 = Duration.minutes(1)
+
+        invocations = self._m(ns, "Invocations", fn_dims, "Sum", p1)
+        duration_avg = self._m(ns, "Duration", fn_dims, "Average", p1)
+        duration_p99 = self._m(ns, "Duration", fn_dims, "p99", p1)
+        errors = self._m(ns, "Errors", fn_dims, "Sum", p1)
+        throttles = self._m(ns, "Throttles", fn_dims, "Sum", p1)
+        cold_starts = self._m(ns, "ConcurrentExecutions", fn_dims, "Maximum", p1)
+
+        left_errors: list = [errors, throttles]
+        if self.api_gateway_id:
+            gw_dims = {"ApiId": self.api_gateway_id}
+            gw = "AWS/ApiGateway"
+            left_errors.append(self._m(gw, "4xx", gw_dims, "Sum", p1))
+            left_errors.append(self._m(gw, "5xx", gw_dims, "Sum", p1))
+
+        db.add_widgets(self._section("Lambda API"))
+        db.add_widgets(
+            self._graph("API Invocations", [invocations]),
+            self._graph("API Duration", [duration_avg, duration_p99]),
+            self._graph("API Errors & Throttles", left_errors),
+            self._graph("API Cold Starts", [cold_starts]),
         )
 
-        dashboard.add_widgets(
-            self._create_ecs_metric_widget("API CPU Utilization", "CPUUtilization", self.api_service_name),
-            self._create_ecs_metric_widget("API Memory Utilization", "MemoryUtilization", self.api_service_name),
-            self._create_api_request_count_widget(),
-            self._create_api_response_time_widget(),
+    # --- Section 2: ECS Services ---
+
+    def _add_worker_section(self, db: cloudwatch.Dashboard) -> None:
+        p1 = Duration.minutes(1)
+        ns = "AWS/ECS"
+        services = {
+            "Worker": self.worker_service_name,
+            "Validator": self.validator_service_name,
+            "Reconciler": self.reconciler_service_name,
+            "Recorder": self.recorder_service_name,
+        }
+
+        cpu_metrics = [
+            self._m(ns, "CPUUtilization", {"ClusterName": self.cluster_name, "ServiceName": svc}, "Average", p1)
+            for svc in services.values()
+        ]
+        mem_metrics = [
+            self._m(ns, "MemoryUtilization", {"ClusterName": self.cluster_name, "ServiceName": svc}, "Average", p1)
+            for svc in services.values()
+        ]
+
+        db.add_widgets(self._section("ECS Services"))
+        db.add_widgets(
+            self._graph("Service CPU %", cpu_metrics, width=12),
+            self._graph("Service Memory %", mem_metrics, width=12),
+            self._graph("LLM Queue Depth", [
+                self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": self.queue_name}, "Average", p1),
+                self._m("AWS/SQS", "ApproximateNumberOfMessagesNotVisible", {"QueueName": self.queue_name}, "Average", p1),
+            ]),
+            self._graph("LLM Queue Age", [
+                self._m("AWS/SQS", "ApproximateAgeOfOldestMessage", {"QueueName": self.queue_name}, "Maximum", p1),
+            ]),
         )
 
-        # Add Worker metrics row
-        dashboard.add_widgets(
-            cloudwatch.TextWidget(
-                markdown="# Worker Service Metrics",
-                width=24,
-                height=1,
-            )
+    # --- Section 3: Pipeline Overview ---
+
+    def _add_pipeline_section(self, db: cloudwatch.Dashboard) -> None:
+        queues = [
+            self.queue_name, self.staging_queue_name,
+            self.validator_queue_name, self.reconciler_queue_name, self.recorder_queue_name,
+        ]
+        dlqs = [q.replace(".fifo", "-dlq.fifo") for q in queues]
+
+        queue_depths = [
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": q}, "Sum")
+            for q in queues
+        ]
+        dlq_depths = [
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": d}, "Sum")
+            for d in dlqs
+        ]
+
+        sm_arn = f"arn:aws:states:{self.region}:{self.account}:stateMachine:{self.state_machine_name}"
+        sm_dims = {"StateMachineArn": sm_arn}
+
+        db.add_widgets(self._section("Pipeline Overview"))
+        db.add_widgets(
+            self._graph("All Queue Depths", queue_depths),
+            self._graph("Dead Letter Queues", dlq_depths),
+            self._graph("Step Functions Executions", [
+                self._m("AWS/States", "ExecutionsStarted", sm_dims),
+                self._m("AWS/States", "ExecutionsSucceeded", sm_dims),
+                self._m("AWS/States", "ExecutionsFailed", sm_dims),
+            ]),
+            self._graph("Step Functions Duration", [
+                self._m("AWS/States", "ExecutionTime", sm_dims, "Average"),
+                self._m("AWS/States", "ExecutionTime", sm_dims, "p99"),
+            ]),
         )
 
-        dashboard.add_widgets(
-            self._create_ecs_metric_widget("Worker CPU Utilization", "CPUUtilization", self.worker_service_name),
-            self._create_ecs_metric_widget("Worker Memory Utilization", "MemoryUtilization", self.worker_service_name),
-            self._create_queue_depth_widget(),
-            self._create_queue_age_widget(),
+    # --- Section 4: Aurora Database ---
+
+    def _add_aurora_section(self, db: cloudwatch.Dashboard) -> None:
+        dims = {"DBClusterIdentifier": self.aurora_cluster_id}
+        ns = "AWS/RDS"
+
+        db.add_widgets(self._section("Aurora Database"))
+        db.add_widgets(
+            self._graph("Aurora ACU", [self._m(ns, "ServerlessDatabaseCapacity", dims, "Average")]),
+            self._graph("DB Connections", [self._m(ns, "DatabaseConnections", dims, "Average")]),
+            self._graph("DB Throughput", [
+                self._m(ns, "CommitThroughput", dims), self._m(ns, "SelectThroughput", dims),
+            ]),
+            self._graph("DB Storage", [self._m(ns, "VolumeBytesUsed", dims, "Average")]),
         )
 
-        # Add DynamoDB metrics row
-        dashboard.add_widgets(
-            cloudwatch.TextWidget(
-                markdown="# Database Metrics",
-                width=24,
-                height=1,
-            )
+    # --- Section 5: DynamoDB Tables ---
+
+    def _add_dynamodb_section(self, db: cloudwatch.Dashboard) -> None:
+        tables = [self.jobs_table_name, self.content_index_table_name, self.geocoding_cache_table_name]
+        ns = "AWS/DynamoDB"
+
+        def multi(metric_name: str, stat: str = "Sum") -> list:
+            return [self._m(ns, metric_name, {"TableName": t}, stat) for t in tables]
+
+        db.add_widgets(self._section("DynamoDB Tables"))
+        db.add_widgets(
+            self._graph("DynamoDB Reads", multi("ConsumedReadCapacityUnits")),
+            self._graph("DynamoDB Writes", multi("ConsumedWriteCapacityUnits")),
+            self._graph("DynamoDB Throttles", multi("ThrottledRequests")),
+            self._graph("DynamoDB Errors", multi("SystemErrors")),
         )
 
-        dashboard.add_widgets(
-            self._create_dynamodb_read_widget(),
-            self._create_dynamodb_write_widget(),
-            self._create_dynamodb_throttle_widget(),
-            self._create_dynamodb_errors_widget(),
-        )
+    # --- Section 6: Bedrock LLM ---
 
-        # Add Bedrock LLM metrics row
-        dashboard.add_widgets(
-            cloudwatch.TextWidget(
-                markdown="# Bedrock LLM Metrics",
-                width=24,
-                height=1,
-            )
-        )
+    def _add_bedrock_section(self, db: cloudwatch.Dashboard) -> None:
+        dims = {"ModelId": self.bedrock_model_id}
+        ns = "AWS/Bedrock"
 
-        dashboard.add_widgets(
-            self._create_bedrock_invocations_widget(),
-            self._create_bedrock_latency_widget(),
-            self._create_bedrock_token_cost_widget(),
-            self._create_bedrock_errors_widget(),
-        )
-
-        # Add Auto-Scaling metrics row
-        dashboard.add_widgets(
-            cloudwatch.TextWidget(
-                markdown="# Auto-Scaling Metrics",
-                width=24,
-                height=1,
-            )
-        )
-
-        dashboard.add_widgets(
-            self._create_scaling_widget("Worker Scaling", self.worker_service_name, self.queue_name),
-            self._create_scaling_widget("Validator Scaling", self.validator_service_name, self.validator_queue_name),
-            self._create_scaling_widget("Reconciler Scaling", self.reconciler_service_name, self.reconciler_queue_name),
-            self._create_scaling_widget("Recorder Scaling", self.recorder_service_name, self.recorder_queue_name),
-        )
-
-        return dashboard
-
-    def _create_ecs_metric_widget(
-        self, title: str, metric_name: str, service_name: str,
-    ) -> cloudwatch.GraphWidget:
-        """Create ECS metric widget for a given service."""
-        return cloudwatch.GraphWidget(
-            title=title,
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ECS",
-                    metric_name=metric_name,
-                    dimensions_map={
-                        "ClusterName": self.cluster_name,
-                        "ServiceName": service_name,
-                    },
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_api_request_count_widget(self) -> cloudwatch.GraphWidget:
-        """Create API request count widget."""
-        return cloudwatch.GraphWidget(
-            title="API Request Count",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ApplicationELB",
-                    metric_name="RequestCount",
-                    statistic="Sum",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_api_response_time_widget(self) -> cloudwatch.GraphWidget:
-        """Create API response time widget."""
-        return cloudwatch.GraphWidget(
-            title="API Response Time",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ApplicationELB",
-                    metric_name="TargetResponseTime",
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_queue_depth_widget(self) -> cloudwatch.GraphWidget:
-        """Create SQS queue depth widget."""
-        return cloudwatch.GraphWidget(
-            title="Queue Depth",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/SQS",
-                    metric_name="ApproximateNumberOfMessagesVisible",
-                    dimensions_map={"QueueName": self.queue_name},
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                ),
-                cloudwatch.Metric(
-                    namespace="AWS/SQS",
-                    metric_name="ApproximateNumberOfMessagesNotVisible",
-                    dimensions_map={"QueueName": self.queue_name},
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                ),
-            ],
-        )
-
-    def _create_queue_age_widget(self) -> cloudwatch.GraphWidget:
-        """Create SQS oldest message age widget."""
-        return cloudwatch.GraphWidget(
-            title="Oldest Message Age",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/SQS",
-                    metric_name="ApproximateAgeOfOldestMessage",
-                    dimensions_map={"QueueName": self.queue_name},
-                    statistic="Maximum",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_dynamodb_read_widget(self) -> cloudwatch.GraphWidget:
-        """Create DynamoDB read capacity widget."""
-        return cloudwatch.GraphWidget(
-            title="DynamoDB Read Units",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/DynamoDB",
-                    metric_name="ConsumedReadCapacityUnits",
-                    dimensions_map={"TableName": self.jobs_table_name},
-                    statistic="Sum",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_dynamodb_write_widget(self) -> cloudwatch.GraphWidget:
-        """Create DynamoDB write capacity widget."""
-        return cloudwatch.GraphWidget(
-            title="DynamoDB Write Units",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/DynamoDB",
-                    metric_name="ConsumedWriteCapacityUnits",
-                    dimensions_map={"TableName": self.jobs_table_name},
-                    statistic="Sum",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_dynamodb_throttle_widget(self) -> cloudwatch.GraphWidget:
-        """Create DynamoDB throttled requests widget."""
-        return cloudwatch.GraphWidget(
-            title="DynamoDB Throttles",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/DynamoDB",
-                    metric_name="ThrottledRequests",
-                    dimensions_map={"TableName": self.jobs_table_name},
-                    statistic="Sum",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_dynamodb_errors_widget(self) -> cloudwatch.GraphWidget:
-        """Create DynamoDB errors widget."""
-        return cloudwatch.GraphWidget(
-            title="DynamoDB Errors",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/DynamoDB",
-                    metric_name="SystemErrors",
-                    dimensions_map={"TableName": self.jobs_table_name},
-                    statistic="Sum",
-                    period=Duration.minutes(1),
-                )
-            ],
-        )
-
-    def _create_bedrock_invocations_widget(self) -> cloudwatch.GraphWidget:
-        """Create Bedrock invocation count widget."""
-        return cloudwatch.GraphWidget(
-            title="Bedrock Invocations",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/Bedrock",
-                    metric_name="Invocations",
-                    dimensions_map={"ModelId": self.bedrock_model_id},
-                    statistic="Sum",
-                    period=Duration.minutes(5),
-                )
-            ],
-        )
-
-    def _create_bedrock_latency_widget(self) -> cloudwatch.GraphWidget:
-        """Create Bedrock invocation latency widget."""
-        return cloudwatch.GraphWidget(
-            title="Bedrock Latency",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/Bedrock",
-                    metric_name="InvocationLatency",
-                    dimensions_map={"ModelId": self.bedrock_model_id},
-                    statistic="Average",
-                    period=Duration.minutes(5),
-                ),
-                cloudwatch.Metric(
-                    namespace="AWS/Bedrock",
-                    metric_name="InvocationLatency",
-                    dimensions_map={"ModelId": self.bedrock_model_id},
-                    statistic="p99",
-                    period=Duration.minutes(5),
-                ),
-            ],
-        )
-
-    def _create_bedrock_token_cost_widget(self) -> cloudwatch.GraphWidget:
-        """Create Bedrock token count and estimated cost widget."""
-        input_tokens = cloudwatch.Metric(
-            namespace="AWS/Bedrock",
-            metric_name="InputTokenCount",
-            dimensions_map={"ModelId": self.bedrock_model_id},
-            statistic="Sum",
-            period=Duration.minutes(5),
-        )
-        output_tokens = cloudwatch.Metric(
-            namespace="AWS/Bedrock",
-            metric_name="OutputTokenCount",
-            dimensions_map={"ModelId": self.bedrock_model_id},
-            statistic="Sum",
-            period=Duration.minutes(5),
-        )
-        estimated_cost = cloudwatch.MathExpression(
+        input_tokens = self._m(ns, "InputTokenCount", dims)
+        output_tokens = self._m(ns, "OutputTokenCount", dims)
+        cost = cloudwatch.MathExpression(
             expression="(input * 0.80 / 1000000) + (output * 4.00 / 1000000)",
             using_metrics={"input": input_tokens, "output": output_tokens},
-            label="Estimated Cost ($)",
-            period=Duration.minutes(5),
-        )
-        return cloudwatch.GraphWidget(
-            title="Bedrock Tokens & Cost",
-            width=6,
-            height=6,
-            left=[input_tokens, output_tokens],
-            right=[estimated_cost],
+            label="Estimated Cost ($)", period=Duration.minutes(5),
         )
 
-    def _create_bedrock_errors_widget(self) -> cloudwatch.GraphWidget:
-        """Create Bedrock errors and throttles widget."""
-        return cloudwatch.GraphWidget(
-            title="Bedrock Errors",
-            width=6,
-            height=6,
-            left=[
-                cloudwatch.Metric(
-                    namespace="AWS/Bedrock",
-                    metric_name="InvocationClientErrors",
-                    dimensions_map={"ModelId": self.bedrock_model_id},
-                    statistic="Sum",
-                    period=Duration.minutes(5),
-                ),
-                cloudwatch.Metric(
-                    namespace="AWS/Bedrock",
-                    metric_name="InvocationServerErrors",
-                    dimensions_map={"ModelId": self.bedrock_model_id},
-                    statistic="Sum",
-                    period=Duration.minutes(5),
-                ),
-                cloudwatch.Metric(
-                    namespace="AWS/Bedrock",
-                    metric_name="InvocationThrottles",
-                    dimensions_map={"ModelId": self.bedrock_model_id},
-                    statistic="Sum",
-                    period=Duration.minutes(5),
-                ),
-            ],
+        db.add_widgets(self._section("Bedrock LLM"))
+        db.add_widgets(
+            self._graph("Bedrock Invocations & Latency", [
+                self._m(ns, "Invocations", dims), self._m(ns, "InvocationLatency", dims, "Average"),
+                self._m(ns, "InvocationLatency", dims, "p99"),
+            ]),
+            self._graph("Bedrock Tokens & Cost", [input_tokens, output_tokens], [cost]),
+            self._graph("Bedrock Errors & Throttles", [
+                self._m(ns, "InvocationClientErrors", dims),
+                self._m(ns, "InvocationServerErrors", dims),
+                self._m(ns, "InvocationThrottles", dims),
+            ]),
         )
 
-    def _create_scaling_widget(
-        self, title: str, service_name: str, queue_name: str,
-    ) -> cloudwatch.GraphWidget:
-        """Create auto-scaling widget showing task count vs queue depth."""
+    # --- Section 7: Batch Inference (conditional) ---
+
+    def _add_batch_inference_section(self, db: cloudwatch.Dashboard) -> None:
+        ns = "AWS/Lambda"
+        b_dims = {"FunctionName": self.batcher_function_name}
+        r_dims = {"FunctionName": self.result_processor_function_name}
+
+        db.add_widgets(self._section("Batch Inference Lambdas"))
+        db.add_widgets(
+            self._graph("Batcher Invocations", [
+                self._m(ns, "Invocations", b_dims), self._m(ns, "Errors", b_dims),
+            ]),
+            self._graph("Batcher Duration", [
+                self._m(ns, "Duration", b_dims, "Average"), self._m(ns, "Duration", b_dims, "p99"),
+            ]),
+            self._graph("Result Processor Invocations", [
+                self._m(ns, "Invocations", r_dims), self._m(ns, "Errors", r_dims),
+            ]),
+            self._graph("Result Processor Duration", [
+                self._m(ns, "Duration", r_dims, "Average"), self._m(ns, "Duration", r_dims, "p99"),
+            ]),
+        )
+
+    # --- Section 8: Auto-Scaling ---
+
+    def _add_autoscaling_section(self, db: cloudwatch.Dashboard) -> None:
+        db.add_widgets(self._section("Auto-Scaling"))
+        db.add_widgets(
+            self._scaling_widget("Worker Scaling", self.worker_service_name, self.queue_name),
+            self._scaling_widget("Validator Scaling", self.validator_service_name, self.validator_queue_name),
+            self._scaling_widget("Reconciler Scaling", self.reconciler_service_name, self.reconciler_queue_name),
+            self._scaling_widget("Recorder Scaling", self.recorder_service_name, self.recorder_queue_name),
+        )
+
+    def _scaling_widget(self, title: str, service_name: str, queue_name: str) -> cloudwatch.GraphWidget:
         dims = {"ClusterName": self.cluster_name, "ServiceName": service_name}
-        return cloudwatch.GraphWidget(
-            title=title,
-            width=6,
-            height=6,
+        p1 = Duration.minutes(1)
+        return self._graph(
+            title,
             left=[
-                cloudwatch.Metric(
-                    namespace="AWS/ECS",
-                    metric_name="DesiredCount",
-                    dimensions_map=dims,
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                ),
-                cloudwatch.Metric(
-                    namespace="AWS/ECS",
-                    metric_name="RunningCount",
-                    dimensions_map=dims,
-                    statistic="Average",
-                    period=Duration.minutes(1),
-                ),
+                self._m("AWS/ECS", "DesiredCount", dims, "Average", p1),
+                self._m("AWS/ECS", "RunningCount", dims, "Average", p1),
             ],
-            right=[
-                cloudwatch.Metric(
-                    namespace="AWS/SQS",
-                    metric_name="ApproximateNumberOfMessagesVisible",
-                    dimensions_map={"QueueName": queue_name},
-                    statistic="Sum",
-                    period=Duration.minutes(1),
-                ),
-            ],
+            right=[self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": queue_name}, "Sum", p1)],
         )
+
+    # --- Section 9: S3 Storage ---
+
+    def _add_s3_section(self, db: cloudwatch.Dashboard) -> None:
+        ns = "AWS/S3"
+        day = Duration.days(1)
+
+        def bucket_metrics(bucket_name: str) -> list:
+            return [
+                self._m(ns, "NumberOfObjects", {"BucketName": bucket_name, "StorageType": "AllStorageTypes"}, "Average", day),
+                self._m(ns, "BucketSizeBytes", {"BucketName": bucket_name, "StorageType": "StandardStorage"}, "Average", day),
+            ]
+
+        db.add_widgets(self._section("S3 Storage"))
+        db.add_widgets(
+            self._graph("Content Bucket", bucket_metrics(self.content_bucket_name)),
+            self._graph("Batch Bucket", bucket_metrics(self.batch_bucket_name)),
+            self._graph("Exports Bucket", bucket_metrics(self.exports_bucket_name)),
+        )
+
+    # --- Alarms ---
 
     def _create_alarms(self) -> None:
-        """Create CloudWatch alarms for critical metrics."""
-        # API high CPU alarm
-        api_cpu_alarm = cloudwatch.Alarm(
-            self,
-            "APICPUAlarm",
-            alarm_name=f"pantry-pirate-radio-api-cpu-{self.environment_name}",
-            alarm_description="API CPU utilization is high",
-            metric=cloudwatch.Metric(
-                namespace="AWS/ECS",
-                metric_name="CPUUtilization",
-                dimensions_map={
-                    "ClusterName": self.cluster_name,
-                    "ServiceName": self.api_service_name,
-                },
-                statistic="Average",
-                period=Duration.minutes(5),
-            ),
-            threshold=80,
-            evaluation_periods=3,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        )
-        api_cpu_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
+        GT = cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        GTE = cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD
 
-        # Queue depth alarm (messages backing up)
-        queue_depth_alarm = cloudwatch.Alarm(
-            self,
+        # 1. API Lambda errors (replaces old API CPU alarm)
+        self._alarm(
+            "APILambdaErrorsAlarm",
+            f"pantry-pirate-radio-api-lambda-errors-{self.environment_name}",
+            self._m("AWS/Lambda", "Errors", {"FunctionName": self.api_function_name}),
+            5, 2, GTE, "API Lambda function errors are elevated",
+        )
+
+        # 2. API Lambda throttles (new)
+        self._alarm(
+            "APILambdaThrottleAlarm",
+            f"pantry-pirate-radio-api-lambda-throttle-{self.environment_name}",
+            self._m("AWS/Lambda", "Throttles", {"FunctionName": self.api_function_name}),
+            1, 2, GTE, "API Lambda function is being throttled",
+        )
+
+        # 3. Queue depth (keep)
+        self._alarm(
             "QueueDepthAlarm",
-            alarm_name=f"pantry-pirate-radio-queue-depth-{self.environment_name}",
-            alarm_description="SQS queue depth is high - jobs are backing up",
-            metric=cloudwatch.Metric(
-                namespace="AWS/SQS",
-                metric_name="ApproximateNumberOfMessagesVisible",
-                dimensions_map={"QueueName": self.queue_name},
-                statistic="Average",
-                period=Duration.minutes(5),
-            ),
-            threshold=100,
-            evaluation_periods=3,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            f"pantry-pirate-radio-queue-depth-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": self.queue_name}, "Average"),
+            100, 3, GT, "SQS queue depth is high - jobs are backing up",
         )
-        queue_depth_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
 
-        # DLQ messages alarm (failed jobs)
+        # 4. LLM DLQ (keep)
         dlq_name = self.queue_name.replace(".fifo", "-dlq.fifo")
-        dlq_alarm = cloudwatch.Alarm(
-            self,
+        self._alarm(
             "DLQAlarm",
-            alarm_name=f"pantry-pirate-radio-dlq-{self.environment_name}",
-            alarm_description="Messages in dead-letter queue - jobs are failing",
-            metric=cloudwatch.Metric(
-                namespace="AWS/SQS",
-                metric_name="ApproximateNumberOfMessagesVisible",
-                dimensions_map={"QueueName": dlq_name},
-                statistic="Sum",
-                period=Duration.minutes(5),
-            ),
-            threshold=1,
-            evaluation_periods=1,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            f"pantry-pirate-radio-dlq-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": dlq_name}),
+            1, 1, GTE, "Messages in dead-letter queue - jobs are failing",
         )
-        dlq_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
 
-        # DynamoDB throttle alarm
-        throttle_alarm = cloudwatch.Alarm(
-            self,
+        # 5. Staging DLQ (new)
+        staging_dlq = self.staging_queue_name.replace(".fifo", "-dlq.fifo")
+        self._alarm(
+            "StagingDLQAlarm",
+            f"pantry-pirate-radio-staging-dlq-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": staging_dlq}),
+            1, 1, GTE, "Messages in staging dead-letter queue",
+        )
+
+        # 6. DynamoDB throttle (keep)
+        self._alarm(
             "DynamoDBThrottleAlarm",
-            alarm_name=f"pantry-pirate-radio-dynamodb-throttle-{self.environment_name}",
-            alarm_description="DynamoDB requests are being throttled",
-            metric=cloudwatch.Metric(
-                namespace="AWS/DynamoDB",
-                metric_name="ThrottledRequests",
-                dimensions_map={"TableName": self.jobs_table_name},
-                statistic="Sum",
-                period=Duration.minutes(5),
-            ),
-            threshold=1,
-            evaluation_periods=1,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            f"pantry-pirate-radio-dynamodb-throttle-{self.environment_name}",
+            self._m("AWS/DynamoDB", "ThrottledRequests", {"TableName": self.jobs_table_name}),
+            1, 1, GTE, "DynamoDB requests are being throttled",
         )
-        throttle_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
 
-        # Bedrock throttle alarm
-        bedrock_throttle_alarm = cloudwatch.Alarm(
-            self,
+        # 7. Bedrock throttle (keep)
+        self._alarm(
             "BedrockThrottleAlarm",
-            alarm_name=f"pantry-pirate-radio-bedrock-throttle-{self.environment_name}",
-            alarm_description="Bedrock LLM invocations are being throttled",
-            metric=cloudwatch.Metric(
-                namespace="AWS/Bedrock",
-                metric_name="InvocationThrottles",
-                dimensions_map={"ModelId": self.bedrock_model_id},
-                statistic="Sum",
-                period=Duration.minutes(5),
-            ),
-            threshold=5,
-            evaluation_periods=2,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            f"pantry-pirate-radio-bedrock-throttle-{self.environment_name}",
+            self._m("AWS/Bedrock", "InvocationThrottles", {"ModelId": self.bedrock_model_id}),
+            5, 2, GT, "Bedrock LLM invocations are being throttled",
         )
-        bedrock_throttle_alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
+
+        # 8. Aurora ACU high (new) - 75% of max ACU
+        acu_threshold = 1.5 if self.environment_name == "dev" else 14
+        self._alarm(
+            "AuroraACUAlarm",
+            f"pantry-pirate-radio-aurora-acu-high-{self.environment_name}",
+            self._m("AWS/RDS", "ServerlessDatabaseCapacity", {"DBClusterIdentifier": self.aurora_cluster_id}, "Average"),
+            acu_threshold, 3, GT,
+            f"Aurora ACU usage above {acu_threshold} (75% of max)",
+        )
+
+        # 9. Pipeline failure (new)
+        sm_arn = f"arn:aws:states:{self.region}:{self.account}:stateMachine:{self.state_machine_name}"
+        self._alarm(
+            "PipelineFailureAlarm",
+            f"pantry-pirate-radio-pipeline-failure-{self.environment_name}",
+            self._m("AWS/States", "ExecutionsFailed", {"StateMachineArn": sm_arn}),
+            1, 1, GTE, "Step Functions pipeline execution failed",
+        )
+
+        # 10. Validator DLQ
+        validator_dlq = self.validator_queue_name.replace(".fifo", "-dlq.fifo")
+        self._alarm(
+            "ValidatorDLQAlarm",
+            f"pantry-pirate-radio-validator-dlq-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": validator_dlq}),
+            1, 1, GTE, "Messages in validator dead-letter queue",
+        )
+
+        # 11. Reconciler DLQ
+        reconciler_dlq = self.reconciler_queue_name.replace(".fifo", "-dlq.fifo")
+        self._alarm(
+            "ReconcilerDLQAlarm",
+            f"pantry-pirate-radio-reconciler-dlq-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": reconciler_dlq}),
+            1, 1, GTE, "Messages in reconciler dead-letter queue",
+        )
+
+        # 12. Recorder DLQ
+        recorder_dlq = self.recorder_queue_name.replace(".fifo", "-dlq.fifo")
+        self._alarm(
+            "RecorderDLQAlarm",
+            f"pantry-pirate-radio-recorder-dlq-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": recorder_dlq}),
+            1, 1, GTE, "Messages in recorder dead-letter queue",
+        )
+
+        # 13. Result processor DLQ (standard, not FIFO)
+        self._alarm(
+            "ResultProcessorDLQAlarm",
+            f"pantry-pirate-radio-result-processor-dlq-{self.environment_name}",
+            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {
+                "QueueName": f"pantry-pirate-radio-result-processor-dlq-{self.environment_name}",
+            }),
+            1, 1, GTE, "Messages in result processor dead-letter queue",
+        )
