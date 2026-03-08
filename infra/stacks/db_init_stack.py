@@ -104,7 +104,7 @@ class DbInitStack(Stack):
 
         # Environment-specific configuration
         is_prod = environment_name == "prod"
-        log_retention = (
+        retention = (
             logs.RetentionDays.ONE_MONTH if is_prod else logs.RetentionDays.ONE_WEEK
         )
 
@@ -117,7 +117,7 @@ class DbInitStack(Stack):
             database_proxy_endpoint=database_proxy_endpoint,
             database_secret=database_secret,
             proxy_security_group=proxy_security_group,
-            log_retention=log_retention,
+            retention=retention,
         )
 
         # 3. ECS task definition for db-init
@@ -127,7 +127,7 @@ class DbInitStack(Stack):
                 database_proxy_endpoint=database_proxy_endpoint,
                 database_secret=database_secret,
                 github_pat_secret=github_pat_secret,
-                log_retention=log_retention,
+                retention=retention,
             )
         )
 
@@ -186,7 +186,7 @@ class DbInitStack(Stack):
         database_proxy_endpoint: str,
         database_secret: secretsmanager.ISecret,
         proxy_security_group: ec2.ISecurityGroup,
-        log_retention: logs.RetentionDays,
+        retention: logs.RetentionDays,
     ) -> lambda_.Function:
         """Create Lambda function to check if database has data.
 
@@ -198,7 +198,7 @@ class DbInitStack(Stack):
             database_proxy_endpoint: RDS Proxy endpoint
             database_secret: Database credentials secret
             proxy_security_group: Security group for DB access
-            log_retention: CloudWatch log retention period
+            retention: CloudWatch log retention period
 
         Returns:
             Lambda function for checking database state
@@ -215,6 +215,13 @@ class DbInitStack(Stack):
         # Store reference for cross-stack wiring
         self._check_db_lambda_sg = lambda_sg
 
+        check_db_log_group = logs.LogGroup(
+            self,
+            "CheckDbLambdaLogs",
+            retention=retention,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         # Lambda function — checks SSM parameter only (no DB connectivity needed)
         fn = lambda_.Function(
             self,
@@ -228,7 +235,7 @@ class DbInitStack(Stack):
             environment={
                 "SSM_PARAMETER_NAME": f"/pantry-pirate-radio/{self.environment_name}/db-initialized",
             },
-            log_retention=log_retention,
+            log_group=check_db_log_group,
         )
 
         # Grant Lambda permission to read/write SSM parameter
@@ -283,7 +290,7 @@ def handler(event, context):
         database_proxy_endpoint: str,
         database_secret: secretsmanager.ISecret,
         github_pat_secret: secretsmanager.ISecret,
-        log_retention: logs.RetentionDays,
+        retention: logs.RetentionDays,
     ) -> tuple[ecs.FargateTaskDefinition, ec2.SecurityGroup]:
         """Create ECS task definition for database initialization.
 
@@ -295,7 +302,7 @@ def handler(event, context):
             database_proxy_endpoint: RDS Proxy endpoint
             database_secret: Database credentials secret
             github_pat_secret: GitHub PAT for migrations
-            log_retention: CloudWatch log retention period
+            retention: CloudWatch log retention period
 
         Returns:
             Tuple of (task definition, security group)
@@ -305,7 +312,7 @@ def handler(event, context):
             self,
             "DbInitLogGroup",
             log_group_name=f"/ecs/pantry-pirate-radio/db-init-{self.environment_name}",
-            retention=log_retention,
+            retention=retention,
             removal_policy=(
                 RemovalPolicy.RETAIN
                 if self.environment_name == "prod"
@@ -516,6 +523,13 @@ def handler(event, context):
         Returns:
             Custom Resource that triggers init state machine
         """
+        trigger_log_group = logs.LogGroup(
+            self,
+            "DbInitTriggerLambdaLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         # Custom resource provider
         provider = cr.Provider(
             self,
@@ -531,6 +545,7 @@ def handler(event, context):
                 environment={
                     "STATE_MACHINE_ARN": self.state_machine.state_machine_arn,
                 },
+                log_group=trigger_log_group,
             ),
         )
 

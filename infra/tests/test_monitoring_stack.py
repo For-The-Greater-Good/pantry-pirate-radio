@@ -29,10 +29,11 @@ class TestMonitoringStackResources:
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        # 13 alarms: API errors, API throttle, Queue depth, DLQ, Staging DLQ,
+        # 14 alarms: API errors, API throttle, Queue depth, DLQ, Staging DLQ,
         # DynamoDB throttle, Bedrock throttle, Aurora ACU, Pipeline failure,
-        # Validator DLQ, Reconciler DLQ, Recorder DLQ, Result Processor DLQ
-        template.resource_count_is("AWS::CloudWatch::Alarm", 13)
+        # Validator DLQ, Reconciler DLQ, Recorder DLQ, Result Processor DLQ,
+        # Location Service errors
+        template.resource_count_is("AWS::CloudWatch::Alarm", 14)
 
     def test_sns_topic_has_name(self, template):
         template.has_resource_properties(
@@ -205,6 +206,16 @@ class TestMonitoringStackAlarms:
             },
         )
 
+    def test_location_service_error_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "pantry-pirate-radio-location-service-errors-dev",
+                "MetricName": "ClientErrorCount",
+                "Namespace": "AWS/Location",
+            },
+        )
+
     def test_alarms_have_actions(self, template):
         alarms = template.find_resources("AWS::CloudWatch::Alarm")
         for name, alarm in alarms.items():
@@ -256,6 +267,7 @@ class TestMonitoringStackConfiguration:
         assert stack.content_bucket_name == "pantry-pirate-radio-content-dev"
         assert stack.batch_bucket_name == "pantry-pirate-radio-batch-dev"
         assert stack.exports_bucket_name == "pantry-pirate-radio-exports-dev"
+        assert stack.place_index_name == "pantry-pirate-radio-geocoding-dev"
 
     def test_prod_environment_name(self, app):
         stack = MonitoringStack(app, "ProdStack", environment_name="prod")

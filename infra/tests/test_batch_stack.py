@@ -168,6 +168,55 @@ class TestBatchInferenceStackResources:
                     )
 
 
+class TestBatchInferenceStackLogging:
+    """Tests for Lambda log group configuration."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def template(self, app):
+        storage = StorageStack(app, "LogStorageStack", environment_name="dev")
+        queues = QueueStack(app, "LogQueueStack", environment_name="dev")
+        compute = ComputeStack(app, "LogComputeStack", environment_name="dev")
+        ecr = ECRStack(app, "LogECRStack", environment_name="dev")
+        stack = BatchInferenceStack(
+            app,
+            "LogBatchStack",
+            environment_name="dev",
+            content_bucket=storage.content_bucket,
+            jobs_table=storage.jobs_table,
+            llm_queue=queues.llm_queue,
+            validator_queue=queues.validator_queue,
+            reconciler_queue=queues.reconciler_queue,
+            recorder_queue=queues.recorder_queue,
+            vpc=compute.vpc,
+            ecr_repository=ecr.repositories.get("batch-lambda"),
+        )
+        return assertions.Template.from_stack(stack)
+
+    def test_batcher_log_group_has_explicit_name(self, template):
+        """Batcher Lambda log group should have an explicit name for discoverability."""
+        template.has_resource_properties(
+            "AWS::Logs::LogGroup",
+            {
+                "LogGroupName": "/aws/lambda/pantry-pirate-radio-batcher-dev",
+                "RetentionInDays": 30,
+            },
+        )
+
+    def test_result_processor_log_group_has_explicit_name(self, template):
+        """Result Processor Lambda log group should have an explicit name."""
+        template.has_resource_properties(
+            "AWS::Logs::LogGroup",
+            {
+                "LogGroupName": "/aws/lambda/pantry-pirate-radio-result-processor-dev",
+                "RetentionInDays": 30,
+            },
+        )
+
+
 class TestBatchInferenceStackTracing:
     """Tests for X-Ray tracing on batch Lambdas."""
 

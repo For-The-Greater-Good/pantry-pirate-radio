@@ -8,21 +8,22 @@ import pytest
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 
 from app.core.geocoding import GeocodingService, get_geocoding_service
+from app.core.geocoding.cache_backend import make_geocoding_cache_key
 
 
 class TestGeocodingService:
     """Unit tests for GeocodingService."""
 
     @pytest.fixture
-    def mock_redis(self):
-        """Mock Redis client."""
-        with patch("app.core.geocoding.service.Redis") as mock:
-            redis_instance = MagicMock()
-            redis_instance.ping.return_value = True
-            redis_instance.get.return_value = None
-            redis_instance.setex.return_value = True
-            mock.from_url.return_value = redis_instance
-            yield redis_instance
+    def mock_cache(self):
+        """Mock GeocodingCacheBackend."""
+        with patch(
+            "app.core.geocoding.service.get_geocoding_cache_backend"
+        ) as mock_factory:
+            cache_instance = MagicMock()
+            cache_instance.get.return_value = None
+            mock_factory.return_value = cache_instance
+            yield cache_instance
 
     @pytest.fixture
     def mock_env(self, monkeypatch):
@@ -34,9 +35,8 @@ class TestGeocodingService:
         monkeypatch.setenv("GEOCODING_ENABLE_FALLBACK", "true")
         monkeypatch.setenv("GEOCODING_MAX_RETRIES", "2")
         monkeypatch.setenv("GEOCODING_TIMEOUT", "5")
-        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
-    def test_initialization_with_defaults(self, mock_env, mock_redis):
+    def test_initialization_with_defaults(self, mock_env, mock_cache):
         """Test service initialization with default configuration."""
         service = GeocodingService()
 
@@ -45,10 +45,10 @@ class TestGeocodingService:
         assert service.cache_ttl == 3600
         assert service.max_retries == 2
         assert service.timeout == 5
-        assert service.redis_client is not None
+        assert service._cache is not None
 
     def test_initialization_with_arcgis_api_key(
-        self, mock_env, mock_redis, monkeypatch
+        self, mock_env, mock_cache, monkeypatch
     ):
         """Test service initialization with ArcGIS API key."""
         monkeypatch.setenv("ARCGIS_API_KEY", "test_api_key_123")
@@ -61,20 +61,20 @@ class TestGeocodingService:
             # Verify API key was stored
             assert service.arcgis_api_key == "test_api_key_123"
 
-    def test_initialization_without_redis(self, mock_env, monkeypatch):
-        """Test service initialization when Redis is unavailable."""
-        monkeypatch.delenv("REDIS_URL", raising=False)
+    def test_initialization_without_cache(self, mock_env):
+        """Test service initialization when no cache backend is available."""
+        with patch(
+            "app.core.geocoding.service.get_geocoding_cache_backend"
+        ) as mock_factory:
+            mock_factory.return_value = None
+            service = GeocodingService()
+            assert service._cache is None
 
-        service = GeocodingService()
-        assert service.redis_client is None
-
-    def test_cache_key_generation(self, mock_env, mock_redis):
-        """Test cache key generation."""
-        service = GeocodingService()
-
-        key1 = service._get_cache_key("123 Main St", "arcgis")
-        key2 = service._get_cache_key("123 MAIN ST", "arcgis")
-        key3 = service._get_cache_key("123 Main St", "nominatim")
+    def test_cache_key_generation(self, mock_env, mock_cache):
+        """Test cache key generation via module-level helpers."""
+        key1 = make_geocoding_cache_key("arcgis", "123 Main St")
+        key2 = make_geocoding_cache_key("arcgis", "123 MAIN ST")
+        key3 = make_geocoding_cache_key("nominatim", "123 Main St")
 
         # Same address (case insensitive) with same provider should give same key
         assert key1 == key2
@@ -83,46 +83,43 @@ class TestGeocodingService:
         # Key should start with expected prefix
         assert key1.startswith("geocode:arcgis:")
 
-    def test_get_cached_result_hit(self, mock_env, mock_redis):
+    def test_get_cached_result_hit(self, mock_env, mock_cache):
         """Test retrieving cached geocoding result."""
         service = GeocodingService()
 
         # Mock cache hit
-        cached_data = json.dumps({"lat": 40.7128, "lon": -74.0060})
-        mock_redis.get.return_value = cached_data
+        mock_cache.get.return_value = {"lat": 40.7128, "lon": -74.0060}
 
         result = service._get_cached_result("123 Main St", "arcgis")
 
         assert result == (40.7128, -74.0060)
-        mock_redis.get.assert_called_once()
+        mock_cache.get.assert_called_once()
 
-    def test_get_cached_result_miss(self, mock_env, mock_redis):
+    def test_get_cached_result_miss(self, mock_env, mock_cache):
         """Test cache miss."""
         service = GeocodingService()
 
         # Mock cache miss
-        mock_redis.get.return_value = None
+        mock_cache.get.return_value = None
 
         result = service._get_cached_result("123 Main St", "arcgis")
 
         assert result is None
-        mock_redis.get.assert_called_once()
+        mock_cache.get.assert_called_once()
 
-    def test_cache_result(self, mock_env, mock_redis):
+    def test_cache_result(self, mock_env, mock_cache):
         """Test caching geocoding result."""
         service = GeocodingService()
 
         service._cache_result("123 Main St", "arcgis", 40.7128, -74.0060)
 
-        mock_redis.setex.assert_called_once()
-        call_args = mock_redis.setex.call_args[0]
-        assert call_args[1] == 3600  # TTL
-        cached_data = json.loads(call_args[2])
-        assert cached_data["lat"] == 40.7128
-        assert cached_data["lon"] == -74.0060
+        mock_cache.set.assert_called_once()
+        call_args = mock_cache.set.call_args[0]
+        assert call_args[1] == {"lat": 40.7128, "lon": -74.0060}
+        assert call_args[2] == 3600  # TTL
 
     @patch("app.core.geocoding.service.RateLimiter")
-    def test_geocode_with_arcgis_success(self, mock_rate_limiter, mock_env, mock_redis):
+    def test_geocode_with_arcgis_success(self, mock_rate_limiter, mock_env, mock_cache):
         """Test successful geocoding with ArcGIS."""
         service = GeocodingService()
 
@@ -141,7 +138,7 @@ class TestGeocodingService:
         mock_geocoder.assert_called_once_with("123 Main St")
 
     @patch("app.core.geocoding.service.RateLimiter")
-    def test_geocode_with_arcgis_failure(self, mock_rate_limiter, mock_env, mock_redis):
+    def test_geocode_with_arcgis_failure(self, mock_rate_limiter, mock_env, mock_cache):
         """Test ArcGIS geocoding failure."""
         service = GeocodingService()
 
@@ -157,7 +154,7 @@ class TestGeocodingService:
 
     @patch("app.core.geocoding.service.RateLimiter")
     def test_geocode_with_nominatim_success(
-        self, mock_rate_limiter, mock_env, mock_redis
+        self, mock_rate_limiter, mock_env, mock_cache
     ):
         """Test successful geocoding with Nominatim."""
         service = GeocodingService()
@@ -176,13 +173,12 @@ class TestGeocodingService:
         assert result == (40.7128, -74.0060)
         mock_geocoder.assert_called_once_with("123 Main St")
 
-    def test_geocode_with_cache_hit(self, mock_env, mock_redis):
+    def test_geocode_with_cache_hit(self, mock_env, mock_cache):
         """Test geocoding with cache hit (no API call)."""
         service = GeocodingService()
 
-        # Mock cache hit
-        cached_data = json.dumps({"lat": 40.7128, "lon": -74.0060})
-        mock_redis.get.return_value = cached_data
+        # Mock cache hit (backend returns dict, not JSON string)
+        mock_cache.get.return_value = {"lat": 40.7128, "lon": -74.0060}
 
         with patch.object(service, "_geocode_with_arcgis") as mock_arcgis:
             result = service.geocode("123 Main St")
@@ -191,12 +187,12 @@ class TestGeocodingService:
             # Should not call geocoding API when cache hit
             mock_arcgis.assert_not_called()
 
-    def test_geocode_with_fallback(self, mock_env, mock_redis):
+    def test_geocode_with_fallback(self, mock_env, mock_cache):
         """Test geocoding with fallback to secondary provider."""
         service = GeocodingService()
 
         # Mock cache miss
-        mock_redis.get.return_value = None
+        mock_cache.get.return_value = None
 
         with patch.object(service, "_geocode_with_arcgis") as mock_arcgis:
             with patch.object(service, "_geocode_with_nominatim") as mock_nominatim:
@@ -210,7 +206,7 @@ class TestGeocodingService:
                 mock_arcgis.assert_called_once()
                 mock_nominatim.assert_called_once()
 
-    def test_geocode_empty_address(self, mock_env, mock_redis):
+    def test_geocode_empty_address(self, mock_env, mock_cache):
         """Test geocoding with empty address."""
         service = GeocodingService()
 
@@ -220,12 +216,12 @@ class TestGeocodingService:
         result = service.geocode("   ")
         assert result is None
 
-    def test_geocode_force_provider(self, mock_env, mock_redis):
+    def test_geocode_force_provider(self, mock_env, mock_cache):
         """Test forcing specific provider."""
         service = GeocodingService()
 
         # Mock cache miss
-        mock_redis.get.return_value = None
+        mock_cache.get.return_value = None
 
         with patch.object(service, "_geocode_with_nominatim") as mock_nominatim:
             mock_nominatim.return_value = (40.7128, -74.0060)
@@ -236,7 +232,7 @@ class TestGeocodingService:
             assert result == (40.7128, -74.0060)
             mock_nominatim.assert_called_once()
 
-    def test_batch_geocode(self, mock_env, mock_redis):
+    def test_batch_geocode(self, mock_env, mock_cache):
         """Test batch geocoding."""
         service = GeocodingService()
 
@@ -259,19 +255,19 @@ class TestGeocodingService:
             assert results[3] == (34.0522, -118.2437)
             assert mock_geocode.call_count == 4
 
-    def test_singleton_pattern(self, mock_env, mock_redis):
+    def test_singleton_pattern(self, mock_env, mock_cache):
         """Test that get_geocoding_service returns singleton."""
         service1 = get_geocoding_service()
         service2 = get_geocoding_service()
 
         assert service1 is service2
 
-    def test_geocode_address_backward_compatibility(self, mock_env, mock_redis):
+    def test_geocode_address_backward_compatibility(self, mock_env, mock_cache):
         """Test geocode_address method for backward compatibility with scrapers."""
         service = GeocodingService()
 
         # Mock cache miss
-        mock_redis.get.return_value = None
+        mock_cache.get.return_value = None
 
         with patch.object(service, "geocode") as mock_geocode:
             # Test with successful geocoding
@@ -294,7 +290,7 @@ class TestGeocodingService:
 
             assert "Could not geocode address" in str(exc_info.value)
 
-    def test_geocode_address_with_landmarks(self, mock_env, mock_redis):
+    def test_geocode_address_with_landmarks(self, mock_env, mock_cache):
         """Test geocode_address handling of addresses with landmarks."""
         service = GeocodingService()
 
@@ -311,7 +307,7 @@ class TestGeocodingService:
             calls = [call[0][0] for call in mock_geocode.call_args_list]
             assert any("123 Main Street" in call for call in calls)
 
-    def test_get_default_coordinates_backward_compatibility(self, mock_env, mock_redis):
+    def test_get_default_coordinates_backward_compatibility(self, mock_env, mock_cache):
         """Test get_default_coordinates for backward compatibility."""
         service = GeocodingService()
 

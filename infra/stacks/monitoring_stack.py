@@ -54,6 +54,7 @@ class MonitoringStack(Stack):
         content_bucket_name: str | None = None,
         batch_bucket_name: str | None = None,
         exports_bucket_name: str | None = None,
+        place_index_name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -99,6 +100,9 @@ class MonitoringStack(Stack):
         self.content_bucket_name = content_bucket_name or f"pantry-pirate-radio-content-{env}"
         self.batch_bucket_name = batch_bucket_name or f"pantry-pirate-radio-batch-{env}"
         self.exports_bucket_name = exports_bucket_name or f"pantry-pirate-radio-exports-{env}"
+
+        # Amazon Location Service
+        self.place_index_name = place_index_name or f"pantry-pirate-radio-geocoding-{env}"
 
         self.alerts_topic = self._create_alerts_topic(alert_email)
         self.dashboard = self._create_dashboard()
@@ -167,12 +171,14 @@ class MonitoringStack(Stack):
 
         self._add_lambda_api_section(db)
         self._add_worker_section(db)
+        self._add_sqs_queues_section(db)
         self._add_pipeline_section(db)
         self._add_aurora_section(db)
         self._add_dynamodb_section(db)
         self._add_bedrock_section(db)
         if self.batcher_function_name:
             self._add_batch_inference_section(db)
+        self._add_geocoding_section(db)
         self._add_autoscaling_section(db)
         self._add_s3_section(db)
 
@@ -232,16 +238,51 @@ class MonitoringStack(Stack):
         db.add_widgets(
             self._graph("Service CPU %", cpu_metrics, width=12),
             self._graph("Service Memory %", mem_metrics, width=12),
-            self._graph("LLM Queue Depth", [
-                self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": self.queue_name}, "Average", p1),
-                self._m("AWS/SQS", "ApproximateNumberOfMessagesNotVisible", {"QueueName": self.queue_name}, "Average", p1),
-            ]),
-            self._graph("LLM Queue Age", [
-                self._m("AWS/SQS", "ApproximateAgeOfOldestMessage", {"QueueName": self.queue_name}, "Maximum", p1),
-            ]),
         )
 
-    # --- Section 3: Pipeline Overview ---
+    # --- Section 3: SQS Queues ---
+
+    def _add_sqs_queues_section(self, db: cloudwatch.Dashboard) -> None:
+        p1 = Duration.minutes(1)
+        ns = "AWS/SQS"
+
+        queues = [
+            ("LLM", self.queue_name),
+            ("Staging", self.staging_queue_name),
+            ("Validator", self.validator_queue_name),
+            ("Reconciler", self.reconciler_queue_name),
+            ("Recorder", self.recorder_queue_name),
+        ]
+
+        db.add_widgets(self._section("SQS Queues"))
+
+        # Per-queue depth graphs: visible + not-visible, DLQ on right axis
+        queue_widgets = []
+        for label, qname in queues:
+            dlq_name = qname.replace(".fifo", "-dlq.fifo")
+            queue_widgets.append(self._graph(
+                f"{label}",
+                left=[
+                    self._m(ns, "ApproximateNumberOfMessagesVisible", {"QueueName": qname}, "Sum", p1),
+                    self._m(ns, "ApproximateNumberOfMessagesNotVisible", {"QueueName": qname}, "Sum", p1),
+                ],
+                right=[
+                    self._m(ns, "ApproximateNumberOfMessagesVisible", {"QueueName": dlq_name}, "Sum", p1),
+                ],
+            ))
+
+        # Queue ages (all on one graph)
+        queue_widgets.append(self._graph(
+            "Oldest Message Age",
+            left=[
+                self._m(ns, "ApproximateAgeOfOldestMessage", {"QueueName": qname}, "Maximum", p1)
+                for _, qname in queues
+            ],
+        ))
+
+        db.add_widgets(*queue_widgets)
+
+    # --- Section 4: Pipeline Overview ---
 
     def _add_pipeline_section(self, db: cloudwatch.Dashboard) -> None:
         queues = [
@@ -361,7 +402,27 @@ class MonitoringStack(Stack):
             ]),
         )
 
-    # --- Section 8: Auto-Scaling ---
+    # --- Section 8: Geocoding (Amazon Location Service) ---
+
+    def _add_geocoding_section(self, db: cloudwatch.Dashboard) -> None:
+        dims = {"IndexName": self.place_index_name}
+        ns = "AWS/Location"
+        p5 = Duration.minutes(5)
+
+        db.add_widgets(self._section("Geocoding (Amazon Location Service)"))
+        db.add_widgets(
+            self._graph("Geocoding Requests", [self._m(ns, "CallCount", dims, "Sum", p5)]),
+            self._graph("Geocoding Latency", [
+                self._m(ns, "CallLatency", dims, "Average", p5),
+                self._m(ns, "CallLatency", dims, "p99", p5),
+            ]),
+            self._graph("Geocoding Errors", [
+                self._m(ns, "ClientErrorCount", dims, "Sum", p5),
+                self._m(ns, "ServerErrorCount", dims, "Sum", p5),
+            ]),
+        )
+
+    # --- Section 9: Auto-Scaling ---
 
     def _add_autoscaling_section(self, db: cloudwatch.Dashboard) -> None:
         db.add_widgets(self._section("Auto-Scaling"))
@@ -521,4 +582,12 @@ class MonitoringStack(Stack):
                 "QueueName": f"pantry-pirate-radio-result-processor-dlq-{self.environment_name}",
             }),
             1, 1, GTE, "Messages in result processor dead-letter queue",
+        )
+
+        # 14. Amazon Location Service errors
+        self._alarm(
+            "LocationServiceErrorAlarm",
+            f"pantry-pirate-radio-location-service-errors-{self.environment_name}",
+            self._m("AWS/Location", "ClientErrorCount", {"IndexName": self.place_index_name}),
+            10, 2, GTE, "Amazon Location Service geocoding errors are elevated",
         )

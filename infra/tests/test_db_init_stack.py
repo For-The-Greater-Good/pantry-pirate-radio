@@ -84,7 +84,7 @@ class TestDbInitStackResources:
     def test_creates_check_db_lambda(self, template):
         """DbInitStack should create Lambda function to check database state."""
         # Lambda functions: check-db, trigger, plus custom resource provider framework
-        template.resource_count_is("AWS::Lambda::Function", 4)
+        template.resource_count_is("AWS::Lambda::Function", 3)
 
     def test_check_db_lambda_has_ssm_environment(self, template):
         """Check-db Lambda should have SSM parameter name in environment."""
@@ -160,8 +160,9 @@ class TestDbInitStackResources:
         template.resource_count_is("AWS::CloudFormation::CustomResource", 1)
 
     def test_creates_log_groups(self, template):
-        """DbInitStack should create log groups."""
-        template.resource_count_is("AWS::Logs::LogGroup", 1)
+        """DbInitStack should create log groups for ECS task and Lambda functions."""
+        # Log groups: db-init ECS task + check-db Lambda + trigger Lambda
+        template.resource_count_is("AWS::Logs::LogGroup", 3)
 
     def test_creates_security_groups(self, template):
         """DbInitStack should create security groups for Lambda and ECS."""

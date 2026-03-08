@@ -325,6 +325,74 @@ class TestServicesStackWithConfig:
             }
         )
 
+    def test_validator_has_amazon_location_env_vars(self, app, compute_stack):
+        """Validator container should have AMAZON_LOCATION_INDEX when configured."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig(
+            place_index_name="test-geocoding-index",
+            place_index_arn="arn:aws:geo:us-east-1:123456:place-index/test",
+        )
+        stack = ServicesStack(
+            app,
+            "AmazonLocationStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "AMAZON_LOCATION_INDEX",
+                                "Value": "test-geocoding-index",
+                            })
+                        ])
+                    })
+                ])
+            },
+        )
+
+    def test_validator_geocoding_provider_overridden(self, app, compute_stack):
+        """Validator should override GEOCODING_PROVIDER to amazon-location when Place Index is configured."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig(
+            place_index_name="test-geocoding-index",
+            place_index_arn="arn:aws:geo:us-east-1:123456:place-index/test",
+        )
+        stack = ServicesStack(
+            app,
+            "GeoProviderStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with([
+                    assertions.Match.object_like({
+                        "Environment": assertions.Match.array_with([
+                            assertions.Match.object_like({
+                                "Name": "GEOCODING_PROVIDER",
+                                "Value": "amazon-location",
+                            })
+                        ])
+                    })
+                ])
+            },
+        )
+
     def test_scraper_container_has_sqs_env_vars(self, app, compute_stack):
         """Scraper container should have SQS_QUEUE_URL and SQS_JOBS_TABLE when configured."""
         from stacks.services_stack import ServiceConfig

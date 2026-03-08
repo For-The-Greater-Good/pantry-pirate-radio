@@ -243,6 +243,14 @@ class BatchInferenceStack(Stack):
 
         Drains staging queue, decides batch vs on-demand.
         """
+        batcher_log_group = logs.LogGroup(
+            self,
+            "BatcherLambdaLogs",
+            log_group_name=f"/aws/lambda/pantry-pirate-radio-batcher-{self.environment_name}",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         fn = _lambda.DockerImageFunction(
             self,
             "BatcherLambda",
@@ -265,7 +273,7 @@ class BatchInferenceStack(Stack):
                 "SQS_JOBS_TABLE": jobs_table.table_name,
                 "BATCH_THRESHOLD": str(batch_threshold),
             },
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=batcher_log_group,
         )
 
         # Grant Bedrock batch job management
@@ -313,6 +321,14 @@ class BatchInferenceStack(Stack):
             retention_period=Duration.days(14),
         )
 
+        result_processor_log_group = logs.LogGroup(
+            self,
+            "ResultProcessorLambdaLogs",
+            log_group_name=f"/aws/lambda/pantry-pirate-radio-result-processor-{self.environment_name}",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         fn = _lambda.DockerImageFunction(
             self,
             "ResultProcessorLambda",
@@ -335,7 +351,7 @@ class BatchInferenceStack(Stack):
                 "SQS_JOBS_TABLE": jobs_table.table_name,
                 "BEDROCK_MODEL_ID": bedrock_model_id,
             },
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=result_processor_log_group,
         )
 
         return fn

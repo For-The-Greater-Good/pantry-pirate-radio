@@ -61,7 +61,7 @@ def _hardcoded_string_defaults() -> dict[str, str]:
         "VALIDATOR_ENRICHMENT_ENABLED": "true",
         "ENRICHMENT_CACHE_TTL": "86400",
         "ENRICHMENT_TIMEOUT": "30",
-        "ENRICHMENT_GEOCODING_PROVIDERS": '["arcgis", "nominatim", "census"]',
+        "ENRICHMENT_GEOCODING_PROVIDERS": '["amazon-location", "arcgis", "nominatim", "census"]',
         "GEOCODING_PROVIDER": "arcgis",
         "GEOCODING_ENABLE_FALLBACK": "true",
         "GEOCODING_MAX_RETRIES": "3",

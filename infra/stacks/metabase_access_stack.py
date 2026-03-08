@@ -9,7 +9,7 @@ Access is restricted to Metabase Cloud's published static IPs via security group
 
 import textwrap
 
-from aws_cdk import CfnOutput, Duration, Stack
+from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_events as events
@@ -166,6 +166,13 @@ class MetabaseAccessStack(Stack):
                 }
         """)
 
+        ip_sync_log_group = logs.LogGroup(
+            self,
+            "IpSyncLogs",
+            retention=logs.RetentionDays.ONE_WEEK,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         ip_sync_fn = _lambda.Function(
             self,
             "IpSyncFunction",
@@ -178,7 +185,7 @@ class MetabaseAccessStack(Stack):
                 "TARGET_GROUP_ARN": target_group.target_group_arn,
             },
             function_name=f"metabase-ip-sync-{environment_name}",
-            log_retention=logs.RetentionDays.ONE_WEEK,
+            log_group=ip_sync_log_group,
         )
 
         # IAM: allow Lambda to manage target group

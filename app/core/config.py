@@ -20,7 +20,12 @@ except Exception:
         "VALIDATOR_ENRICHMENT_ENABLED": True,
         "ENRICHMENT_CACHE_TTL": 86400,
         "ENRICHMENT_TIMEOUT": 30,
-        "ENRICHMENT_GEOCODING_PROVIDERS": ["arcgis", "nominatim", "census"],
+        "ENRICHMENT_GEOCODING_PROVIDERS": [
+            "amazon-location",
+            "arcgis",
+            "nominatim",
+            "census",
+        ],
         "GEOCODING_PROVIDER": "arcgis",
         "GEOCODING_ENABLE_FALLBACK": True,
         "GEOCODING_MAX_RETRIES": 3,
@@ -155,6 +160,13 @@ class Settings(BaseSettings):
     # Provider-specific configuration
     ENRICHMENT_PROVIDER_CONFIG: Dict[str, Dict[str, Any]] = Field(
         default={
+            "amazon-location": {
+                "timeout": 10,  # AWS internal service, low latency
+                "max_retries": 3,
+                "rate_limit": 50,  # requests per second
+                "circuit_breaker_threshold": 5,  # failures before opening circuit
+                "circuit_breaker_cooldown": 300,  # cooldown in seconds
+            },
             "arcgis": {
                 "timeout": 10,  # Fast commercial service
                 "max_retries": 3,

@@ -30,7 +30,7 @@ def _hardcoded_defaults() -> dict[str, Any]:
         "VALIDATOR_ENRICHMENT_ENABLED": True,
         "ENRICHMENT_CACHE_TTL": 86400,
         "ENRICHMENT_TIMEOUT": 30,
-        "ENRICHMENT_GEOCODING_PROVIDERS": ["arcgis", "nominatim", "census"],
+        "ENRICHMENT_GEOCODING_PROVIDERS": ["amazon-location", "arcgis", "nominatim", "census"],
         "GEOCODING_PROVIDER": "arcgis",
         "GEOCODING_ENABLE_FALLBACK": True,
         "GEOCODING_MAX_RETRIES": 3,

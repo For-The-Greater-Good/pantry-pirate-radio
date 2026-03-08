@@ -8,6 +8,7 @@ from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_location as location
 from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
@@ -22,6 +23,7 @@ class DatabaseStack(Stack):
     - RDS Proxy with IAM authentication for connection pooling
     - Security groups for database access
     - DynamoDB table for geocoding cache
+    - Amazon Location Service Place Index for geocoding
 
     Attributes:
         database_credentials_secret: Secret containing DB username/password
@@ -30,6 +32,7 @@ class DatabaseStack(Stack):
         proxy_endpoint: RDS Proxy endpoint URL
         database_security_group: Security group for database access
         geocoding_cache_table: DynamoDB table for geocoding cache
+        place_index: Amazon Location Service Place Index for geocoding
     """
 
     def __init__(
@@ -89,6 +92,9 @@ class DatabaseStack(Stack):
 
         # Create geocoding cache table
         self.geocoding_cache_table = self._create_geocoding_cache_table()
+
+        # Create Amazon Location Service Place Index for geocoding
+        self.place_index = self._create_place_index()
 
         # Allow proxy to connect to database
         self.database_security_group.add_ingress_rule(
@@ -338,6 +344,24 @@ class DatabaseStack(Stack):
         )
 
         return table
+
+    def _create_place_index(self) -> location.CfnPlaceIndex:
+        """Create Amazon Location Service Place Index for geocoding.
+
+        Uses Esri data source (same quality as ArcGIS) with request-based pricing.
+        First 250K requests/month included in AWS free tier.
+
+        Returns:
+            CfnPlaceIndex for geocoding operations
+        """
+        return location.CfnPlaceIndex(
+            self,
+            "GeocodingPlaceIndex",
+            index_name=f"pantry-pirate-radio-geocoding-{self.environment_name}",
+            data_source="Esri",
+            pricing_plan="RequestBasedUsage",
+            description="Geocoding for food pantry address enrichment",
+        )
 
     def allow_connection_from(self, security_group: ec2.ISecurityGroup) -> None:
         """Allow a security group to connect to the RDS Proxy.

@@ -12,7 +12,10 @@ class TestValidatorMain:
     def test_validator_module_imports(self):
         """Test that validator module can be imported."""
         from app.validator import ValidationService
-        from app.validator.job_processor import ValidationProcessor, process_validation_job
+        from app.validator.job_processor import (
+            ValidationProcessor,
+            process_validation_job,
+        )
         from app.validator.queues import validator_queue
 
         assert ValidationService is not None

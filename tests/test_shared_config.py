@@ -58,7 +58,12 @@ class TestDefaultsYaml:
         assert enr["enabled"] is True
         assert enr["cache_ttl"] == 86400
         assert enr["timeout"] == 30
-        assert enr["geocoding_providers"] == ["arcgis", "nominatim", "census"]
+        assert enr["geocoding_providers"] == [
+            "amazon-location",
+            "arcgis",
+            "nominatim",
+            "census",
+        ]
 
     def test_geocoding_section(self, yaml_data):
         """Geocoding section has correct keys."""

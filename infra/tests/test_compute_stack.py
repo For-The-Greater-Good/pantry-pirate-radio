@@ -403,3 +403,33 @@ class TestComputeStackAutoScaling:
                 "PolicyType": "StepScaling",
             },
         )
+
+    def test_scaling_alarms_treat_missing_data_as_not_breaching(
+        self, template_with_scaling
+    ):
+        """Alarms should treat missing data as notBreaching for reliable scale-from-zero."""
+        raw = template_with_scaling.to_json()
+        alarms = [
+            r for r in raw["Resources"].values()
+            if r["Type"] == "AWS::CloudWatch::Alarm"
+        ]
+        assert len(alarms) == 2
+        for alarm in alarms:
+            assert alarm["Properties"]["TreatMissingData"] == "notBreaching", (
+                "Scaling alarms must use TreatMissingData=notBreaching "
+                "to avoid INSUFFICIENT_DATA during idle periods"
+            )
+
+    def test_scaling_policy_has_metric_aggregation_type(
+        self, template_with_scaling
+    ):
+        """Step scaling policies should have explicit MetricAggregationType."""
+        template_with_scaling.has_resource_properties(
+            "AWS::ApplicationAutoScaling::ScalingPolicy",
+            {
+                "PolicyType": "StepScaling",
+                "StepScalingPolicyConfiguration": assertions.Match.object_like({
+                    "MetricAggregationType": "Average",
+                }),
+            },
+        )

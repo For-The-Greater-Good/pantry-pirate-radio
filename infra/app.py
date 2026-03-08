@@ -20,6 +20,7 @@ import os
 
 import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_iam as iam
 
 from stacks.bastion_stack import BastionStack
 from stacks.batch_stack import BatchInferenceStack
@@ -140,6 +141,8 @@ service_config = ServiceConfig(
     content_bucket_name=storage_stack.content_bucket.bucket_name,
     content_index_table_name=storage_stack.content_index_table.table_name,
     geocoding_cache_table_name=database_stack.geocoding_cache_table.table_name,
+    place_index_name=database_stack.place_index.index_name,
+    place_index_arn=database_stack.place_index.attr_index_arn,
     jobs_table_name=storage_stack.jobs_table.table_name,
     github_pat_secret=secrets_stack.github_pat_secret,
     llm_api_keys_secret=secrets_stack.llm_api_keys_secret,
@@ -235,6 +238,7 @@ monitoring_stack = MonitoringStack(
     content_bucket_name=storage_stack.content_bucket.bucket_name,
     batch_bucket_name=batch_stack.batch_bucket.bucket_name,
     exports_bucket_name=storage_stack.exports_bucket.bucket_name,
+    place_index_name=database_stack.place_index.index_name,
     env=env,
     description=f"Pantry Pirate Radio monitoring infrastructure ({environment_name})",
 )
@@ -293,6 +297,14 @@ queue_stack.reconciler_queue.grant_send_messages(services_stack.validator_task_r
 database_stack.geocoding_cache_table.grant_read_write_data(services_stack.validator_task_role)
 storage_stack.content_bucket.grant_read(services_stack.validator_task_role)
 database_stack.database_credentials_secret.grant_read(services_stack.validator_task_role)
+
+# Validator: Amazon Location Service geocoding permissions
+services_stack.validator_task_role.add_to_policy(
+    iam.PolicyStatement(
+        actions=["geo:SearchPlaceIndexForText", "geo:SearchPlaceIndexForPosition"],
+        resources=[database_stack.place_index.attr_index_arn],
+    )
+)
 
 # Reconciler permissions:
 # - Consume from reconciler queue, send to recorder queue

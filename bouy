@@ -2302,6 +2302,16 @@ print(json.dumps(l))
                         output warning "Could not redeploy ${svc} (may not exist yet)"
                     fi
                 done
+
+                # Force Lambda API to pull new image
+                LAMBDA_NAME="pantry-pirate-radio-api-${DEPLOY_ENV}"
+                API_LAMBDA_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-api-lambda-${DEPLOY_ENV}"
+                if aws lambda update-function-code --function-name "$LAMBDA_NAME" --image-uri "${API_LAMBDA_REPO}:${IMAGE_TAG}" --no-cli-pager > /dev/null 2>&1; then
+                    output success "Updated Lambda API image"
+                else
+                    output warning "Could not update Lambda API (may not exist yet)"
+                fi
+
                 output success "Image build, push, and redeploy complete."
                 ;;
             infra)
@@ -2335,8 +2345,8 @@ print(json.dumps(l))
                 fi
                 output success "CDK deployment complete"
 
-                # Phase 4: Force ECS services to pull new images
-                output info "Phase 4: Forcing ECS service redeployment..."
+                # Phase 4: Force ECS services and Lambda to pull new images
+                output info "Phase 4: Forcing service redeployment..."
                 ECS_SERVICES="worker validator reconciler recorder"
                 CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
                 for svc in $ECS_SERVICES; do
@@ -2347,6 +2357,15 @@ print(json.dumps(l))
                         output warning "Could not redeploy ${svc} (may not exist yet)"
                     fi
                 done
+
+                # Force Lambda API to pull new image
+                LAMBDA_NAME="pantry-pirate-radio-api-${DEPLOY_ENV}"
+                API_LAMBDA_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-api-lambda-${DEPLOY_ENV}"
+                if aws lambda update-function-code --function-name "$LAMBDA_NAME" --image-uri "${API_LAMBDA_REPO}:${IMAGE_TAG}" --no-cli-pager > /dev/null 2>&1; then
+                    output success "Updated Lambda API image"
+                else
+                    output warning "Could not update Lambda API (may not exist yet)"
+                fi
                 ;;
         esac
 

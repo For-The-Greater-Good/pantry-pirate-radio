@@ -44,6 +44,10 @@ class ServiceConfig:
     content_index_table_name: str = ""
     geocoding_cache_table_name: str = ""
 
+    # Amazon Location Service
+    place_index_name: str = ""
+    place_index_arn: str = ""
+
     # Secrets
     github_pat_secret: secretsmanager.ISecret | None = None
     llm_api_keys_secret: secretsmanager.ISecret | None = None
@@ -618,6 +622,9 @@ class ServicesStack(Stack):
             env["CONTENT_STORE_DYNAMODB_TABLE"] = self.config.content_index_table_name
         if self.config.geocoding_cache_table_name:
             env["GEOCODING_CACHE_TABLE"] = self.config.geocoding_cache_table_name
+        if self.config.place_index_name:
+            env["AMAZON_LOCATION_INDEX"] = self.config.place_index_name
+            env["GEOCODING_PROVIDER"] = "amazon-location"
         return env
 
     def _get_validator_secrets(self) -> dict[str, ecs.Secret]:

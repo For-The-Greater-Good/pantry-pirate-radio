@@ -193,6 +193,7 @@ class LambdaApiStack(Stack):
             auto_deploy=True,
             access_log_settings=apigwv2.CfnStage.AccessLogSettingsProperty(
                 destination_arn=access_log_group.log_group_arn,
+                format='{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","method":"$context.httpMethod","path":"$context.path","status":"$context.status","latency":"$context.responseLatency","error":"$context.error.message"}',
             ),
         )
 

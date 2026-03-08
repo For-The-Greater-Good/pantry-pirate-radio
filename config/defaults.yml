@@ -24,6 +24,7 @@ enrichment:
   cache_ttl: 86400
   timeout: 30
   geocoding_providers:
+    - amazon-location
     - arcgis
     - nominatim
     - census

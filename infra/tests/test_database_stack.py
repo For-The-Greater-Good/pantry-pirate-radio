@@ -135,6 +135,29 @@ class TestDatabaseStackResources:
             },
         )
 
+    def test_creates_place_index(self, dev_template):
+        """DatabaseStack should create Amazon Location Service Place Index."""
+        dev_template.resource_count_is("AWS::Location::PlaceIndex", 1)
+
+    def test_place_index_uses_esri(self, dev_template):
+        """Place Index should use Esri data source."""
+        dev_template.has_resource_properties(
+            "AWS::Location::PlaceIndex",
+            {
+                "DataSource": "Esri",
+                "PricingPlan": "RequestBasedUsage",
+            },
+        )
+
+    def test_place_index_has_correct_name(self, dev_template):
+        """Place Index should follow naming convention."""
+        dev_template.has_resource_properties(
+            "AWS::Location::PlaceIndex",
+            {
+                "IndexName": "pantry-pirate-radio-geocoding-dev",
+            },
+        )
+
     def test_aurora_instance_has_performance_insights(self, dev_template):
         """Aurora writer instance should have Performance Insights enabled."""
         dev_template.has_resource_properties(
@@ -336,6 +359,10 @@ class TestDatabaseStackAttributes:
     def test_exposes_proxy_security_group(self, stack):
         """Stack should expose proxy_security_group for wiring."""
         assert stack.proxy_security_group is not None
+
+    def test_exposes_place_index(self, stack):
+        """Stack should expose place_index attribute."""
+        assert stack.place_index is not None
 
 
 class TestDatabaseStackOutputs:

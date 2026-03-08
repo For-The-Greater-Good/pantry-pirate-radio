@@ -383,6 +383,7 @@ max-complexity = 15
 "tests/test_core/*" = ["RUF010"]
 "app/datasette/exporter.py" = ["E501", "C901", "S608"]  # Legacy module with complex SQL operations
 "tests/test_bouy_docker.py" = ["S608"]  # Mock script generation for testing
+"app/api/v1/partners/ptf/services.py" = ["S608"]  # SQL built from internal clauses, not user input
 
 [tool.ruff.lint.isort]
 known-first-party = ["tests"]

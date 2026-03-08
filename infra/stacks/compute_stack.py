@@ -401,4 +401,15 @@ class ComputeStack(Stack):
             ],
             adjustment_type=appscaling.AdjustmentType.CHANGE_IN_CAPACITY,
             cooldown=Duration.seconds(120),
+            metric_aggregation_type=appscaling.MetricAggregationType.AVERAGE,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
         )
+
+        # Prevent INSUFFICIENT_DATA during idle periods (no metric data).
+        # Without this, alarms may not evaluate properly when scaling from zero.
+        # Walk the construct tree to find the CloudWatch alarms created by
+        # scale_on_metric (it returns None, so we access them via the tree).
+        for child in scaling.node.find_all():
+            if isinstance(child, cloudwatch.CfnAlarm):
+                child.treat_missing_data = "notBreaching"
