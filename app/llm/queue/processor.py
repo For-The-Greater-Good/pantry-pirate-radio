@@ -1,7 +1,7 @@
 """Job processor for RQ and SQS backends."""
 
 import asyncio
-import logging
+import structlog
 import os
 from collections.abc import AsyncGenerator, Coroutine
 from datetime import datetime
@@ -12,7 +12,7 @@ from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.models import JobResult, JobStatus, LLMJob
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _is_sqs_backend() -> bool:

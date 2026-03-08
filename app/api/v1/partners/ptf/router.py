@@ -43,9 +43,14 @@ async def ptf_sync(
 ) -> Response:
     """PTF partner data sync endpoint."""
     service = PtfSyncService(session)
-    result = await service.sync(
-        page_size=page_size, cursor=cursor, updated_since=updated_since
-    )
+    try:
+        result = await service.sync(
+            page_size=page_size, cursor=cursor, updated_since=updated_since
+        )
+    except ValueError as e:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(e))
 
     etag = result["meta"]["etag"]
 

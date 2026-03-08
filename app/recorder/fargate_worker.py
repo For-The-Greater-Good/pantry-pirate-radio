@@ -49,8 +49,7 @@ def main() -> int:
         queue_url = os.environ.get("RECORDER_QUEUE_URL")
         if not queue_url:
             logger.error("RECORDER_QUEUE_URL environment variable is required")
-            print("Error: RECORDER_QUEUE_URL is required", file=sys.stderr)
-            return 1
+            sys.exit(1)
 
         worker = PipelineWorker(
             queue_url=queue_url,
@@ -67,7 +66,6 @@ def main() -> int:
         return 0
     except Exception as e:
         logger.error("recorder_worker_startup_failed", error=str(e))
-        print(f"Error: {e}", file=sys.stderr)
         return 1
 
 

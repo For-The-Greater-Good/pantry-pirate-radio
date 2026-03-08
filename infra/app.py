@@ -206,6 +206,7 @@ pipeline_stack = PipelineStack(
     cluster=compute_stack.cluster,
     scraper_task_family=f"pantry-pirate-radio-scraper-{environment_name}",
     publisher_task_family=f"pantry-pirate-radio-publisher-{environment_name}",
+    publisher_task_role_arn=services_stack.publisher_task_role.role_arn,
     environment_name=environment_name,
     schedule_enabled=(environment_name == "prod"),  # Only enable schedule in prod
     publisher_schedule_enabled=(environment_name == "prod"),

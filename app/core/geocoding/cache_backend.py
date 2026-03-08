@@ -7,11 +7,12 @@ environment: GEOCODING_CACHE_TABLE -> DynamoDB, REDIS_URL -> Redis, else None.
 
 import hashlib
 import json
-import logging
 import os
 from typing import Any, Optional, Protocol, runtime_checkable
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 @runtime_checkable
@@ -52,15 +53,37 @@ class RedisGeocodingCache:
             raw = self._redis.get(cache_key)
             if raw:
                 return json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Geocoding cache data corruption on get",
+                cache_key=cache_key,
+                error=str(e),
+            )
         except Exception as e:
-            logger.warning(f"Geocoding cache get error: {e}")
+            # Redis infrastructure errors (ConnectionError, TimeoutError, etc.)
+            logger.error(
+                "Geocoding cache infrastructure error on get",
+                cache_key=cache_key,
+                error=str(e),
+            )
         return None
 
     def set(self, cache_key: str, data: dict, ttl: int) -> None:
         try:
             self._redis.setex(cache_key, ttl, json.dumps(data))
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Geocoding cache data serialization error on set",
+                cache_key=cache_key,
+                error=str(e),
+            )
         except Exception as e:
-            logger.warning(f"Geocoding cache set error: {e}")
+            # Redis infrastructure errors (ConnectionError, TimeoutError, etc.)
+            logger.error(
+                "Geocoding cache infrastructure error on set",
+                cache_key=cache_key,
+                error=str(e),
+            )
 
 
 def make_geocoding_cache_key(provider: str, address: str) -> str:
@@ -110,10 +133,16 @@ def get_geocoding_cache_backend() -> Optional[GeocodingCacheBackend]:
             from app.core.geocoding.cache_dynamodb import DynamoDBGeocodingCache
 
             backend = DynamoDBGeocodingCache(table_name=table_name)
-            logger.info("Geocoding cache: DynamoDB (%s)", table_name)
+            logger.info("Geocoding cache: DynamoDB", table_name=table_name)
             return backend
         except Exception as e:
-            logger.warning(f"DynamoDB geocoding cache init failed: {e}")
+            logger.error(
+                "DynamoDB geocoding cache init failed, GEOCODING_CACHE_TABLE was "
+                "explicitly set but backend could not be initialized",
+                table_name=table_name,
+                error=str(e),
+            )
+            return None
 
     # Redis (local Docker)
     redis_url = os.getenv("REDIS_URL")
@@ -126,7 +155,7 @@ def get_geocoding_cache_backend() -> Optional[GeocodingCacheBackend]:
             logger.info("Geocoding cache: Redis")
             return RedisGeocodingCache(client)
         except Exception as e:
-            logger.warning(f"Redis geocoding cache init failed: {e}")
+            logger.warning("Redis geocoding cache init failed", error=str(e))
 
     logger.info("Geocoding cache: disabled (no backend configured)")
     return None

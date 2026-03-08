@@ -310,7 +310,7 @@ class TestBedrockGenerate:
             "model",
             new_callable=lambda: property(lambda self: mock_client),
         ):
-            with pytest.raises(ValueError, match="Error generating with Bedrock"):
+            with pytest.raises(ValueError, match="Bedrock validation error"):
                 await self.provider.generate("test")
 
     @pytest.mark.asyncio

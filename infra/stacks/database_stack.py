@@ -96,11 +96,18 @@ class DatabaseStack(Stack):
         # Create Amazon Location Service Place Index for geocoding
         self.place_index = self._create_place_index()
 
-        # Allow proxy to connect to database
+        # Allow proxy to connect to database (ingress on Aurora SG)
         self.database_security_group.add_ingress_rule(
             peer=self._proxy_security_group,
             connection=ec2.Port.tcp(5432),
             description="Allow RDS Proxy to connect to Aurora",
+        )
+
+        # Explicit egress from proxy SG to Aurora SG on port 5432
+        self._proxy_security_group.add_egress_rule(
+            peer=self.database_security_group,
+            connection=ec2.Port.tcp(5432),
+            description="Allow RDS Proxy to reach Aurora on port 5432",
         )
 
         # Expose proxy security group for cross-stack wiring
@@ -180,7 +187,7 @@ class DatabaseStack(Stack):
             "ProxySecurityGroup",
             vpc=vpc,
             description=f"Security group for RDS Proxy - {self.environment_name}",
-            allow_all_outbound=True,
+            allow_all_outbound=False,
         )
 
         return sg

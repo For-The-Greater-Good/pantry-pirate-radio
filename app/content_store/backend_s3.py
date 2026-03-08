@@ -99,48 +99,25 @@ class S3ContentStoreBackend:
 
     @with_aws_retry
     def initialize(self) -> None:
-        """Verify S3 bucket and DynamoDB table exist."""
+        """Verify S3 bucket and DynamoDB table exist.
+
+        Lets ClientError propagate so @with_aws_retry can distinguish
+        transient errors (throttling, timeouts) from permanent ones
+        (AccessDenied, NoSuchBucket) and retry appropriately.
+        """
         if self._initialized:
             return
-
-        from botocore.exceptions import ClientError
 
         s3 = self._get_s3_client()
         dynamodb = self._get_dynamodb_client()
 
-        # Verify S3 bucket exists
-        try:
-            s3.head_bucket(Bucket=self.s3_bucket)
-            logger.info("s3_bucket_verified", bucket=self.s3_bucket)
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "")
-            logger.error(
-                "s3_bucket_verification_failed",
-                bucket=self.s3_bucket,
-                error_code=error_code,
-                error=str(e),
-            )
-            raise RuntimeError(
-                f"S3 bucket '{self.s3_bucket}' verification failed: {error_code}. "
-                "Ensure the bucket exists and IAM permissions are correct."
-            ) from e
+        # Verify S3 bucket exists - let ClientError propagate for retry decorator
+        s3.head_bucket(Bucket=self.s3_bucket)
+        logger.info("s3_bucket_verified", bucket=self.s3_bucket)
 
-        # Verify DynamoDB table exists
-        try:
-            dynamodb.describe_table(TableName=self.dynamodb_table)
-            logger.info("dynamodb_table_verified", table=self.dynamodb_table)
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "")
-            logger.error(
-                "dynamodb_table_verification_failed",
-                table=self.dynamodb_table,
-                error_code=error_code,
-                error=str(e),
-            )
-            raise RuntimeError(
-                f"DynamoDB table '{self.dynamodb_table}' verification failed: {error_code}. "
-                "Ensure the table exists and IAM permissions are correct."
-            ) from e
+        # Verify DynamoDB table exists - let ClientError propagate for retry decorator
+        dynamodb.describe_table(TableName=self.dynamodb_table)
+        logger.info("dynamodb_table_verified", table=self.dynamodb_table)
 
         self._initialized = True
 
@@ -303,6 +280,7 @@ class S3ContentStoreBackend:
         Returns:
             True if content exists in index
         """
+        self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
         response = dynamodb.get_item(
@@ -324,6 +302,7 @@ class S3ContentStoreBackend:
             content_path: S3 URI path to content
             created_at: Timestamp when content was created
         """
+        self._ensure_initialized()
         from botocore.exceptions import ClientError
 
         dynamodb = self._get_dynamodb_client()
@@ -363,6 +342,7 @@ class S3ContentStoreBackend:
             job_id: Job ID that processed the content
             processed_at: Timestamp when content was processed
         """
+        self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
         dynamodb.update_item(
@@ -390,6 +370,7 @@ class S3ContentStoreBackend:
         Returns:
             Job ID or None if not found
         """
+        self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
         response = dynamodb.get_item(
@@ -411,6 +392,7 @@ class S3ContentStoreBackend:
             content_hash: SHA-256 hash of content
             job_id: Job ID to associate with content
         """
+        self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
         dynamodb.update_item(
@@ -427,6 +409,7 @@ class S3ContentStoreBackend:
         Args:
             content_hash: SHA-256 hash of content
         """
+        self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
         dynamodb.update_item(
@@ -448,6 +431,7 @@ class S3ContentStoreBackend:
         Returns:
             ContentStoreStatistics with total_content, processed_content, pending_content
         """
+        self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
         # Scan table with pagination to handle tables >1MB
@@ -483,6 +467,7 @@ class S3ContentStoreBackend:
         Returns:
             Total size in bytes
         """
+        self._ensure_initialized()
         s3 = self._get_s3_client()
         total_size = 0
         continuation_token = None

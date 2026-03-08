@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from collections.abc import Sequence
 from typing import Any, Optional
@@ -10,6 +11,8 @@ from typing import Any, Optional
 import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.v1.partners.ptf.models import PtfOrganization
 
 from app.api.v1.partners.ptf.formatters import (
     build_additional_info,
@@ -31,14 +34,20 @@ def _encode_cursor(confidence_score: int, location_id: str) -> str:
 
 
 def _decode_cursor(cursor: Optional[str]) -> tuple[Optional[int], Optional[str]]:
-    """Decode pagination cursor. Returns (confidence_score, location_id) or (None, None)."""
+    """Decode pagination cursor. Returns (confidence_score, location_id) or (None, None).
+
+    Raises ValueError on malformed cursor input.
+    """
     if not cursor:
         return None, None
     try:
         payload = json.loads(base64.urlsafe_b64decode(cursor))
         return payload["c"], payload["i"]
-    except Exception:
-        return None, None
+    except Exception as e:
+        raise ValueError(f"Malformed pagination cursor: {e}") from e
+
+
+_DEFAULT_EXCLUDED_CITIES = "NEW YORK,BROOKLYN,BRONX,QUEENS,STATEN ISLAND,MANHATTAN"
 
 
 class PtfSyncService:
@@ -46,6 +55,10 @@ class PtfSyncService:
 
     def __init__(self, session: AsyncSession):
         self._session = session
+        excluded = os.getenv("PTF_EXCLUDED_CITIES", _DEFAULT_EXCLUDED_CITIES)
+        self._excluded_cities = [
+            c.strip().upper() for c in excluded.split(",") if c.strip()
+        ]
 
     async def sync(
         self,
@@ -89,30 +102,62 @@ class PtfSyncService:
         )
 
         # 5. Transform to output shape
-        organizations = []
+        organizations: list[PtfOrganization] = []
         for loc in locations:
-            org = self._transform_location(loc, phones, schedules, services, sources)
-            organizations.append(org)
+            try:
+                org = self._transform_location(
+                    loc, phones, schedules, services, sources
+                )
+                organizations.append(org)
+            except Exception as e:
+                logger.error(
+                    "ptf_transform_location_failed",
+                    location_id=getattr(loc, "id", None),
+                    error=str(e),
+                )
 
         log.info("ptf_sync_complete", returned=len(organizations), total=total)
         return self._build_response(organizations, total, etag, page_size)
 
     async def _compute_etag(self, updated_since: Optional[datetime]) -> str:
-        """Compute ETag from max(updated_at) and count."""
+        """Compute ETag from max(updated_at) and count.
+
+        WHERE clause aligned with _build_qualified_cte to ensure etag
+        changes when the qualified dataset changes.
+        """
         since_clause = ""
         params: dict[str, Any] = {}
         if updated_since:
             since_clause = "AND l.updated_at > :updated_since"
             params["updated_since"] = updated_since
 
-        sql = """
+        city_literals = ",".join(f"'{c}'" for c in self._excluded_cities)
+        sql = f"""
             SELECT MAX(l.updated_at) as max_updated, COUNT(*) as total
             FROM location l
+            LEFT JOIN organization o ON l.organization_id = o.id
+            LEFT JOIN address a ON a.location_id = l.id
+                AND a.address_type = 'physical'
             WHERE l.latitude IS NOT NULL AND l.longitude IS NOT NULL
               AND l.confidence_score >= 10
               AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
-        """
-        query = text(sql + since_clause)  # nosec B608
+              AND NOT (
+                  EXISTS (SELECT 1 FROM location_source ls
+                          WHERE ls.location_id = l.id
+                          AND ls.scraper_id = 'plentiful')
+                  AND NOT EXISTS (SELECT 1 FROM location_source ls
+                                  WHERE ls.location_id = l.id
+                                  AND ls.scraper_id != 'plentiful')
+              )
+              AND (
+                  EXISTS (SELECT 1 FROM phone p WHERE p.location_id = l.id)
+                  OR o.email IS NOT NULL
+                  OR o.website IS NOT NULL
+              )
+              AND NOT (a.state_province = 'NY' AND UPPER(TRIM(a.city)) IN
+                ({city_literals}))
+        """  # nosec B608
+        query = text(sql + since_clause)
         result = await self._session.execute(query, params)
         row = result.fetchone()
 
@@ -123,6 +168,9 @@ class PtfSyncService:
 
     def _build_qualified_cte(self, since_clause: str) -> str:
         """Build the qualified+deduped+winners CTE SQL fragment."""
+        # Build city exclusion clause from configurable cities (env var, not user input)
+        city_literals = ",".join(f"'{c}'" for c in self._excluded_cities)
+        city_clause = "({})".format(city_literals)  # noqa: UP032  # nosec B608
         qualified = """
             WITH qualified AS (
                 SELECT l.id FROM location l
@@ -148,9 +196,9 @@ class PtfSyncService:
                       OR o.website IS NOT NULL
                   )
                   AND NOT (a.state_province = 'NY' AND UPPER(TRIM(a.city)) IN
-                    ('NEW YORK','BROOKLYN','BRONX','QUEENS',
-                     'STATEN ISLAND','MANHATTAN'))
-        """
+                    __CITY_CLAUSE__)
+            """  # nosec B608 - city values from env config, not user input
+        qualified = qualified.replace("__CITY_CLAUSE__", city_clause)
         dedup = """
             ),
             deduped AS (
@@ -236,10 +284,31 @@ class PtfSyncService:
         self, location_ids: list[str], org_ids: list[str]
     ) -> tuple[dict, dict, dict, dict]:
         """Run batch queries for phones, schedules, services, sources."""
-        phones = await self._query_phones(location_ids, org_ids)
-        schedules = await self._query_schedules(location_ids)
-        services = await self._query_services(location_ids)
-        sources = await self._query_sources(location_ids)
+        phones: dict[str, list[Any]] = {}
+        schedules: dict[str, list[Any]] = {}
+        services: dict[str, list[str]] = {}
+        sources: dict[str, list[str]] = {}
+
+        try:
+            phones = await self._query_phones(location_ids, org_ids)
+        except Exception as e:
+            logger.error("ptf_batch_lookup_failed", lookup="phones", error=str(e))
+
+        try:
+            schedules = await self._query_schedules(location_ids)
+        except Exception as e:
+            logger.error("ptf_batch_lookup_failed", lookup="schedules", error=str(e))
+
+        try:
+            services = await self._query_services(location_ids)
+        except Exception as e:
+            logger.error("ptf_batch_lookup_failed", lookup="services", error=str(e))
+
+        try:
+            sources = await self._query_sources(location_ids)
+        except Exception as e:
+            logger.error("ptf_batch_lookup_failed", lookup="sources", error=str(e))
+
         return phones, schedules, services, sources
 
     async def _query_phones(
@@ -334,16 +403,16 @@ class PtfSyncService:
         schedules: dict[str, list[Any]],
         services: dict[str, list[str]],
         sources: dict[str, list[str]],
-    ) -> dict[str, Any]:
-        """Transform a location row + batch data into PTF organization dict."""
+    ) -> PtfOrganization:
+        """Transform a location row + batch data into PtfOrganization."""
         loc_id = loc.id
 
         # Phone: pick first valid, collect extras
         loc_phones = phones.get(loc_id, [])
         org_phones = phones.get(loc.organization_id, []) if loc.organization_id else []
         all_phones = loc_phones + org_phones
-        primary_phone = None
-        extra_phones: list[int] = []
+        primary_phone: Optional[str] = None
+        extra_phones: list[str] = []
         for p in all_phones:
             normalized = normalize_phone(p.number)
             if normalized is None:
@@ -381,32 +450,32 @@ class PtfSyncService:
             extra_phones=extra_phones if extra_phones else None,
         )
 
-        return {
-            "ppr_location_id": loc_id,
-            "name": loc.name or loc.org_name or "Unknown",
-            "latitude": float(loc.latitude),
-            "longitude": float(loc.longitude),
-            "address_street_1": loc.address_1 or "",
-            "address_street_2": loc.address_2 or "",
-            "city": loc.city or "",
-            "state": loc.state_province or "",
-            "zip_code": parse_zip_code(loc.postal_code),
-            "phone": primary_phone,
-            "website": website,
-            "email": loc.email,
-            "additional_info": additional_info,
-            "schedule": schedule_str,
-            "timezone": tz,
-            "hide": 0,
-            "boundless_id": None,
-            "data_sources": data_sources,
-            "confidence_score": loc.confidence_score or 0,
-            "updated_at": loc.updated_at,
-        }
+        return PtfOrganization(
+            ppr_location_id=loc_id,
+            name=loc.name or loc.org_name or "Unknown",
+            latitude=float(loc.latitude),
+            longitude=float(loc.longitude),
+            address_street_1=loc.address_1 or "",
+            address_street_2=loc.address_2 or "",
+            city=loc.city or "",
+            state=loc.state_province or "",
+            zip_code=parse_zip_code(loc.postal_code),
+            phone=primary_phone,
+            website=website,
+            email=loc.email,
+            additional_info=additional_info,
+            schedule=schedule_str,
+            timezone=tz,
+            hide=0,
+            boundless_id=None,
+            data_sources=data_sources,
+            confidence_score=loc.confidence_score or 0,
+            updated_at=loc.updated_at,
+        )
 
     def _build_response(
         self,
-        organizations: list[dict[str, Any]],
+        organizations: list[PtfOrganization],
         total: int,
         etag: str,
         page_size: int,
@@ -416,7 +485,7 @@ class PtfSyncService:
         cursor = None
         if has_more and organizations:
             last = organizations[-1]
-            cursor = _encode_cursor(last["confidence_score"], last["ppr_location_id"])
+            cursor = _encode_cursor(last.confidence_score, last.ppr_location_id)
 
         return {
             "meta": {

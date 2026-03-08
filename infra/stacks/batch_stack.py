@@ -373,6 +373,7 @@ class BatchInferenceStack(Stack):
                 detail_type=["Batch Inference Job State Change"],
                 detail={
                     "status": ["Completed", "PartiallyCompleted", "Failed"],
+                    "jobName": [{"prefix": "ppr-batch-"}],
                 },
             ),
         )

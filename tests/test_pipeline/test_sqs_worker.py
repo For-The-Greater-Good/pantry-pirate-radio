@@ -384,10 +384,10 @@ class TestPipelineWorkerRunLoop:
 
         mock_sqs_client.receive_message.side_effect = ConnectionError("SQS down")
 
-        worker.run()
+        with pytest.raises(SystemExit) as exc_info:
+            worker.run()
 
-        # Should have stopped after 3 errors
-        assert worker._shutdown_requested is True
+        assert exc_info.value.code == 1
 
 
 class TestPipelineWorkerPoisonPillDeleteFailure:

@@ -1,9 +1,8 @@
 """Tests for Fargate worker module."""
 
 import os
-import threading
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -235,20 +234,20 @@ class TestFargateWorkerMain:
         assert result == 0
 
 
-class TestVisibilityExtensionTimer:
-    """Tests for H26: threading-based visibility extension (replaces broken async)."""
+class TestVisibilityHeartbeat:
+    """Tests for visibility extension using _HeartbeatThread."""
 
     @patch("app.llm.queue.fargate_worker.process_llm_job")
     @patch("app.llm.queue.fargate_worker.create_provider")
-    def test_visibility_timer_starts_and_cancels_on_success(
+    def test_heartbeat_starts_and_stops_on_success(
         self,
         mock_create_provider,
         mock_process_job,
         mock_sqs_backend,
         sample_llm_job,
     ):
-        """Timer should be started before processing and cancelled after."""
-        from app.llm.queue.fargate_worker import FargateWorker
+        """Heartbeat should be started before processing and stopped after."""
+        from app.llm.queue.fargate_worker import FargateWorker, _HeartbeatThread
 
         mock_result = LLMResponse(
             text="Test response",
@@ -260,10 +259,10 @@ class TestVisibilityExtensionTimer:
         with patch.dict(os.environ, PROVIDER_ENV):
             worker = FargateWorker(mock_sqs_backend)
 
-        # Mock the timer to avoid real threading
-        mock_timer = MagicMock(spec=threading.Timer)
+        # Mock the heartbeat to avoid real threading
+        mock_heartbeat = MagicMock(spec=_HeartbeatThread)
         with patch.object(
-            worker, "_start_visibility_extension_timer", return_value=mock_timer
+            worker, "_start_visibility_heartbeat", return_value=mock_heartbeat
         ) as mock_start:
             message = {
                 "job_id": sample_llm_job.id,
@@ -274,28 +273,28 @@ class TestVisibilityExtensionTimer:
 
         assert result is True
         mock_start.assert_called_once_with("receipt-123", sample_llm_job.id)
-        mock_timer.cancel.assert_called_once()
+        mock_heartbeat.stop.assert_called_once()
 
     @patch("app.llm.queue.fargate_worker.process_llm_job")
     @patch("app.llm.queue.fargate_worker.create_provider")
-    def test_visibility_timer_cancelled_on_failure(
+    def test_heartbeat_stopped_on_failure(
         self,
         mock_create_provider,
         mock_process_job,
         mock_sqs_backend,
         sample_llm_job,
     ):
-        """Timer should be cancelled even when processing fails."""
-        from app.llm.queue.fargate_worker import FargateWorker
+        """Heartbeat should be stopped even when processing fails."""
+        from app.llm.queue.fargate_worker import FargateWorker, _HeartbeatThread
 
         mock_process_job.side_effect = ValueError("LLM failed")
 
         with patch.dict(os.environ, PROVIDER_ENV):
             worker = FargateWorker(mock_sqs_backend)
 
-        mock_timer = MagicMock(spec=threading.Timer)
+        mock_heartbeat = MagicMock(spec=_HeartbeatThread)
         with patch.object(
-            worker, "_start_visibility_extension_timer", return_value=mock_timer
+            worker, "_start_visibility_heartbeat", return_value=mock_heartbeat
         ):
             message = {
                 "job_id": sample_llm_job.id,
@@ -305,38 +304,35 @@ class TestVisibilityExtensionTimer:
             result = worker._process_single_job(message)
 
         assert result is False
-        mock_timer.cancel.assert_called_once()
+        mock_heartbeat.stop.assert_called_once()
 
     @patch("app.llm.queue.fargate_worker.create_provider")
-    def test_visibility_timer_extends_visibility(
+    def test_heartbeat_extends_visibility(
         self,
         mock_create_provider,
         mock_sqs_backend,
     ):
-        """The timer callback should call backend.change_visibility."""
-        from app.llm.queue.fargate_worker import FargateWorker
+        """The heartbeat callback should call backend.change_visibility."""
+        from app.llm.queue.fargate_worker import FargateWorker, _HeartbeatThread
 
         with patch.dict(os.environ, PROVIDER_ENV):
             worker = FargateWorker(mock_sqs_backend, visibility_extension_interval=120)
 
         worker._current_receipt_handle = "receipt-test"
 
-        # Patch threading.Timer to capture and invoke the callback immediately
-        with patch("app.llm.queue.fargate_worker.threading.Timer") as mock_timer_cls:
-            # Capture the timer callback
-            timer_instance = MagicMock()
-            mock_timer_cls.return_value = timer_instance
+        # Patch _HeartbeatThread to capture the callback and invoke it
+        with patch("app.llm.queue.fargate_worker._HeartbeatThread") as mock_hb_cls:
+            mock_hb_instance = MagicMock(spec=_HeartbeatThread)
+            mock_hb_cls.return_value = mock_hb_instance
 
-            worker._start_visibility_extension_timer("receipt-test", "job-1")
+            worker._start_visibility_heartbeat("receipt-test", "job-1")
 
-            # Get the callback from Timer constructor
-            assert mock_timer_cls.called
-            callback = (
-                mock_timer_cls.call_args[1].get("function")
-                or mock_timer_cls.call_args[0][1]
-            )
+            # Get the callback from _HeartbeatThread constructor
+            assert mock_hb_cls.called
+            # _HeartbeatThread(interval, callback)
+            callback = mock_hb_cls.call_args[0][1]
 
-            # Execute the callback (simulating timer fire)
+            # Execute the callback (simulating heartbeat fire)
             callback()
 
             # Should have called change_visibility on the backend
@@ -382,9 +378,11 @@ class TestFargateWorkerDoubleFailure:
         with patch.dict(os.environ, PROVIDER_ENV):
             worker = FargateWorker(mock_sqs_backend)
 
-        mock_timer = MagicMock(spec=threading.Timer)
+        from app.llm.queue.fargate_worker import _HeartbeatThread
+
+        mock_heartbeat = MagicMock(spec=_HeartbeatThread)
         with patch.object(
-            worker, "_start_visibility_extension_timer", return_value=mock_timer
+            worker, "_start_visibility_heartbeat", return_value=mock_heartbeat
         ):
             message = {
                 "job_id": sample_llm_job.id,
@@ -398,8 +396,8 @@ class TestFargateWorkerDoubleFailure:
         assert result is False
         # Message should NOT be deleted (allow retry)
         mock_sqs_backend.delete_message.assert_not_called()
-        # Timer should still have been cancelled
-        mock_timer.cancel.assert_called_once()
+        # Heartbeat should still have been stopped
+        mock_heartbeat.stop.assert_called_once()
 
     @patch("app.llm.queue.fargate_worker.process_llm_job")
     @patch("app.llm.queue.fargate_worker.create_provider")

@@ -23,6 +23,7 @@ import json
 import os
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import structlog
 
@@ -64,8 +65,12 @@ def _get_batch_metadata(
         TableName=jobs_table,
         Key={"job_id": {"S": f"batch:{job_arn}"}},
     )
-    item = response.get("Item", {})
+    if "Item" not in response:
+        raise ValueError("Batch metadata not found in DynamoDB")
+    item = response["Item"]
     output_key_prefix = item.get("output_key_prefix", {}).get("S", "")
+    if not output_key_prefix:
+        raise ValueError("output_key_prefix must not be empty")
     original_jobs_key = item.get("original_jobs_key", {}).get("S", "")
 
     # Read original jobs from S3
@@ -82,7 +87,7 @@ def _get_batch_metadata(
 
 def _read_output_jsonl(
     s3: Any, bucket: str, output_key_prefix: str
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     """Read all output JSONL files from S3.
 
     Args:
@@ -91,9 +96,10 @@ def _read_output_jsonl(
         output_key_prefix: S3 key prefix for output files
 
     Returns:
-        List of parsed output records
+        Tuple of (parsed output records, unparseable record count)
     """
     records: list[dict[str, Any]] = []
+    unparseable_count = 0
 
     continuation_token = None
     while True:
@@ -116,6 +122,7 @@ def _read_output_jsonl(
                     try:
                         records.append(json.loads(line))
                     except json.JSONDecodeError as e:
+                        unparseable_count += 1
                         logger.error(
                             "failed_to_parse_output_record",
                             key=key,
@@ -126,7 +133,14 @@ def _read_output_jsonl(
             break
         continuation_token = list_response.get("NextContinuationToken")
 
-    return records
+    if unparseable_count > 0:
+        logger.warning(
+            "batch_output_unparseable_records_summary",
+            unparseable_count=unparseable_count,
+            total_parsed=len(records),
+        )
+
+    return records, unparseable_count
 
 
 def _route_success(
@@ -180,6 +194,34 @@ def _route_success(
     else:
         target_queue = reconciler_queue_url
 
+    # Store result in content store (mirrors processor.py)
+    is_valid_response = (
+        llm_response.text
+        and llm_response.text.strip() != ""
+        and llm_response.text != "No response from model"
+        and llm_response.text != "Empty response from model"
+    )
+
+    from app.content_store.config import get_content_store
+
+    content_store = get_content_store()
+    if content_store and is_valid_response:
+        content_hash = job_data.get("metadata", {}).get("content_hash")
+        if content_hash:
+            try:
+                content_store.store_result(content_hash, llm_response.text, record_id)
+                logger.info(
+                    "batch_content_store_result_stored",
+                    record_id=record_id,
+                    content_hash=content_hash[:8],
+                )
+            except Exception as e:
+                logger.error(
+                    "batch_content_store_write_failed",
+                    record_id=record_id,
+                    error=str(e),
+                )
+
     send_to_sqs(
         queue_url=target_queue,
         message_body=job_result.model_dump(mode="json"),
@@ -230,7 +272,7 @@ def _requeue_to_llm(original_job: dict[str, Any], llm_queue_url: str) -> None:
         queue_url=llm_queue_url,
         message_body=original_job,
         message_group_id=scraper_id,
-        deduplication_id=f"{job_id}-retry",
+        deduplication_id=f"{job_id}-retry-{uuid4()}",
         source="batch-result-processor",
     )
 
@@ -276,9 +318,27 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # Handle full failure: re-enqueue all original jobs
     if status == "Failed":
         requeued = 0
+        failed_requeue_count = 0
         for _job_id, original_job in original_jobs.items():
-            _requeue_to_llm(original_job, llm_queue_url)
-            requeued += 1
+            try:
+                _requeue_to_llm(original_job, llm_queue_url)
+                requeued += 1
+            except Exception as e:
+                failed_requeue_count += 1
+                logger.error(
+                    "batch_requeue_failed",
+                    batch_job_arn=job_arn,
+                    job_id=_job_id,
+                    error=str(e),
+                )
+
+        if failed_requeue_count > 0:
+            logger.error(
+                "batch_requeue_failures_summary",
+                batch_job_arn=job_arn,
+                failed_requeue_count=failed_requeue_count,
+                successful_requeue_count=requeued,
+            )
 
         logger.info(
             "batch_failed_all_requeued",
@@ -288,10 +348,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return {"status": "Failed", "requeued": requeued}
 
     # Read output JSONL from S3
-    output_records = _read_output_jsonl(s3, batch_bucket, output_key_prefix)
+    output_records, unparseable_count = _read_output_jsonl(
+        s3, batch_bucket, output_key_prefix
+    )
 
     processed = 0
     errors = 0
+    failed_requeue_count = 0
 
     for record in output_records:
         record_id = record.get("recordId", "")
@@ -308,7 +371,21 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     error_code=record["error"].get("errorCode"),
                     error_message=record["error"].get("errorMessage"),
                 )
-                _requeue_to_llm(original_job, llm_queue_url)
+                try:
+                    _requeue_to_llm(original_job, llm_queue_url)
+                except Exception as e:
+                    failed_requeue_count += 1
+                    logger.error(
+                        "batch_requeue_failed",
+                        batch_job_arn=job_arn,
+                        record_id=record_id,
+                        error=str(e),
+                    )
+            else:
+                logger.error(
+                    "batch_error_record_missing_original_job",
+                    record_id=record_id,
+                )
             continue
 
         # Successful record: route downstream
@@ -344,7 +421,23 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 error=str(e),
             )
             if original_job:
-                _requeue_to_llm(original_job, llm_queue_url)
+                try:
+                    _requeue_to_llm(original_job, llm_queue_url)
+                except Exception as requeue_err:
+                    failed_requeue_count += 1
+                    logger.error(
+                        "batch_requeue_failed",
+                        batch_job_arn=job_arn,
+                        record_id=record_id,
+                        error=str(requeue_err),
+                    )
+
+    if failed_requeue_count > 0:
+        logger.error(
+            "batch_requeue_failures_summary",
+            batch_job_arn=job_arn,
+            failed_requeue_count=failed_requeue_count,
+        )
 
     # For PartiallyCompleted batches, re-enqueue any original jobs that did
     # not appear in the output (i.e., they were never processed by Bedrock).
@@ -352,10 +445,27 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if status == "PartiallyCompleted":
         output_record_ids = {r.get("recordId", "") for r in output_records}
         missing_ids = set(original_jobs.keys()) - output_record_ids
+        partial_failed_requeue_count = 0
         for missing_id in missing_ids:
             original_job = original_jobs[missing_id]
-            _requeue_to_llm(original_job, llm_queue_url)
-            requeued += 1
+            try:
+                _requeue_to_llm(original_job, llm_queue_url)
+                requeued += 1
+            except Exception as e:
+                partial_failed_requeue_count += 1
+                logger.error(
+                    "batch_requeue_failed",
+                    batch_job_arn=job_arn,
+                    record_id=missing_id,
+                    error=str(e),
+                )
+        if partial_failed_requeue_count > 0:
+            logger.error(
+                "batch_partial_requeue_failures_summary",
+                batch_job_arn=job_arn,
+                failed_requeue_count=partial_failed_requeue_count,
+                successful_requeue_count=requeued,
+            )
         if missing_ids:
             logger.warning(
                 "batch_partially_completed_requeued_missing",
@@ -366,6 +476,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     # Update DynamoDB job status to reflect processing outcome
     final_status = "completed" if errors == 0 else "failed"
+    metadata_update_failed = False
     try:
         dynamodb.update_item(
             TableName=jobs_table,
@@ -387,7 +498,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             errors=errors,
         )
     except Exception as e:
-        logger.error(
+        metadata_update_failed = True
+        logger.critical(
             "batch_job_dynamodb_status_update_failed",
             batch_job_arn=job_arn,
             final_status=final_status,
@@ -403,9 +515,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         requeued=requeued,
     )
 
-    return {
+    result: dict[str, Any] = {
         "status": status,
         "processed": processed,
         "errors": errors,
         "requeued": requeued,
+        "unparseable_count": unparseable_count,
     }
+    if metadata_update_failed:
+        result["metadata_update_failed"] = True
+    return result

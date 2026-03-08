@@ -152,13 +152,33 @@ class StorageStack(Stack):
             ],
         )
 
-        # Add bucket policy for public read on sqlite-exports/*
+        # Allow public read ONLY on sqlite-exports/* prefix.
+        # All other prefixes are implicitly denied (no matching Allow).
+        # BlockPublicAccess above blocks ACL-based public grants while
+        # still permitting this policy-based scoped access.
         bucket.add_to_resource_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 principals=[iam.AnyPrincipal()],
                 actions=["s3:GetObject"],
                 resources=[bucket.arn_for_objects("sqlite-exports/*")],
+            )
+        )
+
+        # Deny listing bucket contents from anonymous principals to prevent
+        # enumeration. Uses a Condition to only deny when the request is
+        # not authenticated (anonymous access).
+        bucket.add_to_resource_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.DENY,
+                principals=[iam.AnyPrincipal()],
+                actions=["s3:ListBucket", "s3:GetBucketLocation"],
+                resources=[bucket.bucket_arn],
+                conditions={
+                    "StringEquals": {
+                        "aws:PrincipalType": "Anonymous",
+                    },
+                },
             )
         )
 

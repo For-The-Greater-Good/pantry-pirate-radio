@@ -18,6 +18,7 @@ Usage:
         python -m app.llm.queue.fargate_worker
 """
 
+import collections
 import os
 import signal
 import sys
@@ -34,6 +35,39 @@ from app.llm.queue.processor import process_llm_job
 from app.llm.queue.types import JobStatus
 
 logger = structlog.get_logger(__name__)
+
+
+class _HeartbeatThread:
+    """Background thread that repeatedly calls a callback at a fixed interval.
+
+    Uses ``threading.Event`` for clean shutdown instead of a self-rescheduling
+    ``threading.Timer`` chain, which avoids unbounded timer creation and makes
+    cancellation deterministic.
+    """
+
+    def __init__(self, interval: float, callback: Any) -> None:
+        self._interval = interval
+        self._callback = callback
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        """Start the heartbeat thread."""
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Signal the thread to stop and wait for it to finish."""
+        self._stop_event.set()
+        self._thread.join(timeout=self._interval + 1)
+
+    def _run(self) -> None:
+        """Loop until stop is requested, calling callback each interval."""
+        while not self._stop_event.wait(self._interval):
+            try:
+                self._callback()
+            except Exception:
+                logger.warning("heartbeat_callback_error", exc_info=True)
+                break
 
 
 class FargateWorker:
@@ -102,64 +136,45 @@ class FargateWorker:
         signal.signal(signal.SIGTERM, handle_signal)
         signal.signal(signal.SIGINT, handle_signal)
 
-    def _start_visibility_extension_timer(
+    def _start_visibility_heartbeat(
         self,
         receipt_handle: str,
         job_id: str,
-    ) -> threading.Timer:
-        """Start a recurring timer to extend message visibility while processing.
+    ) -> _HeartbeatThread:
+        """Start a background thread to extend message visibility while processing.
 
         This prevents the message from becoming visible to other workers
-        while a long-running LLM job is being processed. The timer fires
-        at half the visibility_extension_interval and reschedules itself.
+        while a long-running LLM job is being processed. Uses a single
+        ``_HeartbeatThread`` instead of a self-rescheduling Timer chain.
 
         Args:
             receipt_handle: SQS receipt handle for the message
             job_id: Job ID for logging
 
         Returns:
-            The started Timer instance (caller must cancel it when done)
+            The started _HeartbeatThread (caller must stop it when done)
         """
         new_timeout = self.visibility_extension_interval + 60
         interval = self.visibility_extension_interval / 2
 
-        def _extend_and_reschedule() -> None:
-            """Extend visibility and schedule the next extension."""
+        def _extend_visibility() -> None:
+            """Extend visibility for the current message."""
             if (
                 self._shutdown_requested
                 or self._current_receipt_handle != receipt_handle
             ):
-                return
-            try:
-                self.backend.change_visibility(receipt_handle, new_timeout)
-                logger.debug(
-                    "visibility_extended",
-                    job_id=job_id,
-                    new_timeout=new_timeout,
-                )
-            except Exception as e:
-                logger.warning(
-                    "visibility_extension_failed",
-                    job_id=job_id,
-                    error=str(e),
-                )
-                return  # Stop rescheduling on failure
+                # Raising stops the heartbeat loop cleanly
+                raise RuntimeError("job_no_longer_active")
+            self.backend.change_visibility(receipt_handle, new_timeout)
+            logger.debug(
+                "visibility_extended",
+                job_id=job_id,
+                new_timeout=new_timeout,
+            )
 
-            # Schedule the next extension
-            if (
-                not self._shutdown_requested
-                and self._current_receipt_handle == receipt_handle
-            ):
-                next_timer = threading.Timer(interval, _extend_and_reschedule)
-                next_timer.daemon = True
-                next_timer.start()
-                # Store reference so the outer cancel can reach it
-                self._visibility_timer = next_timer
-
-        timer = threading.Timer(interval, _extend_and_reschedule)
-        timer.daemon = True
-        timer.start()
-        return timer
+        heartbeat = _HeartbeatThread(interval, _extend_visibility)
+        heartbeat.start()
+        return heartbeat
 
     def _process_single_job(self, message: dict[str, Any]) -> bool:
         """Process a single job from SQS.
@@ -183,10 +198,8 @@ class FargateWorker:
             # Update status to processing
             self.backend.update_status(job_id, JobStatus.PROCESSING)
 
-            # Start recurring visibility extension timer
-            self._visibility_timer = self._start_visibility_extension_timer(
-                receipt_handle, job_id
-            )
+            # Start recurring visibility heartbeat thread
+            heartbeat = self._start_visibility_heartbeat(receipt_handle, job_id)
 
             try:
                 # Process the job
@@ -207,8 +220,8 @@ class FargateWorker:
                 return True
 
             finally:
-                # Cancel visibility extension timer
-                self._visibility_timer.cancel()
+                # Stop visibility heartbeat thread
+                heartbeat.stop()
                 self._current_receipt_handle = None
 
         except Exception as e:
@@ -253,6 +266,16 @@ class FargateWorker:
         max_consecutive_errors = 10
         base_delay = 5
 
+        # Job-level failure rate tracking (I9): track the last N job outcomes.
+        # If >90 % of the last JOB_HISTORY_SIZE jobs failed, the worker is
+        # unlikely to recover and should be replaced by ECS.
+        job_history_size = 20
+        job_failure_threshold = 0.90
+        # True = success, False = failure
+        job_results: collections.deque[bool] = collections.deque(
+            maxlen=job_history_size
+        )
+
         while self._running and not self._shutdown_requested:
             try:
                 # Poll for messages
@@ -275,10 +298,30 @@ class FargateWorker:
                         break
 
                     success = self._process_single_job(message)
+                    job_results.append(success)
                     if success:
                         processed_count += 1
                     else:
                         failed_count += 1
+
+                    # Check job-level failure rate once we have enough data
+                    if len(job_results) >= job_history_size:
+                        failure_count = sum(1 for r in job_results if not r)
+                        failure_rate = failure_count / len(job_results)
+                        if failure_rate > job_failure_threshold:
+                            logger.critical(
+                                "job_failure_rate_exceeded",
+                                failure_rate=round(failure_rate, 2),
+                                failures=failure_count,
+                                window=len(job_results),
+                                message=(
+                                    "Worker shutting down: "
+                                    f">{job_failure_threshold*100:.0f}% of "
+                                    f"last {job_history_size} jobs failed"
+                                ),
+                            )
+                            self._shutdown_requested = True
+                            break
 
             except Exception as e:
                 consecutive_errors += 1
@@ -309,11 +352,25 @@ class FargateWorker:
             failed=failed_count,
         )
 
-        # Exit with error code if shutdown was due to too many consecutive errors
+        # Determine if shutdown was abnormal (poll errors or job failure rate)
+        job_failure_shutdown = False
+        if len(job_results) >= job_history_size:
+            failure_count = sum(1 for r in job_results if not r)
+            job_failure_shutdown = (
+                failure_count / len(job_results) > job_failure_threshold
+            )
+
+        # Exit with error code if shutdown was due to repeated failures
         # so ECS replaces the task instead of treating it as a healthy exit
-        if consecutive_errors >= max_consecutive_errors:
+        if consecutive_errors >= max_consecutive_errors or job_failure_shutdown:
+            reason = (
+                "consecutive_poll_errors"
+                if consecutive_errors >= max_consecutive_errors
+                else "job_failure_rate"
+            )
             logger.critical(
                 "worker_exiting_with_error_code",
+                reason=reason,
                 consecutive_errors=consecutive_errors,
                 message="Exiting with code 1 so ECS replaces the task",
             )
@@ -340,10 +397,6 @@ def main() -> int:
                 "fargate_worker_requires_sqs_backend",
                 backend_type=type(backend).__name__,
             )
-            print(
-                "Error: Fargate worker requires SQS backend. " "Set QUEUE_BACKEND=sqs",
-                file=sys.stderr,
-            )
             return 1
 
         # Create and run worker
@@ -358,7 +411,6 @@ def main() -> int:
 
     except Exception as e:
         logger.error("worker_startup_failed", error=str(e))
-        print(f"Error: {e}", file=sys.stderr)
         return 1
 
 

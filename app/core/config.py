@@ -1,5 +1,7 @@
 """Application configuration."""
 
+import urllib.parse
+import warnings
 from typing import Any, Dict
 
 from pydantic import Field, model_validator
@@ -9,7 +11,13 @@ try:
     from config import load_defaults as _load_shared_defaults  # type: ignore[attr-defined]
 
     _SHARED = _load_shared_defaults()
-except Exception:
+except ImportError:
+    _SHARED = None  # config module not on sys.path; use inline defaults
+except Exception as _exc:
+    warnings.warn(f"Failed to load shared config defaults: {_exc}", stacklevel=1)
+    _SHARED = None
+
+if _SHARED is None:
     _SHARED = {
         "LLM_TEMPERATURE": 0.7,
         "LLM_MAX_TOKENS": 64768,
@@ -225,13 +233,16 @@ class Settings(BaseSettings):
                         "boto3 is required when DATABASE_SECRET_ARN is set"
                     ) from exc
 
+                import botocore.exceptions
+
                 try:
                     client = boto3.client("secretsmanager")
                     response = client.get_secret_value(SecretId=secret_arn)
-                except Exception as exc:
+                except botocore.exceptions.ClientError as exc:
+                    error_code = exc.response["Error"]["Code"]
                     raise ValueError(
                         f"Failed to fetch secret from Secrets Manager "
-                        f"(ARN: {secret_arn}): {exc}"
+                        f"(ARN: {secret_arn}, error code: {error_code}): {exc}"
                     ) from exc
 
                 try:
@@ -247,9 +258,8 @@ class Settings(BaseSettings):
             else:
                 db_password = os.environ.get("DATABASE_PASSWORD", "")
 
-            self.DATABASE_URL = (
-                f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
-            )
+            encoded_password = urllib.parse.quote_plus(db_password)
+            self.DATABASE_URL = f"postgresql://{db_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
         return self
 
     @model_validator(mode="after")

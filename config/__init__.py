@@ -120,8 +120,10 @@ def load_defaults() -> dict[str, Any]:
             if raw and isinstance(raw, dict):
                 return _flatten(raw)
         except ImportError:
-            pass
-        except Exception:
-            pass
+            pass  # PyYAML not installed; fall back to hardcoded defaults
+        except Exception as e:
+            import warnings
+
+            warnings.warn(f"Failed to load config defaults from {yaml_path}: {e}")
 
     return _hardcoded_defaults()

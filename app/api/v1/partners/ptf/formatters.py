@@ -101,11 +101,11 @@ _DAY_NAMES: dict[str, str] = {
 }
 
 
-def normalize_phone(number: Optional[str]) -> Optional[int]:
-    """Extract a valid US phone number as an integer.
+def normalize_phone(number: Optional[str]) -> Optional[str]:
+    """Extract a valid US phone number as a string.
 
     Strips non-digit characters, filters Facebook IDs and invalid lengths.
-    Returns 10 or 11 digit number as int, or None.
+    Returns 10 or 11 digit number as string, or None.
     """
     if not number:
         return None
@@ -127,7 +127,7 @@ def normalize_phone(number: Optional[str]) -> Optional[int]:
     if len(digits) not in (10, 11):
         return None
 
-    return int(digits)
+    return digits
 
 
 def filter_website(url: Optional[str]) -> Optional[str]:
@@ -210,7 +210,7 @@ def state_to_timezone(state: Optional[str]) -> Optional[str]:
 def build_additional_info(
     description: Optional[str] = None,
     services: Optional[list[str]] = None,
-    extra_phones: Optional[list[int]] = None,
+    extra_phones: Optional[list[str]] = None,
 ) -> str:
     """Build the additional_info text field from components."""
     parts: list[str] = []
@@ -234,9 +234,9 @@ def build_additional_info(
     return "\n\n".join(parts)
 
 
-def _format_phone_display(phone: int) -> str:
-    """Format phone integer for display: 5551234567 -> 555-123-4567."""
-    s = str(phone)
+def _format_phone_display(phone: str) -> str:
+    """Format phone string for display: 5551234567 -> 555-123-4567."""
+    s = phone
     if len(s) == 11:
         return f"{s[0]}-{s[1:4]}-{s[4:7]}-{s[7:]}"
     if len(s) == 10:
@@ -244,8 +244,8 @@ def _format_phone_display(phone: int) -> str:
     return s
 
 
-def parse_zip_code(postal: Optional[str]) -> Optional[int]:
-    """Parse postal code string to integer ZIP code.
+def parse_zip_code(postal: Optional[str]) -> Optional[str]:
+    """Parse postal code string to zero-padded 5-digit ZIP string.
 
     Handles ZIP+4 format (takes first 5 digits).
     Returns None for invalid inputs.
@@ -262,7 +262,7 @@ def parse_zip_code(postal: Optional[str]) -> Optional[int]:
     if len(base) < 5:
         return None
 
-    return int(base[:5])
+    return base[:5].zfill(5)
 
 
 def humanize_scraper_id(scraper_id: Optional[str]) -> Optional[str]:

@@ -66,14 +66,14 @@ class ContentStore:
         return self._backend
 
     @property
-    def store_path(self) -> Path:
-        """Base path for the store (backward compat property).
+    def store_path(self) -> Path | str:
+        """Base path or URI for the store.
 
-        Note: ContentStore always wraps a filesystem backend, so Path is safe.
-        S3 backends are used directly, not through ContentStore.
+        Returns Path for filesystem backends, str for cloud backends (e.g. S3 URIs)
+        to avoid Path normalizing 's3://' to 's3:/'.
         """
-        path = self._backend.store_path
-        return path if isinstance(path, Path) else Path(path)
+        result = self._backend.store_path
+        return result if isinstance(result, str) else Path(result)
 
     @property
     def content_store_path(self) -> Path:

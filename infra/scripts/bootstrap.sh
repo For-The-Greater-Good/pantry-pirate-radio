@@ -48,7 +48,7 @@ cdk bootstrap "aws://$AWS_ACCOUNT/$AWS_REGION" \
 echo ""
 echo "Creating ECR repositories..."
 
-for repo_suffix in "api" "worker"; do
+for repo_suffix in "app" "worker" "validator" "reconciler" "recorder" "api-lambda" "publisher"; do
     REPO_NAME="pantry-pirate-radio-${repo_suffix}-${ENVIRONMENT}"
 
     if aws ecr describe-repositories --repository-names "$REPO_NAME" &>/dev/null; then
@@ -197,7 +197,24 @@ CDK_POLICY=$(cat <<EOF
             "Sid": "CDKInfrastructure",
             "Effect": "Allow",
             "Action": [
-                "iam:*",
+                "iam:CreateRole",
+                "iam:AttachRolePolicy",
+                "iam:PassRole",
+                "iam:PutRolePolicy",
+                "iam:GetRole",
+                "iam:DeleteRolePolicy",
+                "iam:DeleteRole",
+                "iam:TagRole",
+                "iam:CreateServiceLinkedRole",
+                "iam:DetachRolePolicy",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies",
+                "iam:CreateInstanceProfile",
+                "iam:DeleteInstanceProfile",
+                "iam:AddRoleToInstanceProfile",
+                "iam:RemoveRoleFromInstanceProfile",
+                "iam:GetInstanceProfile",
+                "iam:ListInstanceProfilesForRole",
                 "ec2:*",
                 "elasticloadbalancing:*",
                 "logs:*",

@@ -167,7 +167,7 @@ class TestPtfSyncService:
 
         result = await service.sync(page_size=100)
         org = result["organizations"][0]
-        assert org["phone"] == 5551234567
+        assert org.phone == "5551234567"
 
     @pytest.mark.asyncio
     async def test_nyc_excluded_by_sql(self, service, mock_session):
@@ -200,7 +200,7 @@ class TestPtfSyncService:
 
         result = await service.sync(page_size=100)
         org = result["organizations"][0]
-        assert org["website"] is None
+        assert org.website is None
 
     @pytest.mark.asyncio
     async def test_pagination_has_more(self, service, mock_session):
@@ -227,7 +227,7 @@ class TestPtfSyncService:
 
         result = await service.sync(page_size=100)
         org = result["organizations"][0]
-        assert org["timezone"] == "America/Los_Angeles"
+        assert org.timezone == "America/Los_Angeles"
 
     @pytest.mark.asyncio
     async def test_sources_humanized(self, service, mock_session):
@@ -247,7 +247,7 @@ class TestPtfSyncService:
 
         result = await service.sync(page_size=100)
         org = result["organizations"][0]
-        assert "Capital Area Food Bank DC" in org["data_sources"]
+        assert "Capital Area Food Bank DC" in org.data_sources
 
 
 class TestCursorEncoding:
@@ -266,7 +266,8 @@ class TestCursorEncoding:
 
         assert _decode_cursor(None) == (None, None)
 
-    def test_decode_invalid(self):
+    def test_decode_invalid_raises_value_error(self):
         from app.api.v1.partners.ptf.services import _decode_cursor
 
-        assert _decode_cursor("not-valid-base64!!!") == (None, None)
+        with pytest.raises(ValueError, match="Malformed pagination cursor"):
+            _decode_cursor("not-valid-base64!!!")

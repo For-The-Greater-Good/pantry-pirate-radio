@@ -29,6 +29,7 @@ from stacks.service_env import (
     get_validator_environment,
     get_validator_secrets,
 )
+from stacks.service_factory import create_fargate_service
 
 
 @dataclass
@@ -315,6 +316,12 @@ class ServicesStack(Stack):
             cooldown=Duration.seconds(120),
         )
 
+        # Prevent INSUFFICIENT_DATA during idle periods (no metric data).
+        # Without this, alarms may not evaluate properly when scaling from zero.
+        for child in scaling.node.find_all():
+            if isinstance(child, cloudwatch.CfnAlarm):
+                child.treat_missing_data = "breaching"
+
     def _create_service(
         self,
         name: str,
@@ -328,106 +335,22 @@ class ServicesStack(Stack):
         secrets: dict[str, ecs.Secret] | None = None,
         command: list[str] | None = None,
     ) -> tuple[ecs.FargateService, ec2.ISecurityGroup, iam.IRole]:
-        """Create a Fargate service.
-
-        Args:
-            name: Service name
-            cpu: CPU units (256, 512, 1024, etc.)
-            memory_mib: Memory in MiB
-            desired_count: Desired number of tasks
-            log_retention: CloudWatch log retention period
-            cluster: ECS cluster
-            vpc: VPC for service
-            environment: Environment variables for the container
-            secrets: Secrets for the container
-            command: Container command override (bypasses entrypoint)
-
-        Returns:
-            Tuple of (Fargate service, security group, task role)
-        """
-        # Create log group
-        log_group = logs.LogGroup(
-            self,
-            f"{name.title()}LogGroup",
-            log_group_name=f"/ecs/pantry-pirate-radio/{name}-{self.environment_name}",
-            retention=log_retention,
-            removal_policy=(
-                RemovalPolicy.RETAIN
-                if self.environment_name == "prod"
-                else RemovalPolicy.DESTROY
-            ),
-        )
-
-        # Create task definition
-        task_definition = ecs.FargateTaskDefinition(
-            self,
-            f"{name.title()}TaskDef",
+        """Create a Fargate service. Delegates to service_factory module."""
+        return create_fargate_service(
+            scope=self,
+            name=name,
             cpu=cpu,
-            memory_limit_mib=memory_mib,
-            family=f"pantry-pirate-radio-{name}-{self.environment_name}",
-        )
-
-        # Build environment variables
-        env_vars = {
-            "ENVIRONMENT": self.environment_name,
-            "SERVICE_NAME": name,
-        }
-        if environment:
-            env_vars.update(environment)
-
-        # Add container with ECR image
-        if name in self.ecr_repositories:
-            image = ecs.ContainerImage.from_ecr_repository(
-                self.ecr_repositories[name], tag="latest"
-            )
-        else:
-            ecr_image = (
-                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
-                f"pantry-pirate-radio-{name}-{self.environment_name}:latest"
-            )
-            image = ecs.ContainerImage.from_registry(ecr_image)
-        container_props: dict = {
-            "image": image,
-            "logging": ecs.LogDrivers.aws_logs(
-                stream_prefix=name,
-                log_group=log_group,
-            ),
-            "environment": env_vars,
-            "secrets": secrets or {},
-        }
-        if command:
-            container_props["command"] = command
-        task_definition.add_container(
-            f"{name.title()}Container",
-            **container_props,
-        )
-
-        # Create security group for service
-        security_group = ec2.SecurityGroup(
-            self,
-            f"{name.title()}SecurityGroup",
-            vpc=vpc,
-            description=f"Security group for {name} service - {self.environment_name}",
-            allow_all_outbound=True,
-        )
-
-        # Create Fargate service
-        service = ecs.FargateService(
-            self,
-            f"{name.title()}Service",
-            cluster=cluster,
-            task_definition=task_definition,
+            memory_mib=memory_mib,
             desired_count=desired_count,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ),
-            assign_public_ip=False,
-            service_name=f"pantry-pirate-radio-{name}-{self.environment_name}",
-            enable_execute_command=True,  # Enable ECS Exec for debugging
-            security_groups=[security_group],
+            log_retention=log_retention,
+            cluster=cluster,
+            vpc=vpc,
+            environment_name=self.environment_name,
+            ecr_repositories=self.ecr_repositories,
+            environment=environment,
+            secrets=secrets,
+            command=command,
         )
-
-        return service, security_group, task_definition.task_role
 
     def _create_publisher_task_definition(
         self,
@@ -458,12 +381,9 @@ class ServicesStack(Stack):
             ),
         )
 
-        # Explicit task role with a stable name so PipelineStack can import it
-        # by name for the EventBridge EcsTask target.
         publisher_task_role = iam.Role(
             self,
             "PublisherTaskRole",
-            role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
 

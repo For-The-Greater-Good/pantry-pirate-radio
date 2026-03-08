@@ -248,8 +248,8 @@ class TestComputeStackEnvironments:
         """Create CDK app for testing."""
         return cdk.App()
 
-    def test_dev_uses_single_nat_gateway(self, app):
-        """Dev environment should use 1 NAT gateway for cost savings."""
+    def test_dev_uses_nat_instance(self, app):
+        """Dev environment should use a NAT Instance (t4g.nano) for cost savings."""
         stack = ComputeStack(
             app,
             "DevStack",
@@ -258,8 +258,13 @@ class TestComputeStackEnvironments:
         )
         template = assertions.Template.from_stack(stack)
 
-        # Dev should have 1 NAT gateway
-        template.resource_count_is("AWS::EC2::NatGateway", 1)
+        # Dev should have 0 managed NAT Gateways (uses NAT Instance instead)
+        template.resource_count_is("AWS::EC2::NatGateway", 0)
+        # NAT Instance is an EC2 instance
+        template.has_resource_properties(
+            "AWS::EC2::Instance",
+            {"InstanceType": "t4g.nano"},
+        )
 
     def test_prod_uses_multiple_nat_gateways(self, app):
         """Prod environment should use multiple NAT gateways for HA."""
@@ -273,6 +278,46 @@ class TestComputeStackEnvironments:
 
         # Prod should have 2 NAT gateways (one per AZ)
         template.resource_count_is("AWS::EC2::NatGateway", 2)
+
+
+class TestComputeStackVPCEndpoints:
+    """Tests for VPC endpoint configuration."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    @pytest.fixture
+    def stack(self, app):
+        """Create stack for testing."""
+        return ComputeStack(
+            app,
+            "EndpointStack",
+            environment_name="dev",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+
+    @pytest.fixture
+    def template(self, stack):
+        """Get CloudFormation template from stack."""
+        return assertions.Template.from_stack(stack)
+
+    def test_creates_gateway_endpoints(self, template):
+        """Should create exactly 2 free gateway endpoints (S3 + DynamoDB)."""
+        template.resource_count_is("AWS::EC2::VPCEndpoint", 2)
+
+    def test_all_endpoints_are_gateway_type(self, template):
+        """All VPC endpoints should be Gateway type (free), not Interface (paid)."""
+        raw = template.to_json()
+        endpoints = [
+            r for r in raw["Resources"].values()
+            if r["Type"] == "AWS::EC2::VPCEndpoint"
+        ]
+        for ep in endpoints:
+            assert ep["Properties"]["VpcEndpointType"] == "Gateway", (
+                "Interface endpoints cost ~$14.60/month each and should not be created."
+            )
 
 
 class TestComputeStackWithECRRepository:

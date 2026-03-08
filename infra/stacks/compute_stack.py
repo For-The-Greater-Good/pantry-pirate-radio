@@ -86,6 +86,9 @@ class ComputeStack(Stack):
         # Create VPC
         self.vpc = self._create_vpc()
 
+        # Create VPC Endpoints (reduce NAT Gateway traffic and cost)
+        self._create_vpc_endpoints()
+
         # Create ECS cluster
         self.cluster = self._create_cluster()
 
@@ -112,10 +115,18 @@ class ComputeStack(Stack):
     def _create_vpc(self) -> ec2.Vpc:
         """Create VPC for ECS resources.
 
-        Uses NAT gateways for private subnet internet access.
-        For cost optimization in dev, we use 1 NAT gateway.
+        Uses a NAT Instance (t4g.nano, ~$3/mo) in dev for cost savings,
+        and managed NAT Gateways in prod for high availability.
         """
-        nat_gateways = 1 if self.environment_name == "dev" else 2
+        if self.environment_name == "dev":
+            nat_provider = ec2.NatProvider.instance_v2(
+                instance_type=ec2.InstanceType("t4g.nano"),
+                default_allowed_traffic=ec2.NatTrafficDirection.OUTBOUND_ONLY,
+            )
+            nat_gateways = 1
+        else:
+            nat_provider = None  # CDK default: managed NAT Gateway
+            nat_gateways = 2
 
         vpc = ec2.Vpc(
             self,
@@ -123,6 +134,7 @@ class ComputeStack(Stack):
             vpc_name=f"pantry-pirate-radio-{self.environment_name}",
             max_azs=2,
             nat_gateways=nat_gateways,
+            nat_gateway_provider=nat_provider,
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="Public",
@@ -138,6 +150,26 @@ class ComputeStack(Stack):
         )
 
         return vpc
+
+    def _create_vpc_endpoints(self) -> None:
+        """Create free gateway VPC endpoints to reduce NAT traffic.
+
+        Gateway endpoints (free, no hourly charge):
+        - S3: Content store, batch bucket, exports bucket
+        - DynamoDB: Jobs table, content index, geocoding cache
+
+        Interface endpoints are intentionally omitted — their per-AZ
+        hourly cost (~$58/month for 4 endpoints) exceeds the NAT
+        data transfer savings in this workload.
+        """
+        self.vpc.add_gateway_endpoint(
+            "S3Endpoint",
+            service=ec2.GatewayVpcEndpointAwsService.S3,
+        )
+        self.vpc.add_gateway_endpoint(
+            "DynamoDBEndpoint",
+            service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+        )
 
     def _create_cluster(self) -> ecs.Cluster:
         """Create ECS Fargate cluster."""
@@ -220,17 +252,6 @@ class ComputeStack(Stack):
                     f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
                     f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/us.anthropic.*",
                 ],
-            )
-        )
-
-        # Marketplace permissions for checking Bedrock model subscriptions
-        role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "aws-marketplace:ViewSubscriptions",
-                ],
-                resources=["*"],
             )
         )
 

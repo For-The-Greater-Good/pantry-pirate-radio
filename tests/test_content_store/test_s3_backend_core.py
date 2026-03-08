@@ -1,7 +1,7 @@
-"""Tests for S3+DynamoDB content store backend.
+"""Tests for S3+DynamoDB content store backend - core operations.
 
-This backend stores content in S3 and uses DynamoDB for the index,
-enabling cloud-native deployment on AWS.
+Tests for import, initialization, properties, write/read content,
+content_exists, write/read result, statistics, store size, and error handling.
 """
 
 from datetime import datetime
@@ -379,120 +379,6 @@ class TestS3ContentStoreBackendReadResult:
         assert result is None
 
 
-class TestS3ContentStoreBackendIndexOperations:
-    """Tests for S3ContentStoreBackend DynamoDB index operations."""
-
-    @pytest.fixture
-    def backend(self):
-        """Create S3ContentStoreBackend for testing."""
-        from app.content_store.backend_s3 import S3ContentStoreBackend
-
-        return S3ContentStoreBackend(
-            s3_bucket="test-bucket",
-            dynamodb_table="test-table",
-        )
-
-    def test_index_has_content_returns_false_initially(self, backend):
-        """index_has_content() should return False for new hash."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        mock_dynamodb.get_item.return_value = {}  # No Item key = not found
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            result = backend.index_has_content(content_hash)
-
-        assert result is False
-
-    def test_index_has_content_returns_true_for_existing(self, backend):
-        """index_has_content() should return True for existing hash."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        mock_dynamodb.get_item.return_value = {
-            "Item": {"content_hash": {"S": content_hash}}
-        }
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            result = backend.index_has_content(content_hash)
-
-        assert result is True
-
-    def test_index_insert_content_creates_item(self, backend):
-        """index_insert_content() should create DynamoDB item."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        content_path = "s3://test-bucket/content/ab/abc123..."
-        created_at = datetime.utcnow()
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            backend.index_insert_content(content_hash, content_path, created_at)
-
-        mock_dynamodb.put_item.assert_called_once()
-        call_args = mock_dynamodb.put_item.call_args
-        assert call_args.kwargs["TableName"] == "test-table"
-        assert "content_hash" in call_args.kwargs["Item"]
-
-    def test_index_update_result_updates_item(self, backend):
-        """index_update_result() should update DynamoDB item."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        result_path = "s3://test-bucket/results/ab/abc123..."
-        job_id = "job-456"
-        processed_at = datetime.utcnow()
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            backend.index_update_result(content_hash, result_path, job_id, processed_at)
-
-        mock_dynamodb.update_item.assert_called_once()
-
-    def test_index_get_job_id_returns_none_initially(self, backend):
-        """index_get_job_id() should return None for new content."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        mock_dynamodb.get_item.return_value = {}
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            result = backend.index_get_job_id(content_hash)
-
-        assert result is None
-
-    def test_index_get_job_id_returns_job_id(self, backend):
-        """index_get_job_id() should return stored job_id."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        mock_dynamodb.get_item.return_value = {
-            "Item": {
-                "content_hash": {"S": content_hash},
-                "job_id": {"S": "job-789"},
-            }
-        }
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            result = backend.index_get_job_id(content_hash)
-
-        assert result == "job-789"
-
-    def test_index_set_job_id_updates_item(self, backend):
-        """index_set_job_id() should update job_id in DynamoDB."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-        job_id = "job-123"
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            backend.index_set_job_id(content_hash, job_id)
-
-        mock_dynamodb.update_item.assert_called_once()
-
-    def test_index_clear_job_id_removes_job_id(self, backend):
-        """index_clear_job_id() should remove job_id from item."""
-        mock_dynamodb = MagicMock()
-        content_hash = "abc123" + "0" * 58
-
-        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
-            backend.index_clear_job_id(content_hash)
-
-        mock_dynamodb.update_item.assert_called_once()
-
-
 class TestS3ContentStoreBackendStatistics:
     """Tests for S3ContentStoreBackend.index_get_statistics() method."""
 
@@ -501,10 +387,12 @@ class TestS3ContentStoreBackendStatistics:
         """Create S3ContentStoreBackend for testing."""
         from app.content_store.backend_s3 import S3ContentStoreBackend
 
-        return S3ContentStoreBackend(
+        b = S3ContentStoreBackend(
             s3_bucket="test-bucket",
             dynamodb_table="test-table",
         )
+        b._initialized = True
+        return b
 
     def test_index_get_statistics_empty(self, backend):
         """index_get_statistics() should return zeros for empty store."""
@@ -546,11 +434,13 @@ class TestS3ContentStoreBackendStoreSize:
         """Create S3ContentStoreBackend for testing."""
         from app.content_store.backend_s3 import S3ContentStoreBackend
 
-        return S3ContentStoreBackend(
+        b = S3ContentStoreBackend(
             s3_bucket="test-bucket",
             dynamodb_table="test-table",
             s3_prefix="store/",
         )
+        b._initialized = True
+        return b
 
     def test_get_store_size_bytes_sums_object_sizes(self, backend):
         """get_store_size_bytes() should sum sizes of all S3 objects."""
@@ -663,7 +553,12 @@ class TestS3ContentStoreBackendErrorHandling:
 
 
 class TestS3ContentStoreBackendInitializeFailure:
-    """Tests for T8: initialize() failure on missing bucket or table."""
+    """Tests for T8: initialize() failure on missing bucket or table.
+
+    The initialize() method lets ClientError propagate so @with_aws_retry can
+    distinguish transient errors from permanent ones. Non-retryable errors
+    (404, 403, ResourceNotFoundException) are re-raised as ClientError.
+    """
 
     @pytest.fixture
     def backend(self):
@@ -676,7 +571,7 @@ class TestS3ContentStoreBackendInitializeFailure:
         )
 
     def test_initialize_raises_on_missing_s3_bucket(self, backend):
-        """initialize() should raise RuntimeError when S3 bucket doesn't exist."""
+        """initialize() should raise ClientError when S3 bucket doesn't exist."""
         from botocore.exceptions import ClientError
 
         mock_s3 = MagicMock()
@@ -691,11 +586,13 @@ class TestS3ContentStoreBackendInitializeFailure:
             with patch.object(
                 backend, "_get_dynamodb_client", return_value=mock_dynamodb
             ):
-                with pytest.raises(RuntimeError, match="S3 bucket"):
+                with pytest.raises(ClientError) as exc_info:
                     backend.initialize()
 
+                assert exc_info.value.response["Error"]["Code"] == "404"
+
     def test_initialize_raises_on_access_denied_bucket(self, backend):
-        """initialize() should raise RuntimeError when bucket access is denied."""
+        """initialize() should raise ClientError when bucket access is denied."""
         from botocore.exceptions import ClientError
 
         mock_s3 = MagicMock()
@@ -710,11 +607,13 @@ class TestS3ContentStoreBackendInitializeFailure:
             with patch.object(
                 backend, "_get_dynamodb_client", return_value=mock_dynamodb
             ):
-                with pytest.raises(RuntimeError, match="S3 bucket"):
+                with pytest.raises(ClientError) as exc_info:
                     backend.initialize()
 
+                assert exc_info.value.response["Error"]["Code"] == "403"
+
     def test_initialize_raises_on_missing_dynamodb_table(self):
-        """initialize() should raise RuntimeError when DynamoDB table doesn't exist."""
+        """initialize() should raise ClientError when DynamoDB table doesn't exist."""
         from botocore.exceptions import ClientError
         from app.content_store.backend_s3 import S3ContentStoreBackend
 
@@ -739,8 +638,13 @@ class TestS3ContentStoreBackendInitializeFailure:
             with patch.object(
                 backend, "_get_dynamodb_client", return_value=mock_dynamodb
             ):
-                with pytest.raises(RuntimeError, match="DynamoDB table"):
+                with pytest.raises(ClientError) as exc_info:
                     backend.initialize()
+
+                assert (
+                    exc_info.value.response["Error"]["Code"]
+                    == "ResourceNotFoundException"
+                )
 
 
 class TestS3ContentStoreBackendContentExistsReRaise:

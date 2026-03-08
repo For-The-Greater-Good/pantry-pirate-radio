@@ -4,6 +4,8 @@ Creates a FastAPI app without Redis, RQ, or LLM startup dependencies.
 Metrics are handled by CloudWatch instead of Prometheus.
 """
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -15,7 +17,17 @@ from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 
-settings = Settings()
+_logger = logging.getLogger(__name__)
+
+try:
+    settings = Settings()
+except Exception as exc:
+    _logger.critical(
+        "Failed to initialise Settings — check Secrets Manager access, "
+        "IAM permissions, and DATABASE_SECRET_ARN configuration: %s",
+        exc,
+    )
+    raise
 
 app = FastAPI(
     title=settings.app_name,

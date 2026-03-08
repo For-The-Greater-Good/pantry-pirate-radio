@@ -161,7 +161,7 @@ jobs:
           CDK_CERTIFICATE_ARN: ${{ secrets.CDK_CERTIFICATE_ARN }}
           CDK_DOMAIN_NAME: ${{ secrets.CDK_DOMAIN_NAME }}
           CDK_ALERT_EMAIL: ${{ secrets.CDK_ALERT_EMAIL }}
-        run: cdk deploy --all --require-approval broadening
+        run: cdk deploy --all --require-approval never
 
   update-services:
     name: Update ECS Services
@@ -178,6 +178,7 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment || 'dev' }}
         run: |
+          set -e
           CLUSTER="pantry-pirate-radio-$ENVIRONMENT"
           for svc in worker validator reconciler recorder; do
             SERVICE="pantry-pirate-radio-${svc}-$ENVIRONMENT"
@@ -186,7 +187,7 @@ jobs:
               --cluster "$CLUSTER" \
               --service "$SERVICE" \
               --force-new-deployment \
-              --no-cli-pager || echo "Warning: Could not redeploy $SERVICE (may not exist yet)"
+              --no-cli-pager
           done
 
       - name: Update Lambda function code
@@ -195,29 +196,30 @@ jobs:
           ECR_REGISTRY: ${{ needs.build-and-push.outputs.image_tag && format('{0}.dkr.ecr.{1}.amazonaws.com', secrets.AWS_ACCOUNT_ID, env.AWS_REGION) || '' }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
+          set -e
           # Update API Lambda (function name from CDK — auto-generated, find by tag)
           API_LAMBDA=$(aws lambda list-functions --no-cli-pager \
             --query "Functions[?starts_with(FunctionName, 'LambdaApiStack')].FunctionName" \
-            --output text 2>/dev/null || true)
+            --output text 2>/dev/null)
           if [ -n "$API_LAMBDA" ]; then
             echo "Updating API Lambda: $API_LAMBDA"
             aws lambda update-function-code \
               --function-name "$API_LAMBDA" \
               --image-uri "${ECR_REGISTRY}/pantry-pirate-radio-api-lambda-${ENVIRONMENT}:${IMAGE_TAG}" \
-              --no-cli-pager || echo "Warning: Could not update API Lambda"
+              --no-cli-pager
           fi
 
           # Update Batcher and Result Processor Lambdas (auto-generated names)
           for prefix in BatcherLambda ResultProcessorLambda; do
             LAMBDA_NAME=$(aws lambda list-functions --no-cli-pager \
               --query "Functions[?starts_with(FunctionName, 'BatchInferenceStack') && contains(FunctionName, '${prefix}')].FunctionName" \
-              --output text 2>/dev/null || true)
+              --output text 2>/dev/null)
             if [ -n "$LAMBDA_NAME" ]; then
               echo "Updating $prefix: $LAMBDA_NAME"
               aws lambda update-function-code \
                 --function-name "$LAMBDA_NAME" \
                 --image-uri "${ECR_REGISTRY}/pantry-pirate-radio-batch-lambda-${ENVIRONMENT}:${IMAGE_TAG}" \
-                --no-cli-pager || echo "Warning: Could not update $LAMBDA_NAME"
+                --no-cli-pager
             fi
           done
 

@@ -5,11 +5,12 @@ with schema: PK=address, latitude, longitude, provider, cached_at, ttl.
 """
 
 import json
-import logging
 import time
 from typing import Any, Optional
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class DynamoDBGeocodingCache:
@@ -76,15 +77,33 @@ class DynamoDBGeocodingCache:
 
             # Include any extra data stored as JSON
             if "data" in item:
-                extra = json.loads(item["data"]["S"])
-                result.update(extra)
+                try:
+                    extra = json.loads(item["data"]["S"])
+                    result.update(extra)
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        "DynamoDB geocoding cache data corruption",
+                        cache_key=cache_key,
+                        error=str(e),
+                    )
 
             if "lat" in result and "lon" in result:
                 return result
             return None
 
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "DynamoDB geocoding cache data parsing error on get",
+                cache_key=cache_key,
+                error=str(e),
+            )
+            return None
         except Exception as e:
-            logger.warning(f"DynamoDB geocoding cache get error: {e}")
+            logger.error(
+                "DynamoDB geocoding cache infrastructure error on get",
+                cache_key=cache_key,
+                error=str(e),
+            )
             return None
 
     def set(self, cache_key: str, data: dict, ttl: int) -> None:
@@ -126,5 +145,15 @@ class DynamoDBGeocodingCache:
 
             client.put_item(TableName=self._table_name, Item=item)
 
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "DynamoDB geocoding cache data serialization error on set",
+                cache_key=cache_key,
+                error=str(e),
+            )
         except Exception as e:
-            logger.warning(f"DynamoDB geocoding cache set error: {e}")
+            logger.error(
+                "DynamoDB geocoding cache infrastructure error on set",
+                cache_key=cache_key,
+                error=str(e),
+            )

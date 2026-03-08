@@ -13,6 +13,7 @@ Usage:
 """
 
 import json
+import time
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -195,7 +196,11 @@ class SQSQueueBackend:
             "MessageBody": json.dumps(message_body),
         }
 
-        # Add FIFO queue attributes if needed
+        # Add FIFO queue attributes if needed.
+        # We use job.id as the dedup ID intentionally — each job should be
+        # processed exactly once. Re-enqueue with the same job.id is a no-op
+        # within the 5-minute FIFO dedup window. Retries that need to bypass
+        # dedup (e.g., batch_result_processor) append a UUID suffix.
         if self.queue_url.endswith(".fifo"):
             send_kwargs["MessageDeduplicationId"] = job.id
             send_kwargs["MessageGroupId"] = job.metadata.get("scraper_id", "default")
@@ -208,18 +213,44 @@ class SQSQueueBackend:
         sqs.send_message(**send_kwargs)
         logger.info("job_enqueued_to_sqs", job_id=job.id, queue=self.queue_name)
 
-        # Create job record in DynamoDB
-        dynamodb.put_item(
-            TableName=self.dynamodb_table,
-            Item={
-                "job_id": {"S": job.id},
-                "status": {"S": "queued"},
-                "job_data": {"S": job.model_dump_json()},
-                "created_at": {"S": now.isoformat()},
-                "queue_name": {"S": self.queue_name},
-            },
-        )
-        logger.info("job_status_created", job_id=job.id, status="queued")
+        # Create job record in DynamoDB with retry (SQS message is already sent,
+        # so we must make a best-effort attempt to write the status record).
+        dynamodb_item = {
+            "job_id": {"S": job.id},
+            "status": {"S": "queued"},
+            "job_data": {"S": job.model_dump_json()},
+            "created_at": {"S": now.isoformat()},
+            "queue_name": {"S": self.queue_name},
+        }
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                dynamodb.put_item(
+                    TableName=self.dynamodb_table,
+                    Item=dynamodb_item,
+                )
+                logger.info("job_status_created", job_id=job.id, status="queued")
+                break
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    delay = 0.1 * (2**attempt)  # 0.1s, 0.2s
+                    logger.warning(
+                        "dynamodb_put_item_retry",
+                        job_id=job.id,
+                        attempt=attempt + 1,
+                        max_attempts=max_attempts,
+                        delay=delay,
+                        error=str(e),
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        "dynamodb_put_item_failed",
+                        job_id=job.id,
+                        attempts=max_attempts,
+                        error=str(e),
+                    )
+                    raise
 
         return job.id
 
@@ -434,6 +465,12 @@ class SQSQueueBackend:
                     raw_body=msg.get("Body", "")[:500],  # Truncate for logs
                     error=str(e),
                     error_type=type(e).__name__,
+                )
+                # Log full message body for audit trail before deletion
+                logger.warning(
+                    "poison_pill_message_deleted",
+                    message_body=msg.get("Body", ""),
+                    message_id=msg.get("MessageId"),
                 )
                 # Delete poison pill message to prevent infinite retry loop
                 try:

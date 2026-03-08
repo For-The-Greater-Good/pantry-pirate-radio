@@ -330,6 +330,17 @@ class PipelineWorker:
             failed=failed_count,
         )
 
+        # Exit with error code if shutdown was due to too many consecutive errors
+        # so ECS replaces the task instead of treating it as a healthy exit
+        if consecutive_errors >= self.max_consecutive_errors:
+            logger.critical(
+                "worker_exiting_with_error_code",
+                service=self.service_name,
+                consecutive_errors=consecutive_errors,
+                message="Exiting with code 1 so ECS replaces the task",
+            )
+            sys.exit(1)
+
     def stop(self) -> None:
         """Request graceful shutdown."""
         self._shutdown_requested = True

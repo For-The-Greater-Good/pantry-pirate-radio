@@ -68,10 +68,22 @@ def main() -> int:
         queue_url = os.environ.get("RECONCILER_QUEUE_URL")
         if not queue_url:
             logger.error("RECONCILER_QUEUE_URL environment variable is required")
-            print("Error: RECONCILER_QUEUE_URL is required", file=sys.stderr)
-            return 1
+            sys.exit(1)
 
         next_queue_url = os.environ.get("RECORDER_QUEUE_URL")
+        if not next_queue_url:
+            logger.error("RECORDER_QUEUE_URL environment variable is required")
+            sys.exit(1)
+
+        # The reconciler MUST run as a single instance to avoid duplicate
+        # canonical records. ECS enforces max_count=1, but we log a warning
+        # here as defense-in-depth: operators should alert if they see this
+        # message from more than one task simultaneously.
+        logger.info(
+            "reconciler_worker_starting",
+            queue_url=queue_url,
+            note="single-instance constraint: verify no other reconciler tasks are running",
+        )
 
         worker = PipelineWorker(
             queue_url=queue_url,
@@ -88,7 +100,6 @@ def main() -> int:
         return 0
     except Exception as e:
         logger.error("reconciler_worker_startup_failed", error=str(e))
-        print(f"Error: {e}", file=sys.stderr)
         return 1
 
 

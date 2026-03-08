@@ -504,12 +504,15 @@ class TestS3Pagination:
 
         mock_s3.get_object.side_effect = s3_get_object
 
-        records = _read_output_jsonl(mock_s3, "batch-bucket", "output/exec-123/")
+        records, unparseable_count = _read_output_jsonl(
+            mock_s3, "batch-bucket", "output/exec-123/"
+        )
 
         # Should have records from both pages
         assert len(records) == 2
         assert records[0]["recordId"] == "job-1"
         assert records[1]["recordId"] == "job-2"
+        assert unparseable_count == 0
 
         # Verify pagination: first call without token, second with token
         assert mock_s3.list_objects_v2.call_count == 2

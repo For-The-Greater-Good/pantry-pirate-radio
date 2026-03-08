@@ -12,6 +12,7 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as _lambda
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_wafv2 as wafv2
 from constructs import Construct
 
 
@@ -185,7 +186,7 @@ class LambdaApiStack(Stack):
         )
 
         # Auto-deploy stage with access logging
-        apigwv2.CfnStage(
+        stage = apigwv2.CfnStage(
             self,
             "DefaultStage",
             api_id=self.http_api.ref,
@@ -195,6 +196,50 @@ class LambdaApiStack(Stack):
                 destination_arn=access_log_group.log_group_arn,
                 format='{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","method":"$context.httpMethod","path":"$context.path","status":"$context.status","latency":"$context.responseLatency","error":"$context.error.message"}',
             ),
+        )
+
+        # WAFv2 WebACL — rate-limit 1000 requests per 5 minutes per IP
+        self.web_acl = wafv2.CfnWebACL(
+            self,
+            "ApiWaf",
+            name=f"pantry-pirate-radio-api-waf-{environment_name}",
+            scope="REGIONAL",
+            default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
+            visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                cloud_watch_metrics_enabled=True,
+                metric_name=f"ppr-api-waf-{environment_name}",
+                sampled_requests_enabled=True,
+            ),
+            rules=[
+                wafv2.CfnWebACL.RuleProperty(
+                    name="RateLimitPerIP",
+                    priority=1,
+                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
+                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
+                        cloud_watch_metrics_enabled=True,
+                        metric_name=f"ppr-api-rate-limit-{environment_name}",
+                        sampled_requests_enabled=True,
+                    ),
+                    statement=wafv2.CfnWebACL.StatementProperty(
+                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
+                            limit=1000,
+                            aggregate_key_type="IP",
+                        ),
+                    ),
+                ),
+            ],
+        )
+
+        # Associate WAF with API Gateway stage
+        stage_arn = (
+            f"arn:aws:apigateway:{self.region}::/apis/"
+            f"{self.http_api.ref}/stages/$default"
+        )
+        wafv2.CfnWebACLAssociation(
+            self,
+            "ApiWafAssociation",
+            resource_arn=stage_arn,
+            web_acl_arn=self.web_acl.attr_arn,
         )
 
         # Grant API Gateway permission to invoke Lambda

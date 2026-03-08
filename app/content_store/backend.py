@@ -9,18 +9,13 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import NewType, Optional, Protocol, TypedDict, Union, runtime_checkable
+from typing import Optional, Protocol, TypedDict, runtime_checkable
 
 import structlog
 
 from app.content_store.retry import with_connection_retry
 
 logger = structlog.get_logger(__name__)
-
-# Type-safe wrapper for SHA-256 content hash strings.
-# NewType creates a distinct type for static type checkers while remaining
-# a plain str at runtime, so this is fully backward compatible.
-ContentHash = NewType("ContentHash", str)
 
 
 class ContentStoreStatistics(TypedDict):
@@ -45,17 +40,17 @@ class ContentStoreBackend(Protocol):
     index for tracking content status and job associations.
     """
 
-    # Return type is Union[Path, str] to support both filesystem paths (Path)
+    # Return type is str | Path to support both filesystem paths (Path)
     # and cloud URIs (str like "s3://bucket/prefix"). Using Path for S3 URIs
     # was an LSP violation because Path normalizes "s3://" to "s3:/".
     # FileContentStoreBackend returns Path; S3ContentStoreBackend returns str.
     @property
-    def store_path(self) -> Union[Path, str]:
+    def store_path(self) -> str | Path:
         """Base path or URI for the store."""
         ...
 
     @property
-    def content_store_path(self) -> Union[Path, str]:
+    def content_store_path(self) -> str | Path:
         """Path or URI for the content_store subdirectory."""
         ...
 

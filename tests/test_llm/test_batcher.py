@@ -13,6 +13,14 @@ from app.llm.queue.batcher import (
     handler,
 )
 
+# Required env vars for handler() validation gate
+_HANDLER_ENV = {
+    "STAGING_QUEUE_URL": "https://sqs/staging.fifo",
+    "LLM_QUEUE_URL": "https://sqs/llm.fifo",
+    "BATCH_BUCKET": "test-batch-bucket",
+    "BEDROCK_SERVICE_ROLE_ARN": "arn:aws:iam::123456789012:role/BedrockBatchRole",
+}
+
 
 def _make_sqs_message(job_id: str, prompt: str = "Align this data") -> dict:
     """Create a mock SQS message matching SQSQueueBackend.enqueue() format."""
@@ -144,7 +152,8 @@ class TestHandlerBatchPath:
             }
 
             event = {"execution_id": "exec-123", "scrapers": ["vivery_api"]}
-            result = handler(event, None)
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler(event, None)
 
         assert result["mode"] == "batch"
         assert "job_arn" in result
@@ -165,7 +174,8 @@ class TestHandlerBatchPath:
                 "jobArn": "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
             }
 
-            handler({"execution_id": "exec-123", "scrapers": []}, None)
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                handler({"execution_id": "exec-123", "scrapers": []}, None)
 
         # Verify S3 put_object was called with JSONL content (first call)
         put_call = mock_s3.put_object.call_args_list[0]
@@ -196,7 +206,8 @@ class TestHandlerBatchPath:
             mock_drain.return_value = _make_drain_return(BATCH_THRESHOLD)
             mock_bedrock.create_model_invocation_job.return_value = {"jobArn": job_arn}
 
-            handler({"execution_id": "exec-123", "scrapers": []}, None)
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                handler({"execution_id": "exec-123", "scrapers": []}, None)
 
         # Verify DynamoDB put_item was called
         mock_dynamodb.put_item.assert_called_once()
@@ -222,7 +233,8 @@ class TestHandlerOnDemandPath:
             mock_drain.return_value = _make_drain_return(5)
 
             event = {"execution_id": "exec-123", "scrapers": ["vivery_api"]}
-            result = handler(event, None)
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler(event, None)
 
         assert result["mode"] == "on-demand"
         assert result["count"] == 5
@@ -245,7 +257,8 @@ class TestHandlerEmptyQueue:
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
             mock_drain.return_value = []
 
-            result = handler({"execution_id": "exec-123", "scrapers": []}, None)
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler({"execution_id": "exec-123", "scrapers": []}, None)
 
         assert result["mode"] == "on-demand"
         assert result["count"] == 0
@@ -267,7 +280,8 @@ class TestHandlerLogging:
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
             mock_drain.return_value = _make_drain_return(1)
             with patch("app.llm.queue.batcher.send_to_sqs", return_value="msg-id"):
-                handler({"execution_id": "exec-123", "scrapers": []}, None)
+                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                    handler({"execution_id": "exec-123", "scrapers": []}, None)
 
         # Verify structlog info was called with expected fields
         mock_logger.info.assert_any_call(
@@ -299,10 +313,11 @@ class TestHandlerMessageDeletion:
             mock_drain.return_value = _make_drain_return(3)
 
             with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                handler(
-                    {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                    None,
-                )
+                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                    handler(
+                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
+                        None,
+                    )
 
                 # _delete_messages should have been called exactly once
                 mock_delete.assert_called_once()
@@ -328,10 +343,11 @@ class TestHandlerMessageDeletion:
             mock_drain.return_value = _make_drain_return(3)
 
             with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                result = handler(
-                    {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                    None,
-                )
+                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                    result = handler(
+                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
+                        None,
+                    )
 
                 # _delete_messages should NOT have been called (no successes)
                 mock_delete.assert_not_called()
@@ -368,10 +384,11 @@ class TestHandlerOnDemandPartialFailure:
             mock_drain.return_value = _make_drain_return(3)
 
             with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                result = handler(
-                    {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                    None,
-                )
+                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                    result = handler(
+                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
+                        None,
+                    )
 
                 # Only 2 successful handles should be deleted
                 mock_delete.assert_called_once()
@@ -400,10 +417,11 @@ class TestHandlerOnDemandPartialFailure:
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
             mock_drain.return_value = _make_drain_return(5)
 
-            result = handler(
-                {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                None,
-            )
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler(
+                    {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
+                    None,
+                )
 
         assert result["mode"] == "on-demand"
         assert result["count"] == 5
@@ -433,10 +451,11 @@ class TestHandlerOnDemandPartialFailure:
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
             mock_drain.return_value = _make_drain_return(5)
 
-            result = handler(
-                {"execution_id": "exec-123", "scrapers": []},
-                None,
-            )
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler(
+                    {"execution_id": "exec-123", "scrapers": []},
+                    None,
+                )
 
         # All 5 records should have been attempted
         assert mock_send.call_count == 5
@@ -447,56 +466,35 @@ class TestHandlerOnDemandPartialFailure:
 class TestHandlerMissingEnvVars:
     """Tests for T6: handler behavior when critical env vars are missing."""
 
-    @patch("app.llm.queue.batcher._get_clients")
-    def test_handler_with_empty_staging_queue_url(self, mock_get_clients):
-        """Handler should pass empty string to _drain_staging_queue when
-        STAGING_QUEUE_URL is not set, and SQS client will raise an error."""
-        mock_sqs = MagicMock()
-        mock_s3 = MagicMock()
-        mock_bedrock = MagicMock()
-        mock_dynamodb = MagicMock()
-        mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
-
-        # SQS will raise on empty queue URL
-        mock_sqs.receive_message.side_effect = Exception(
-            "Value for parameter QueueUrl is not valid"
-        )
-
+    def test_handler_with_empty_staging_queue_url(self):
+        """Handler should raise ValueError when STAGING_QUEUE_URL is empty."""
         with patch.dict(
             "os.environ",
-            {"STAGING_QUEUE_URL": "", "LLM_QUEUE_URL": ""},
+            {
+                "STAGING_QUEUE_URL": "",
+                "LLM_QUEUE_URL": "",
+                "BATCH_BUCKET": "",
+                "BEDROCK_SERVICE_ROLE_ARN": "",
+            },
             clear=False,
         ):
-            with pytest.raises(Exception, match="QueueUrl"):
+            with pytest.raises(
+                ValueError, match="Missing required environment variables"
+            ):
                 handler({"execution_id": "exec-123", "scrapers": []}, None)
 
-    @patch("app.llm.queue.batcher._get_clients")
-    @patch("app.llm.queue.batcher.send_to_sqs")
-    def test_handler_with_empty_llm_queue_url_on_demand(
-        self, mock_send, mock_get_clients
-    ):
-        """When LLM_QUEUE_URL is empty and on-demand path is taken, send_to_sqs
-        receives an empty queue_url and should fail per-record."""
-        mock_sqs = MagicMock()
-        mock_s3 = MagicMock()
-        mock_bedrock = MagicMock()
-        mock_dynamodb = MagicMock()
-        mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
-
-        # send_to_sqs will fail with empty queue URL
-        mock_send.side_effect = ValueError("Invalid queue URL")
-
-        with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(3)
-
-            with patch.dict(
-                "os.environ",
-                {"STAGING_QUEUE_URL": "https://sqs/staging.fifo", "LLM_QUEUE_URL": ""},
-                clear=False,
-            ):
-                result = handler({"execution_id": "exec-123", "scrapers": []}, None)
-
-        # All records should fail because LLM_QUEUE_URL is invalid
-        assert result["mode"] == "on-demand"
-        assert result["count"] == 0
-        assert result["failed"] == 3
+    def test_handler_with_empty_llm_queue_url_on_demand(self):
+        """When LLM_QUEUE_URL is empty, handler should raise ValueError
+        before reaching the on-demand re-enqueue path."""
+        with patch.dict(
+            "os.environ",
+            {
+                "STAGING_QUEUE_URL": "https://sqs/staging.fifo",
+                "LLM_QUEUE_URL": "",
+                "BATCH_BUCKET": "test-bucket",
+                "BEDROCK_SERVICE_ROLE_ARN": "arn:aws:iam::123:role/Role",
+            },
+            clear=False,
+        ):
+            with pytest.raises(ValueError, match="LLM_QUEUE_URL"):
+                handler({"execution_id": "exec-123", "scrapers": []}, None)

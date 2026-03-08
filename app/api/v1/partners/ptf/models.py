@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PtfOrganization(BaseModel):
@@ -11,17 +11,21 @@ class PtfOrganization(BaseModel):
 
     ppr_location_id: str = Field(description="Pantry Pirate Radio location UUID")
     name: str = Field(description="Location or organization name")
-    latitude: float = Field(description="WGS84 latitude")
-    longitude: float = Field(description="WGS84 longitude")
+    latitude: float = Field(description="WGS84 latitude", ge=-90, le=90)
+    longitude: float = Field(description="WGS84 longitude", ge=-180, le=180)
     address_street_1: str = Field(default="", description="Street address line 1")
     address_street_2: str = Field(default="", description="Street address line 2")
     city: str = Field(default="", description="City name")
     state: str = Field(default="", description="Two-letter state code")
-    zip_code: Optional[int] = Field(
-        default=None, description="ZIP code as integer (leading zeros dropped)"
+    zip_code: Optional[str] = Field(
+        default=None,
+        description="5-digit ZIP code (zero-padded)",
+        pattern=r"^\d{5}$",
     )
-    phone: Optional[int] = Field(
-        default=None, description="Primary phone as integer (digits only)"
+    phone: Optional[str] = Field(
+        default=None,
+        description="Phone number as digits only (10 or 11 digits)",
+        pattern=r"^\d{10,11}$",
     )
     website: Optional[str] = Field(default=None, description="Website URL")
     email: Optional[str] = Field(default=None, description="Contact email")
@@ -67,3 +71,13 @@ class PtfSyncResponse(BaseModel):
 
     meta: PtfSyncMeta
     organizations: list[PtfOrganization]
+
+    @model_validator(mode="after")
+    def check_returned_matches_count(self) -> "PtfSyncResponse":
+        """Validate meta.returned matches actual organization count."""
+        if self.meta.returned != len(self.organizations):
+            raise ValueError(
+                f"meta.returned ({self.meta.returned}) does not match "
+                f"organizations count ({len(self.organizations)})"
+            )
+        return self

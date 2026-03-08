@@ -435,5 +435,61 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
         except ValueError:
             raise
         except Exception as e:
+            # Handle botocore ClientError specifically when available
+            try:
+                from botocore.exceptions import ClientError
+            except ImportError:
+                ClientError = None  # type: ignore[assignment,misc]
+
+            if ClientError is not None and isinstance(e, ClientError):
+                error_code = e.response.get("Error", {}).get("Code", "")
+                error_message = e.response.get("Error", {}).get("Message", str(e))
+
+                if error_code in (
+                    "ThrottlingException",
+                    "TooManyRequestsException",
+                    "ServiceUnavailableException",
+                    "ModelTimeoutException",
+                ):
+                    logger.warning(
+                        "bedrock_retryable_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise RuntimeError(
+                        f"Bedrock retryable error ({error_code}): " f"{error_message}"
+                    ) from e
+                elif error_code in (
+                    "AccessDeniedException",
+                    "UnrecognizedClientException",
+                    "ExpiredTokenException",
+                ):
+                    logger.error(
+                        "bedrock_auth_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise PermissionError(
+                        f"Bedrock auth error ({error_code}): " f"{error_message}"
+                    ) from e
+                elif error_code == "ValidationException":
+                    logger.error(
+                        "bedrock_validation_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise ValueError(
+                        f"Bedrock validation error: {error_message}"
+                    ) from e
+                else:
+                    logger.error(
+                        "bedrock_client_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise ValueError(
+                        f"Bedrock error ({error_code}): {error_message}"
+                    ) from e
+
             logger.error("Error in Bedrock generation", exc_info=e)
             raise ValueError(f"Error generating with Bedrock: {e}") from e

@@ -22,6 +22,7 @@ import json
 import os
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import structlog
 
@@ -105,7 +106,7 @@ def _delete_messages(
     sqs_client: Any,
     queue_url: str,
     receipt_handles: list[str],
-) -> None:
+) -> int:
     """Delete messages from SQS by receipt handle.
 
     Called only after successful downstream processing to ensure
@@ -115,14 +116,32 @@ def _delete_messages(
         sqs_client: boto3 SQS client
         queue_url: SQS queue URL
         receipt_handles: List of SQS receipt handles to delete
-    """
-    for handle in receipt_handles:
-        sqs_client.delete_message(
-            QueueUrl=queue_url,
-            ReceiptHandle=handle,
-        )
 
-    logger.info("staging_messages_deleted", count=len(receipt_handles))
+    Returns:
+        Number of messages that failed to delete.
+    """
+    failed_deletes = 0
+    for handle in receipt_handles:
+        try:
+            sqs_client.delete_message(
+                QueueUrl=queue_url,
+                ReceiptHandle=handle,
+            )
+        except Exception as e:
+            failed_deletes += 1
+            logger.error(
+                "delete_message_failed",
+                receipt_handle=handle[:40],
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+
+    logger.info(
+        "staging_messages_deleted",
+        count=len(receipt_handles),
+        failed=failed_deletes,
+    )
+    return failed_deletes
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -135,19 +154,32 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     Returns:
         {"mode": "batch"|"on-demand", ...}
     """
+    # Validate required environment variables up front
+    _required_env_vars = {
+        "STAGING_QUEUE_URL": os.environ.get("STAGING_QUEUE_URL", ""),
+        "LLM_QUEUE_URL": os.environ.get("LLM_QUEUE_URL", ""),
+        "BATCH_BUCKET": os.environ.get("BATCH_BUCKET", ""),
+        "BEDROCK_SERVICE_ROLE_ARN": os.environ.get("BEDROCK_SERVICE_ROLE_ARN", ""),
+    }
+    missing = [name for name, val in _required_env_vars.items() if not val]
+    if missing:
+        raise ValueError(
+            f"Missing required environment variables: {', '.join(sorted(missing))}"
+        )
+
     execution_id = event.get("execution_id", "unknown")
     # Extract the UUID portion from the Step Functions ARN for S3-safe paths.
     # ARN format: arn:aws:states:...:execution:name:uuid
     s3_safe_id = (
         execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
     )
-    staging_queue_url = os.environ.get("STAGING_QUEUE_URL", "")
-    llm_queue_url = os.environ.get("LLM_QUEUE_URL", "")
-    batch_bucket = os.environ.get("BATCH_BUCKET", "")
+    staging_queue_url = _required_env_vars["STAGING_QUEUE_URL"]
+    llm_queue_url = _required_env_vars["LLM_QUEUE_URL"]
+    batch_bucket = _required_env_vars["BATCH_BUCKET"]
     model_id = os.environ.get(
         "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     )
-    service_role_arn = os.environ.get("BEDROCK_SERVICE_ROLE_ARN", "")
+    service_role_arn = _required_env_vars["BEDROCK_SERVICE_ROLE_ARN"]
     temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
     max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "8192"))
     jobs_table = os.environ.get("SQS_JOBS_TABLE", "")
@@ -233,6 +265,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             job_data = record.get("job", {})
             job_id = job_data.get("id", record.get("job_id", ""))
 
+            if not job_id:
+                job_id = f"unknown-{uuid4()}"
+                logger.warning(
+                    "empty_job_id_fallback",
+                    generated_id=job_id,
+                    record_keys=list(record.keys()),
+                )
+
             converse_body = build_converse_request(
                 prompt=job_data.get("prompt", ""),
                 format_schema=job_data.get("format") or None,
@@ -302,7 +342,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             execution_id=execution_id,
         )
 
-        # 6. Store original jobs in S3 (too large for DynamoDB 400KB limit)
+        # 6. Store recovery data BEFORE deleting staging messages.
+        #    This ensures original jobs and metadata exist for recovery
+        #    even if message deletion partially fails.
+
+        # 6a. Store original jobs in S3 (too large for DynamoDB 400KB limit)
         original_jobs_key = f"input/{s3_safe_id}/original_jobs.json"
         s3.put_object(
             Bucket=batch_bucket,
@@ -311,7 +355,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             ContentType="application/json",
         )
 
-        # 7. Store batch job metadata in DynamoDB for result processor
+        # 6b. Store batch job metadata in DynamoDB for result processor
         dynamodb.put_item(
             TableName=jobs_table,
             Item={
@@ -327,13 +371,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             },
         )
 
-        # Delete staging messages only after all processing succeeds
-        _delete_messages(sqs, staging_queue_url, receipt_handles)
+        # 7. Delete staging messages only after recovery data is persisted
+        delete_failures = _delete_messages(sqs, staging_queue_url, receipt_handles)
 
         return {
             "mode": "batch",
             "job_arn": job_arn,
             "record_count": record_count,
+            "delete_failures": delete_failures,
         }
 
     except Exception:

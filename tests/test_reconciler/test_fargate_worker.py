@@ -80,13 +80,14 @@ class TestReconcilerWorkerMain:
     """Tests for the reconciler worker entry point."""
 
     def test_returns_error_without_queue_url(self):
-        """Should return 1 when RECONCILER_QUEUE_URL is not set."""
+        """Should exit with code 1 when RECONCILER_QUEUE_URL is not set."""
         from app.reconciler.fargate_worker import main
 
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("RECONCILER_QUEUE_URL", None)
-            result = main()
-            assert result == 1
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 1
 
     @patch("app.reconciler.fargate_worker.PipelineWorker")
     def test_creates_worker_with_correct_config(self, mock_worker_class):

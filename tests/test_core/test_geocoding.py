@@ -53,7 +53,7 @@ class TestGeocodingService:
         """Test service initialization with ArcGIS API key."""
         monkeypatch.setenv("ARCGIS_API_KEY", "test_api_key_123")
 
-        with patch("app.core.geocoding.service.ArcGIS") as mock_arcgis:
+        with patch("app.core.geocoding.providers.ArcGIS") as mock_arcgis:
             service = GeocodingService()
 
             # Verify ArcGIS was initialized
@@ -118,7 +118,7 @@ class TestGeocodingService:
         assert call_args[1] == {"lat": 40.7128, "lon": -74.0060}
         assert call_args[2] == 3600  # TTL
 
-    @patch("app.core.geocoding.service.RateLimiter")
+    @patch("app.core.geocoding.providers.RateLimiter")
     def test_geocode_with_arcgis_success(self, mock_rate_limiter, mock_env, mock_cache):
         """Test successful geocoding with ArcGIS."""
         service = GeocodingService()
@@ -137,7 +137,7 @@ class TestGeocodingService:
         assert result == (40.7128, -74.0060)
         mock_geocoder.assert_called_once_with("123 Main St")
 
-    @patch("app.core.geocoding.service.RateLimiter")
+    @patch("app.core.geocoding.providers.RateLimiter")
     def test_geocode_with_arcgis_failure(self, mock_rate_limiter, mock_env, mock_cache):
         """Test ArcGIS geocoding failure."""
         service = GeocodingService()
@@ -152,7 +152,7 @@ class TestGeocodingService:
         assert result is None
         mock_geocoder.assert_called_once()
 
-    @patch("app.core.geocoding.service.RateLimiter")
+    @patch("app.core.geocoding.providers.RateLimiter")
     def test_geocode_with_nominatim_success(
         self, mock_rate_limiter, mock_env, mock_cache
     ):

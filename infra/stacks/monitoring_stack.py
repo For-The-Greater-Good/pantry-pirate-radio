@@ -132,6 +132,33 @@ class MonitoringStack(Stack):
     def _section(self, title: str) -> cloudwatch.TextWidget:
         return cloudwatch.TextWidget(markdown=f"# {title}", width=24, height=1)
 
+    def _derive_dlq_name(self, queue_name: str) -> str:
+        """Derive DLQ name from main queue name.
+
+        QueueStack creates DLQs as ``...-{name}-dlq-{env}.fifo``
+        (e.g. ``pantry-pirate-radio-llm-dlq-dev.fifo``), so we insert
+        ``-dlq`` before the environment suffix.
+
+        BatchStack's staging DLQ uses ``...-staging-{env}-dlq.fifo``
+        (e.g. ``pantry-pirate-radio-staging-dev-dlq.fifo``), so we
+        append ``-dlq`` before ``.fifo`` for that queue.
+        """
+        env = self.environment_name
+        staging_suffix = f"-staging-{env}.fifo"
+        env_suffix = f"-{env}.fifo"
+
+        # Staging queue (BatchStack): DLQ is ``...-staging-{env}-dlq.fifo``
+        if queue_name.endswith(staging_suffix):
+            return queue_name.replace(".fifo", "-dlq.fifo")
+
+        # QueueStack queues: DLQ is ``...-{name}-dlq-{env}.fifo``
+        if queue_name.endswith(env_suffix):
+            base = queue_name[: -len(env_suffix)]
+            return f"{base}-dlq-{env}.fifo"
+
+        # Fallback
+        return queue_name.replace(".fifo", "-dlq.fifo")
+
     def _alarm(
         self,
         cid: str,
@@ -267,7 +294,7 @@ class MonitoringStack(Stack):
         # Per-queue depth graphs: visible + not-visible, DLQ on right axis
         queue_widgets = []
         for label, qname in queues:
-            dlq_name = qname.replace(".fifo", "-dlq.fifo")
+            dlq_name = self._derive_dlq_name(qname)
             queue_widgets.append(self._graph(
                 f"{label}",
                 left=[
@@ -297,7 +324,7 @@ class MonitoringStack(Stack):
             self.queue_name, self.staging_queue_name,
             self.validator_queue_name, self.reconciler_queue_name, self.recorder_queue_name,
         ]
-        dlqs = [q.replace(".fifo", "-dlq.fifo") for q in queues]
+        dlqs = [self._derive_dlq_name(q) for q in queues]
 
         queue_depths = [
             self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": q}, "Sum")
@@ -504,7 +531,7 @@ class MonitoringStack(Stack):
             ("ReconcilerDLQAlarm", "reconciler-dlq", self.reconciler_queue_name),
             ("RecorderDLQAlarm", "recorder-dlq", self.recorder_queue_name),
         ]:
-            dlq = qname.replace(".fifo", "-dlq.fifo")
+            dlq = self._derive_dlq_name(qname)
             self._alarm(cid, f"{ppr}-{label}-{env}",
                          self._m("AWS/SQS", sqs_visible, {"QueueName": dlq}),
                          1, 1, GTE, f"Messages in {label.replace('-', ' ')}")

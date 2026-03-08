@@ -53,6 +53,7 @@ class PipelineStack(Stack):
         max_concurrency: int = 0,
         scrapers: list[str] | None = None,
         publisher_task_family: str | None = None,
+        publisher_task_role_arn: str | None = None,
         publisher_schedule_enabled: bool = False,
         staging_queue_url: str | None = None,
         batcher_lambda_arn: str | None = None,
@@ -72,6 +73,7 @@ class PipelineStack(Stack):
             max_concurrency: Maximum concurrent scraper tasks
             scrapers: List of scraper names to run (defaults to DEFAULT_SCRAPERS)
             publisher_task_family: Publisher task definition family name for SQLite export
+            publisher_task_role_arn: IAM role ARN for the publisher task (cross-stack reference)
             publisher_schedule_enabled: Whether to enable the daily publisher schedule
             staging_queue_url: SQS staging queue URL (overrides SQS_QUEUE_URL in scraper containers)
             batcher_lambda_arn: Batcher Lambda ARN (adds BatchOrForward step after scrapers)
@@ -117,6 +119,7 @@ class PipelineStack(Stack):
             self.publisher_schedule_rule = self._create_publisher_schedule_rule(
                 cluster=cluster,
                 publisher_task_family=publisher_task_family,
+                publisher_task_role_arn=publisher_task_role_arn,
                 enabled=publisher_schedule_enabled,
             )
 
@@ -403,6 +406,7 @@ class PipelineStack(Stack):
         self,
         cluster: ecs.ICluster,
         publisher_task_family: str,
+        publisher_task_role_arn: str | None,
         enabled: bool,
     ) -> events.Rule:
         """Create EventBridge rule for daily publisher (SQLite export) schedule.
@@ -412,6 +416,7 @@ class PipelineStack(Stack):
         Args:
             cluster: ECS cluster for running publisher task
             publisher_task_family: Publisher task definition family name
+            publisher_task_role_arn: IAM role ARN for the publisher task
             enabled: Whether the schedule is enabled
 
         Returns:
@@ -429,12 +434,19 @@ class PipelineStack(Stack):
             enabled=enabled,
         )
 
-        # Import the publisher task definition by ARN for EventBridge target
-        imported_task_role = iam.Role.from_role_name(
-            self,
-            "ImportedPublisherTaskRole",
-            role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
-        )
+        # Import the publisher task role by ARN (cross-stack reference, no hardcoded name)
+        if publisher_task_role_arn:
+            imported_task_role = iam.Role.from_role_arn(
+                self,
+                "ImportedPublisherTaskRole",
+                role_arn=publisher_task_role_arn,
+            )
+        else:
+            imported_task_role = iam.Role.from_role_name(
+                self,
+                "ImportedPublisherTaskRole",
+                role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
+            )
         imported_task_def = ecs.FargateTaskDefinition.from_fargate_task_definition_attributes(
             self,
             "ImportedPublisherTask",

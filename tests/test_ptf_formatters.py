@@ -17,16 +17,16 @@ class TestNormalizePhone:
     """Test phone number normalization."""
 
     def test_ten_digit_phone(self):
-        assert normalize_phone("(555) 123-4567") == 5551234567
+        assert normalize_phone("(555) 123-4567") == "5551234567"
 
     def test_eleven_digit_with_country_code(self):
-        assert normalize_phone("1-555-987-6543") == 15559876543
+        assert normalize_phone("1-555-987-6543") == "15559876543"
 
     def test_digits_only_input(self):
-        assert normalize_phone("5551234567") == 5551234567
+        assert normalize_phone("5551234567") == "5551234567"
 
     def test_spaces_and_dashes(self):
-        assert normalize_phone("555 123 4567") == 5551234567
+        assert normalize_phone("555 123 4567") == "5551234567"
 
     def test_too_short_rejected(self):
         assert normalize_phone("555123") is None
@@ -47,10 +47,10 @@ class TestNormalizePhone:
         assert normalize_phone("call us anytime") is None
 
     def test_extension_stripped(self):
-        assert normalize_phone("(555) 123-4567 ext 100") == 5551234567
+        assert normalize_phone("(555) 123-4567 ext 100") == "5551234567"
 
     def test_plus_one_prefix(self):
-        assert normalize_phone("+1 555-123-4567") == 15551234567
+        assert normalize_phone("+1 555-123-4567") == "15551234567"
 
 
 class TestFilterWebsite:
@@ -178,7 +178,9 @@ class TestBuildAdditionalInfo:
         assert "Services: Food Pantry, Meal Service" in result
 
     def test_with_extra_phones(self):
-        result = build_additional_info(description="Pantry", extra_phones=[5559876543])
+        result = build_additional_info(
+            description="Pantry", extra_phones=["5559876543"]
+        )
         assert "555-987-6543" in result
 
     def test_disclaimer_included(self):
@@ -193,7 +195,7 @@ class TestBuildAdditionalInfo:
         result = build_additional_info(
             description="Great food bank",
             services=["Food Pantry"],
-            extra_phones=[5551112222],
+            extra_phones=["5551112222"],
         )
         assert "Great food bank" in result
         assert "Services:" in result
@@ -204,13 +206,13 @@ class TestParseZipCode:
     """Test ZIP code parsing."""
 
     def test_five_digit(self):
-        assert parse_zip_code("12345") == 12345
+        assert parse_zip_code("12345") == "12345"
 
     def test_zip_plus_four(self):
-        assert parse_zip_code("07102-1234") == 7102
+        assert parse_zip_code("07102-1234") == "07102"
 
     def test_leading_zero(self):
-        assert parse_zip_code("07102") == 7102
+        assert parse_zip_code("07102") == "07102"
 
     def test_none_input(self):
         assert parse_zip_code(None) is None

@@ -20,6 +20,7 @@ router = APIRouter(default_response_class=JSONResponse)
 # Always include API routers for comprehensive documentation
 from app.api.v1.organizations import router as organizations_router
 from app.api.v1.locations import router as locations_router
+from app.api.v1.locations_export import router as locations_export_router
 from app.api.v1.services import router as services_router
 from app.api.v1.service_at_location import router as service_at_location_router
 from app.api.v1.taxonomies import router as taxonomies_router
@@ -314,13 +315,16 @@ async def export_simple_priority(
         return {"metadata": metadata, "locations": locations}
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching location data: {str(e)}"
-        )
+        from app.core.logging import get_logger
+
+        _logger = get_logger()
+        _logger.error("export_simple_error", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 router.include_router(organizations_router)
 router.include_router(locations_router)
+router.include_router(locations_export_router)
 router.include_router(services_router)
 router.include_router(service_at_location_router)
 router.include_router(taxonomies_router)

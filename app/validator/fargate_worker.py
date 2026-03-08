@@ -57,10 +57,12 @@ def main() -> int:
         queue_url = os.environ.get("VALIDATOR_QUEUE_URL")
         if not queue_url:
             logger.error("VALIDATOR_QUEUE_URL environment variable is required")
-            print("Error: VALIDATOR_QUEUE_URL is required", file=sys.stderr)
-            return 1
+            sys.exit(1)
 
         next_queue_url = os.environ.get("RECONCILER_QUEUE_URL")
+        if not next_queue_url:
+            logger.error("RECONCILER_QUEUE_URL environment variable is required")
+            sys.exit(1)
 
         worker = PipelineWorker(
             queue_url=queue_url,
@@ -77,7 +79,6 @@ def main() -> int:
         return 0
     except Exception as e:
         logger.error("validator_worker_startup_failed", error=str(e))
-        print(f"Error: {e}", file=sys.stderr)
         return 1
 
 
