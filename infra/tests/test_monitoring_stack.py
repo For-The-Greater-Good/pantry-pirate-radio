@@ -29,11 +29,9 @@ class TestMonitoringStackResources:
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        # 14 alarms: API errors, API throttle, Queue depth, DLQ, Staging DLQ,
-        # DynamoDB throttle, Bedrock throttle, Aurora ACU, Pipeline failure,
-        # Validator DLQ, Reconciler DLQ, Recorder DLQ, Result Processor DLQ,
-        # Location Service errors
-        template.resource_count_is("AWS::CloudWatch::Alarm", 14)
+        # 30 alarms without conditional Lambdas:
+        # 14 original + 8 Fargate CPU/Memory + 4 DynamoDB table + 4 queue depth
+        template.resource_count_is("AWS::CloudWatch::Alarm", 30)
 
     def test_sns_topic_has_name(self, template):
         template.has_resource_properties(
@@ -216,6 +214,75 @@ class TestMonitoringStackAlarms:
             },
         )
 
+    # --- H1-H8: Fargate CPU/Memory alarms ---
+
+    @pytest.mark.parametrize("service", ["worker", "validator", "reconciler", "recorder"])
+    def test_fargate_cpu_alarm_exists(self, template, service):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-{service}-cpu-high",
+                "MetricName": "CpuUtilized",
+                "Namespace": "ECS/ContainerInsights",
+                "Threshold": 80,
+                "EvaluationPeriods": 5,
+                "DatapointsToAlarm": 3,
+            },
+        )
+
+    @pytest.mark.parametrize("service", ["worker", "validator", "reconciler", "recorder"])
+    def test_fargate_memory_alarm_exists(self, template, service):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-{service}-memory-high",
+                "MetricName": "MemoryUtilized",
+                "Namespace": "ECS/ContainerInsights",
+                "Threshold": 80,
+                "EvaluationPeriods": 5,
+                "DatapointsToAlarm": 3,
+            },
+        )
+
+    # --- H13-H16: DynamoDB Throttle/Error alarms ---
+
+    @pytest.mark.parametrize("table_slug", ["content-index", "geocoding-cache"])
+    def test_dynamodb_table_throttle_alarm_exists(self, template, table_slug):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-{table_slug}-throttle",
+                "MetricName": "ThrottledRequests",
+                "Namespace": "AWS/DynamoDB",
+            },
+        )
+
+    @pytest.mark.parametrize("table_slug", ["content-index", "geocoding-cache"])
+    def test_dynamodb_table_system_error_alarm_exists(self, template, table_slug):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-{table_slug}-system-errors",
+                "MetricName": "SystemErrors",
+                "Namespace": "AWS/DynamoDB",
+            },
+        )
+
+    # --- H17-H20: Queue depth alarms ---
+
+    @pytest.mark.parametrize("queue_slug", ["validator", "reconciler", "recorder", "staging"])
+    def test_service_queue_depth_alarm_exists(self, template, queue_slug):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-{queue_slug}-queue-depth",
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+                "Threshold": 100,
+                "EvaluationPeriods": 3,
+            },
+        )
+
     def test_alarms_have_actions(self, template):
         alarms = template.find_resources("AWS::CloudWatch::Alarm")
         for name, alarm in alarms.items():
@@ -290,6 +357,47 @@ class TestMonitoringStackConfiguration:
         # Both should synth without error
         assertions.Template.from_stack(stack_without)
         assertions.Template.from_stack(stack_with)
+
+    def test_lambda_alarms_conditional(self):
+        """Lambda error/throttle alarms only created when function names provided."""
+        app_without = cdk.App()
+        stack_without = MonitoringStack(app_without, "NoLambdaAlarmStack", environment_name="dev")
+        tmpl_without = assertions.Template.from_stack(stack_without)
+        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 30)
+
+        app_with = cdk.App()
+        stack_with = MonitoringStack(
+            app_with, "WithLambdaAlarmStack", environment_name="dev",
+            batcher_function_name="my-batcher",
+            result_processor_function_name="my-processor",
+        )
+        tmpl_with = assertions.Template.from_stack(stack_with)
+        # 30 base + 4 Lambda alarms (2 per function)
+        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 34)
+
+    def test_batcher_lambda_error_alarm(self, app):
+        stack = MonitoringStack(
+            app, "BatcherErrorStack", environment_name="dev",
+            batcher_function_name="my-batcher",
+            result_processor_function_name="my-processor",
+        )
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {"AlarmName": "ppr-dev-batcher-lambda-errors", "Namespace": "AWS/Lambda"},
+        )
+
+    def test_result_processor_lambda_throttle_alarm(self, app):
+        stack = MonitoringStack(
+            app, "RPThrottleStack", environment_name="dev",
+            batcher_function_name="my-batcher",
+            result_processor_function_name="my-processor",
+        )
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {"AlarmName": "ppr-dev-result-processor-lambda-throttle", "Namespace": "AWS/Lambda"},
+        )
 
 
 class TestMonitoringStackBedrock:

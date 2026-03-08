@@ -50,10 +50,13 @@ def _drain_staging_queue(
     sqs_client: Any,
     queue_url: str,
     max_iterations: int = 1000,
-) -> list[dict[str, Any]]:
+) -> list[tuple[dict[str, Any], str]]:
     """Drain all messages from the staging queue.
 
-    Receives messages in batches of 10, deletes each after reading.
+    Receives messages in batches of 10. Valid messages are collected with
+    their receipt handles but NOT deleted — the caller is responsible for
+    deleting them after successful downstream processing. Malformed
+    (unparseable) messages are deleted immediately as poison pills.
 
     Args:
         sqs_client: boto3 SQS client
@@ -61,9 +64,9 @@ def _drain_staging_queue(
         max_iterations: Safety limit on receive_message calls
 
     Returns:
-        List of parsed message bodies
+        List of (parsed_body, receipt_handle) tuples
     """
-    all_messages: list[dict[str, Any]] = []
+    all_messages: list[tuple[dict[str, Any], str]] = []
 
     for _ in range(max_iterations):
         response = sqs_client.receive_message(
@@ -80,20 +83,46 @@ def _drain_staging_queue(
         for msg in messages:
             try:
                 body = json.loads(msg["Body"])
-                all_messages.append(body)
-                sqs_client.delete_message(
-                    QueueUrl=queue_url,
-                    ReceiptHandle=msg["ReceiptHandle"],
-                )
+                all_messages.append((body, msg["ReceiptHandle"]))
             except (json.JSONDecodeError, KeyError) as e:
                 logger.error(
                     "failed_to_parse_staging_message",
                     message_id=msg.get("MessageId"),
                     error=str(e),
                 )
+                # Delete malformed messages immediately — they are
+                # poison pills that can never be processed successfully.
+                sqs_client.delete_message(
+                    QueueUrl=queue_url,
+                    ReceiptHandle=msg["ReceiptHandle"],
+                )
 
     logger.info("staging_queue_drained", total_messages=len(all_messages))
     return all_messages
+
+
+def _delete_messages(
+    sqs_client: Any,
+    queue_url: str,
+    receipt_handles: list[str],
+) -> None:
+    """Delete messages from SQS by receipt handle.
+
+    Called only after successful downstream processing to ensure
+    no data loss on failure.
+
+    Args:
+        sqs_client: boto3 SQS client
+        queue_url: SQS queue URL
+        receipt_handles: List of SQS receipt handles to delete
+    """
+    for handle in receipt_handles:
+        sqs_client.delete_message(
+            QueueUrl=queue_url,
+            ReceiptHandle=handle,
+        )
+
+    logger.info("staging_messages_deleted", count=len(receipt_handles))
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -125,8 +154,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     sqs, s3, bedrock, dynamodb = _get_clients()
 
-    # 1. Drain staging queue
-    records = _drain_staging_queue(sqs, staging_queue_url)
+    # 1. Drain staging queue — messages are NOT deleted yet
+    drained = _drain_staging_queue(sqs, staging_queue_url)
+
+    # Separate bodies from receipt handles
+    records = [body for body, _handle in drained]
+    receipt_handles = [handle for _body, handle in drained]
     record_count = len(records)
 
     # 2. Decide batch vs on-demand
@@ -143,123 +176,172 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if record_count == 0:
         return {"mode": "on-demand", "count": 0}
 
-    if decision == "on-demand":
-        # Re-enqueue each job to LLM queue for Fargate processing
+    try:
+        if decision == "on-demand":
+            # Re-enqueue each job to LLM queue for Fargate processing
+            # Track per-record success/failure so we only delete staging
+            # messages for records that were successfully re-enqueued.
+            successful_handles: list[str] = []
+            failed_count = 0
+
+            for record, handle in zip(records, receipt_handles, strict=True):
+                try:
+                    job_data = record.get("job", {})
+                    scraper_id = job_data.get("metadata", {}).get(
+                        "scraper_id", "default"
+                    )
+                    send_to_sqs(
+                        queue_url=llm_queue_url,
+                        message_body=record,
+                        message_group_id=scraper_id,
+                        deduplication_id=record.get("job_id", ""),
+                        source="batcher-lambda",
+                    )
+                    successful_handles.append(handle)
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(
+                        "on_demand_reenqueue_failed",
+                        job_id=record.get("job_id", "unknown"),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+
+            # Delete staging messages only for successfully re-enqueued records
+            if successful_handles:
+                _delete_messages(sqs, staging_queue_url, successful_handles)
+
+            if failed_count > 0:
+                logger.warning(
+                    "on_demand_partial_failure",
+                    total=record_count,
+                    succeeded=len(successful_handles),
+                    failed=failed_count,
+                    execution_id=execution_id,
+                )
+
+            return {
+                "mode": "on-demand",
+                "count": len(successful_handles),
+                "failed": failed_count,
+            }
+
+        # 3. Build JSONL for batch job
+        jsonl_lines = []
+        original_jobs = {}  # Map recordId -> original SQS message for recovery
         for record in records:
             job_data = record.get("job", {})
-            scraper_id = job_data.get("metadata", {}).get("scraper_id", "default")
-            send_to_sqs(
-                queue_url=llm_queue_url,
-                message_body=record,
-                message_group_id=scraper_id,
-                deduplication_id=record.get("job_id", ""),
-                source="batcher-lambda",
+            job_id = job_data.get("id", record.get("job_id", ""))
+
+            converse_body = build_converse_request(
+                prompt=job_data.get("prompt", ""),
+                format_schema=job_data.get("format") or None,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
-        return {"mode": "on-demand", "count": record_count}
 
-    # 3. Build JSONL for batch job
-    jsonl_lines = []
-    original_jobs = {}  # Map recordId -> original SQS message for error recovery
-    for record in records:
-        job_data = record.get("job", {})
-        job_id = job_data.get("id", record.get("job_id", ""))
+            jsonl_record = {
+                "recordId": job_id,
+                "modelInput": converse_body,
+            }
+            jsonl_lines.append(json.dumps(jsonl_record))
+            original_jobs[job_id] = record
 
-        converse_body = build_converse_request(
-            prompt=job_data.get("prompt", ""),
-            format_schema=job_data.get("format") or None,
-            temperature=temperature,
-            max_tokens=max_tokens,
+        jsonl_content = "\n".join(jsonl_lines)
+
+        # 4. Upload JSONL to S3
+        input_key = f"input/{s3_safe_id}/input.jsonl"
+        output_key_prefix = f"output/{s3_safe_id}/"
+
+        s3.put_object(
+            Bucket=batch_bucket,
+            Key=input_key,
+            Body=jsonl_content,
+            ContentType="application/jsonl",
         )
 
-        jsonl_record = {
-            "recordId": job_id,
-            "modelInput": converse_body,
+        logger.info(
+            "batch_jsonl_uploaded",
+            bucket=batch_bucket,
+            key=input_key,
+            record_count=record_count,
+        )
+
+        # 5. Submit Bedrock batch job
+        now = datetime.now(UTC)
+        job_name = f"ppr-batch-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
+        # Job names must be <= 63 chars and match [a-zA-Z0-9][-a-zA-Z0-9]*
+        job_name = job_name[:63]
+
+        response = bedrock.create_model_invocation_job(
+            jobName=job_name,
+            modelId=model_id,
+            roleArn=service_role_arn,
+            modelInvocationType="Converse",
+            inputDataConfig={
+                "s3InputDataConfig": {
+                    "s3Uri": f"s3://{batch_bucket}/{input_key}",
+                    "s3InputFormat": "JSONL",
+                }
+            },
+            outputDataConfig={
+                "s3OutputDataConfig": {
+                    "s3Uri": f"s3://{batch_bucket}/{output_key_prefix}",
+                }
+            },
+        )
+
+        job_arn = response["jobArn"]
+
+        logger.info(
+            "batch_job_submitted",
+            job_arn=job_arn,
+            job_name=job_name,
+            model_id=model_id,
+            record_count=record_count,
+            execution_id=execution_id,
+        )
+
+        # 6. Store original jobs in S3 (too large for DynamoDB 400KB limit)
+        original_jobs_key = f"input/{s3_safe_id}/original_jobs.json"
+        s3.put_object(
+            Bucket=batch_bucket,
+            Key=original_jobs_key,
+            Body=json.dumps(original_jobs),
+            ContentType="application/json",
+        )
+
+        # 7. Store batch job metadata in DynamoDB for result processor
+        dynamodb.put_item(
+            TableName=jobs_table,
+            Item={
+                "job_id": {"S": f"batch:{job_arn}"},
+                "batch_job_arn": {"S": job_arn},
+                "execution_id": {"S": execution_id},
+                "status": {"S": "submitted"},
+                "record_count": {"N": str(record_count)},
+                "input_key": {"S": input_key},
+                "output_key_prefix": {"S": output_key_prefix},
+                "original_jobs_key": {"S": original_jobs_key},
+                "created_at": {"S": now.isoformat()},
+            },
+        )
+
+        # Delete staging messages only after all processing succeeds
+        _delete_messages(sqs, staging_queue_url, receipt_handles)
+
+        return {
+            "mode": "batch",
+            "job_arn": job_arn,
+            "record_count": record_count,
         }
-        jsonl_lines.append(json.dumps(jsonl_record))
-        original_jobs[job_id] = record
 
-    jsonl_content = "\n".join(jsonl_lines)
-
-    # 4. Upload JSONL to S3
-    input_key = f"input/{s3_safe_id}/input.jsonl"
-    output_key_prefix = f"output/{s3_safe_id}/"
-
-    s3.put_object(
-        Bucket=batch_bucket,
-        Key=input_key,
-        Body=jsonl_content,
-        ContentType="application/jsonl",
-    )
-
-    logger.info(
-        "batch_jsonl_uploaded",
-        bucket=batch_bucket,
-        key=input_key,
-        record_count=record_count,
-    )
-
-    # 5. Submit Bedrock batch job
-    now = datetime.now(UTC)
-    job_name = f"ppr-batch-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
-    # Job names must be <= 63 chars and match [a-zA-Z0-9][-a-zA-Z0-9]*
-    job_name = job_name[:63]
-
-    response = bedrock.create_model_invocation_job(
-        jobName=job_name,
-        modelId=model_id,
-        roleArn=service_role_arn,
-        modelInvocationType="Converse",
-        inputDataConfig={
-            "s3InputDataConfig": {
-                "s3Uri": f"s3://{batch_bucket}/{input_key}",
-                "s3InputFormat": "JSONL",
-            }
-        },
-        outputDataConfig={
-            "s3OutputDataConfig": {
-                "s3Uri": f"s3://{batch_bucket}/{output_key_prefix}",
-            }
-        },
-    )
-
-    job_arn = response["jobArn"]
-
-    logger.info(
-        "batch_job_submitted",
-        job_arn=job_arn,
-        job_name=job_name,
-        model_id=model_id,
-        record_count=record_count,
-        execution_id=execution_id,
-    )
-
-    # 6. Store original jobs in S3 (too large for DynamoDB 400KB limit)
-    original_jobs_key = f"input/{s3_safe_id}/original_jobs.json"
-    s3.put_object(
-        Bucket=batch_bucket,
-        Key=original_jobs_key,
-        Body=json.dumps(original_jobs),
-        ContentType="application/json",
-    )
-
-    # 7. Store batch job metadata in DynamoDB for result processor
-    dynamodb.put_item(
-        TableName=jobs_table,
-        Item={
-            "job_id": {"S": f"batch:{job_arn}"},
-            "batch_job_arn": {"S": job_arn},
-            "execution_id": {"S": execution_id},
-            "status": {"S": "submitted"},
-            "record_count": {"N": str(record_count)},
-            "input_key": {"S": input_key},
-            "output_key_prefix": {"S": output_key_prefix},
-            "original_jobs_key": {"S": original_jobs_key},
-            "created_at": {"S": now.isoformat()},
-        },
-    )
-
-    return {
-        "mode": "batch",
-        "job_arn": job_arn,
-        "record_count": record_count,
-    }
+    except Exception:
+        logger.error(
+            "handler_failed",
+            execution_id=execution_id,
+            record_count=record_count,
+            decision=decision,
+            exc_info=True,
+        )
+        raise

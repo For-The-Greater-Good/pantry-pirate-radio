@@ -17,6 +17,7 @@ Environment Configuration:
 """
 
 import os
+import warnings
 
 import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
@@ -44,6 +45,24 @@ region = os.environ.get("CDK_DEPLOY_REGION", os.environ.get("CDK_DEFAULT_REGION"
 certificate_arn = os.environ.get("CDK_CERTIFICATE_ARN")
 domain_name = os.environ.get("CDK_DOMAIN_NAME")
 alert_email = os.environ.get("CDK_ALERT_EMAIL")
+if not account:
+    warnings.warn(
+        "CDK_DEPLOY_ACCOUNT not set (and CDK_DEFAULT_ACCOUNT is unset). "
+        "Deployment will use the CLI's default account, which may not be correct.",
+        stacklevel=1,
+    )
+if not region:
+    warnings.warn(
+        "CDK_DEPLOY_REGION not set (and CDK_DEFAULT_REGION is unset). "
+        "Deployment will use the CLI's default region, which may not be correct.",
+        stacklevel=1,
+    )
+if not alert_email:
+    warnings.warn(
+        "CDK_ALERT_EMAIL not set — CloudWatch alarms will have no SNS subscribers. "
+        "Set CDK_ALERT_EMAIL to receive alert notifications.",
+        stacklevel=1,
+    )
 bedrock_model_id = os.environ.get(
     "CDK_BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 )

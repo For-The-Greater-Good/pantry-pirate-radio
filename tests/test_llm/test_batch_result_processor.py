@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from app.llm.queue.batch_result_processor import handler
+from app.llm.queue.batch_result_processor import _read_output_jsonl, handler
 
 
 def _make_batch_output_record(
@@ -390,6 +390,133 @@ class TestFailureHandling:
             if c[1].get("queue_url") == "https://sqs/llm.fifo"
         ]
         assert len(llm_calls) == 1
+
+
+class TestMissingOriginalJob:
+    """Tests for records with missing original jobs."""
+
+    @patch("app.llm.queue.batch_result_processor._get_clients")
+    @patch("app.llm.queue.batch_result_processor.send_to_sqs")
+    @patch("app.llm.queue.batch_result_processor.settings")
+    @patch("app.llm.queue.batch_result_processor.logger")
+    def test_missing_original_job_skipped_and_counted_as_error(
+        self, mock_logger, mock_settings, mock_send, mock_get_clients
+    ):
+        """Unknown record_id with no matching original job is logged and counted as error."""
+        mock_settings.VALIDATOR_ENABLED = True
+        mock_s3 = MagicMock()
+        mock_dynamodb = MagicMock()
+        mock_get_clients.return_value = (mock_s3, mock_dynamodb)
+        mock_send.return_value = "msg-id"
+
+        # original_jobs only contains job-1, NOT job-unknown
+        original_jobs = {"job-1": _make_original_job("job-1")}
+
+        mock_dynamodb.get_item.return_value = {
+            "Item": {
+                "output_key_prefix": {"S": "output/exec-123/"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+            }
+        }
+
+        # Batch output contains job-1 (known) and job-unknown (missing)
+        known_record = _make_batch_output_record("job-1")
+        unknown_record = _make_batch_output_record("job-unknown")
+        jsonl_output = json.dumps(known_record) + "\n" + json.dumps(unknown_record)
+
+        def s3_get_object(**kwargs):
+            key = kwargs.get("Key", "")
+            if "original_jobs" in key:
+                return {
+                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
+                }
+            return {"Body": MagicMock(read=lambda: jsonl_output.encode())}
+
+        mock_s3.get_object.side_effect = s3_get_object
+        mock_s3.list_objects_v2.return_value = {
+            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
+        }
+
+        event = _make_event("Completed")
+        with patch.dict(
+            "os.environ",
+            {
+                "VALIDATOR_QUEUE_URL": "https://sqs/validator.fifo",
+                "RECONCILER_QUEUE_URL": "https://sqs/reconciler.fifo",
+                "RECORDER_QUEUE_URL": "https://sqs/recorder.fifo",
+                "LLM_QUEUE_URL": "https://sqs/llm.fifo",
+                "BATCH_BUCKET": "batch-bucket",
+                "SQS_JOBS_TABLE": "jobs-table",
+            },
+        ):
+            result = handler(event, None)
+
+        # job-1 processed, job-unknown counted as error
+        assert result["processed"] == 1
+        assert result["errors"] == 1
+
+        # Verify error was logged with structured fields
+        mock_logger.error.assert_any_call(
+            "batch_record_missing_original_job",
+            batch_job_arn="arn:aws:bedrock:us-east-1:123:model-invocation-job/test",
+            record_id="job-unknown",
+        )
+
+        # The unknown record should NOT be routed to any downstream queue
+        # Only job-1 should be sent (to validator + recorder = 2 calls)
+        for c in mock_send.call_args_list:
+            kwargs = c[1] if c[1] else {}
+            dedup_id = kwargs.get("deduplication_id", "")
+            assert "job-unknown" not in dedup_id
+
+
+class TestS3Pagination:
+    """Tests for S3 list_objects_v2 pagination."""
+
+    def test_read_output_paginates_s3(self):
+        """Verify pagination works when S3 returns IsTruncated=True."""
+        mock_s3 = MagicMock()
+
+        record_page1 = {"recordId": "job-1", "modelOutput": {"data": "page1"}}
+        record_page2 = {"recordId": "job-2", "modelOutput": {"data": "page2"}}
+
+        # Page 1: IsTruncated=True with continuation token
+        page1_response = {
+            "Contents": [{"Key": "output/exec-123/chunk-0.jsonl.out"}],
+            "IsTruncated": True,
+            "NextContinuationToken": "token-abc",
+        }
+        # Page 2: IsTruncated=False (last page)
+        page2_response = {
+            "Contents": [{"Key": "output/exec-123/chunk-1.jsonl.out"}],
+            "IsTruncated": False,
+        }
+
+        mock_s3.list_objects_v2.side_effect = [page1_response, page2_response]
+
+        def s3_get_object(**kwargs):
+            key = kwargs.get("Key", "")
+            if "chunk-0" in key:
+                return {
+                    "Body": MagicMock(read=lambda: json.dumps(record_page1).encode())
+                }
+            return {"Body": MagicMock(read=lambda: json.dumps(record_page2).encode())}
+
+        mock_s3.get_object.side_effect = s3_get_object
+
+        records = _read_output_jsonl(mock_s3, "batch-bucket", "output/exec-123/")
+
+        # Should have records from both pages
+        assert len(records) == 2
+        assert records[0]["recordId"] == "job-1"
+        assert records[1]["recordId"] == "job-2"
+
+        # Verify pagination: first call without token, second with token
+        assert mock_s3.list_objects_v2.call_count == 2
+        first_call_kwargs = mock_s3.list_objects_v2.call_args_list[0][1]
+        second_call_kwargs = mock_s3.list_objects_v2.call_args_list[1][1]
+        assert "ContinuationToken" not in first_call_kwargs
+        assert second_call_kwargs["ContinuationToken"] == "token-abc"
 
 
 class TestLogging:

@@ -95,26 +95,36 @@ def _read_output_jsonl(
     """
     records: list[dict[str, Any]] = []
 
-    list_response = s3.list_objects_v2(Bucket=bucket, Prefix=output_key_prefix)
+    continuation_token = None
+    while True:
+        kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": output_key_prefix}
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
 
-    for obj in list_response.get("Contents", []):
-        key = obj["Key"]
-        if not key.endswith(".jsonl.out") and not key.endswith(".jsonl"):
-            continue
+        list_response = s3.list_objects_v2(**kwargs)
 
-        response = s3.get_object(Bucket=bucket, Key=key)
-        body = response["Body"].read().decode("utf-8")
+        for obj in list_response.get("Contents", []):
+            key = obj["Key"]
+            if not key.endswith(".jsonl.out") and not key.endswith(".jsonl"):
+                continue
 
-        for line in body.strip().split("\n"):
-            if line.strip():
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError as e:
-                    logger.error(
-                        "failed_to_parse_output_record",
-                        key=key,
-                        error=str(e),
-                    )
+            response = s3.get_object(Bucket=bucket, Key=key)
+            body = response["Body"].read().decode("utf-8")
+
+            for line in body.strip().split("\n"):
+                if line.strip():
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            "failed_to_parse_output_record",
+                            key=key,
+                            error=str(e),
+                        )
+
+        if not list_response.get("IsTruncated"):
+            break
+        continuation_token = list_response.get("NextContinuationToken")
 
     return records
 
@@ -178,7 +188,11 @@ def _route_success(
         source="batch-result-processor",
     )
 
-    # Send copy to recorder queue
+    # Send copy to recorder queue.
+    # NOTE: Recorder send failures are intentionally non-critical. The record
+    # has already been routed through the main pipeline (validator/reconciler)
+    # above, so it is correctly counted as "processed" by the caller even if
+    # the recorder copy fails. The recorder is an observability side-channel.
     if recorder_queue_url:
         recorder_data = {
             "job_id": record_id,
@@ -299,7 +313,16 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         # Successful record: route downstream
         model_output = record.get("modelOutput", {})
-        original_job = original_jobs.get(record_id, {})
+        original_job = original_jobs.get(record_id)
+
+        if not original_job:
+            logger.error(
+                "batch_record_missing_original_job",
+                batch_job_arn=job_arn,
+                record_id=record_id,
+            )
+            errors += 1
+            continue
 
         try:
             _route_success(
@@ -323,16 +346,66 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             if original_job:
                 _requeue_to_llm(original_job, llm_queue_url)
 
+    # For PartiallyCompleted batches, re-enqueue any original jobs that did
+    # not appear in the output (i.e., they were never processed by Bedrock).
+    requeued = 0
+    if status == "PartiallyCompleted":
+        output_record_ids = {r.get("recordId", "") for r in output_records}
+        missing_ids = set(original_jobs.keys()) - output_record_ids
+        for missing_id in missing_ids:
+            original_job = original_jobs[missing_id]
+            _requeue_to_llm(original_job, llm_queue_url)
+            requeued += 1
+        if missing_ids:
+            logger.warning(
+                "batch_partially_completed_requeued_missing",
+                batch_job_arn=job_arn,
+                missing_count=len(missing_ids),
+                missing_record_ids=sorted(missing_ids),
+            )
+
+    # Update DynamoDB job status to reflect processing outcome
+    final_status = "completed" if errors == 0 else "failed"
+    try:
+        dynamodb.update_item(
+            TableName=jobs_table,
+            Key={"job_id": {"S": f"batch:{job_arn}"}},
+            UpdateExpression="SET #s = :status, processed_at = :ts, processed_count = :pc, error_count = :ec",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":status": {"S": final_status},
+                ":ts": {"S": datetime.now(UTC).isoformat()},
+                ":pc": {"N": str(processed)},
+                ":ec": {"N": str(errors)},
+            },
+        )
+        logger.info(
+            "batch_job_dynamodb_status_updated",
+            batch_job_arn=job_arn,
+            final_status=final_status,
+            processed=processed,
+            errors=errors,
+        )
+    except Exception as e:
+        logger.error(
+            "batch_job_dynamodb_status_update_failed",
+            batch_job_arn=job_arn,
+            final_status=final_status,
+            error=str(e),
+        )
+
     logger.info(
         "batch_result_processing_complete",
         batch_job_arn=job_arn,
         status=status,
         processed=processed,
         errors=errors,
+        requeued=requeued,
     )
 
     return {
         "status": status,
         "processed": processed,
         "errors": errors,
+        "requeued": requeued,
     }

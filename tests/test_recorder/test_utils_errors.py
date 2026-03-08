@@ -12,7 +12,12 @@ from app.recorder.utils import record_result
 
 
 def test_record_result_with_empty_output_dir():
-    """Test that record_result handles empty OUTPUT_DIR environment variable."""
+    """Test that record_result re-raises ValueError when job_id is missing.
+
+    After C6 remediation, record_result re-raises exceptions instead of
+    returning error dicts, so that PipelineWorker / RQ can handle retry
+    logic (e.g. SQS visibility timeout).
+    """
     # Create test data - missing job_id to trigger validation error
     test_data = {
         "job": {
@@ -25,10 +30,9 @@ def test_record_result_with_empty_output_dir():
         "error": None,
     }
 
-    # Should return error status when job_id is missing
-    result = record_result(test_data)
-    assert result["status"] == "failed"
-    assert "Missing required field: job_id" in result["error"]
+    # Should re-raise ValueError when job_id is missing
+    with pytest.raises(ValueError, match="Missing required field: job_id"):
+        record_result(test_data)
 
 
 def test_record_result_daily_summary_update_failure():
@@ -58,7 +62,12 @@ def test_record_result_daily_summary_update_failure():
 
 
 def test_record_result_summary_file_write_error():
-    """Test handling of main file write errors."""
+    """Test that main file write errors are re-raised.
+
+    After C6 remediation, record_result re-raises exceptions instead of
+    returning error dicts, so that PipelineWorker / RQ can handle retry
+    logic (e.g. SQS visibility timeout).
+    """
     test_data = {
         "job_id": "job-456",
         "job": {
@@ -76,8 +85,6 @@ def test_record_result_summary_file_write_error():
         with patch.dict(os.environ, {"OUTPUT_DIR": tmpdir}):
             # Make the file write operation fail
             with patch("builtins.open", side_effect=OSError("Disk full")):
-                # The function should catch the exception and return error status
-                result = record_result(test_data)
-
-                assert result["status"] == "failed"
-                assert "Disk full" in result["error"]
+                # The function should re-raise the OSError
+                with pytest.raises(OSError, match="Disk full"):
+                    record_result(test_data)

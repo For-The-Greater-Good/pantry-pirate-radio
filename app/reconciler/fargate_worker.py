@@ -47,9 +47,16 @@ def process_reconciler_message(data: dict[str, Any]) -> dict[str, Any] | None:
     result = process_job_result(job_result)
 
     # Forward to recorder with the standard recording format
+    job_dict = job_result.job.model_dump(mode="json") if job_result.job else {}
+    if not job_dict:
+        logger.warning(
+            "forwarding_empty_job_dict_to_recorder",
+            job_id=job_result.job_id,
+            has_job=job_result.job is not None,
+        )
     return {
         "job_id": job_result.job_id,
-        "job": job_result.job.model_dump(mode="json") if job_result.job else {},
+        "job": job_dict,
         "result": result,
         "error": None,
     }

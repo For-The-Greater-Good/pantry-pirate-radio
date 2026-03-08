@@ -135,12 +135,21 @@ class PipelineWorker:
         for msg in response.get("Messages", []):
             try:
                 body = json.loads(msg["Body"])
+                data = body.get("data")
+                if data is None:
+                    logger.info(
+                        "sqs_message_missing_envelope_using_raw_body",
+                        service=self.service_name,
+                        message_id=msg.get("MessageId"),
+                        body_keys=list(body.keys()) if isinstance(body, dict) else None,
+                    )
+                    data = body
                 messages.append(
                     {
                         "message_id": msg["MessageId"],
                         "receipt_handle": msg["ReceiptHandle"],
                         "job_id": body.get("job_id", "unknown"),
-                        "data": body.get("data", body),
+                        "data": data,
                         "source": body.get("source", "unknown"),
                         "enqueued_at": body.get("enqueued_at"),
                     }
@@ -191,7 +200,12 @@ class PipelineWorker:
             # Call the processing function
             result = self.process_fn(data)
 
-            # Forward result to next queue if configured and result is provided
+            # Forward result to next queue if configured and result is provided.
+            # NOTE (M27): The forward-then-delete ordering provides at-least-once
+            # delivery semantics. If the worker crashes after forwarding but
+            # before deleting, the message will be redelivered by SQS after
+            # the visibility timeout expires, resulting in a duplicate.
+            # Downstream consumers MUST be idempotent to handle this correctly.
             if self.next_queue_url and result is not None:
                 # Extract message group ID from data for FIFO ordering
                 group_id = "default"

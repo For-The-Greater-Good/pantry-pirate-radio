@@ -388,3 +388,183 @@ class TestPipelineWorkerRunLoop:
 
         # Should have stopped after 3 errors
         assert worker._shutdown_requested is True
+
+
+class TestPipelineWorkerPoisonPillDeleteFailure:
+    """Tests for T3: poison pill delete failure doesn't crash worker."""
+
+    def test_receive_continues_after_poison_pill_delete_failure(
+        self, mock_sqs_client, sample_process_fn
+    ):
+        """When a poison pill message can't be deleted, worker continues processing."""
+        worker = PipelineWorker(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/test-queue.fifo",
+            process_fn=sample_process_fn,
+            service_name="test-service",
+            next_queue_url="https://sqs.us-east-1.amazonaws.com/123/next-queue.fifo",
+        )
+        worker._sqs_client = mock_sqs_client
+
+        # First message is malformed (poison pill), second is valid
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-bad",
+                    "ReceiptHandle": "receipt-bad",
+                    "Body": "not valid json{{{",
+                },
+                {
+                    "MessageId": "msg-good",
+                    "ReceiptHandle": "receipt-good",
+                    "Body": json.dumps(
+                        {
+                            "job_id": "job-good",
+                            "data": {"key": "value"},
+                            "source": "test",
+                        }
+                    ),
+                },
+            ]
+        }
+
+        # Make delete fail for the poison pill
+        mock_sqs_client.delete_message.side_effect = Exception("SQS delete failed")
+
+        messages = worker._receive_messages()
+
+        # The valid message should still be returned despite the delete failure
+        assert len(messages) == 1
+        assert messages[0]["job_id"] == "job-good"
+
+        # delete_message was attempted (for the poison pill)
+        mock_sqs_client.delete_message.assert_called_once_with(
+            QueueUrl=worker.queue_url,
+            ReceiptHandle="receipt-bad",
+        )
+
+    def test_worker_loop_survives_poison_pill_delete_failure(
+        self, mock_sqs_client, sample_process_fn
+    ):
+        """The run loop should not crash when poison pill deletion fails."""
+        worker = PipelineWorker(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/test-queue.fifo",
+            process_fn=sample_process_fn,
+            service_name="test-service",
+        )
+        worker._sqs_client = mock_sqs_client
+
+        call_count = 0
+
+        def receive_side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "Messages": [
+                        {
+                            "MessageId": "msg-poison",
+                            "ReceiptHandle": "receipt-poison",
+                            "Body": "{{{{invalid",
+                        }
+                    ]
+                }
+            else:
+                worker._shutdown_requested = True
+                return {"Messages": []}
+
+        mock_sqs_client.receive_message.side_effect = receive_side_effect
+        mock_sqs_client.delete_message.side_effect = Exception("SQS delete failed")
+
+        # Should not crash
+        worker.run()
+
+        # Worker processed both iterations without crashing
+        assert call_count >= 2
+
+
+class TestPipelineWorkerFIFOGroupId:
+    """Tests for T12: FIFO message_group_id extraction from metadata."""
+
+    @patch("app.pipeline.sqs_worker.send_to_sqs")
+    def test_extracts_scraper_id_from_nested_job_metadata(
+        self, mock_send, mock_sqs_client, sample_process_fn
+    ):
+        """Should extract scraper_id from data.job.metadata.scraper_id for FIFO ordering."""
+        worker = PipelineWorker(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/test-queue.fifo",
+            process_fn=sample_process_fn,
+            service_name="test-service",
+            next_queue_url="https://sqs.us-east-1.amazonaws.com/123/next-queue.fifo",
+        )
+        worker._sqs_client = mock_sqs_client
+
+        message = {
+            "job_id": "job-123",
+            "receipt_handle": "receipt-1",
+            "data": {
+                "job": {
+                    "metadata": {
+                        "scraper_id": "feeding_america_scraper",
+                    }
+                }
+            },
+            "source": "llm-worker",
+        }
+
+        worker._process_single_message(message)
+
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        assert call_kwargs["message_group_id"] == "feeding_america_scraper"
+
+    @patch("app.pipeline.sqs_worker.send_to_sqs")
+    def test_uses_default_group_id_when_no_metadata(
+        self, mock_send, mock_sqs_client, sample_process_fn
+    ):
+        """Should use 'default' when data has no job.metadata.scraper_id."""
+        worker = PipelineWorker(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/test-queue.fifo",
+            process_fn=sample_process_fn,
+            service_name="test-service",
+            next_queue_url="https://sqs.us-east-1.amazonaws.com/123/next-queue.fifo",
+        )
+        worker._sqs_client = mock_sqs_client
+
+        message = {
+            "job_id": "job-123",
+            "receipt_handle": "receipt-1",
+            "data": {"some": "data_without_job_key"},
+            "source": "test",
+        }
+
+        worker._process_single_message(message)
+
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        assert call_kwargs["message_group_id"] == "default"
+
+    @patch("app.pipeline.sqs_worker.send_to_sqs")
+    def test_uses_default_when_metadata_has_no_scraper_id(
+        self, mock_send, mock_sqs_client, sample_process_fn
+    ):
+        """Should use 'default' when metadata exists but has no scraper_id."""
+        worker = PipelineWorker(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/test-queue.fifo",
+            process_fn=sample_process_fn,
+            service_name="test-service",
+            next_queue_url="https://sqs.us-east-1.amazonaws.com/123/next-queue.fifo",
+        )
+        worker._sqs_client = mock_sqs_client
+
+        message = {
+            "job_id": "job-123",
+            "receipt_handle": "receipt-1",
+            "data": {"job": {"metadata": {"other_field": "value"}}},
+            "source": "test",
+        }
+
+        worker._process_single_message(message)
+
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        assert call_kwargs["message_group_id"] == "default"

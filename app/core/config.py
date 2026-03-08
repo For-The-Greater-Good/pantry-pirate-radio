@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai"  # Default to openai
     LLM_MODEL_NAME: str = "gpt-4o-mini"
     LLM_TEMPERATURE: float = _SHARED["LLM_TEMPERATURE"]
-    LLM_MAX_TOKENS: int = _SHARED["LLM_MAX_TOKENS"]
+    LLM_MAX_TOKENS: int | None = _SHARED["LLM_MAX_TOKENS"]
     LLM_TIMEOUT: int = _SHARED["LLM_TIMEOUT"]
     LLM_RETRIES: int = _SHARED["LLM_RETRIES"]
     LLM_WORKER_COUNT: int = 2
@@ -218,12 +218,32 @@ class Settings(BaseSettings):
             # Fetch password from Secrets Manager if ARN is provided
             secret_arn = os.environ.get("DATABASE_SECRET_ARN")
             if secret_arn:
-                import boto3
+                try:
+                    import boto3
+                except ImportError as exc:
+                    raise ValueError(
+                        "boto3 is required when DATABASE_SECRET_ARN is set"
+                    ) from exc
 
-                client = boto3.client("secretsmanager")
-                response = client.get_secret_value(SecretId=secret_arn)
-                secret = json.loads(response["SecretString"])
-                db_password = secret.get("password", "")
+                try:
+                    client = boto3.client("secretsmanager")
+                    response = client.get_secret_value(SecretId=secret_arn)
+                except Exception as exc:
+                    raise ValueError(
+                        f"Failed to fetch secret from Secrets Manager "
+                        f"(ARN: {secret_arn}): {exc}"
+                    ) from exc
+
+                try:
+                    secret = json.loads(response["SecretString"])
+                except (KeyError, json.JSONDecodeError) as exc:
+                    raise ValueError(
+                        "Secrets Manager response missing or invalid SecretString"
+                    ) from exc
+
+                if "password" not in secret:
+                    raise ValueError("Secret does not contain expected 'password' key")
+                db_password = secret["password"]
             else:
                 db_password = os.environ.get("DATABASE_PASSWORD", "")
 

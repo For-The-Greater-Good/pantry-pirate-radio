@@ -9,13 +9,18 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Protocol, TypedDict, runtime_checkable
+from typing import NewType, Optional, Protocol, TypedDict, Union, runtime_checkable
 
 import structlog
 
 from app.content_store.retry import with_connection_retry
 
 logger = structlog.get_logger(__name__)
+
+# Type-safe wrapper for SHA-256 content hash strings.
+# NewType creates a distinct type for static type checkers while remaining
+# a plain str at runtime, so this is fully backward compatible.
+ContentHash = NewType("ContentHash", str)
 
 
 class ContentStoreStatistics(TypedDict):
@@ -40,18 +45,18 @@ class ContentStoreBackend(Protocol):
     index for tracking content status and job associations.
     """
 
-    # TODO: Consider replacing Path return type with str URI for cloud backends.
-    # S3ContentStoreBackend returns Path("s3://...") which is semantically incorrect.
-    # A better design would use a URI string or a custom StorePath type that
-    # represents either local filesystem paths or cloud object storage locations.
+    # Return type is Union[Path, str] to support both filesystem paths (Path)
+    # and cloud URIs (str like "s3://bucket/prefix"). Using Path for S3 URIs
+    # was an LSP violation because Path normalizes "s3://" to "s3:/".
+    # FileContentStoreBackend returns Path; S3ContentStoreBackend returns str.
     @property
-    def store_path(self) -> Path:
-        """Base path for the store (for backward compatibility)."""
+    def store_path(self) -> Union[Path, str]:
+        """Base path or URI for the store."""
         ...
 
     @property
-    def content_store_path(self) -> Path:
-        """Path to the content_store subdirectory."""
+    def content_store_path(self) -> Union[Path, str]:
+        """Path or URI for the content_store subdirectory."""
         ...
 
     def initialize(self) -> None:

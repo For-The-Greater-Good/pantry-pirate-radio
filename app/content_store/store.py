@@ -1,16 +1,18 @@
 """Content store implementation for deduplicating scraped content."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-import redis
 import structlog
-from rq.exceptions import NoSuchJobError
-from rq.job import Job
+
+if TYPE_CHECKING:
+    import redis
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +56,9 @@ class ContentStore:
 
         self.redis_conn: Optional[redis.Redis[bytes]] = None
         if redis_url:
-            self.redis_conn = redis.from_url(redis_url)
+            import redis as _redis
+
+            self.redis_conn = _redis.from_url(redis_url)
 
     @property
     def backend(self) -> ContentStoreBackend:
@@ -63,13 +67,23 @@ class ContentStore:
 
     @property
     def store_path(self) -> Path:
-        """Base path for the store (backward compat property)."""
-        return self._backend.store_path
+        """Base path for the store (backward compat property).
+
+        Note: ContentStore always wraps a filesystem backend, so Path is safe.
+        S3 backends are used directly, not through ContentStore.
+        """
+        path = self._backend.store_path
+        return path if isinstance(path, Path) else Path(path)
 
     @property
     def content_store_path(self) -> Path:
-        """Path to the content_store subdirectory (backward compat property)."""
-        return self._backend.content_store_path
+        """Path to the content_store subdirectory (backward compat property).
+
+        Note: ContentStore always wraps a filesystem backend, so Path is safe.
+        S3 backends are used directly, not through ContentStore.
+        """
+        path = self._backend.content_store_path
+        return path if isinstance(path, Path) else Path(path)
 
     def hash_content(self, content: str) -> str:
         """Generate SHA-256 hash of content.
@@ -91,6 +105,10 @@ class ContentStore:
         Returns:
             True if job is queued or running, False otherwise
         """
+        import redis as _redis
+        from rq.exceptions import NoSuchJobError
+        from rq.job import Job
+
         if self.redis_conn is None:
             # Without Redis (SQS mode), can't check RQ job status.
             # Return False to allow reprocessing (SQS has its own dedup).
@@ -102,7 +120,7 @@ class ContentStore:
         except NoSuchJobError:
             # Job doesn't exist - expected for old/expired jobs
             return False
-        except redis.ConnectionError as e:
+        except _redis.ConnectionError as e:
             logger.warning(
                 "redis_connection_failed_checking_job",
                 job_id=job_id,
@@ -191,7 +209,7 @@ class ContentStore:
             content_data = {
                 "content": content,
                 "metadata": metadata,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             content_path = self._backend.write_content(
                 content_hash, json.dumps(content_data, indent=2)
@@ -199,7 +217,7 @@ class ContentStore:
 
             # Update index
             self._backend.index_insert_content(
-                content_hash, content_path, datetime.utcnow()
+                content_hash, content_path, datetime.now(UTC)
             )
 
         # Return pending status without job_id (allow new processing)
@@ -224,7 +242,7 @@ class ContentStore:
         result_data = {
             "result": result,
             "job_id": job_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         result_path = self._backend.write_result(
             content_hash, json.dumps(result_data, indent=2)
@@ -232,7 +250,7 @@ class ContentStore:
 
         # Update index
         self._backend.index_update_result(
-            content_hash, result_path, job_id, datetime.utcnow()
+            content_hash, result_path, job_id, datetime.now(UTC)
         )
 
     def get_job_id(self, content_hash: str) -> Optional[str]:

@@ -227,7 +227,10 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                         f"Successfully stored result for hash {content_hash[:8]}..."
                     )
                 except Exception as e:
-                    logger.error(f"Failed to store result in content store: {e}")
+                    logger.error(
+                        f"Failed to store result in content store: {e}",
+                        exc_info=True,
+                    )
                     # Don't fail the job, but log the error
             else:
                 logger.debug(f"No content_hash in job metadata for job {job.id}")

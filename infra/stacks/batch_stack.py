@@ -128,10 +128,11 @@ class BatchInferenceStack(Stack):
         return sqs.Queue(
             self,
             "StagingDLQ",
-            queue_name=f"pantry-pirate-radio-staging-dlq-{self.environment_name}.fifo",
+            queue_name=f"pantry-pirate-radio-staging-{self.environment_name}-dlq.fifo",
             fifo=True,
             content_based_deduplication=True,
             retention_period=Duration.days(14),
+            encryption=sqs.QueueEncryption.SQS_MANAGED,
         )
 
     def _create_staging_queue(self) -> sqs.Queue:
@@ -147,6 +148,7 @@ class BatchInferenceStack(Stack):
             content_based_deduplication=True,
             visibility_timeout=Duration.seconds(300),
             retention_period=Duration.days(7),
+            encryption=sqs.QueueEncryption.SQS_MANAGED,
             dead_letter_queue=sqs.DeadLetterQueue(
                 queue=self.staging_dlq,
                 max_receive_count=3,
@@ -200,8 +202,8 @@ class BatchInferenceStack(Stack):
                 effect=iam.Effect.ALLOW,
                 actions=["bedrock:InvokeModel"],
                 resources=[
-                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
-                    "arn:aws:bedrock:*::foundation-model/amazon.titan-*",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-*",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
                     f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/us.anthropic.*",
                 ],
             )

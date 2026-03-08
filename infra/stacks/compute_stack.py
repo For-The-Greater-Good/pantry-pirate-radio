@@ -216,20 +216,19 @@ class ComputeStack(Stack):
                     "bedrock:InvokeModelWithResponseStream",
                 ],
                 resources=[
-                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
-                    "arn:aws:bedrock:*::foundation-model/amazon.titan-*",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-*",
+                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
                     f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/us.anthropic.*",
                 ],
             )
         )
 
-        # Marketplace permissions for first-time Bedrock model activation
+        # Marketplace permissions for checking Bedrock model subscriptions
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "aws-marketplace:ViewSubscriptions",
-                    "aws-marketplace:Subscribe",
                 ],
                 resources=["*"],
             )
@@ -307,7 +306,7 @@ class ComputeStack(Stack):
             },
             # Health check for the worker
             health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "exit 0"],
+                command=["CMD-SHELL", "pgrep -f 'worker' || exit 1"],
                 interval=Duration.seconds(30),
                 timeout=Duration.seconds(5),
                 retries=3,

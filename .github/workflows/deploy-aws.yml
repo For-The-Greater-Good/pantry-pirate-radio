@@ -93,6 +93,34 @@ jobs:
             docker push ${ECR_REPO}:latest
           done
 
+      - name: Build and push api-lambda image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          ECR_REPO="$ECR_REGISTRY/pantry-pirate-radio-api-lambda-$ENVIRONMENT"
+          docker build -t pantry-pirate-radio-api-lambda:$IMAGE_TAG \
+            -f .docker/images/api-lambda/Dockerfile .
+          docker tag pantry-pirate-radio-api-lambda:$IMAGE_TAG ${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REPO}:${IMAGE_TAG}
+          docker tag pantry-pirate-radio-api-lambda:$IMAGE_TAG ${ECR_REPO}:latest
+          docker push ${ECR_REPO}:latest
+
+      - name: Build and push batch-lambda image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          ECR_REPO="$ECR_REGISTRY/pantry-pirate-radio-batch-lambda-$ENVIRONMENT"
+          docker build -t pantry-pirate-radio-batch-lambda:$IMAGE_TAG \
+            -f .docker/images/batch-lambda/Dockerfile .
+          docker tag pantry-pirate-radio-batch-lambda:$IMAGE_TAG ${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REPO}:${IMAGE_TAG}
+          docker tag pantry-pirate-radio-batch-lambda:$IMAGE_TAG ${ECR_REPO}:latest
+          docker push ${ECR_REPO}:latest
+
   deploy-infrastructure:
     name: Deploy CDK Infrastructure
     needs: build-and-push
@@ -133,7 +161,7 @@ jobs:
           CDK_CERTIFICATE_ARN: ${{ secrets.CDK_CERTIFICATE_ARN }}
           CDK_DOMAIN_NAME: ${{ secrets.CDK_DOMAIN_NAME }}
           CDK_ALERT_EMAIL: ${{ secrets.CDK_ALERT_EMAIL }}
-        run: cdk deploy --all --require-approval never
+        run: cdk deploy --all --require-approval broadening
 
   update-services:
     name: Update ECS Services
@@ -159,5 +187,37 @@ jobs:
               --service "$SERVICE" \
               --force-new-deployment \
               --no-cli-pager || echo "Warning: Could not redeploy $SERVICE (may not exist yet)"
+          done
+
+      - name: Update Lambda function code
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.image_tag && format('{0}.dkr.ecr.{1}.amazonaws.com', secrets.AWS_ACCOUNT_ID, env.AWS_REGION) || '' }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          # Update API Lambda (function name from CDK — auto-generated, find by tag)
+          API_LAMBDA=$(aws lambda list-functions --no-cli-pager \
+            --query "Functions[?starts_with(FunctionName, 'LambdaApiStack')].FunctionName" \
+            --output text 2>/dev/null || true)
+          if [ -n "$API_LAMBDA" ]; then
+            echo "Updating API Lambda: $API_LAMBDA"
+            aws lambda update-function-code \
+              --function-name "$API_LAMBDA" \
+              --image-uri "${ECR_REGISTRY}/pantry-pirate-radio-api-lambda-${ENVIRONMENT}:${IMAGE_TAG}" \
+              --no-cli-pager || echo "Warning: Could not update API Lambda"
+          fi
+
+          # Update Batcher and Result Processor Lambdas (auto-generated names)
+          for prefix in BatcherLambda ResultProcessorLambda; do
+            LAMBDA_NAME=$(aws lambda list-functions --no-cli-pager \
+              --query "Functions[?starts_with(FunctionName, 'BatchInferenceStack') && contains(FunctionName, '${prefix}')].FunctionName" \
+              --output text 2>/dev/null || true)
+            if [ -n "$LAMBDA_NAME" ]; then
+              echo "Updating $prefix: $LAMBDA_NAME"
+              aws lambda update-function-code \
+                --function-name "$LAMBDA_NAME" \
+                --image-uri "${ECR_REGISTRY}/pantry-pirate-radio-batch-lambda-${ENVIRONMENT}:${IMAGE_TAG}" \
+                --no-cli-pager || echo "Warning: Could not update $LAMBDA_NAME"
+            fi
           done
 

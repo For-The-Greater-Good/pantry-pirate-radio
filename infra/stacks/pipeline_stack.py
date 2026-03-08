@@ -273,6 +273,25 @@ class PipelineStack(Stack):
                 },
                 "ResultPath": "$.batchResult",
                 "Next": "PipelineSummary",
+                "Retry": [
+                    {
+                        "ErrorEquals": [
+                            "Lambda.ServiceException",
+                            "Lambda.TooManyRequestsException",
+                            "Lambda.AWSLambdaException",
+                        ],
+                        "IntervalSeconds": 30,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2.0,
+                    }
+                ],
+                "Catch": [
+                    {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.batchError",
+                        "Next": "PipelineSummary",
+                    }
+                ],
             }
 
         # Create state machine with JSON definition
@@ -288,19 +307,40 @@ class PipelineStack(Stack):
         )
 
         # Grant permissions for ECS task management
+        # Scope to task definitions in this account/region with our naming prefix
+        task_def_arn = (
+            f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}"
+            f":task-definition/pantry-pirate-radio-*"
+        )
+        task_arn = (
+            f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}"
+            f":task/*"
+        )
         state_machine.add_to_role_policy(
             iam.PolicyStatement(
-                actions=["ecs:RunTask", "ecs:StopTask", "ecs:DescribeTasks"],
-                resources=["*"],
+                actions=["ecs:RunTask"],
+                resources=[task_def_arn],
+            )
+        )
+        state_machine.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:StopTask", "ecs:DescribeTasks"],
+                resources=[task_arn],
             )
         )
         state_machine.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["iam:PassRole"],
-                resources=["*"],
+                resources=[
+                    f"arn:aws:iam::{Stack.of(self).account}:role/pantry-pirate-radio-*",
+                ],
             )
         )
         # Required for .sync integration (waits for task completion)
+        state_machine_arn = (
+            f"arn:aws:events:{Stack.of(self).region}:{Stack.of(self).account}"
+            f":rule/StepFunctionsGetEventsForECSTaskRule"
+        )
         state_machine.add_to_role_policy(
             iam.PolicyStatement(
                 actions=[
@@ -308,7 +348,7 @@ class PipelineStack(Stack):
                     "events:PutRule",
                     "events:DescribeRule",
                 ],
-                resources=["*"],
+                resources=[state_machine_arn],
             )
         )
 

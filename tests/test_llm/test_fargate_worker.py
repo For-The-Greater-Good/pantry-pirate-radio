@@ -1,8 +1,9 @@
 """Tests for Fargate worker module."""
 
 import os
+import threading
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
 import pytest
@@ -232,3 +233,260 @@ class TestFargateWorkerMain:
         mock_worker_class.assert_called_once_with(mock_sqs_backend)
         mock_worker.run.assert_called_once()
         assert result == 0
+
+
+class TestVisibilityExtensionTimer:
+    """Tests for H26: threading-based visibility extension (replaces broken async)."""
+
+    @patch("app.llm.queue.fargate_worker.process_llm_job")
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_visibility_timer_starts_and_cancels_on_success(
+        self,
+        mock_create_provider,
+        mock_process_job,
+        mock_sqs_backend,
+        sample_llm_job,
+    ):
+        """Timer should be started before processing and cancelled after."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        mock_result = LLMResponse(
+            text="Test response",
+            model="test-model",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
+        mock_process_job.return_value = mock_result
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend)
+
+        # Mock the timer to avoid real threading
+        mock_timer = MagicMock(spec=threading.Timer)
+        with patch.object(
+            worker, "_start_visibility_extension_timer", return_value=mock_timer
+        ) as mock_start:
+            message = {
+                "job_id": sample_llm_job.id,
+                "receipt_handle": "receipt-123",
+                "job": sample_llm_job,
+            }
+            result = worker._process_single_job(message)
+
+        assert result is True
+        mock_start.assert_called_once_with("receipt-123", sample_llm_job.id)
+        mock_timer.cancel.assert_called_once()
+
+    @patch("app.llm.queue.fargate_worker.process_llm_job")
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_visibility_timer_cancelled_on_failure(
+        self,
+        mock_create_provider,
+        mock_process_job,
+        mock_sqs_backend,
+        sample_llm_job,
+    ):
+        """Timer should be cancelled even when processing fails."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        mock_process_job.side_effect = ValueError("LLM failed")
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend)
+
+        mock_timer = MagicMock(spec=threading.Timer)
+        with patch.object(
+            worker, "_start_visibility_extension_timer", return_value=mock_timer
+        ):
+            message = {
+                "job_id": sample_llm_job.id,
+                "receipt_handle": "receipt-123",
+                "job": sample_llm_job,
+            }
+            result = worker._process_single_job(message)
+
+        assert result is False
+        mock_timer.cancel.assert_called_once()
+
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_visibility_timer_extends_visibility(
+        self,
+        mock_create_provider,
+        mock_sqs_backend,
+    ):
+        """The timer callback should call backend.change_visibility."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend, visibility_extension_interval=120)
+
+        worker._current_receipt_handle = "receipt-test"
+
+        # Patch threading.Timer to capture and invoke the callback immediately
+        with patch("app.llm.queue.fargate_worker.threading.Timer") as mock_timer_cls:
+            # Capture the timer callback
+            timer_instance = MagicMock()
+            mock_timer_cls.return_value = timer_instance
+
+            worker._start_visibility_extension_timer("receipt-test", "job-1")
+
+            # Get the callback from Timer constructor
+            assert mock_timer_cls.called
+            callback = (
+                mock_timer_cls.call_args[1].get("function")
+                or mock_timer_cls.call_args[0][1]
+            )
+
+            # Execute the callback (simulating timer fire)
+            callback()
+
+            # Should have called change_visibility on the backend
+            mock_sqs_backend.change_visibility.assert_called_once_with(
+                "receipt-test", 180  # 120 + 60 buffer
+            )
+
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_no_asyncio_imports(self, mock_create_provider):
+        """Verify asyncio is no longer imported in fargate_worker module."""
+        import app.llm.queue.fargate_worker as fw
+
+        # asyncio should NOT be used; threading should be used instead
+        assert not hasattr(fw, "asyncio") or "asyncio" not in dir(fw)
+        assert hasattr(fw, "threading")
+
+
+class TestFargateWorkerDoubleFailure:
+    """Tests for T5: double failure (processing + status update) doesn't crash."""
+
+    @patch("app.llm.queue.fargate_worker.process_llm_job")
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_process_failure_plus_status_update_failure(
+        self,
+        mock_create_provider,
+        mock_process_job,
+        mock_sqs_backend,
+        sample_llm_job,
+    ):
+        """When processing fails AND status update also fails, worker should
+        return False without crashing permanently."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        # Processing fails
+        mock_process_job.side_effect = ValueError("LLM processing failed")
+
+        # Status update also fails
+        mock_sqs_backend.update_status.side_effect = [
+            None,  # First call (PROCESSING) succeeds
+            RuntimeError("DynamoDB connection lost"),  # Second call (FAILED) fails
+        ]
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend)
+
+        mock_timer = MagicMock(spec=threading.Timer)
+        with patch.object(
+            worker, "_start_visibility_extension_timer", return_value=mock_timer
+        ):
+            message = {
+                "job_id": sample_llm_job.id,
+                "receipt_handle": "receipt-123",
+                "job": sample_llm_job,
+            }
+
+            result = worker._process_single_job(message)
+
+        # Worker should return False (processing failed) but not crash
+        assert result is False
+        # Message should NOT be deleted (allow retry)
+        mock_sqs_backend.delete_message.assert_not_called()
+        # Timer should still have been cancelled
+        mock_timer.cancel.assert_called_once()
+
+    @patch("app.llm.queue.fargate_worker.process_llm_job")
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_worker_continues_after_double_failure(
+        self,
+        mock_create_provider,
+        mock_process_job,
+        mock_sqs_backend,
+        sample_llm_job,
+    ):
+        """Worker run loop should continue processing after a double failure."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend, wait_time_seconds=1)
+
+        call_count = 0
+
+        def receive_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First poll: return a message that will double-fail
+                return [
+                    {
+                        "job_id": sample_llm_job.id,
+                        "receipt_handle": "receipt-1",
+                        "job": sample_llm_job,
+                    }
+                ]
+            else:
+                # Second poll: stop the worker
+                worker.stop()
+                return []
+
+        mock_sqs_backend.receive_messages.side_effect = receive_side_effect
+        mock_process_job.side_effect = ValueError("LLM failed")
+        mock_sqs_backend.update_status.side_effect = [
+            None,  # PROCESSING succeeds
+            RuntimeError("DynamoDB down"),  # FAILED update fails
+        ]
+
+        # Should not crash -- runs through both iterations
+        worker.run()
+
+        # Verify worker processed both poll iterations
+        assert call_count >= 2
+
+
+class TestConsecutiveErrorsExit:
+    """Tests for H28: worker exits with code 1 after max_consecutive_errors."""
+
+    @patch("app.llm.queue.fargate_worker.time.sleep")
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_consecutive_errors_triggers_sys_exit(
+        self, mock_create_provider, mock_sleep, mock_sqs_backend
+    ):
+        """Worker should sys.exit(1) when max_consecutive_errors is reached."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend, wait_time_seconds=1)
+
+        # Every receive_messages call raises an exception
+        mock_sqs_backend.receive_messages.side_effect = RuntimeError("SQS unavailable")
+
+        with pytest.raises(SystemExit) as exc_info:
+            worker.run()
+
+        assert exc_info.value.code == 1
+
+    @patch("app.llm.queue.fargate_worker.create_provider")
+    def test_graceful_shutdown_does_not_sys_exit(
+        self, mock_create_provider, mock_sqs_backend
+    ):
+        """Worker should NOT sys.exit(1) on graceful shutdown (signal-based)."""
+        from app.llm.queue.fargate_worker import FargateWorker
+
+        with patch.dict(os.environ, PROVIDER_ENV):
+            worker = FargateWorker(mock_sqs_backend, wait_time_seconds=1)
+
+        # Stop after first poll (graceful shutdown)
+        def stop_on_call(*args, **kwargs):
+            worker.stop()
+            return []
+
+        mock_sqs_backend.receive_messages.side_effect = stop_on_call
+
+        # Should return normally without SystemExit
+        worker.run()  # No exception expected

@@ -114,13 +114,7 @@ def process_validation_job(job_result: JobResult) -> Dict[str, Any]:
         logger.error(
             f"Failed to process validation job {job_result.job_id}: {e}", exc_info=True
         )
-        # Return error result but don't fail the job completely
-        return {
-            "job_id": job_result.job_id,
-            "status": "validation_error",
-            "data": {},
-            "validation_notes": f"Validation failed: {str(e)}",
-        }
+        raise  # Let PipelineWorker handle retry via SQS visibility timeout
 
 
 def enqueue_to_reconciler(job_result: JobResult) -> str:

@@ -46,6 +46,11 @@ class TestProcessValidationMessage:
         data = {
             "job_id": "test-456",
             "status": "completed",
+            "result": {
+                "text": '{"location": []}',
+                "model": "test",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            },
         }
 
         result = process_validation_message(data)

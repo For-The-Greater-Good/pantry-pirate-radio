@@ -5,7 +5,6 @@ enabling cloud-native deployment of the content store.
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Optional
 
 import structlog
@@ -37,6 +36,9 @@ class S3ContentStoreBackend:
         s3_prefix: str = "",
     ) -> None:
         """Initialize S3ContentStoreBackend."""
+        # TODO(M33): Consider making config fields private with read-only properties
+        # to prevent accidental mutation after construction. Deferred because external
+        # code (including tests) currently reads these fields directly.
         self.s3_bucket = s3_bucket
         self.dynamodb_table = dynamodb_table
         self.region_name = region_name
@@ -83,14 +85,17 @@ class S3ContentStoreBackend:
         return self._dynamodb_client
 
     @property
-    def store_path(self) -> Path:
-        """Return S3 URI path for compatibility."""
-        return Path(f"s3://{self.s3_bucket}/{self.s3_prefix}")
+    def store_path(self) -> str:
+        """Return S3 URI for the store.
+
+        Returns str instead of Path to avoid Path normalizing 's3://' to 's3:/'.
+        """
+        return f"s3://{self.s3_bucket}/{self.s3_prefix}"
 
     @property
-    def content_store_path(self) -> Path:
+    def content_store_path(self) -> str:
         """Return S3 URI for content store subdirectory."""
-        return Path(f"s3://{self.s3_bucket}/{self.s3_prefix}content_store")
+        return f"s3://{self.s3_bucket}/{self.s3_prefix}content_store"
 
     @with_aws_retry
     def initialize(self) -> None:
@@ -139,6 +144,14 @@ class S3ContentStoreBackend:
 
         self._initialized = True
 
+    def _ensure_initialized(self) -> None:
+        """Raise RuntimeError if initialize() has not been called."""
+        if not self._initialized:
+            raise RuntimeError(
+                "S3ContentStoreBackend.initialize() must be called before "
+                "performing operations. Call initialize() after construction."
+            )
+
     def _get_content_key(self, content_hash: str) -> str:
         """Get S3 object key for content."""
         prefix = content_hash[:2]
@@ -160,6 +173,7 @@ class S3ContentStoreBackend:
         Returns:
             S3 URI path to stored content
         """
+        self._ensure_initialized()
         s3 = self._get_s3_client()
         key = self._get_content_key(content_hash)
 
@@ -183,6 +197,7 @@ class S3ContentStoreBackend:
         Returns:
             JSON string content or None if not found
         """
+        self._ensure_initialized()
         from botocore.exceptions import ClientError
 
         s3 = self._get_s3_client()
@@ -206,6 +221,7 @@ class S3ContentStoreBackend:
         Returns:
             True if content exists
         """
+        self._ensure_initialized()
         from botocore.exceptions import ClientError
 
         s3 = self._get_s3_client()
@@ -239,6 +255,7 @@ class S3ContentStoreBackend:
         Returns:
             S3 URI path to stored result
         """
+        self._ensure_initialized()
         s3 = self._get_s3_client()
         key = self._get_result_key(content_hash)
 
@@ -262,6 +279,7 @@ class S3ContentStoreBackend:
         Returns:
             JSON string result or None if not found
         """
+        self._ensure_initialized()
         from botocore.exceptions import ClientError
 
         s3 = self._get_s3_client()
@@ -420,6 +438,12 @@ class S3ContentStoreBackend:
     @with_aws_retry
     def index_get_statistics(self) -> ContentStoreStatistics:
         """Get statistics from DynamoDB index.
+
+        Note:
+            This performs a full DynamoDB table scan. This is acceptable for
+            ops dashboards since the content index table is typically small
+            (<10K items). If the table grows significantly, consider maintaining
+            counters via DynamoDB atomic increments instead.
 
         Returns:
             ContentStoreStatistics with total_content, processed_content, pending_content

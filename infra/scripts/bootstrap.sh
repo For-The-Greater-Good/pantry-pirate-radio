@@ -129,42 +129,91 @@ fi
 echo "  Attaching policies..."
 aws iam attach-role-policy --role-name "$ROLE_NAME" \
     --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
-aws iam attach-role-policy --role-name "$ROLE_NAME" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonECS_FullAccess
-aws iam attach-role-policy --role-name "$ROLE_NAME" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
-aws iam attach-role-policy --role-name "$ROLE_NAME" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
-aws iam attach-role-policy --role-name "$ROLE_NAME" \
-    --policy-arn arn:aws:iam::aws:policy/AmazonSQSFullAccess
 
-# Create inline policy for CDK deployment
+# NOTE: Previously used *FullAccess managed policies (ECS, S3, DynamoDB, SQS)
+# are replaced by the scoped inline policy below.
+
+# Create inline policy for CDK deployment and service management
+# Scoped to pantry-pirate-radio-* resources where possible.
+# Some actions (CloudFormation, EC2, IAM for CDK) require resource=* due to
+# CDK's bootstrapping and cross-stack reference patterns.
 CDK_POLICY=$(cat <<EOF
 {
     "Version": "2012-10-17",
     "Statement": [
         {
+            "Sid": "CDKBootstrapAndDeploy",
             "Effect": "Allow",
             "Action": [
                 "cloudformation:*",
-                "iam:*",
                 "ssm:GetParameter",
-                "ssm:PutParameter",
-                "secretsmanager:GetSecretValue",
-                "ecr:*",
-                "logs:*",
-                "elasticloadbalancing:*",
-                "ec2:*",
-                "sns:*",
-                "cloudwatch:*",
-                "application-autoscaling:*"
+                "ssm:PutParameter"
             ],
             "Resource": "*"
         },
         {
+            "Sid": "CDKRoleAssumption",
             "Effect": "Allow",
             "Action": "sts:AssumeRole",
             "Resource": "arn:aws:iam::$AWS_ACCOUNT:role/cdk-*"
+        },
+        {
+            "Sid": "ECSServiceManagement",
+            "Effect": "Allow",
+            "Action": [
+                "ecs:UpdateService",
+                "ecs:DescribeServices",
+                "ecs:DescribeClusters",
+                "ecs:ListServices"
+            ],
+            "Resource": [
+                "arn:aws:ecs:$AWS_REGION:$AWS_ACCOUNT:cluster/pantry-pirate-radio-*",
+                "arn:aws:ecs:$AWS_REGION:$AWS_ACCOUNT:service/pantry-pirate-radio-*/*"
+            ]
+        },
+        {
+            "Sid": "LambdaManagement",
+            "Effect": "Allow",
+            "Action": [
+                "lambda:UpdateFunctionCode",
+                "lambda:ListFunctions",
+                "lambda:GetFunction"
+            ],
+            "Resource": "arn:aws:lambda:$AWS_REGION:$AWS_ACCOUNT:function:*"
+        },
+        {
+            "Sid": "SecretsManagerRead",
+            "Effect": "Allow",
+            "Action": "secretsmanager:GetSecretValue",
+            "Resource": "arn:aws:secretsmanager:$AWS_REGION:$AWS_ACCOUNT:secret:pantry-pirate-radio-*"
+        },
+        {
+            "Sid": "ECRAccess",
+            "Effect": "Allow",
+            "Action": "ecr:*",
+            "Resource": "arn:aws:ecr:$AWS_REGION:$AWS_ACCOUNT:repository/pantry-pirate-radio-*"
+        },
+        {
+            "Sid": "CDKInfrastructure",
+            "Effect": "Allow",
+            "Action": [
+                "iam:*",
+                "ec2:*",
+                "elasticloadbalancing:*",
+                "logs:*",
+                "sns:*",
+                "cloudwatch:*",
+                "application-autoscaling:*",
+                "s3:*",
+                "dynamodb:*",
+                "sqs:*"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "$AWS_REGION"
+                }
+            }
         }
     ]
 }

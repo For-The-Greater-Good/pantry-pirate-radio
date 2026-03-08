@@ -29,7 +29,13 @@ class TestValidationJobProcessor:
                 ) as mock_process:
                     mock_process.return_value = {"status": "validated"}
 
-                    result = process_validation_job(sample_hsds_job)
+                    with patch(
+                        "app.llm.queue.queues.reconciler_queue"
+                    ) as mock_queue:
+                        mock_queue.enqueue_call.return_value = MagicMock(
+                            id="mock-reconciler-job"
+                        )
+                        result = process_validation_job(sample_hsds_job)
 
                     assert result == {"status": "validated"}
                     mock_process.assert_called_once_with(sample_hsds_job)
@@ -230,3 +236,37 @@ class TestValidationJobProcessor:
 
                 # Check it's our expected error
                 assert "Database error" in str(exc_info.value)
+
+    def test_process_validation_job_reraaises_exceptions(self, sample_hsds_job):
+        """Test that process_validation_job re-raises exceptions instead of swallowing them.
+
+        This is critical for PipelineWorker retry/DLQ logic: if process_validation_job
+        catches and returns an error dict, the caller thinks the job succeeded and
+        deletes the SQS message, causing silent data loss.
+        """
+        with patch("app.validator.job_processor.get_db_session") as mock_db:
+            mock_db.side_effect = RuntimeError("Database connection failed")
+
+            with pytest.raises(RuntimeError, match="Database connection failed"):
+                process_validation_job(sample_hsds_job)
+
+    def test_process_validation_job_logs_error_before_reraising(
+        self, sample_hsds_job, caplog
+    ):
+        """Test that process_validation_job logs the error before re-raising.
+
+        The error should be logged with exc_info=True so that full tracebacks
+        appear in logs for debugging, even though the exception propagates.
+        """
+        import logging
+
+        with patch("app.validator.job_processor.get_db_session") as mock_db:
+            mock_db.side_effect = ValueError("Corrupt job data")
+
+            with caplog.at_level(logging.ERROR):
+                with pytest.raises(ValueError, match="Corrupt job data"):
+                    process_validation_job(sample_hsds_job)
+
+            # Verify the error was logged before re-raising
+            assert "Failed to process validation job" in caplog.text
+            assert "Corrupt job data" in caplog.text

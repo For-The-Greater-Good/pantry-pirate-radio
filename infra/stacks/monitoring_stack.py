@@ -141,11 +141,19 @@ class MonitoringStack(Stack):
         periods: int,
         op: cloudwatch.ComparisonOperator,
         description: str,
+        datapoints_to_alarm: int | None = None,
+        treat_missing_data: cloudwatch.TreatMissingData | None = None,
     ) -> cloudwatch.Alarm:
-        alarm = cloudwatch.Alarm(
-            self, cid, alarm_name=name, alarm_description=description,
-            metric=metric, threshold=threshold, evaluation_periods=periods, comparison_operator=op,
-        )
+        kw: dict = {
+            "alarm_name": name, "alarm_description": description,
+            "metric": metric, "threshold": threshold,
+            "evaluation_periods": periods, "comparison_operator": op,
+        }
+        if datapoints_to_alarm is not None:
+            kw["datapoints_to_alarm"] = datapoints_to_alarm
+        if treat_missing_data is not None:
+            kw["treat_missing_data"] = treat_missing_data
+        alarm = cloudwatch.Alarm(self, cid, **kw)
         alarm.add_alarm_action(cw_actions.SnsAction(self.alerts_topic))
         return alarm
 
@@ -467,127 +475,118 @@ class MonitoringStack(Stack):
     # --- Alarms ---
 
     def _create_alarms(self) -> None:
+        env = self.environment_name
         GT = cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
         GTE = cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD
+        NB = cloudwatch.TreatMissingData.NOT_BREACHING
+        ppr = "pantry-pirate-radio"
+        sqs_visible = "ApproximateNumberOfMessagesVisible"
+        api_dims = {"FunctionName": self.api_function_name}
 
-        # 1. API Lambda errors (replaces old API CPU alarm)
-        self._alarm(
-            "APILambdaErrorsAlarm",
-            f"pantry-pirate-radio-api-lambda-errors-{self.environment_name}",
-            self._m("AWS/Lambda", "Errors", {"FunctionName": self.api_function_name}),
-            5, 2, GTE, "API Lambda function errors are elevated",
-        )
+        # 1-2. API Lambda errors & throttles
+        self._alarm("APILambdaErrorsAlarm", f"{ppr}-api-lambda-errors-{env}",
+                     self._m("AWS/Lambda", "Errors", api_dims), 5, 2, GTE,
+                     "API Lambda function errors are elevated")
+        self._alarm("APILambdaThrottleAlarm", f"{ppr}-api-lambda-throttle-{env}",
+                     self._m("AWS/Lambda", "Throttles", api_dims), 1, 2, GTE,
+                     "API Lambda function is being throttled")
 
-        # 2. API Lambda throttles (new)
-        self._alarm(
-            "APILambdaThrottleAlarm",
-            f"pantry-pirate-radio-api-lambda-throttle-{self.environment_name}",
-            self._m("AWS/Lambda", "Throttles", {"FunctionName": self.api_function_name}),
-            1, 2, GTE, "API Lambda function is being throttled",
-        )
+        # 3. LLM queue depth
+        self._alarm("QueueDepthAlarm", f"{ppr}-queue-depth-{env}",
+                     self._m("AWS/SQS", sqs_visible, {"QueueName": self.queue_name}, "Average"),
+                     100, 3, GT, "SQS queue depth is high - jobs are backing up")
 
-        # 3. Queue depth (keep)
-        self._alarm(
-            "QueueDepthAlarm",
-            f"pantry-pirate-radio-queue-depth-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": self.queue_name}, "Average"),
-            100, 3, GT, "SQS queue depth is high - jobs are backing up",
-        )
+        # 4-5. DLQ alarms (LLM + staging)
+        for cid, label, qname in [
+            ("DLQAlarm", "dlq", self.queue_name),
+            ("StagingDLQAlarm", "staging-dlq", self.staging_queue_name),
+            ("ValidatorDLQAlarm", "validator-dlq", self.validator_queue_name),
+            ("ReconcilerDLQAlarm", "reconciler-dlq", self.reconciler_queue_name),
+            ("RecorderDLQAlarm", "recorder-dlq", self.recorder_queue_name),
+        ]:
+            dlq = qname.replace(".fifo", "-dlq.fifo")
+            self._alarm(cid, f"{ppr}-{label}-{env}",
+                         self._m("AWS/SQS", sqs_visible, {"QueueName": dlq}),
+                         1, 1, GTE, f"Messages in {label.replace('-', ' ')}")
 
-        # 4. LLM DLQ (keep)
-        dlq_name = self.queue_name.replace(".fifo", "-dlq.fifo")
-        self._alarm(
-            "DLQAlarm",
-            f"pantry-pirate-radio-dlq-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": dlq_name}),
-            1, 1, GTE, "Messages in dead-letter queue - jobs are failing",
-        )
+        # Result processor DLQ (standard, not FIFO)
+        self._alarm("ResultProcessorDLQAlarm", f"{ppr}-result-processor-dlq-{env}",
+                     self._m("AWS/SQS", sqs_visible, {"QueueName": f"{ppr}-result-processor-dlq-{env}"}),
+                     1, 1, GTE, "Messages in result processor dead-letter queue")
 
-        # 5. Staging DLQ (new)
-        staging_dlq = self.staging_queue_name.replace(".fifo", "-dlq.fifo")
-        self._alarm(
-            "StagingDLQAlarm",
-            f"pantry-pirate-radio-staging-dlq-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": staging_dlq}),
-            1, 1, GTE, "Messages in staging dead-letter queue",
-        )
+        # 6. DynamoDB throttle (jobs table)
+        self._alarm("DynamoDBThrottleAlarm", f"{ppr}-dynamodb-throttle-{env}",
+                     self._m("AWS/DynamoDB", "ThrottledRequests", {"TableName": self.jobs_table_name}),
+                     1, 1, GTE, "DynamoDB requests are being throttled")
 
-        # 6. DynamoDB throttle (keep)
-        self._alarm(
-            "DynamoDBThrottleAlarm",
-            f"pantry-pirate-radio-dynamodb-throttle-{self.environment_name}",
-            self._m("AWS/DynamoDB", "ThrottledRequests", {"TableName": self.jobs_table_name}),
-            1, 1, GTE, "DynamoDB requests are being throttled",
-        )
+        # 7. Bedrock throttle
+        self._alarm("BedrockThrottleAlarm", f"{ppr}-bedrock-throttle-{env}",
+                     self._m("AWS/Bedrock", "InvocationThrottles", {"ModelId": self.bedrock_model_id}),
+                     5, 2, GT, "Bedrock LLM invocations are being throttled")
 
-        # 7. Bedrock throttle (keep)
-        self._alarm(
-            "BedrockThrottleAlarm",
-            f"pantry-pirate-radio-bedrock-throttle-{self.environment_name}",
-            self._m("AWS/Bedrock", "InvocationThrottles", {"ModelId": self.bedrock_model_id}),
-            5, 2, GT, "Bedrock LLM invocations are being throttled",
-        )
+        # 8. Aurora ACU high — 75% of max
+        acu_threshold = 1.5 if env == "dev" else 14
+        self._alarm("AuroraACUAlarm", f"{ppr}-aurora-acu-high-{env}",
+                     self._m("AWS/RDS", "ServerlessDatabaseCapacity",
+                             {"DBClusterIdentifier": self.aurora_cluster_id}, "Average"),
+                     acu_threshold, 3, GT, f"Aurora ACU usage above {acu_threshold} (75% of max)")
 
-        # 8. Aurora ACU high (new) - 75% of max ACU
-        acu_threshold = 1.5 if self.environment_name == "dev" else 14
-        self._alarm(
-            "AuroraACUAlarm",
-            f"pantry-pirate-radio-aurora-acu-high-{self.environment_name}",
-            self._m("AWS/RDS", "ServerlessDatabaseCapacity", {"DBClusterIdentifier": self.aurora_cluster_id}, "Average"),
-            acu_threshold, 3, GT,
-            f"Aurora ACU usage above {acu_threshold} (75% of max)",
-        )
-
-        # 9. Pipeline failure (new)
+        # 9. Pipeline failure
         sm_arn = f"arn:aws:states:{self.region}:{self.account}:stateMachine:{self.state_machine_name}"
-        self._alarm(
-            "PipelineFailureAlarm",
-            f"pantry-pirate-radio-pipeline-failure-{self.environment_name}",
-            self._m("AWS/States", "ExecutionsFailed", {"StateMachineArn": sm_arn}),
-            1, 1, GTE, "Step Functions pipeline execution failed",
-        )
-
-        # 10. Validator DLQ
-        validator_dlq = self.validator_queue_name.replace(".fifo", "-dlq.fifo")
-        self._alarm(
-            "ValidatorDLQAlarm",
-            f"pantry-pirate-radio-validator-dlq-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": validator_dlq}),
-            1, 1, GTE, "Messages in validator dead-letter queue",
-        )
-
-        # 11. Reconciler DLQ
-        reconciler_dlq = self.reconciler_queue_name.replace(".fifo", "-dlq.fifo")
-        self._alarm(
-            "ReconcilerDLQAlarm",
-            f"pantry-pirate-radio-reconciler-dlq-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": reconciler_dlq}),
-            1, 1, GTE, "Messages in reconciler dead-letter queue",
-        )
-
-        # 12. Recorder DLQ
-        recorder_dlq = self.recorder_queue_name.replace(".fifo", "-dlq.fifo")
-        self._alarm(
-            "RecorderDLQAlarm",
-            f"pantry-pirate-radio-recorder-dlq-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {"QueueName": recorder_dlq}),
-            1, 1, GTE, "Messages in recorder dead-letter queue",
-        )
-
-        # 13. Result processor DLQ (standard, not FIFO)
-        self._alarm(
-            "ResultProcessorDLQAlarm",
-            f"pantry-pirate-radio-result-processor-dlq-{self.environment_name}",
-            self._m("AWS/SQS", "ApproximateNumberOfMessagesVisible", {
-                "QueueName": f"pantry-pirate-radio-result-processor-dlq-{self.environment_name}",
-            }),
-            1, 1, GTE, "Messages in result processor dead-letter queue",
-        )
+        self._alarm("PipelineFailureAlarm", f"{ppr}-pipeline-failure-{env}",
+                     self._m("AWS/States", "ExecutionsFailed", {"StateMachineArn": sm_arn}),
+                     1, 1, GTE, "Step Functions pipeline execution failed")
 
         # 14. Amazon Location Service errors
-        self._alarm(
-            "LocationServiceErrorAlarm",
-            f"pantry-pirate-radio-location-service-errors-{self.environment_name}",
-            self._m("AWS/Location", "ClientErrorCount", {"IndexName": self.place_index_name}),
-            10, 2, GTE, "Amazon Location Service geocoding errors are elevated",
-        )
+        self._alarm("LocationServiceErrorAlarm", f"{ppr}-location-service-errors-{env}",
+                     self._m("AWS/Location", "ClientErrorCount", {"IndexName": self.place_index_name}),
+                     10, 2, GTE, "Amazon Location Service geocoding errors are elevated")
+
+        # H1-H8: Fargate CPU/Memory (ECS/ContainerInsights)
+        for label, svc in [("Worker", self.worker_service_name),
+                           ("Validator", self.validator_service_name),
+                           ("Reconciler", self.reconciler_service_name),
+                           ("Recorder", self.recorder_service_name)]:
+            dims = {"ClusterName": self.cluster_name, "ServiceName": svc}
+            slug = label.lower()
+            for suffix, metric in [("cpu-high", "CpuUtilized"), ("memory-high", "MemoryUtilized")]:
+                kind = "CPU" if "cpu" in suffix else "memory"
+                self._alarm(f"{label}{kind.title()}Alarm", f"ppr-{env}-{slug}-{suffix}",
+                             self._m("ECS/ContainerInsights", metric, dims, "Average"),
+                             80, 5, GTE, f"{label} Fargate {kind} utilization above 80%",
+                             datapoints_to_alarm=3, treat_missing_data=NB)
+
+        # H9-H12: Lambda Error/Throttle (conditional)
+        for fn_name, cid_prefix, label in [
+            (self.batcher_function_name, "BatcherLambda", "batcher-lambda"),
+            (self.result_processor_function_name, "ResultProcessorLambda", "result-processor-lambda"),
+        ]:
+            if not fn_name:
+                continue
+            fn_dims = {"FunctionName": fn_name}
+            self._alarm(f"{cid_prefix}ErrorsAlarm", f"ppr-{env}-{label}-errors",
+                         self._m("AWS/Lambda", "Errors", fn_dims), 5, 1, GTE,
+                         f"{cid_prefix.replace('Lambda', ' Lambda')} errors are elevated")
+            self._alarm(f"{cid_prefix}ThrottleAlarm", f"ppr-{env}-{label}-throttle",
+                         self._m("AWS/Lambda", "Throttles", fn_dims), 1, 1, GTE,
+                         f"{cid_prefix.replace('Lambda', ' Lambda')} is being throttled")
+
+        # H13-H16: DynamoDB Throttle/Error (content_index + geocoding_cache)
+        for label, slug, tbl in [("ContentIndex", "content-index", self.content_index_table_name),
+                                  ("GeocodingCache", "geocoding-cache", self.geocoding_cache_table_name)]:
+            t_dims = {"TableName": tbl}
+            self._alarm(f"{label}ThrottleAlarm", f"ppr-{env}-{slug}-throttle",
+                         self._m("AWS/DynamoDB", "ThrottledRequests", t_dims),
+                         1, 1, GTE, f"DynamoDB {label} table requests are being throttled")
+            self._alarm(f"{label}SystemErrorAlarm", f"ppr-{env}-{slug}-system-errors",
+                         self._m("AWS/DynamoDB", "SystemErrors", t_dims),
+                         1, 1, GTE, f"DynamoDB {label} table has system errors")
+
+        # H17-H20: Queue depth (validator, reconciler, recorder, staging)
+        for label, qname in [("Validator", self.validator_queue_name),
+                              ("Reconciler", self.reconciler_queue_name),
+                              ("Recorder", self.recorder_queue_name),
+                              ("Staging", self.staging_queue_name)]:
+            self._alarm(f"{label}QueueDepthAlarm", f"ppr-{env}-{label.lower()}-queue-depth",
+                         self._m("AWS/SQS", sqs_visible, {"QueueName": qname}, "Average"),
+                         100, 3, GT, f"{label} queue depth is high - jobs are backing up")

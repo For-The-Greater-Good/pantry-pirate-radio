@@ -1,4 +1,8 @@
-"""Application startup and shutdown events."""
+"""Application startup and shutdown events.
+
+WARNING: This module eagerly imports Redis, RQ, and Prometheus clients.
+It must NOT be imported in Lambda environments (use app/api/lambda_app.py instead).
+"""
 
 import asyncio
 import logging

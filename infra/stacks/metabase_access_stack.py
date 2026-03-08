@@ -129,41 +129,49 @@ class MetabaseAccessStack(Stack):
                 endpoint = os.environ["PROXY_ENDPOINT"]
                 tg_arn = os.environ["TARGET_GROUP_ARN"]
 
-                # Resolve current proxy IPs
-                current_ips = set()
-                for info in socket.getaddrinfo(endpoint, 5432, socket.AF_INET):
-                    current_ips.add(info[4][0])
+                try:
+                    # Resolve current proxy IPs
+                    current_ips = set()
+                    for info in socket.getaddrinfo(endpoint, 5432, socket.AF_INET):
+                        current_ips.add(info[4][0])
 
-                # Get registered IPs
-                resp = elbv2_client.describe_target_health(TargetGroupArn=tg_arn)
-                registered_ips = {
-                    t["Target"]["Id"]
-                    for t in resp["TargetHealthDescriptions"]
-                }
+                    if not current_ips:
+                        print(f"WARNING: DNS resolution returned no IPs for {endpoint}")
+                        return {"statusCode": 500, "body": "No IPs resolved"}
 
-                # Register new, deregister stale
-                to_add = current_ips - registered_ips
-                to_remove = registered_ips - current_ips
+                    # Get registered IPs
+                    resp = elbv2_client.describe_target_health(TargetGroupArn=tg_arn)
+                    registered_ips = {
+                        t["Target"]["Id"]
+                        for t in resp["TargetHealthDescriptions"]
+                    }
 
-                if to_add:
-                    elbv2_client.register_targets(
-                        TargetGroupArn=tg_arn,
-                        Targets=[{"Id": ip, "Port": 5432} for ip in to_add],
-                    )
-                if to_remove:
-                    elbv2_client.deregister_targets(
-                        TargetGroupArn=tg_arn,
-                        Targets=[{"Id": ip, "Port": 5432} for ip in to_remove],
-                    )
+                    # Register new, deregister stale
+                    to_add = current_ips - registered_ips
+                    to_remove = registered_ips - current_ips
 
-                return {
-                    "statusCode": 200,
-                    "body": json.dumps({
-                        "current": sorted(current_ips),
-                        "added": sorted(to_add),
-                        "removed": sorted(to_remove),
-                    }),
-                }
+                    if to_add:
+                        elbv2_client.register_targets(
+                            TargetGroupArn=tg_arn,
+                            Targets=[{"Id": ip, "Port": 5432} for ip in to_add],
+                        )
+                    if to_remove:
+                        elbv2_client.deregister_targets(
+                            TargetGroupArn=tg_arn,
+                            Targets=[{"Id": ip, "Port": 5432} for ip in to_remove],
+                        )
+
+                    return {
+                        "statusCode": 200,
+                        "body": json.dumps({
+                            "current": sorted(current_ips),
+                            "added": sorted(to_add),
+                            "removed": sorted(to_remove),
+                        }),
+                    }
+                except Exception as e:
+                    print(f"ERROR: IP sync failed: {e}")
+                    raise
         """)
 
         ip_sync_log_group = logs.LogGroup(

@@ -27,13 +27,13 @@ def _restore_queue_modules():
         import app.llm.queue.queues
 
         importlib.reload(app.llm.queue.queues)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
     try:
         import app.validator.queues
 
         importlib.reload(app.validator.queues)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
 

@@ -1,13 +1,7 @@
 """Services Stack for Pantry Pirate Radio.
 
-Creates Fargate services for the data processing pipeline:
-- Validator: Data enrichment and confidence scoring
-- Reconciler: Canonical record creation (single instance)
-- Recorder: Job result archiving
-
-And task definitions for one-shot tasks:
-- Publisher: SQLite export to S3 (daily scheduled)
-- Scraper: Web scraping tasks (triggered by Step Functions)
+Creates Fargate services (validator, reconciler, recorder) and task
+definitions for one-shot tasks (publisher, scraper).
 """
 
 from dataclasses import dataclass, field
@@ -23,7 +17,18 @@ from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
-from shared_config import SECRETS, SHARED
+from stacks.service_env import (
+    get_publisher_environment,
+    get_publisher_secrets,
+    get_reconciler_environment,
+    get_reconciler_secrets,
+    get_recorder_environment,
+    get_recorder_secrets,
+    get_scraper_environment,
+    get_scraper_secrets,
+    get_validator_environment,
+    get_validator_secrets,
+)
 
 
 @dataclass
@@ -126,8 +131,8 @@ class ServicesStack(Stack):
                 log_retention=log_retention,
                 cluster=cluster,
                 vpc=vpc,
-                environment=self._get_validator_environment(),
-                secrets=self._get_validator_secrets(),
+                environment=get_validator_environment(self.config),
+                secrets=get_validator_secrets(self.config),
                 command=["python", "-m", "app.validator.fargate_worker"],
             )
         )
@@ -141,8 +146,8 @@ class ServicesStack(Stack):
                 log_retention=log_retention,
                 cluster=cluster,
                 vpc=vpc,
-                environment=self._get_reconciler_environment(),
-                secrets=self._get_reconciler_secrets(),
+                environment=get_reconciler_environment(self.config),
+                secrets=get_reconciler_secrets(self.config),
                 command=["python", "-m", "app.reconciler.fargate_worker"],
             )
         )
@@ -164,8 +169,8 @@ class ServicesStack(Stack):
                 log_retention=log_retention,
                 cluster=cluster,
                 vpc=vpc,
-                environment=self._get_recorder_environment(),
-                secrets=self._get_recorder_secrets(),
+                environment=get_recorder_environment(self.config),
+                secrets=get_recorder_secrets(self.config),
                 command=["python", "-m", "app.recorder.fargate_worker"],
             )
         )
@@ -453,16 +458,26 @@ class ServicesStack(Stack):
             ),
         )
 
+        # Explicit task role with a stable name so PipelineStack can import it
+        # by name for the EventBridge EcsTask target.
+        publisher_task_role = iam.Role(
+            self,
+            "PublisherTaskRole",
+            role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
         task_definition = ecs.FargateTaskDefinition(
             self,
             "PublisherTaskDef",
             cpu=512,
             memory_limit_mib=1024,
             family=f"pantry-pirate-radio-publisher-{self.environment_name}",
+            task_role=publisher_task_role,
         )
 
-        publisher_env = self._get_publisher_environment()
-        publisher_secrets = self._get_publisher_secrets()
+        publisher_env = get_publisher_environment(self.config, self.environment_name)
+        publisher_secrets = get_publisher_secrets(self.config)
 
         # Build command for the exporter
         command = [
@@ -526,7 +541,6 @@ class ServicesStack(Stack):
         Returns:
             Tuple of (Fargate task definition, security group, task role)
         """
-        # Create log group
         log_group = logs.LogGroup(
             self,
             "ScraperLogGroup",
@@ -539,7 +553,6 @@ class ServicesStack(Stack):
             ),
         )
 
-        # Create task definition
         task_definition = ecs.FargateTaskDefinition(
             self,
             "ScraperTaskDef",
@@ -549,8 +562,8 @@ class ServicesStack(Stack):
         )
 
         # Build environment variables for scraper
-        scraper_env = self._get_scraper_environment()
-        scraper_secrets = self._get_scraper_secrets()
+        scraper_env = get_scraper_environment(self.config, self.environment_name)
+        scraper_secrets = get_scraper_secrets(self.config)
 
         # Add container with ECR image
         # SCRAPER_NAME will be overridden at runtime by Step Functions
@@ -585,161 +598,3 @@ class ServicesStack(Stack):
         )
 
         return task_definition, security_group, task_definition.task_role
-
-    def _get_validator_environment(self) -> dict[str, str]:
-        """Get environment variables for the Validator service."""
-        env = {
-            "QUEUE_BACKEND": "sqs",
-            "CONTENT_STORE_BACKEND": "s3",
-            # Shared pipeline config — geocoding and validation
-            "GEOCODING_PROVIDER": SHARED["GEOCODING_PROVIDER"],
-            "GEOCODING_ENABLE_FALLBACK": SHARED["GEOCODING_ENABLE_FALLBACK"],
-            "GEOCODING_MAX_RETRIES": SHARED["GEOCODING_MAX_RETRIES"],
-            "GEOCODING_TIMEOUT": SHARED["GEOCODING_TIMEOUT"],
-            "ENRICHMENT_GEOCODING_PROVIDERS": SHARED["ENRICHMENT_GEOCODING_PROVIDERS"],
-            "ENRICHMENT_CACHE_TTL": SHARED["ENRICHMENT_CACHE_TTL"],
-            "ENRICHMENT_TIMEOUT": SHARED["ENRICHMENT_TIMEOUT"],
-            "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
-            "VALIDATION_REJECTION_THRESHOLD": SHARED["VALIDATION_REJECTION_THRESHOLD"],
-            "VALIDATOR_ENRICHMENT_ENABLED": SHARED["VALIDATOR_ENRICHMENT_ENABLED"],
-        }
-        # Pass ARCGIS_API_KEY from .env if available
-        if SECRETS.get("ARCGIS_API_KEY"):
-            env["ARCGIS_API_KEY"] = SECRETS["ARCGIS_API_KEY"]
-        if self.config.database_host:
-            env["DATABASE_HOST"] = self.config.database_host
-        if self.config.database_name:
-            env["DATABASE_NAME"] = self.config.database_name
-        if self.config.database_user:
-            env["DATABASE_USER"] = self.config.database_user
-        if self.config.queue_urls.get("validator"):
-            env["VALIDATOR_QUEUE_URL"] = self.config.queue_urls["validator"]
-        if self.config.queue_urls.get("reconciler"):
-            env["RECONCILER_QUEUE_URL"] = self.config.queue_urls["reconciler"]
-        if self.config.content_bucket_name:
-            env["CONTENT_STORE_S3_BUCKET"] = self.config.content_bucket_name
-        if self.config.content_index_table_name:
-            env["CONTENT_STORE_DYNAMODB_TABLE"] = self.config.content_index_table_name
-        if self.config.geocoding_cache_table_name:
-            env["GEOCODING_CACHE_TABLE"] = self.config.geocoding_cache_table_name
-        if self.config.place_index_name:
-            env["AMAZON_LOCATION_INDEX"] = self.config.place_index_name
-            env["GEOCODING_PROVIDER"] = "amazon-location"
-        return env
-
-    def _get_validator_secrets(self) -> dict[str, ecs.Secret]:
-        """Get secrets for the Validator service."""
-        secrets = {}
-        if self.config.database_secret:
-            secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
-                self.config.database_secret, "password"
-            )
-        return secrets
-
-    def _get_reconciler_environment(self) -> dict[str, str]:
-        """Get environment variables for the Reconciler service."""
-        env = {
-            "QUEUE_BACKEND": "sqs",
-        }
-        if self.config.database_host:
-            env["DATABASE_HOST"] = self.config.database_host
-        if self.config.database_name:
-            env["DATABASE_NAME"] = self.config.database_name
-        if self.config.database_user:
-            env["DATABASE_USER"] = self.config.database_user
-        if self.config.queue_urls.get("reconciler"):
-            env["RECONCILER_QUEUE_URL"] = self.config.queue_urls["reconciler"]
-        if self.config.queue_urls.get("recorder"):
-            env["RECORDER_QUEUE_URL"] = self.config.queue_urls["recorder"]
-        return env
-
-    def _get_reconciler_secrets(self) -> dict[str, ecs.Secret]:
-        """Get secrets for the Reconciler service."""
-        secrets = {}
-        if self.config.database_secret:
-            secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
-                self.config.database_secret, "password"
-            )
-        return secrets
-
-    def _get_publisher_environment(self) -> dict[str, str]:
-        """Get environment variables for the Publisher task."""
-        env = {
-            "ENVIRONMENT": self.environment_name,
-            "SERVICE_NAME": "publisher",
-        }
-        if self.config.database_host:
-            env["DATABASE_HOST"] = self.config.database_host
-        if self.config.database_name:
-            env["DATABASE_NAME"] = self.config.database_name
-        if self.config.database_user:
-            env["DATABASE_USER"] = self.config.database_user
-        if self.config.exports_bucket_name:
-            env["EXPORT_S3_BUCKET"] = self.config.exports_bucket_name
-        return env
-
-    def _get_publisher_secrets(self) -> dict[str, ecs.Secret]:
-        """Get secrets for the Publisher task."""
-        secrets = {}
-        if self.config.database_secret:
-            secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
-                self.config.database_secret, "password"
-            )
-        return secrets
-
-    def _get_recorder_environment(self) -> dict[str, str]:
-        """Get environment variables for the Recorder service."""
-        env = {
-            "QUEUE_BACKEND": "sqs",
-            "CONTENT_STORE_BACKEND": "s3",
-        }
-        if self.config.queue_urls.get("recorder"):
-            env["RECORDER_QUEUE_URL"] = self.config.queue_urls["recorder"]
-        if self.config.content_bucket_name:
-            env["CONTENT_STORE_S3_BUCKET"] = self.config.content_bucket_name
-        if self.config.content_index_table_name:
-            env["CONTENT_STORE_DYNAMODB_TABLE"] = self.config.content_index_table_name
-        return env
-
-    def _get_recorder_secrets(self) -> dict[str, ecs.Secret]:
-        """Get secrets for the Recorder service."""
-        # Recorder doesn't need any secrets
-        return {}
-
-    def _get_scraper_environment(self) -> dict[str, str]:
-        """Get environment variables for the Scraper tasks."""
-        env = {
-            "ENVIRONMENT": self.environment_name,
-            "SERVICE_TYPE": "scraper",
-            "SERVICE_NAME": "scraper",
-            "SCRAPER_NAME": "placeholder",  # Overridden at runtime by Step Functions
-            "QUEUE_BACKEND": "sqs",
-            "CONTENT_STORE_BACKEND": "s3",
-            "CONTENT_STORE_ENABLED": "true",
-            "CONTENT_STORE_PATH": "/tmp/content_store",
-        }
-        if self.config.database_host:
-            env["DATABASE_HOST"] = self.config.database_host
-        if self.config.database_name:
-            env["DATABASE_NAME"] = self.config.database_name
-        if self.config.database_user:
-            env["DATABASE_USER"] = self.config.database_user
-        if self.config.queue_urls.get("llm"):
-            env["LLM_QUEUE_URL"] = self.config.queue_urls["llm"]
-            env["SQS_QUEUE_URL"] = self.config.queue_urls["llm"]
-        if self.config.jobs_table_name:
-            env["SQS_JOBS_TABLE"] = self.config.jobs_table_name
-        if self.config.content_bucket_name:
-            env["CONTENT_STORE_S3_BUCKET"] = self.config.content_bucket_name
-        if self.config.content_index_table_name:
-            env["CONTENT_STORE_DYNAMODB_TABLE"] = self.config.content_index_table_name
-        return env
-
-    def _get_scraper_secrets(self) -> dict[str, ecs.Secret]:
-        """Get secrets for the Scraper tasks."""
-        secrets = {}
-        if self.config.database_secret:
-            secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
-                self.config.database_secret, "password"
-            )
-        return secrets

@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,13 @@ def record_result(data: dict[str, Any]) -> dict[str, Any]:
             - error: Error information if job failed
 
     Returns:
-        Dict containing status and any error information
+        Dict containing status and output file path on success.
+
+    Raises:
+        ValueError: If required fields (job_id) are missing.
+        Exception: Any write failure is re-raised after logging and
+            metrics so that callers (PipelineWorker / RQ) can handle
+            retry logic (e.g. SQS visibility timeout).
     """
     try:
         # Validate required fields
@@ -56,9 +62,9 @@ def record_result(data: dict[str, Any]) -> dict[str, Any]:
                 )
             except (ValueError, TypeError):
                 # Fallback to current time if parsing fails
-                created_at = datetime.utcnow()
+                created_at = datetime.now(UTC)
         else:
-            created_at = datetime.utcnow()
+            created_at = datetime.now(UTC)
 
         # Create directory structure: outputs/daily/YYYY-MM-DD/scrapers/{scraper_id}/
         date_str = created_at.strftime("%Y-%m-%d")
@@ -117,7 +123,7 @@ def record_result(data: dict[str, Any]) -> dict[str, Any]:
         # Update metrics
         RECORDER_JOBS.labels(scraper_id="unknown", status="failure").inc()
 
-        return {"status": "failed", "error": error_msg}
+        raise  # Let PipelineWorker handle retry via SQS visibility timeout
 
 
 def update_daily_summary(

@@ -11,22 +11,25 @@ Usage:
     status = backend.get_status(job_id)
 """
 
+from __future__ import annotations
+
 import os
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
-import redis
 import structlog
-from rq import Queue
 
-from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.queue.job import LLMJob
 from app.llm.queue.types import JobResult, JobStatus
 
+if TYPE_CHECKING:
+    import redis
+    from rq import Queue
+
 logger = structlog.get_logger(__name__)
 
 # Global singleton state
-_queue_backend_instance: Optional["QueueBackend"] = None
+_queue_backend_instance: Optional[QueueBackend] = None
 _queue_backend_initialized = False
 
 
@@ -58,6 +61,14 @@ class QueueBackend(Protocol):
         provider: BaseLLMProvider[Any, Any] | None = None,
     ) -> str:
         """Enqueue a job for processing.
+
+        Note:
+            The SQS backend serializes provider_config differently from the
+            Redis backend. SQS extracts only model_name into the message body
+            for SQS message format compatibility, while Redis passes the full
+            provider object to the RQ worker. This is intentional and each
+            backend's workers know how to reconstruct the provider from their
+            respective formats.
 
         Args:
             job: The LLM job to enqueue
@@ -103,6 +114,8 @@ class RedisQueueBackend:
         max_retries: int = 3,
     ) -> None:
         """Initialize RedisQueueBackend."""
+        from app.core.config import settings
+
         self.redis_client = redis_client
         self._queue_name = queue_name
         self.result_ttl = result_ttl or settings.REDIS_TTL_SECONDS
@@ -120,7 +133,9 @@ class RedisQueueBackend:
     def queue(self) -> Queue:
         """Get the RQ Queue instance."""
         if self._queue is None:
-            self._queue = Queue(self._queue_name, connection=self.redis_client)
+            from rq import Queue as _Queue
+
+            self._queue = _Queue(self._queue_name, connection=self.redis_client)
         return self._queue
 
     def setup(self) -> None:
@@ -129,6 +144,8 @@ class RedisQueueBackend:
         Raises:
             ConnectionError: If Redis connection fails.
         """
+        import redis as _redis
+
         if self._initialized:
             return
 
@@ -139,7 +156,7 @@ class RedisQueueBackend:
                 queue_name=self._queue_name,
             )
             self._initialized = True
-        except redis.ConnectionError as e:
+        except _redis.ConnectionError as e:
             logger.error(
                 "redis_queue_backend_connection_failed",
                 queue_name=self._queue_name,
@@ -265,8 +282,10 @@ def _create_queue_backend(queue_name: str) -> QueueBackend:
 
     backend: QueueBackend
     if backend_type == "redis":
+        import redis as _redis
+
         redis_url = os.environ.get("REDIS_URL", "redis://cache:6379/0")
-        redis_client = redis.Redis.from_url(redis_url)
+        redis_client = _redis.Redis.from_url(redis_url)
 
         backend = RedisQueueBackend(
             redis_client=redis_client,

@@ -61,6 +61,11 @@ class TestProcessReconcilerMessage:
                 "metadata": {},
                 "created_at": "2026-03-04T00:00:00Z",
             },
+            "result": {
+                "text": '{"location": []}',
+                "model": "test",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            },
         }
 
         result = process_reconciler_message(data)

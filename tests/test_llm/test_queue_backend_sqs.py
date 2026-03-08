@@ -1052,3 +1052,98 @@ class TestSQSQueueBackendChangeVisibility:
             ReceiptHandle="receipt-handle-123",
             VisibilityTimeout=0,
         )
+
+
+class TestSQSQueueBackendPoisonPillDeleteFailure:
+    """Tests for T4: graceful handling when poison pill deletion fails."""
+
+    def test_receive_messages_handles_delete_failure_for_malformed_message(
+        self, mock_sqs_client, mock_dynamodb_client, sample_llm_job
+    ):
+        """When deleting a malformed message fails, receive_messages should
+        still return valid messages and not crash."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        valid_body = {
+            "job_id": sample_llm_job.id,
+            "job": sample_llm_job.model_dump(mode="json"),
+            "enqueued_at": datetime.now(UTC).isoformat(),
+        }
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-bad",
+                    "ReceiptHandle": "receipt-bad",
+                    "Body": "NOT VALID JSON {{{",
+                },
+                {
+                    "MessageId": "msg-good",
+                    "ReceiptHandle": "receipt-good",
+                    "Body": json.dumps(valid_body),
+                },
+            ]
+        }
+
+        # Make delete fail for the poison pill
+        mock_sqs_client.delete_message.side_effect = Exception("SQS delete failed")
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        # Should not crash, and should return the valid message
+        messages = backend.receive_messages()
+
+        assert len(messages) == 1
+        assert messages[0]["job_id"] == sample_llm_job.id
+
+        # The delete was attempted
+        mock_sqs_client.delete_message.assert_called_once_with(
+            QueueUrl="https://sqs.us-east-1.amazonaws.com/123/queue",
+            ReceiptHandle="receipt-bad",
+        )
+
+    def test_receive_messages_continues_after_multiple_poison_pills(
+        self, mock_sqs_client, mock_dynamodb_client
+    ):
+        """Multiple malformed messages with delete failures should all be handled gracefully."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-bad-1",
+                    "ReceiptHandle": "receipt-bad-1",
+                    "Body": "bad json 1",
+                },
+                {
+                    "MessageId": "msg-bad-2",
+                    "ReceiptHandle": "receipt-bad-2",
+                    "Body": "bad json 2",
+                },
+            ]
+        }
+
+        # All deletes fail
+        mock_sqs_client.delete_message.side_effect = Exception("SQS unavailable")
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        # Should not crash
+        messages = backend.receive_messages()
+
+        # No valid messages to return
+        assert messages == []
+        # Both deletes were attempted
+        assert mock_sqs_client.delete_message.call_count == 2

@@ -78,33 +78,30 @@ class TestContentStoreMonitor:
 
     def test_should_get_processing_timeline(self, monitor, content_store):
         """Should provide processing timeline by date."""
-        # Setup - add content over multiple days
-        base_date = datetime.now() - timedelta(days=7)
-
-        # Mock datetime for consistent testing
-        with patch("app.content_store.store.datetime") as mock_datetime:
-            for day in range(7):
-                current_date = base_date + timedelta(days=day)
-                mock_datetime.utcnow.return_value = current_date
-
-                for i in range(3):
-                    content = f'{{"day": {day}, "item": {i}}}'
-                    entry = content_store.store_content(
-                        content,
-                        {"scraper_id": "test", "date": current_date.isoformat()},
+        # Setup - add content over multiple days without mocking datetime.
+        # The store.py uses datetime.now(UTC) which is hard to mock cleanly
+        # because json.dumps also needs real datetime objects. Instead, we
+        # add content directly and verify the timeline query works.
+        for day in range(3):
+            for i in range(3):
+                content = f'{{"day": {day}, "item": {i}, "unique": "{day}-{i}"}}'
+                entry = content_store.store_content(
+                    content,
+                    {"scraper_id": "test", "day": day},
+                )
+                if i < 2:
+                    content_store.store_result(
+                        entry.hash, f'{{"result": {i}}}', f"job-{day}-{i}"
                     )
-                    if i < 2:
-                        content_store.store_result(
-                            entry.hash, f'{{"result": {i}}}', f"job-{day}-{i}"
-                        )
 
         # Act
         timeline = monitor.get_processing_timeline(days=7)
 
-        # Assert
+        # Assert - all content was added "today" so we get one timeline entry
         assert len(timeline) > 0
         total_processed = sum(day["processed"] for day in timeline)
-        # Should have processed some items (exact count may vary due to mocking)
+        # Should have processed some items
+        assert total_processed > 0
 
     def test_should_find_duplicate_content(self, monitor, content_store):
         """Should identify duplicate content submissions."""

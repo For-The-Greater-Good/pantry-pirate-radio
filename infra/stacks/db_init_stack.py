@@ -11,6 +11,8 @@ CRITICAL SAFETY: DB init must ONLY run on first deploy (CREATE), never on update
 Data loss prevention is the top priority.
 """
 
+from pathlib import Path
+
 from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack, CustomResource
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecr as ecr
@@ -244,45 +246,11 @@ class DbInitStack(Stack):
 
         return fn
 
-    def _get_check_db_lambda_code(self) -> str:
-        """Return inline Python code for check-db Lambda.
-
-        Returns:
-            Python code as string
-        """
-        return '''
-import os
-import boto3
-
-def handler(event, context):
-    """Check if database initialization is needed via SSM parameter.
-
-    The SSM parameter tracks whether init has run. On first deploy it is
-    "false", so init will be triggered. After successful init, the Step
-    Functions state machine sets it to "true".
-
-    Returns:
-        dict with needs_init: True if initialization is needed
-    """
-    ssm = boto3.client("ssm")
-
-    try:
-        response = ssm.get_parameter(
-            Name=os.environ["SSM_PARAMETER_NAME"]
-        )
-        if response["Parameter"]["Value"] == "true":
-            print("SSM flag indicates DB already initialized")
-            return {"needs_init": False}
-        else:
-            print("SSM flag is not true, initialization needed")
-            return {"needs_init": True}
-    except ssm.exceptions.ParameterNotFound:
-        print("SSM parameter not found, initialization needed")
-        return {"needs_init": True}
-    except Exception as e:
-        print(f"Error checking SSM parameter: {e}")
-        return {"needs_init": True}
-'''
+    @staticmethod
+    def _get_check_db_lambda_code() -> str:
+        """Load inline Python code for check-db Lambda from file."""
+        handler_path = Path(__file__).parent.parent / "lambda" / "check_db_handler.py"
+        return handler_path.read_text()
 
     def _create_init_task_definition(
         self,
@@ -561,53 +529,8 @@ def handler(event, context):
             # because there's no on_update handler in the provider
         )
 
-    def _get_trigger_lambda_code(self) -> str:
-        """Return inline Python code for trigger Lambda.
-
-        CRITICAL: This handler ONLY starts the state machine on CREATE events.
-        UPDATE and DELETE events are acknowledged but do nothing.
-
-        Returns:
-            Python code as string
-        """
-        return '''
-import json
-import os
-import boto3
-
-def handler(event, context):
-    """Handle CloudFormation Custom Resource events.
-
-    CRITICAL SAFETY: Only starts state machine on CREATE.
-    UPDATE and DELETE are no-ops to prevent re-initialization.
-    """
-    request_type = event["RequestType"]
-    print(f"Received {request_type} request")
-
-    if request_type == "Create":
-        # Only trigger on first deployment
-        sfn = boto3.client("stepfunctions")
-        response = sfn.start_execution(
-            stateMachineArn=os.environ["STATE_MACHINE_ARN"],
-            name=f"init-{context.aws_request_id[:8]}",
-        )
-        print(f"Started state machine execution: {response['executionArn']}")
-        return {
-            "PhysicalResourceId": response["executionArn"],
-            "Data": {"ExecutionArn": response["executionArn"]},
-        }
-    elif request_type == "Update":
-        # CRITICAL: Do nothing on update - this prevents re-initialization
-        print("Update event received - no action taken (safety mechanism)")
-        return {
-            "PhysicalResourceId": event.get("PhysicalResourceId", "no-init"),
-        }
-    elif request_type == "Delete":
-        # Nothing to clean up - just acknowledge
-        print("Delete event received - no action taken")
-        return {
-            "PhysicalResourceId": event.get("PhysicalResourceId", "deleted"),
-        }
-
-    return {"PhysicalResourceId": "unknown"}
-'''
+    @staticmethod
+    def _get_trigger_lambda_code() -> str:
+        """Load inline Python code for trigger Lambda from file."""
+        handler_path = Path(__file__).parent.parent / "lambda" / "trigger_handler.py"
+        return handler_path.read_text()

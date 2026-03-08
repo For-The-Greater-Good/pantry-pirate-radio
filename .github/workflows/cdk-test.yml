@@ -95,15 +95,18 @@ jobs:
       - name: Comment PR with diff
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
+        env:
+          CDK_DIFF: ${{ steps.diff.outputs.diff }}
         with:
           script: |
+            const diff = process.env.CDK_DIFF || 'No diff output';
             const output = `#### CDK Diff 📊
 
             <details>
             <summary>Show Diff</summary>
 
             \`\`\`
-            ${{ steps.diff.outputs.diff }}
+            ${diff}
             \`\`\`
 
             </details>

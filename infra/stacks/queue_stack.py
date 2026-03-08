@@ -111,6 +111,7 @@ class QueueStack(Stack):
             fifo=True,
             content_based_deduplication=True,
             retention_period=Duration.days(14),
+            encryption=sqs.QueueEncryption.SQS_MANAGED,
         )
 
         return dlq
@@ -145,6 +146,7 @@ class QueueStack(Stack):
             content_based_deduplication=True,
             visibility_timeout=Duration.seconds(visibility_timeout_seconds),
             retention_period=Duration.days(7),
+            encryption=sqs.QueueEncryption.SQS_MANAGED,
             dead_letter_queue=sqs.DeadLetterQueue(
                 queue=dlq,
                 max_receive_count=self.max_receive_count,

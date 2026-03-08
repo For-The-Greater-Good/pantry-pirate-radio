@@ -47,6 +47,16 @@ class SQSQueueBackend:
         visibility_timeout: int = 300,
     ) -> None:
         """Initialize SQSQueueBackend."""
+        # Validate visibility_timeout is within SQS limits (0-43200 seconds)
+        if not (0 <= visibility_timeout <= 43200):
+            raise ValueError(
+                f"visibility_timeout must be between 0 and 43200 seconds "
+                f"(SQS limit), got {visibility_timeout}"
+            )
+
+        # TODO(M33): Consider making config fields private with read-only properties
+        # to prevent accidental mutation after construction. Deferred because external
+        # code (including tests) currently reads these fields directly.
         self.queue_url = queue_url
         self.dynamodb_table = dynamodb_table
         self.region_name = region_name
@@ -190,7 +200,11 @@ class SQSQueueBackend:
             send_kwargs["MessageDeduplicationId"] = job.id
             send_kwargs["MessageGroupId"] = job.metadata.get("scraper_id", "default")
 
-        # Send to SQS
+        # NOTE (M26): SQS send and DynamoDB write are not atomic. We send to
+        # SQS first because a lost DynamoDB write is recoverable (the message
+        # will still be processed), whereas a lost SQS message would mean the
+        # job is silently dropped. In the worst case, a DynamoDB write failure
+        # means get_status() returns None for a job that is actually queued.
         sqs.send_message(**send_kwargs)
         logger.info("job_enqueued_to_sqs", job_id=job.id, queue=self.queue_name)
 
@@ -234,6 +248,11 @@ class SQSQueueBackend:
         # Parse job data
         job_data_str = item.get("job_data", {}).get("S")
         if not job_data_str:
+            logger.warning(
+                "corrupted_job_data_in_dynamodb",
+                job_id=job_id,
+                raw_item_keys=list(item.keys()),
+            )
             return None
 
         llm_job = LLMJob.model_validate_json(job_data_str)
@@ -272,7 +291,11 @@ class SQSQueueBackend:
             try:
                 completed_at = datetime.fromisoformat(completed_at_str)
             except ValueError:
-                pass
+                logger.warning(
+                    "failed_to_parse_completed_at",
+                    job_id=job_id,
+                    completed_at_str=completed_at_str,
+                )
 
         # Calculate processing time
         processing_time = None
@@ -283,7 +306,12 @@ class SQSQueueBackend:
                 completed_at_dt = datetime.fromisoformat(completed_at_str)
                 processing_time = (completed_at_dt - started_at).total_seconds()
             except ValueError:
-                pass
+                logger.warning(
+                    "failed_to_parse_processing_timestamps",
+                    job_id=job_id,
+                    started_at_str=started_at_str,
+                    completed_at_str=completed_at_str,
+                )
 
         return JobResult(
             job_id=job_id,

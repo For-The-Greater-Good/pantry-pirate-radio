@@ -460,6 +460,7 @@ async def db_health_check(request: Request) -> dict[str, str]:
     -------
         Dict containing database health status information
     """
+    engine = None
     try:
         # Use a synchronous connection for the health check
         from sqlalchemy import create_engine
@@ -493,3 +494,6 @@ async def db_health_check(request: Request) -> dict[str, str]:
             "error": str(e),
             "correlation_id": request.state.correlation_id,
         }
+    finally:
+        if engine is not None:
+            engine.dispose()

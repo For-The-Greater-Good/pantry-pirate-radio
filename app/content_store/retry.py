@@ -3,10 +3,10 @@
 import functools
 import sqlite3
 import time
-import logging
+import structlog
 from typing import Any, Callable, TypeVar
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -180,9 +180,20 @@ def with_aws_retry(func: Callable[..., T]) -> Callable[..., T]:
         from botocore.exceptions import ClientError, BotoCoreError
     except ImportError:
         # If botocore is not installed, create placeholder exception types
-        # that will never match - retry.py can still be imported
+        # that will never match - retry.py can still be imported.
+        # WARNING: This means AWS-specific retry (ClientError, BotoCoreError)
+        # will be silently disabled. ConnectionError and TimeoutError retries
+        # still work because they are built-in Python exceptions.
         ClientError = type("ClientError", (Exception,), {})  # type: ignore
         BotoCoreError = type("BotoCoreError", (Exception,), {})  # type: ignore
+        logger.warning(
+            "botocore_not_installed_aws_retry_degraded",
+            detail=(
+                "botocore is not installed; with_aws_retry will not catch "
+                "ClientError or BotoCoreError. Only ConnectionError and "
+                "TimeoutError will trigger retries."
+            ),
+        )
 
     return with_db_retry(
         max_retries=5,

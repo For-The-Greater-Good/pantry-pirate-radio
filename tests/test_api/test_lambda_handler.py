@@ -98,6 +98,50 @@ class TestLambdaConditionalEndpoints:
             assert "/health/db" in routes
 
 
+class TestLambdaDBDependentEndpoints:
+    """Tests for T10: DB-dependent endpoints fail gracefully when DB is unavailable."""
+
+    def test_db_health_returns_unhealthy_when_db_unavailable(self):
+        """DB health endpoint should return unhealthy status, not crash."""
+        with patch.dict(os.environ, {"AWS_LAMBDA_FUNCTION_NAME": "test-fn"}):
+            from app.api.lambda_app import app
+            from starlette.testclient import TestClient
+
+            client = TestClient(app, raise_server_exceptions=False)
+
+            # The /health/db endpoint catches exceptions and returns unhealthy.
+            # create_engine is imported locally inside db_health_check, so we
+            # patch it at the sqlalchemy module level.
+            with patch(
+                "sqlalchemy.create_engine",
+                side_effect=Exception("Connection refused"),
+            ):
+                response = client.get("/api/v1/health/db")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "unhealthy"
+            assert "error" in data
+
+    def test_organizations_endpoint_returns_error_when_db_unavailable(self):
+        """Data endpoints should return error responses, not crash the Lambda."""
+        with patch.dict(os.environ, {"AWS_LAMBDA_FUNCTION_NAME": "test-fn"}):
+            from app.api.lambda_app import app
+            from starlette.testclient import TestClient
+
+            client = TestClient(app, raise_server_exceptions=False)
+
+            # Mock get_session to simulate DB being down
+            with patch(
+                "app.core.db.get_session",
+                side_effect=Exception("Database connection failed"),
+            ):
+                response = client.get("/api/v1/organizations")
+
+            # Should return an error status, not crash (500 is acceptable)
+            assert response.status_code in (500, 502, 503)
+
+
 class TestLambdaDatabaseConfig:
     """Lambda database pool sizing."""
 

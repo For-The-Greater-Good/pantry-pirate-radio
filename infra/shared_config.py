@@ -6,6 +6,7 @@ Provides SHARED (all values as strings for CDK env dicts) and SECRETS
 """
 
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,11 @@ def _load_shared_defaults() -> dict[str, str]:
         finally:
             sys.path.pop(0)
 
+    warnings.warn(
+        "config/ module not found — using hardcoded defaults. "
+        "Values may drift from config/defaults.yml.",
+        stacklevel=2,
+    )
     return _hardcoded_string_defaults()
 
 
@@ -80,6 +86,10 @@ def _load_dotenv_secrets() -> dict[str, str]:
     try:
         from dotenv import dotenv_values
     except ImportError:
+        warnings.warn(
+            "python-dotenv not installed — cannot load secrets from .env file.",
+            stacklevel=2,
+        )
         return {}
 
     for path in [
@@ -88,7 +98,20 @@ def _load_dotenv_secrets() -> dict[str, str]:
     ]:
         if path.exists():
             values = dotenv_values(path)
-            return {k: v for k, v in values.items() if k in _SECRET_KEYS and v}
+            loaded = {k: v for k, v in values.items() if k in _SECRET_KEYS and v}
+            missing = _SECRET_KEYS - set(loaded.keys())
+            if missing:
+                warnings.warn(
+                    f"Missing secret keys in .env: {', '.join(sorted(missing))}. "
+                    f"Some services may not have API keys configured.",
+                    stacklevel=2,
+                )
+            return loaded
+
+    warnings.warn(
+        "No .env file found at project root or /app/.env — secrets not loaded.",
+        stacklevel=2,
+    )
     return {}
 
 

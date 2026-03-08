@@ -1369,10 +1369,10 @@ case "$1" in
                             case "$1" in
                                 --*) break ;;
                                 *)
-                                    SCRAPERS=$(echo "$SCRAPERS" | python3 -c "
-import sys, json
+                                    SCRAPERS=$(echo "$SCRAPERS" | SCRAPER_ARG="$1" python3 -c "
+import sys, json, os
 l = json.load(sys.stdin)
-l.append('$1')
+l.append(os.environ['SCRAPER_ARG'])
 print(json.dumps(l))
 ")
                                     shift
@@ -2296,12 +2296,12 @@ print(json.dumps(l))
                 # AWS auto-creates log groups (Container Insights, Lambda, RDS Proxy)
                 # that CDK destroy doesn't remove, blocking future deploys
                 output info "Cleaning up orphaned CloudWatch Log Groups..."
-                ORPHAN_LOG_GROUPS=$(aws logs describe-log-groups --region "$CDK_DEPLOY_REGION" \
+                ORPHAN_LOG_GROUPS=$(aws logs describe-log-groups --region "$AWS_REGION" \
                     --query "logGroups[?contains(logGroupName, 'pantry-pirate-radio') && contains(logGroupName, '${DEPLOY_ENV}')].logGroupName" \
                     --output text 2>/dev/null)
                 if [ -n "$ORPHAN_LOG_GROUPS" ]; then
                     for lg in $ORPHAN_LOG_GROUPS; do
-                        if aws logs delete-log-group --log-group-name "$lg" --region "$CDK_DEPLOY_REGION" 2>/dev/null; then
+                        if aws logs delete-log-group --log-group-name "$lg" --region "$AWS_REGION" 2>/dev/null; then
                             output success "Deleted log group: $lg"
                         else
                             output warning "Could not delete log group: $lg"

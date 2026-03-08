@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
 import pytest
 import yaml
@@ -174,6 +174,93 @@ class TestLoadDefaults:
         from config import load_defaults
 
         assert load_defaults()["LLM_MAX_TOKENS"] == 64768
+
+
+class TestMalformedYamlHandling:
+    """Tests for T13: shared config handles malformed YAML sections gracefully."""
+
+    def test_flatten_skips_non_dict_sections(self):
+        """_flatten() should skip sections whose value is not a dict."""
+        from config import _flatten
+
+        raw = {
+            "llm": {
+                "temperature": 0.7,
+                "max_tokens": 64768,
+                "timeout": 30,
+                "retries": 3,
+            },
+            "validation": "this-is-a-string-not-a-dict",  # Malformed
+            "enrichment": 42,  # Also malformed (int instead of dict)
+        }
+
+        result = _flatten(raw)
+
+        # Should have the llm keys but skip the malformed sections
+        assert "LLM_TEMPERATURE" in result
+        assert result["LLM_TEMPERATURE"] == 0.7
+        assert "LLM_MAX_TOKENS" in result
+        # Malformed sections should not cause any keys to appear or crash
+        assert "VALIDATOR_ENABLED" not in result
+        assert "ENRICHMENT_CACHE_TTL" not in result
+
+    def test_flatten_handles_none_section_value(self):
+        """_flatten() should handle None section values without crashing."""
+        from config import _flatten
+
+        raw = {
+            "llm": None,  # Section exists but is None (empty YAML section)
+            "geocoding": {
+                "provider": "arcgis",
+                "enable_fallback": True,
+                "max_retries": 3,
+                "timeout": 10,
+            },
+        }
+
+        result = _flatten(raw)
+
+        # Should skip the None section
+        assert "LLM_TEMPERATURE" not in result
+        # Valid section should still work
+        assert result["GEOCODING_PROVIDER"] == "arcgis"
+
+    def test_flatten_handles_list_section_value(self):
+        """_flatten() should handle list section values without crashing."""
+        from config import _flatten
+
+        raw = {
+            "llm": ["not", "a", "dict"],  # Malformed: list instead of dict
+        }
+
+        result = _flatten(raw)
+
+        # Should return empty dict since list is not a dict
+        assert result == {}
+
+    def test_load_defaults_returns_hardcoded_on_malformed_yaml(self):
+        """load_defaults() should fall back to hardcoded defaults for malformed YAML."""
+        from config import _hardcoded_defaults, load_defaults
+
+        # Mock a YAML file that parses to a string (not a dict)
+        with patch("config._find_yaml", return_value=Path("/fake/defaults.yml")):
+            with patch("builtins.open", mock_open(read_data="just a string")):
+                defaults = load_defaults()
+
+        # Since yaml.safe_load("just a string") returns a string (not dict),
+        # load_defaults() should fall through to hardcoded defaults
+        assert defaults == _hardcoded_defaults()
+
+    def test_load_defaults_returns_hardcoded_on_empty_yaml(self):
+        """load_defaults() should fall back to hardcoded defaults for empty YAML."""
+        from config import _hardcoded_defaults, load_defaults
+
+        # Mock an empty YAML file (yaml.safe_load returns None)
+        with patch("config._find_yaml", return_value=Path("/fake/defaults.yml")):
+            with patch("builtins.open", mock_open(read_data="")):
+                defaults = load_defaults()
+
+        assert defaults == _hardcoded_defaults()
 
 
 class TestSettingsUsesSharedDefaults:

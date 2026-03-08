@@ -18,10 +18,10 @@ Usage:
         python -m app.llm.queue.fargate_worker
 """
 
-import asyncio
 import os
 import signal
 import sys
+import threading
 import time
 from typing import Any
 
@@ -102,40 +102,64 @@ class FargateWorker:
         signal.signal(signal.SIGTERM, handle_signal)
         signal.signal(signal.SIGINT, handle_signal)
 
-    async def _extend_visibility_periodically(
+    def _start_visibility_extension_timer(
         self,
         receipt_handle: str,
         job_id: str,
-    ) -> None:
-        """Periodically extend message visibility while processing.
+    ) -> threading.Timer:
+        """Start a recurring timer to extend message visibility while processing.
 
         This prevents the message from becoming visible to other workers
-        while a long-running LLM job is being processed.
+        while a long-running LLM job is being processed. The timer fires
+        at half the visibility_extension_interval and reschedules itself.
 
         Args:
             receipt_handle: SQS receipt handle for the message
             job_id: Job ID for logging
-        """
-        while not self._shutdown_requested and self._current_receipt_handle:
-            await asyncio.sleep(self.visibility_extension_interval)
 
-            if self._current_receipt_handle == receipt_handle:
-                try:
-                    # Extend visibility by another interval plus buffer
-                    new_timeout = self.visibility_extension_interval + 60
-                    self.backend.change_visibility(receipt_handle, new_timeout)
-                    logger.debug(
-                        "visibility_extended",
-                        job_id=job_id,
-                        new_timeout=new_timeout,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "visibility_extension_failed",
-                        job_id=job_id,
-                        error=str(e),
-                    )
-                    break
+        Returns:
+            The started Timer instance (caller must cancel it when done)
+        """
+        new_timeout = self.visibility_extension_interval + 60
+        interval = self.visibility_extension_interval / 2
+
+        def _extend_and_reschedule() -> None:
+            """Extend visibility and schedule the next extension."""
+            if (
+                self._shutdown_requested
+                or self._current_receipt_handle != receipt_handle
+            ):
+                return
+            try:
+                self.backend.change_visibility(receipt_handle, new_timeout)
+                logger.debug(
+                    "visibility_extended",
+                    job_id=job_id,
+                    new_timeout=new_timeout,
+                )
+            except Exception as e:
+                logger.warning(
+                    "visibility_extension_failed",
+                    job_id=job_id,
+                    error=str(e),
+                )
+                return  # Stop rescheduling on failure
+
+            # Schedule the next extension
+            if (
+                not self._shutdown_requested
+                and self._current_receipt_handle == receipt_handle
+            ):
+                next_timer = threading.Timer(interval, _extend_and_reschedule)
+                next_timer.daemon = True
+                next_timer.start()
+                # Store reference so the outer cancel can reach it
+                self._visibility_timer = next_timer
+
+        timer = threading.Timer(interval, _extend_and_reschedule)
+        timer.daemon = True
+        timer.start()
+        return timer
 
     def _process_single_job(self, message: dict[str, Any]) -> bool:
         """Process a single job from SQS.
@@ -159,24 +183,14 @@ class FargateWorker:
             # Update status to processing
             self.backend.update_status(job_id, JobStatus.PROCESSING)
 
-            # Start visibility extension task
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            extension_task = loop.create_task(
-                self._extend_visibility_periodically(receipt_handle, job_id)
+            # Start recurring visibility extension timer
+            self._visibility_timer = self._start_visibility_extension_timer(
+                receipt_handle, job_id
             )
 
             try:
                 # Process the job
                 result = process_llm_job(job, self.provider)
-
-                # Cancel visibility extension
-                extension_task.cancel()
-                try:
-                    loop.run_until_complete(extension_task)
-                except asyncio.CancelledError:
-                    pass
 
                 # Update status to completed with result
                 self.backend.update_status(job_id, JobStatus.COMPLETED, result=result)
@@ -193,7 +207,8 @@ class FargateWorker:
                 return True
 
             finally:
-                loop.close()
+                # Cancel visibility extension timer
+                self._visibility_timer.cancel()
                 self._current_receipt_handle = None
 
         except Exception as e:
@@ -293,6 +308,16 @@ class FargateWorker:
             processed=processed_count,
             failed=failed_count,
         )
+
+        # Exit with error code if shutdown was due to too many consecutive errors
+        # so ECS replaces the task instead of treating it as a healthy exit
+        if consecutive_errors >= max_consecutive_errors:
+            logger.critical(
+                "worker_exiting_with_error_code",
+                consecutive_errors=consecutive_errors,
+                message="Exiting with code 1 so ECS replaces the task",
+            )
+            sys.exit(1)
 
     def stop(self) -> None:
         """Request graceful shutdown."""
