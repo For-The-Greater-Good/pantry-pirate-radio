@@ -1,6 +1,8 @@
 ## Amendment Log
 
-*No amendments yet. This is the initial ratification.*
+### v1.2.0 — 2026-03-07
+- **Added Principle XIV**: AWS Observability (Alarms & Dashboards)
+- **Added Principle XV**: Dual Environment Compatibility (Docker & AWS)
 
 # Pantry Pirate Radio Constitution
 
@@ -257,6 +259,54 @@ Documentation MUST be updated as part of the same PR that introduces code change
 
 ---
 
+### XIV. AWS Observability — Alarms & Dashboards (NON-NEGOTIABLE)
+
+All new AWS infrastructure MUST include CloudWatch alarms and dashboard widgets in the `MonitoringStack`.
+
+- Every new Lambda function MUST have alarms for: Errors (≥5 in 2 periods) and Throttles (≥1 in 2 periods)
+- Every new SQS queue MUST have alarms for: dead-letter queue depth (≥1 message) and queue depth (>100 in 3 periods)
+- Every new Fargate service MUST have alarms for: CPU utilization (>80%) and memory utilization (>80%)
+- Every new DynamoDB table MUST have alarms for: throttled requests (≥1 in 1 period) and system errors (≥1 in 1 period)
+- All alarms MUST route to the centralized SNS topic (`pantry-pirate-radio-alerts-{environment}`) in `MonitoringStack`
+- Every new AWS resource MUST have corresponding CloudWatch dashboard widgets added to the centralized dashboard (`PantryPirateRadio-{environment}`)
+- Dashboard widgets MUST include at minimum: throughput/invocation metrics, error/failure metrics, and latency or utilization metrics where applicable
+- New stacks MUST expose metric-relevant constructs (functions, queues, tables) so `MonitoringStack` can reference them
+
+**PR Checklist for AWS Changes**:
+- [ ] CloudWatch alarms added for all new resources
+- [ ] Dashboard widgets added to `MonitoringStack`
+- [ ] Alarms route to the centralized SNS topic
+- [ ] `infra/tests/` updated to assert alarm and dashboard widget existence
+
+**Rationale**: This pipeline serves vulnerable communities and runs 90+ scrapers against unpredictable external sources. Silent failures — a Lambda timing out, a dead-letter queue filling up, a Fargate task OOM-killing — mean stale data that food-insecure people rely on. Alarms ensure operators know about failures within minutes, not days. Dashboard widgets provide at-a-glance operational health without requiring ad-hoc CloudWatch queries. The centralized `MonitoringStack` pattern already exists with 9 alarms and a comprehensive dashboard; this principle ensures it grows with the infrastructure rather than being left behind.
+
+---
+
+### XV. Dual Environment Compatibility — Docker & AWS (NON-NEGOTIABLE)
+
+All features MUST work in both the local Docker development environment (`./bouy up`) and the AWS deployment.
+
+- New functionality MUST be testable and operational in both environments
+- Implementations MAY differ between environments (e.g., Bedrock batch inference on AWS vs on-demand LLM locally, S3 content store on AWS vs filesystem locally, Lambda API on AWS vs Uvicorn locally)
+- Environment-specific behavior MUST be controlled by environment variables or configuration, NOT by code branches that assume a single target
+- Changes to AWS infrastructure MUST NOT break the local Docker workflow
+- Changes to the Docker workflow MUST NOT break the AWS deployment
+- New abstractions MUST follow established patterns: pluggable backends (like `ContentStoreBackend`), Lambda detection flag (`AWS_LAMBDA_FUNCTION_NAME`), or environment-based configuration
+- Features that are intentionally AWS-only (e.g., bastion host, Metabase NLB) or Docker-only (e.g., RQ Dashboard) MUST be documented as such and MUST NOT create import errors or startup failures in the other environment
+
+**Established Dual-Environment Patterns**:
+```
+Content Store  → ContentStoreBackend protocol ("file" local, "s3" AWS)
+API            → Uvicorn local, Lambda + API Gateway AWS
+LLM Processing → On-demand via Redis queue local, Bedrock batch inference AWS
+Database       → Local PostgreSQL, Aurora Serverless v2 AWS
+Queue          → Redis (RQ) local, SQS FIFO AWS
+```
+
+**Rationale**: This project must remain accessible to contributors who develop entirely with Docker locally, while simultaneously running a production pipeline on AWS. When a feature is built exclusively for one environment, it creates a maintenance split where bugs surface only in the untested path. The Bedrock batch inference path is a good example of the right approach: AWS uses cost-efficient batch processing while local development uses on-demand LLM workers — same pipeline, different execution strategies, both tested. Breaking local development to ship an AWS feature (or vice versa) creates a class of contributors who cannot reproduce production behavior.
+
+---
+
 ## Development Workflow
 
 ### Test-First Mandate
@@ -328,4 +378,4 @@ Changes to principles MUST propagate to:
 - `.pre-commit-config.yaml` (quality gate enforcement)
 - `.github/workflows/ci.yml` (CI pipeline alignment)
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-02-27
+**Version**: 1.2.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-07
