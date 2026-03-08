@@ -22,10 +22,12 @@ import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
 
 from stacks.bastion_stack import BastionStack
+from stacks.batch_stack import BatchInferenceStack
 from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
 from stacks.ecr_stack import ECRStack
+from stacks.lambda_api_stack import LambdaApiStack
 from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
 from stacks.pipeline_stack import PipelineStack
@@ -91,7 +93,7 @@ compute_stack = ComputeStack(
     app,
     f"ComputeStack-{environment_name}",
     environment_name=environment_name,
-    max_capacity=20,
+    max_capacity=5,
     ecr_repository=ecr_stack.repositories.get("worker"),
     llm_queue_url=queue_stack.llm_queue.queue_url,
     sqs_jobs_table_name=storage_stack.jobs_table.table_name,
@@ -108,6 +110,24 @@ database_stack = DatabaseStack(
     environment_name=environment_name,
     env=env,
     description=f"Pantry Pirate Radio database infrastructure ({environment_name})",
+)
+
+# Batch Inference Stack - Bedrock batch processing (staging queue, Lambdas, EventBridge)
+batch_stack = BatchInferenceStack(
+    app,
+    f"BatchStack-{environment_name}",
+    environment_name=environment_name,
+    content_bucket=storage_stack.content_bucket,
+    jobs_table=storage_stack.jobs_table,
+    llm_queue=queue_stack.llm_queue,
+    validator_queue=queue_stack.validator_queue,
+    reconciler_queue=queue_stack.reconciler_queue,
+    recorder_queue=queue_stack.recorder_queue,
+    vpc=compute_stack.vpc,
+    bedrock_model_id=bedrock_model_id,
+    ecr_repository=ecr_stack.repositories.get("batch-lambda"),
+    env=env,
+    description=f"Pantry Pirate Radio batch inference infrastructure ({environment_name})",
 )
 
 # Create service configuration for environment variables and secrets
@@ -167,12 +187,34 @@ pipeline_stack = PipelineStack(
     environment_name=environment_name,
     schedule_enabled=(environment_name == "prod"),  # Only enable schedule in prod
     publisher_schedule_enabled=(environment_name == "prod"),
+    staging_queue_url=batch_stack.staging_queue.queue_url,
+    batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
     env=env,
     description=f"Pantry Pirate Radio scraper pipeline ({environment_name})",
 )
 
-# NOTE: APIStack removed from deployment - API needs Redis refactoring before
-# it can run in AWS. Stack code preserved in stacks/api_stack.py for future use.
+# Lambda API Stack — serverless read-only HSDS API
+lambda_api_stack = LambdaApiStack(
+    app,
+    f"LambdaApiStack-{environment_name}",
+    vpc=compute_stack.vpc,
+    environment_name=environment_name,
+    database_proxy_endpoint=database_stack.proxy_endpoint,
+    database_name=database_stack.database_name,
+    database_user="pantry_pirate",
+    database_secret=database_stack.database_credentials_secret,
+    proxy_security_group=database_stack.proxy_security_group,
+    ecr_repository=ecr_stack.repositories.get("api-lambda"),
+    memory_size=1024,
+    timeout_seconds=30,
+    provisioned_concurrent=2 if environment_name == "prod" else None,
+    env=env,
+    description=f"Pantry Pirate Radio serverless API ({environment_name})",
+)
+lambda_api_stack.add_dependency(compute_stack)
+lambda_api_stack.add_dependency(database_stack)
+lambda_api_stack.add_dependency(ecr_stack)
+lambda_api_stack.grant_database_access(database_stack.proxy_security_group)
 
 # Monitoring Stack - CloudWatch dashboards and alarms
 monitoring_stack = MonitoringStack(
@@ -261,11 +303,12 @@ storage_stack.content_bucket.grant_read_write(services_stack.recorder_task_role)
 storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_task_role)
 
 # Scraper permissions:
-# - Send messages to LLM queue
+# - Send messages to LLM queue and staging queue (batch inference)
 # - Read/write content bucket and content index table
 # - Read/write jobs table (SQS backend needs job status tracking)
 # - Read database credentials
 queue_stack.llm_queue.grant_send_messages(services_stack.scraper_task_role)
+batch_stack.staging_queue.grant_send_messages(services_stack.scraper_task_role)
 storage_stack.content_bucket.grant_read_write(services_stack.scraper_task_role)
 storage_stack.content_index_table.grant_read_write_data(services_stack.scraper_task_role)
 storage_stack.jobs_table.grant_read_write_data(services_stack.scraper_task_role)
@@ -308,9 +351,16 @@ services_stack.add_dependency(queue_stack)
 # Services depends on ECR (needs image repos)
 services_stack.add_dependency(ecr_stack)
 
-# Pipeline depends on compute (needs cluster) and services (task def must exist)
+# Batch depends on compute (VPC), storage, and queues
+batch_stack.add_dependency(compute_stack)
+batch_stack.add_dependency(storage_stack)
+batch_stack.add_dependency(queue_stack)
+batch_stack.add_dependency(ecr_stack)
+
+# Pipeline depends on compute (needs cluster), services (task def), and batch (staging queue + Lambda)
 pipeline_stack.add_dependency(compute_stack)
 pipeline_stack.add_dependency(services_stack)
+pipeline_stack.add_dependency(batch_stack)
 
 # DbInit depends on compute (needs VPC and cluster)
 db_init_stack.add_dependency(compute_stack)
@@ -375,5 +425,6 @@ monitoring_stack.add_dependency(database_stack)
 monitoring_stack.add_dependency(services_stack)
 monitoring_stack.add_dependency(pipeline_stack)
 monitoring_stack.add_dependency(db_init_stack)
+monitoring_stack.add_dependency(lambda_api_stack)
 
 app.synth()

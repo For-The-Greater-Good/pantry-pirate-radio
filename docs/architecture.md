@@ -914,6 +914,68 @@ All Docker operations are managed through the bouy command interface:
                 └─────────────┘
 ```
 
+#### AWS Data Flow (Bedrock Batch Inference)
+
+On AWS, the pipeline uses SQS FIFO queues and a batch inference optimization:
+
+```plaintext
+┌─────────────┐
+│ Step Funcs   │
+│ [Scrapers]   │──────┐
+└─────────────┘      │
+                     ▼
+                ┌─────────────┐
+                │  Content    │
+                │ Dedup (S3)  │
+                └──────┬──────┘
+                       │
+                       ▼
+                ┌─────────────┐
+                │  Staging    │
+                │ SQS Queue   │
+                └──────┬──────┘
+                       │
+                       ▼
+                ┌─────────────┐
+                │  Batcher    │
+                │   Lambda    │
+                └──────┬──────┘
+                       │
+          ┌────────────┴────────────┐
+          │ >= 100 records          │ < 100 records
+          ▼                         ▼
+   ┌─────────────┐          ┌─────────────┐
+   │  Bedrock    │          │  LLM Queue  │
+   │ Batch Job   │          │ (on-demand) │
+   │ (Converse)  │          └──────┬──────┘
+   └──────┬──────┘                 │
+          │ EventBridge            ▼
+          ▼                 ┌─────────────┐
+   ┌─────────────┐         │  Fargate    │
+   │  Result     │         │  LLM Worker │
+   │  Processor  │         └──────┬──────┘
+   │   Lambda    │                │
+   └──────┬──────┘                │
+          │                       │
+          └───────────┬───────────┘
+                      ▼
+                ┌─────────────┐
+                │  Validator  │
+                │   Service   │
+                └──────┬──────┘
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+   ┌─────────────┐          ┌─────────────┐
+   │ Reconciler  │          │  Rejection  │
+   └──────┬──────┘          └─────────────┘
+          ▼
+   ┌─────────────┐
+   │  Database   │
+   │  (Aurora)   │
+   └─────────────┘
+```
+
 ### Data Pipeline Stages
 
 1. **Content Acquisition**
@@ -1252,6 +1314,33 @@ class QueueHealth:
             "idle": await self.count_idle_workers()
         }
 ```
+
+#### AWS Queue System (SQS)
+
+On AWS, the queue system uses SQS FIFO queues instead of Redis/RQ, with a batch inference
+optimization path:
+
+1. **Scrapers** enqueue to the **staging queue** (via CDK env var override)
+2. **Batcher Lambda** (invoked by Step Functions post-scraper) drains the staging queue:
+   - **>= 100 records**: Builds JSONL using `build_converse_request()`, submits Bedrock Batch
+     Inference job with `modelInvocationType='Converse'` (50% cost savings)
+   - **< 100 records**: Re-enqueues each message to the LLM queue for on-demand Fargate processing
+   - Original jobs stored in S3 (too large for DynamoDB 400KB limit), reference key in DynamoDB
+3. **Result Processor Lambda** (triggered by EventBridge on batch completion) parses output
+   JSONL using `parse_converse_response()` and routes results through the same
+   validator/reconciler pipeline
+4. **Error handling**: Failed batch jobs re-enqueue all original records to the LLM queue;
+   per-record errors also re-enqueue the individual record for on-demand retry
+
+Both Lambdas are deployed as Docker images from `.docker/images/batch-lambda/Dockerfile`
+using `DockerImageFunction` in CDK, with CMD overrides to select the handler.
+
+Key components:
+- `SQSQueueBackend` - Protocol implementation for SQS (replaces `RedisQueueBackend`)
+- `FargateWorker` - Polls SQS with visibility timeout extension (replaces RQ worker)
+- `app/llm/queue/batcher.py` - Batcher Lambda handler
+- `app/llm/queue/batch_result_processor.py` - Result Processor Lambda handler
+- `app/llm/providers/bedrock.py` - Shared `build_converse_request()` / `parse_converse_response()`
 
 ### 9. AI Layer
 

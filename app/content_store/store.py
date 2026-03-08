@@ -52,10 +52,9 @@ class ContentStore:
         else:
             raise ValueError("Either store_path or backend must be provided")
 
+        self.redis_conn: Optional[redis.Redis[bytes]] = None
         if redis_url:
             self.redis_conn = redis.from_url(redis_url)
-        else:
-            self.redis_conn = None
 
     @property
     def backend(self) -> ContentStoreBackend:

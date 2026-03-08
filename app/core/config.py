@@ -164,15 +164,32 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def build_database_url_from_components(self) -> "Settings":
-        """Build DATABASE_URL from individual env vars if DATABASE_HOST is set."""
+        """Build DATABASE_URL from individual env vars if DATABASE_HOST is set.
+
+        Supports AWS Secrets Manager: if DATABASE_SECRET_ARN is set, fetches
+        the password from Secrets Manager instead of DATABASE_PASSWORD.
+        """
+        import json
         import os
 
         db_host = os.environ.get("DATABASE_HOST")
         if db_host and "localhost" in self.DATABASE_URL:
             db_name = os.environ.get("DATABASE_NAME", "pantry_pirate_radio")
             db_user = os.environ.get("DATABASE_USER", "postgres")
-            db_password = os.environ.get("DATABASE_PASSWORD", "")
             db_port = os.environ.get("DATABASE_PORT", "5432")
+
+            # Fetch password from Secrets Manager if ARN is provided
+            secret_arn = os.environ.get("DATABASE_SECRET_ARN")
+            if secret_arn:
+                import boto3
+
+                client = boto3.client("secretsmanager")
+                response = client.get_secret_value(SecretId=secret_arn)
+                secret = json.loads(response["SecretString"])
+                db_password = secret.get("password", "")
+            else:
+                db_password = os.environ.get("DATABASE_PASSWORD", "")
+
             self.DATABASE_URL = (
                 f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
             )

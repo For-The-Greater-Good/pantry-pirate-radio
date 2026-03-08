@@ -2195,6 +2195,49 @@ print(json.dumps(l))
                 fi
                 output success "Pushed ${svc}"
             done
+
+            # Build and push batch-lambda image (separate Lambda base image)
+            output info "Building batch-lambda Docker image..."
+            if ! docker buildx build -t "pantry-pirate-radio-batch-lambda:${IMAGE_TAG}" \
+                --platform linux/amd64 \
+                --provenance=false \
+                --output type=docker \
+                -f .docker/images/batch-lambda/Dockerfile .; then
+                output error "Failed to build batch-lambda image"
+                exit 1
+            fi
+            output success "batch-lambda image built"
+
+            BATCH_LAMBDA_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-batch-lambda-${DEPLOY_ENV}"
+            output info "Pushing batch-lambda..."
+            docker tag "pantry-pirate-radio-batch-lambda:${IMAGE_TAG}" "${BATCH_LAMBDA_REPO}:${IMAGE_TAG}"
+            if ! docker push "${BATCH_LAMBDA_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                output error "Failed to push batch-lambda"
+                exit 1
+            fi
+            output success "Pushed batch-lambda"
+
+            # Build and push api-lambda image (ARM64 Lambda base image for API)
+            output info "Building api-lambda Docker image..."
+            if ! docker buildx build -t "pantry-pirate-radio-api-lambda:${IMAGE_TAG}" \
+                --platform linux/arm64 \
+                --provenance=false \
+                --output type=docker \
+                -f .docker/images/api-lambda/Dockerfile .; then
+                output error "Failed to build api-lambda image"
+                exit 1
+            fi
+            output success "api-lambda image built"
+
+            API_LAMBDA_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-api-lambda-${DEPLOY_ENV}"
+            output info "Pushing api-lambda..."
+            docker tag "pantry-pirate-radio-api-lambda:${IMAGE_TAG}" "${API_LAMBDA_REPO}:${IMAGE_TAG}"
+            if ! docker push "${API_LAMBDA_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                output error "Failed to push api-lambda"
+                exit 1
+            fi
+            output success "Pushed api-lambda"
+
             output success "All images pushed to ECR"
         }
 

@@ -25,10 +25,10 @@ class TestECRStackResources:
         """Get CloudFormation template from stack."""
         return assertions.Template.from_stack(stack)
 
-    def test_creates_seven_ecr_repositories(self, template):
-        """ECRStack should create 7 ECR repositories."""
-        # worker, validator, reconciler, publisher, recorder, scraper, app
-        template.resource_count_is("AWS::ECR::Repository", 7)
+    def test_creates_ecr_repositories(self, template):
+        """ECRStack should create ECR repositories for all services."""
+        # worker, validator, reconciler, publisher, recorder, scraper, app, api-lambda, batch-lambda
+        template.resource_count_is("AWS::ECR::Repository", 9)
 
     def test_worker_repository_exists(self, template):
         """Worker repository should be created."""
@@ -169,4 +169,6 @@ class TestECRStackAttributes:
         assert "recorder" in repos
         assert "scraper" in repos
         assert "app" in repos
-        assert len(repos) == 7
+        assert "api-lambda" in repos
+        assert "batch-lambda" in repos
+        assert len(repos) == 9

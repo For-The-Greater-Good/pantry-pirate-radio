@@ -6,19 +6,15 @@ from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, Request, Response, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_session
-from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
 
-# Override settings for tests
-if os.getenv("TESTING") == "true":
-    settings.LLM_MODEL_NAME = "test-model"
-    settings.LLM_PROVIDER = "openai"
+# Detect Lambda environment — skip Redis/LLM/Prometheus endpoints
+_is_lambda = os.environ.get("AWS_LAMBDA_FUNCTION_NAME") is not None
+
 router = APIRouter(default_response_class=JSONResponse)
 
 # Always include API routers for comprehensive documentation
@@ -349,18 +345,6 @@ async def get_api_metadata() -> dict[str, str]:
     }
 
 
-@router.get("/metrics")
-async def metrics() -> Response:
-    """Prometheus metrics endpoint."""
-    return Response(
-        content=generate_latest().decode("utf-8"),
-        media_type=CONTENT_TYPE_LATEST,
-    )
-
-
-# Health check endpoint
-
-
 @router.get("/health")
 async def health_check(request: Request) -> dict[str, str]:
     """
@@ -377,76 +361,92 @@ async def health_check(request: Request) -> dict[str, str]:
     }
 
 
-@router.get("/health/llm")
-async def llm_health_check(request: Request) -> dict[str, str]:
-    """
-    LLM health check endpoint.
+# Docker-only endpoints — not registered in Lambda
+if not _is_lambda:
 
-    Returns
-    -------
-        Dict containing LLM provider health status information
-    """
-    # Create provider based on configuration
-    if settings.LLM_PROVIDER == "openai":
-        config = OpenAIConfig(
-            model_name=settings.LLM_MODEL_NAME,
-            temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
+    @router.get("/metrics")
+    async def metrics() -> Response:
+        """Prometheus metrics endpoint."""
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        return Response(
+            content=generate_latest().decode("utf-8"),
+            media_type=CONTENT_TYPE_LATEST,
         )
-        provider = OpenAIProvider(config)
-    else:
-        return {
-            "status": "unhealthy",
-            "error": f"Unsupported LLM provider: {settings.LLM_PROVIDER}",
-            "correlation_id": request.state.correlation_id,
-        }
 
-    try:
-        # Test LLM provider connection
-        await provider.health_check()
-        return {
-            "status": "healthy",
-            "provider": settings.LLM_PROVIDER,
-            "model": settings.LLM_MODEL_NAME,
-            "correlation_id": request.state.correlation_id,
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "correlation_id": request.state.correlation_id,
-        }
+    @router.get("/health/llm")
+    async def llm_health_check(request: Request) -> dict[str, str]:
+        """
+        LLM health check endpoint.
 
+        Returns
+        -------
+            Dict containing LLM provider health status information
+        """
+        from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
 
-@router.get("/health/redis")
-async def redis_health_check(request: Request) -> dict[str, str]:
-    """
-    Redis health check endpoint.
+        # Create provider based on configuration
+        if settings.LLM_PROVIDER == "openai":
+            config = OpenAIConfig(
+                model_name=settings.LLM_MODEL_NAME,
+                temperature=settings.LLM_TEMPERATURE,
+                max_tokens=settings.LLM_MAX_TOKENS,
+            )
+            provider = OpenAIProvider(config)
+        else:
+            return {
+                "status": "unhealthy",
+                "error": f"Unsupported LLM provider: {settings.LLM_PROVIDER}",
+                "correlation_id": request.state.correlation_id,
+            }
 
-    Returns
-    -------
-        Dict containing Redis health status information
-    """
-    redis = Redis.from_url(settings.REDIS_URL)
-    try:
-        # Test Redis connection
-        await redis.ping()
-        info = await redis.info()
-        return {
-            "status": "healthy",
-            "redis_version": str(info["redis_version"]),
-            "connected_clients": str(info["connected_clients"]),
-            "used_memory_human": str(info["used_memory_human"]),
-            "correlation_id": request.state.correlation_id,
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "correlation_id": request.state.correlation_id,
-        }
-    finally:
-        await redis.close()
+        try:
+            # Test LLM provider connection
+            await provider.health_check()
+            return {
+                "status": "healthy",
+                "provider": settings.LLM_PROVIDER,
+                "model": settings.LLM_MODEL_NAME,
+                "correlation_id": request.state.correlation_id,
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "correlation_id": request.state.correlation_id,
+            }
+
+    @router.get("/health/redis")
+    async def redis_health_check(request: Request) -> dict[str, str]:
+        """
+        Redis health check endpoint.
+
+        Returns
+        -------
+            Dict containing Redis health status information
+        """
+        from redis.asyncio import Redis
+
+        redis = Redis.from_url(settings.REDIS_URL)
+        try:
+            # Test Redis connection
+            await redis.ping()
+            info = await redis.info()
+            return {
+                "status": "healthy",
+                "redis_version": str(info["redis_version"]),
+                "connected_clients": str(info["connected_clients"]),
+                "used_memory_human": str(info["used_memory_human"]),
+                "correlation_id": request.state.correlation_id,
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "correlation_id": request.state.correlation_id,
+            }
+        finally:
+            await redis.close()
 
 
 @router.get("/health/db")

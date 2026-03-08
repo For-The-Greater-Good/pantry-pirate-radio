@@ -25,7 +25,7 @@ class PipelineStack(Stack):
     - EventBridge rule for daily scheduling (disabled by default in dev)
 
     The state machine uses a Map state to run scrapers in parallel
-    with configurable concurrency (default: 10).
+    with configurable concurrency (default: unlimited).
 
     Attributes:
         state_machine: Step Functions state machine
@@ -50,10 +50,12 @@ class PipelineStack(Stack):
         scraper_task_family: str | None = None,
         scraper_container_name: str = "ScraperContainer",
         schedule_enabled: bool = False,
-        max_concurrency: int = 10,
+        max_concurrency: int = 0,
         scrapers: list[str] | None = None,
         publisher_task_family: str | None = None,
         publisher_schedule_enabled: bool = False,
+        staging_queue_url: str | None = None,
+        batcher_lambda_arn: str | None = None,
         **kwargs,
     ) -> None:
         """Initialize PipelineStack.
@@ -71,6 +73,8 @@ class PipelineStack(Stack):
             scrapers: List of scraper names to run (defaults to DEFAULT_SCRAPERS)
             publisher_task_family: Publisher task definition family name for SQLite export
             publisher_schedule_enabled: Whether to enable the daily publisher schedule
+            staging_queue_url: SQS staging queue URL (overrides SQS_QUEUE_URL in scraper containers)
+            batcher_lambda_arn: Batcher Lambda ARN (adds BatchOrForward step after scrapers)
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, **kwargs)
@@ -98,6 +102,8 @@ class PipelineStack(Stack):
             task_family=task_family,
             container_name=container_name,
             max_concurrency=max_concurrency,
+            staging_queue_url=staging_queue_url,
+            batcher_lambda_arn=batcher_lambda_arn,
         )
 
         # Create EventBridge schedule rule for scrapers
@@ -120,6 +126,8 @@ class PipelineStack(Stack):
         task_family: str,
         container_name: str,
         max_concurrency: int,
+        staging_queue_url: str | None = None,
+        batcher_lambda_arn: str | None = None,
     ) -> sfn.StateMachine:
         """Create Step Functions state machine for scraper orchestration.
 
@@ -132,12 +140,36 @@ class PipelineStack(Stack):
             task_family: Task definition family name
             container_name: Name of the container in the task definition
             max_concurrency: Maximum concurrent tasks
+            staging_queue_url: Optional staging queue URL for batch inference
+            batcher_lambda_arn: Optional batcher Lambda ARN for batch inference
 
         Returns:
             Step Functions state machine
         """
         # Build subnet list from cluster's private subnets
         subnet_ids = [s.subnet_id for s in cluster.vpc.private_subnets]
+
+        # Build container environment overrides
+        container_env = [
+            {
+                "Name": "SERVICE_TYPE",
+                "Value": "scraper",
+            },
+            {
+                "Name": "SCRAPER_NAME",
+                "Value.$": "$.scraper_name",
+            },
+        ]
+
+        # Override SQS_QUEUE_URL to staging queue when batch inference is enabled
+        if staging_queue_url:
+            container_env.append({
+                "Name": "SQS_QUEUE_URL",
+                "Value": staging_queue_url,
+            })
+
+        # Determine what RunAllScrapers transitions to
+        after_scrapers = "BatchOrForward" if batcher_lambda_arn else "PipelineSummary"
 
         # Build the state machine definition as JSON
         # This avoids CDK's EcsRunTask construct which requires concrete
@@ -177,16 +209,7 @@ class PipelineStack(Stack):
                                         "ContainerOverrides": [
                                             {
                                                 "Name": container_name,
-                                                "Environment": [
-                                                    {
-                                                        "Name": "SERVICE_TYPE",
-                                                        "Value": "scraper",
-                                                    },
-                                                    {
-                                                        "Name": "SCRAPER_NAME",
-                                                        "Value.$": "$.scraper_name",
-                                                    },
-                                                ],
+                                                "Environment": container_env,
                                             }
                                         ]
                                     },
@@ -223,7 +246,7 @@ class PipelineStack(Stack):
                             },
                         },
                     },
-                    "Next": "PipelineSummary",
+                    "Next": after_scrapers,
                 },
                 "PipelineSummary": {
                     "Type": "Pass",
@@ -235,6 +258,22 @@ class PipelineStack(Stack):
                 },
             },
         }
+
+        # Add BatchOrForward step when batcher Lambda is configured
+        if batcher_lambda_arn:
+            definition["States"]["BatchOrForward"] = {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                    "FunctionName": batcher_lambda_arn,
+                    "Payload": {
+                        "execution_id.$": "$$.Execution.Id",
+                        "scrapers.$": "$.results",
+                    },
+                },
+                "ResultPath": "$.batchResult",
+                "Next": "PipelineSummary",
+            }
 
         # Create state machine with JSON definition
         state_machine = sfn.StateMachine(
@@ -271,6 +310,15 @@ class PipelineStack(Stack):
                 resources=["*"],
             )
         )
+
+        # Grant Lambda invoke if batcher is configured
+        if batcher_lambda_arn:
+            state_machine.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["lambda:InvokeFunction"],
+                    resources=[batcher_lambda_arn],
+                )
+            )
 
         return state_machine
 

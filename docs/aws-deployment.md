@@ -62,20 +62,30 @@ EventBridge (daily) ──► Step Functions State Machine
                               │
                               ▼
                     ┌─────────────────────────────────┐
-                    │ Map State (MaxConcurrency=10)   │
-                    │   Fargate Scraper Tasks         │
+                    │ Map State (parallel scrapers)    │
+                    │   Fargate Scraper Tasks          │
                     └─────────────────────────────────┘
                               │
                               ▼
                     S3 Content Store (SHA-256 dedup)
                               │
                               ▼
-                    SQS LLM Queue (FIFO)
+                    SQS Staging Queue (FIFO)
                               │
                               ▼
-                    Fargate Worker Service
-                    (Bedrock LLM)
-                              │
+                    Batcher Lambda (post-scraper decision)
+                       │                    │
+              >= 100 records          < 100 records
+                       │                    │
+                       ▼                    ▼
+              Bedrock Batch Job    SQS LLM Queue (FIFO)
+              (50% cost savings)          │
+                       │                  ▼
+                       ▼          Fargate Worker Service
+              Result Processor    (Bedrock on-demand)
+              Lambda                      │
+                       │                  │
+                       └──────┬───────────┘
                               ▼
                     SQS Validator Queue ──► Validator Service
                               │
@@ -97,10 +107,10 @@ ECRStack (standalone)
 
 StorageStack ─────┐
                   ├──► ComputeStack ──┬──► DatabaseStack
-QueueStack ───────┘                   │
-                                      ├──► ServicesStack ──► PipelineStack
-                                      │
-                                      └──► APIStack
+QueueStack ───────┘        │          │
+                           │          ├──► ServicesStack ──┐
+                           │          │                    ├──► PipelineStack
+                           └──► BatchStack ────────────────┘
                                                 │
                                                 ▼
                                          MonitoringStack
@@ -191,6 +201,28 @@ Features:
 - Same prompt format as Claude API provider
 - IAM-based authentication (no API keys needed)
 - Model access must be enabled in Bedrock console
+
+#### Bedrock Batch Inference
+
+For cost optimization, the AWS deployment uses Bedrock Batch Inference for large runs:
+
+- **Staging Queue**: Scrapers enqueue to a staging SQS queue (via CDK env var override)
+- **Batcher Lambda**: After all scrapers complete, drains staging queue and decides:
+  - **>= 100 records**: Builds JSONL using `build_converse_request()`, submits Bedrock batch
+    job with `modelInvocationType='Converse'` (50% cost savings)
+  - **< 100 records**: Re-enqueues to LLM queue for on-demand Fargate processing
+  - Original jobs stored in S3 (`original_jobs.json`) with reference key in DynamoDB
+- **Result Processor Lambda**: Triggered by EventBridge on batch completion (`batchJobArn`
+  field), parses output JSONL using `parse_converse_response()`, routes successful results
+  through validator/reconciler pipeline
+- **Error Handling**: Failed batch jobs re-enqueue all records to LLM queue for on-demand
+  retry; per-record errors also re-enqueue the individual record
+
+Both Lambdas are deployed as Docker images from `.docker/images/batch-lambda/Dockerfile`
+using `DockerImageFunction` in CDK, shared ECR repo `batch-lambda`, differentiated by CMD
+override. Requires `boto3>=1.42.0` for `modelInvocationType` support.
+
+No scraper code is modified — the routing is entirely infrastructure. The `SQS_QUEUE_URL` environment variable is overridden in the Step Functions container overrides to point to the staging queue.
 
 ## First-Time Setup
 
@@ -423,8 +455,9 @@ Custom metrics are emitted to CloudWatch:
 | Fargate Services      | 5 services         | ~$50-70      |
 | Fargate Tasks         | ~1hr/day scrapers  | ~$5-10       |
 | Step Functions        | ~30 trans/day      | ~$0.75       |
-| SQS                   | 4 FIFO queues      | ~$1          |
-| S3                    | Content store      | ~$1-5        |
+| SQS                   | 5 FIFO queues      | ~$1          |
+| S3                    | Content + batch    | ~$1-5        |
+| Batch Lambdas         | Batcher + Result   | ~$1          |
 | DynamoDB              | On-demand          | ~$1-5        |
 | NAT Gateway           | 1 (dev only)       | ~$32         |
 | **Total**             |                    | **~$120-175/month** |

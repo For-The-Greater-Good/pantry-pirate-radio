@@ -154,6 +154,10 @@ DATA_REPO_TOKEN=github_pat_xxx  # GitHub PAT with repo access
 # Content Store
 CONTENT_STORE_PATH=/path/to/content-store
 CONTENT_STORE_BACKEND=file  # Backend type: "file" (default) or "s3" (AWS deployment)
+
+# Lambda API (set automatically in AWS, not needed locally)
+AWS_LAMBDA_FUNCTION_NAME=  # Auto-set by Lambda runtime; triggers Lambda-optimized behavior
+DATABASE_SECRET_ARN=       # Secrets Manager ARN for DB password (Lambda uses this instead of DATABASE_PASSWORD)
 ```
 
 ### Test Environment
@@ -615,6 +619,17 @@ PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
     └→ Publisher (daily) → SQLite → S3 Exports Bucket → Public Access
 ```
 
+#### AWS Batch Inference Path (Bedrock)
+
+On AWS, scrapers enqueue to a **staging SQS queue** instead of the LLM queue.
+After all scrapers complete, Step Functions invokes a **Batcher Lambda** that:
+- **>= 100 records**: Builds JSONL, submits Bedrock Batch Inference job (50% cost savings)
+- **< 100 records**: Re-enqueues to LLM queue for on-demand Fargate processing
+
+Batch results are routed by a **Result Processor Lambda** (triggered by EventBridge)
+through the same validator/reconciler pipeline. No scraper code is changed — the
+routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
+
 ### Key Components
 
 #### Pantry Pirate Radio Core Services
@@ -627,6 +642,10 @@ PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
 - **API**: Read-only HSDS v3.1.1 compliant REST endpoints
+  - **AWS Deployment**: Lambda + API Gateway HTTP API (serverless, zero idle cost)
+  - **Local Development**: Docker via `./bouy up` (unchanged, uses `app/main.py`)
+  - **Lambda Entry Point**: `app/api/lambda_app.py` (no Redis/LLM deps), handler via Mangum
+  - **ECR Repository**: `api-lambda` (slim ~300MB image vs 10GB full image)
 - **HAARRRvest Publisher**: Syncs processed data to public repository
 
 #### Data Validation Pipeline

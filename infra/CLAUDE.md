@@ -31,12 +31,13 @@ infra/
 ├── stacks/
 │   ├── __init__.py
 │   ├── api_stack.py          # ALB + Fargate API (21 tests)
+│   ├── batch_stack.py        # Bedrock Batch Inference (12 tests)
 │   ├── compute_stack.py      # VPC + ECS Fargate Workers (20 tests)
 │   ├── database_stack.py     # Aurora Serverless v2 + RDS Proxy (22 tests)
 │   ├── ecr_stack.py          # ECR container repositories (16 tests)
 │   ├── metabase_access_stack.py # NLB for Metabase Cloud (dev only)
 │   ├── monitoring_stack.py   # CloudWatch + Alarms (22 tests)
-│   ├── pipeline_stack.py     # Step Functions + EventBridge (12 tests)
+│   ├── pipeline_stack.py     # Step Functions + EventBridge (16 tests)
 │   ├── queue_stack.py        # SQS FIFO queues (17 tests)
 │   ├── secrets_stack.py      # Secrets Manager (9 tests)
 │   ├── services_stack.py     # Fargate services (23 tests)
@@ -44,6 +45,7 @@ infra/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_api_stack.py
+│   ├── test_batch_stack.py
 │   ├── test_compute_stack.py
 │   ├── test_database_stack.py
 │   ├── test_ecr_stack.py
@@ -68,7 +70,7 @@ infra/
 
 ### ECRStack
 - **ECR Repositories**: Container image repositories for all services
-- **Services**: worker, validator, reconciler, publisher, recorder, scraper, app
+- **Services**: worker, validator, reconciler, publisher, recorder, scraper, app, api-lambda
 - **Repository naming**: `pantry-pirate-radio-{service}-{environment}`
 - **Image scanning**: Enabled on push for vulnerability detection
 - **Lifecycle rules**: Keep last 10 images, delete untagged images after 1 day (7 in prod)
@@ -85,6 +87,14 @@ infra/
 - **Reconciler Queue**: Canonical record creation (300s visibility)
 - **Recorder Queue**: Job result archiving (120s visibility)
 - **Dead Letter Queues**: One per main queue, 14-day retention
+
+### BatchInferenceStack
+- **SQS Staging Queue**: FIFO queue for scraper output staging (300s visibility, DLQ)
+- **S3 Batch Bucket**: JSONL I/O for Bedrock batch jobs (7-day lifecycle)
+- **Bedrock Service Role**: IAM role trusting `bedrock.amazonaws.com` for batch jobs
+- **Batcher Lambda**: Drains staging queue, decides batch (>= 100 records) vs on-demand
+- **Result Processor Lambda**: Routes batch output downstream (validator/reconciler/recorder)
+- **EventBridge Rule**: Triggers result processor on `Batch Inference Job State Change`
 
 ### ComputeStack
 - **VPC**: 2 AZs, public/private subnets, NAT gateways
@@ -120,12 +130,20 @@ Fargate services for pipeline stages:
 ### PipelineStack
 - **Step Functions State Machine**: Scraper orchestration with Map state
 - **EventBridge Rule**: Daily schedule at 2 AM UTC (disabled in dev)
-- **Map State**: Runs scrapers in parallel (MaxConcurrency=10)
+- **Map State**: Runs scrapers in parallel (MaxConcurrency=0 (unlimited))
 - **Retry/Catch**: 2 attempts with 60s backoff, failures recorded
 
-### APIStack (NOT DEPLOYED)
-- **Status**: Stack code exists but is not instantiated in app.py
-- **Reason**: FastAPI app requires Redis refactoring before AWS deployment
+### LambdaApiStack
+- **Lambda (DockerImageFunction)**: ARM64, 1024MB, 30s timeout, VPC private subnets, X-Ray tracing
+- **API Gateway HTTP API (v2)**: `$default` catch-all route → Lambda, CORS preflight
+- **Security Group**: Lambda → RDS Proxy access
+- **IAM**: Secrets Manager read for DB credentials
+- **Provisioned Concurrency**: 2 instances in prod for warm starts
+- **ECR Repository**: `api-lambda` (slim ~300MB image)
+- **Cost**: ~$2/mo dev (vs ~$55/mo Fargate ALB)
+
+### APIStack (LEGACY — NOT DEPLOYED)
+- **Status**: Replaced by LambdaApiStack. Stack code preserved in `stacks/api_stack.py`
 - **Application Load Balancer**: Internet-facing, optional HTTPS
 - **Fargate API Service**: FastAPI application
 - **Auto-scaling**: CPU (70%) and request-based (1000/target)
@@ -196,15 +214,18 @@ ECRStack (standalone)
 
 StorageStack ─────┐
                   ├──► ComputeStack ──┬──► DatabaseStack ──┬──► MetabaseAccessStack (dev)
-QueueStack ───────┘                   │                    └──► BastionStack (dev)
-                                      ├──► ServicesStack ──► PipelineStack
+QueueStack ───────┘        │          │                    └──► BastionStack (dev)
+                           │          ├──► ServicesStack ──┐
+                           │          │                    ├──► PipelineStack
+                           └──► BatchStack ────────────────┘
                                       │
                                       └──► DbInitStack
                                                 │
                                                 ▼
                                          MonitoringStack
 
-(APIStack exists but is NOT deployed — needs Redis refactoring)
+LambdaApiStack depends on ComputeStack + DatabaseStack + ECRStack
+(APIStack exists as legacy code but is NOT deployed — replaced by LambdaApiStack)
 ```
 
 Permissions are granted via helper methods:
@@ -332,7 +353,7 @@ EventBridge ──────────────┤  Step Functions State 
 (daily, disabled)         │         │                                                       │
                           │         ▼                                                       │
                           │  ┌─────────────────────────────────────────────┐                │
-                          │  │ Map State (MaxConcurrency=10)               │                │
+                          │  │ Map State (MaxConcurrency=0 (unlimited))               │                │
                           │  │   ↓   ↓   ↓   ↓   ↓   ↓   ↓   ↓   ↓   ↓    │                │
                           │  │ Fargate Scraper Tasks                       │                │
                           │  └─────────────────────────────────────────────┘                │
@@ -341,10 +362,21 @@ EventBridge ──────────────┤  Step Functions State 
                           │  S3 Content Store (SHA-256 dedup)                               │
                           │         │                                                       │
                           │         ▼                                                       │
-                          │  SQS LLM Queue (FIFO)                                           │
+                          │  SQS Staging Queue (FIFO)                                       │
                           │         │                                                       │
                           │         ▼                                                       │
-                          │  Fargate Worker Service (Bedrock LLM)                           │
+                          │  Batcher Lambda (batch vs on-demand decision)                   │
+                          │       │              │                                          │
+                          │  [>=100 records] [<100 records]                                 │
+                          │       │              │                                          │
+                          │       ▼              ▼                                          │
+                          │  Bedrock Batch    SQS LLM Queue (FIFO)                          │
+                          │  (50% off)           │                                          │
+                          │       │              ▼                                          │
+                          │       ▼       Fargate Worker Service (Bedrock LLM)              │
+                          │  Result Processor Lambda                                        │
+                          │       │              │                                          │
+                          │       └──────┬───────┘                                          │
                           │         │                                                       │
                           │         ▼                                                       │
                           │  SQS Validator Queue (FIFO)                                     │
@@ -384,8 +416,9 @@ LOCAL: app/api stays local, connects to AWS resources via IAM credentials
 | Fargate Services | Worker + Validator + Reconciler + Publisher + Recorder | ~$50-70 |
 | Fargate Tasks (Scrapers) | ~1hr/day | ~$5-10 |
 | Step Functions | ~30 transitions/day | ~$0.75 |
-| SQS | 4 FIFO queues | ~$1 |
-| S3 | Content store | ~$1-5 |
+| SQS | 5 FIFO queues | ~$1 |
+| S3 | Content + batch | ~$1-5 |
+| Batch Lambdas | Batcher + Result Processor | ~$1 |
 | DynamoDB | On-demand | ~$1-5 |
 | NAT Gateway | 1 (dev) | ~$32 |
 | **Total** | | **~$120-175/month** |

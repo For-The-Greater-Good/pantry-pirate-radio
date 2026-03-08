@@ -1,11 +1,17 @@
 """Tests for AWS Bedrock LLM provider."""
 
+import json
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.llm.providers.bedrock import BedrockConfig, BedrockProvider
+from app.llm.providers.bedrock import (
+    BedrockConfig,
+    BedrockProvider,
+    build_converse_request,
+    parse_converse_response,
+)
 
 
 class TestBedrockConfig:
@@ -324,6 +330,189 @@ class TestBedrockGenerate:
         ):
             with pytest.raises(ValueError, match="Empty response from Bedrock"):
                 await self.provider.generate("test")
+
+
+class TestBuildConverseRequest:
+    """Tests for the module-level build_converse_request function."""
+
+    def test_build_converse_request_string_prompt(self):
+        """String input produces Bedrock user message format."""
+        result = build_converse_request(prompt="Hello world")
+        assert result["messages"] == [
+            {"role": "user", "content": [{"text": "Hello world"}]}
+        ]
+        assert result["inferenceConfig"]["temperature"] == 0.7
+        assert "system" not in result
+        assert "toolConfig" not in result
+
+    def test_build_converse_request_with_system_prompt(self):
+        """Chat messages with system role extract system prompt correctly."""
+        prompt = [
+            {"role": "system", "content": "You are helpful"},
+            {"role": "user", "content": "Hello"},
+        ]
+        result = build_converse_request(prompt=prompt)
+        assert result["system"] == [{"text": "You are helpful"}]
+        assert len(result["messages"]) == 1
+        assert result["messages"][0]["role"] == "user"
+
+    def test_build_converse_request_with_tool_config(self):
+        """Schema produces toolConfig with forced tool use."""
+        schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "response",
+                "schema": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                },
+            },
+        }
+        result = build_converse_request(prompt="test", format_schema=schema)
+        assert "toolConfig" in result
+        assert result["toolConfig"]["toolChoice"] == {
+            "tool": {"name": "structured_output"}
+        }
+
+    def test_build_converse_request_custom_temperature_and_max_tokens(self):
+        """Custom temperature and max_tokens are set in inferenceConfig."""
+        result = build_converse_request(prompt="test", temperature=0.3, max_tokens=1024)
+        assert result["inferenceConfig"]["temperature"] == 0.3
+        assert result["inferenceConfig"]["maxTokens"] == 1024
+
+    def test_build_converse_request_no_max_tokens_by_default(self):
+        """maxTokens is not set when not provided."""
+        result = build_converse_request(prompt="test")
+        assert "maxTokens" not in result["inferenceConfig"]
+
+
+class TestParseConverseResponse:
+    """Tests for the module-level parse_converse_response function."""
+
+    def test_parse_converse_response_text(self):
+        """Text response extracts text and maps usage."""
+        response = {
+            "output": {"message": {"content": [{"text": "Hello from Bedrock!"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 10, "outputTokens": 5},
+        }
+        result = parse_converse_response(
+            response=response,
+            model_id="anthropic.claude-haiku-4-5-20251001-v1:0",
+        )
+        assert result.text == "Hello from Bedrock!"
+        assert result.model == "anthropic.claude-haiku-4-5-20251001-v1:0"
+        assert result.usage["prompt_tokens"] == 10
+        assert result.usage["completion_tokens"] == 5
+        assert result.usage["total_tokens"] == 15
+
+    def test_parse_converse_response_tool_use(self):
+        """Structured output from tool_use blocks is parsed correctly."""
+        schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "response",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "city": {"type": "string"},
+                    },
+                },
+            },
+        }
+        response = {
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "toolUse": {
+                                "name": "structured_output",
+                                "input": {
+                                    "name": "Test Food Bank",
+                                    "city": "Portland",
+                                },
+                                "toolUseId": "tool-123",
+                            }
+                        }
+                    ]
+                }
+            },
+            "stopReason": "tool_use",
+            "usage": {"inputTokens": 20, "outputTokens": 15},
+        }
+        result = parse_converse_response(
+            response=response,
+            model_id="anthropic.claude-haiku-4-5-20251001-v1:0",
+            format_schema=schema,
+        )
+        assert result.parsed == {"name": "Test Food Bank", "city": "Portland"}
+        assert result.text == json.dumps(result.parsed)
+        assert result.usage["total_tokens"] == 35
+
+    def test_parse_converse_response_empty_content(self):
+        """Empty content blocks raise ValueError."""
+        response = {
+            "output": {"message": {"content": []}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 5, "outputTokens": 0},
+        }
+        with pytest.raises(ValueError, match="Empty response from Bedrock"):
+            parse_converse_response(
+                response=response,
+                model_id="test-model",
+            )
+
+    def test_parse_converse_response_json_text_with_schema(self):
+        """Text response with format_schema attempts JSON parse."""
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
+        response = {
+            "output": {"message": {"content": [{"text": '{"name": "Food Bank"}'}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 10, "outputTokens": 5},
+        }
+        result = parse_converse_response(
+            response=response,
+            model_id="test-model",
+            format_schema=schema,
+        )
+        assert result.parsed == {"name": "Food Bank"}
+
+
+class TestGenerateStillWorks:
+    """Verify generate() still works after refactoring to use module-level functions."""
+
+    def setup_method(self):
+        self.config = BedrockConfig(model_name="anthropic.claude-sonnet-4-6")
+        self.provider = BedrockProvider(self.config)
+
+    @pytest.mark.asyncio
+    async def test_generate_uses_extracted_functions(self):
+        """generate() should produce the same results as before extraction."""
+        mock_client = MagicMock()
+        mock_client.converse.return_value = {
+            "output": {"message": {"content": [{"text": "Hello!"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 10, "outputTokens": 5},
+        }
+
+        with patch.object(
+            BedrockProvider,
+            "model",
+            new_callable=lambda: property(lambda self: mock_client),
+        ):
+            response = await self.provider.generate("Say hello")
+
+        assert response.text == "Hello!"
+        assert response.model == "anthropic.claude-sonnet-4-6"
+        assert response.usage["total_tokens"] == 15
+
+        # Verify converse was called with expected params
+        call_kwargs = mock_client.converse.call_args[1]
+        assert call_kwargs["modelId"] == "anthropic.claude-sonnet-4-6"
+        assert call_kwargs["messages"] == [
+            {"role": "user", "content": [{"text": "Say hello"}]}
+        ]
 
 
 class TestBedrockFactoryRegistration:

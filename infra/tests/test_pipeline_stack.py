@@ -175,6 +175,116 @@ class TestPublisherSchedule:
         )
 
 
+class TestBatcherIntegration:
+    """Tests for batcher Lambda integration in the state machine."""
+
+    @pytest.fixture
+    def app(self):
+        """Create CDK app for testing."""
+        return cdk.App()
+
+    def test_state_machine_includes_batcher_step_when_lambda_provided(self, app):
+        """State machine should include BatchOrForward step after Map when batcher_lambda_arn is provided."""
+        compute_stack = ComputeStack(app, "BatcherCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "BatcherPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+            batcher_lambda_arn="arn:aws:lambda:us-east-1:123:function:batcher",
+        )
+        template = assertions.Template.from_stack(stack)
+        raw_template = template.to_json()
+
+        # Parse the state machine definition
+        for resource_id, resource in raw_template["Resources"].items():
+            if resource["Type"] == "AWS::StepFunctions::StateMachine":
+                def_string = resource["Properties"]["DefinitionString"]
+                if isinstance(def_string, str):
+                    definition = json.loads(def_string)
+                else:
+                    parts = def_string["Fn::Join"]
+                    definition = json.loads("".join(str(p) for p in parts[1]))
+
+                # Verify BatchOrForward state exists
+                assert "BatchOrForward" in definition["States"], (
+                    "State machine should have BatchOrForward state"
+                )
+                # Verify RunAllScrapers transitions to BatchOrForward
+                assert definition["States"]["RunAllScrapers"]["Next"] == "BatchOrForward"
+                break
+        else:
+            pytest.fail("No StateMachine resource found")
+
+    def test_state_machine_no_batcher_step_without_lambda(self, app):
+        """State machine should not have BatchOrForward step without batcher_lambda_arn."""
+        compute_stack = ComputeStack(app, "NoBatcherCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "NoBatcherPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+        )
+        template = assertions.Template.from_stack(stack)
+        raw_template = template.to_json()
+
+        for resource_id, resource in raw_template["Resources"].items():
+            if resource["Type"] == "AWS::StepFunctions::StateMachine":
+                def_string = resource["Properties"]["DefinitionString"]
+                if isinstance(def_string, str):
+                    definition = json.loads(def_string)
+                else:
+                    parts = def_string["Fn::Join"]
+                    definition = json.loads("".join(str(p) for p in parts[1]))
+
+                assert "BatchOrForward" not in definition["States"], (
+                    "State machine should NOT have BatchOrForward without batcher"
+                )
+                # RunAllScrapers should go directly to PipelineSummary
+                assert definition["States"]["RunAllScrapers"]["Next"] == "PipelineSummary"
+                break
+        else:
+            pytest.fail("No StateMachine resource found")
+
+    def test_scraper_container_uses_staging_queue_url(self, app):
+        """Container env should use staging queue URL when provided."""
+        compute_stack = ComputeStack(app, "StagingQCompute", environment_name="dev")
+        staging_url = "https://sqs.us-east-1.amazonaws.com/123/staging.fifo"
+        stack = PipelineStack(
+            app,
+            "StagingQPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+            staging_queue_url=staging_url,
+            batcher_lambda_arn="arn:aws:lambda:us-east-1:123:function:batcher",
+        )
+        template = assertions.Template.from_stack(stack)
+        raw_template = template.to_json()
+
+        for resource_id, resource in raw_template["Resources"].items():
+            if resource["Type"] == "AWS::StepFunctions::StateMachine":
+                def_string = resource["Properties"]["DefinitionString"]
+                if isinstance(def_string, str):
+                    definition = json.loads(def_string)
+                else:
+                    parts = def_string["Fn::Join"]
+                    definition = json.loads("".join(str(p) for p in parts[1]))
+
+                run_task = definition["States"]["RunAllScrapers"]["ItemProcessor"]["States"]["RunScraperTask"]
+                overrides = run_task["Parameters"]["Overrides"]["ContainerOverrides"][0]
+                env_vars = {e["Name"]: e.get("Value", e.get("Value.$")) for e in overrides["Environment"]}
+
+                assert env_vars.get("SQS_QUEUE_URL") == staging_url, (
+                    f"SQS_QUEUE_URL should be staging queue URL, got {env_vars.get('SQS_QUEUE_URL')}"
+                )
+                break
+        else:
+            pytest.fail("No StateMachine resource found")
+
+
 class TestPipelineStackEnvironments:
     """Tests for environment-specific configuration."""
 

@@ -34,11 +34,26 @@ def _initialize_database():
     elif database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
 
+    # Lambda-optimized pool: single connection, pre-ping for frozen containers
+    is_lambda = os.environ.get("AWS_LAMBDA_FUNCTION_NAME") is not None
+    if is_lambda:
+        pool_size = 1
+        max_overflow = 2
+        pool_kwargs = {
+            "pool_pre_ping": True,
+            "pool_recycle": 300,
+        }
+    else:
+        pool_size = settings.MAX_CONNECTIONS
+        max_overflow = 0
+        pool_kwargs = {}
+
     engine = create_async_engine(
         database_url,
-        pool_size=settings.MAX_CONNECTIONS,
-        max_overflow=0,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
         echo=False,
+        **pool_kwargs,
     )
 
     # Create session factory

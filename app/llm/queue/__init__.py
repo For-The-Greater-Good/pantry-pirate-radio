@@ -1,26 +1,10 @@
-"""Queue system for LLM jobs."""
+"""Queue system for LLM jobs.
+
+Imports are lazy so lightweight environments (batch Lambdas) that only need
+a single submodule don't pull in redis, rq, etc.
+"""
 
 __version__ = "0.1.0"
-
-from app.llm.queue.backend import (
-    QueueBackend,
-    RedisQueueBackend,
-    get_queue_backend,
-    reset_queue_backend,
-)
-from app.llm.queue.backend_sqs import SQSQueueBackend
-from app.llm.queue.models import (
-    JobResult,
-    JobStatus,
-    LLMJob,
-    QueueResult,
-    RedisQueue,
-)
-
-# NOTE: llm_queue, reconciler_queue, recorder_queue are NOT imported here
-# because queues.py creates a Redis connection at module load time, which
-# crashes in SQS-based environments (AWS Fargate). Import them directly
-# from app.llm.queue.queues where needed.
 
 __all__ = [
     "JobResult",
@@ -34,3 +18,25 @@ __all__ = [
     "get_queue_backend",
     "reset_queue_backend",
 ]
+
+_LAZY_IMPORTS = {
+    "QueueBackend": "app.llm.queue.backend",
+    "RedisQueueBackend": "app.llm.queue.backend",
+    "get_queue_backend": "app.llm.queue.backend",
+    "reset_queue_backend": "app.llm.queue.backend",
+    "SQSQueueBackend": "app.llm.queue.backend_sqs",
+    "JobResult": "app.llm.queue.models",
+    "JobStatus": "app.llm.queue.models",
+    "LLMJob": "app.llm.queue.models",
+    "QueueResult": "app.llm.queue.models",
+    "RedisQueue": "app.llm.queue.models",
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_IMPORTS:
+        import importlib
+
+        module = importlib.import_module(_LAZY_IMPORTS[name])
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
