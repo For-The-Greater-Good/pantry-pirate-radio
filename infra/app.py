@@ -230,7 +230,7 @@ lambda_api_stack = LambdaApiStack(
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
     memory_size=1024,
     timeout_seconds=30,
-    provisioned_concurrent=2 if environment_name == "prod" else None,
+    provisioned_concurrent=None,
     env=env,
     description=f"Pantry Pirate Radio serverless API ({environment_name})",
 )

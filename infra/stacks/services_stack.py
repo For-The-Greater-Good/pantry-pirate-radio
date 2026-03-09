@@ -120,50 +120,54 @@ class ServicesStack(Stack):
 
         # Environment-specific configuration
         is_prod = environment_name == "prod"
-        log_retention = logs.RetentionDays.ONE_MONTH if is_prod else logs.RetentionDays.ONE_WEEK
+        log_retention = logs.RetentionDays.ONE_WEEK
 
         # Create services and expose security groups and task roles
-        self.validator_service, self.validator_security_group, self.validator_task_role = (
-            self._create_service(
-                name="validator",
-                cpu=512,
-                memory_mib=1024,
-                desired_count=1,
-                log_retention=log_retention,
-                cluster=cluster,
-                vpc=vpc,
-                environment=get_validator_environment(self.config),
-                secrets=get_validator_secrets(self.config),
-                command=["python", "-m", "app.validator.fargate_worker"],
-            )
+        (
+            self.validator_service,
+            self.validator_security_group,
+            self.validator_task_role,
+        ) = self._create_service(
+            name="validator",
+            cpu=512,
+            memory_mib=1024,
+            desired_count=1,
+            log_retention=log_retention,
+            cluster=cluster,
+            vpc=vpc,
+            environment=get_validator_environment(self.config),
+            secrets=get_validator_secrets(self.config),
+            command=["python", "-m", "app.validator.fargate_worker"],
         )
 
-        self.reconciler_service, self.reconciler_security_group, self.reconciler_task_role = (
-            self._create_service(
-                name="reconciler",
-                cpu=512,
-                memory_mib=1024,
-                desired_count=1,  # Single instance only - critical for data consistency
-                log_retention=log_retention,
-                cluster=cluster,
-                vpc=vpc,
-                environment=get_reconciler_environment(self.config),
-                secrets=get_reconciler_secrets(self.config),
-                command=["python", "-m", "app.reconciler.fargate_worker"],
-                # C4: Prevent concurrent reconciler instances during deployment.
-                # Stops old task before starting new one to avoid duplicate DB writes.
-                max_healthy_percent=100,
-                min_healthy_percent=0,
-            )
+        (
+            self.reconciler_service,
+            self.reconciler_security_group,
+            self.reconciler_task_role,
+        ) = self._create_service(
+            name="reconciler",
+            cpu=512,
+            memory_mib=1024,
+            desired_count=1,  # Single instance only - critical for data consistency
+            log_retention=log_retention,
+            cluster=cluster,
+            vpc=vpc,
+            environment=get_reconciler_environment(self.config),
+            secrets=get_reconciler_secrets(self.config),
+            command=["python", "-m", "app.reconciler.fargate_worker"],
+            # C4: Prevent concurrent reconciler instances during deployment.
+            # Stops old task before starting new one to avoid duplicate DB writes.
+            max_healthy_percent=100,
+            min_healthy_percent=0,
         )
 
         # Publisher is a one-shot task (triggered by EventBridge schedule)
         # Exports Aurora data to SQLite and uploads to S3
-        self.publisher_task_definition, self.publisher_security_group, self.publisher_task_role = (
-            self._create_publisher_task_definition(
-                log_retention=log_retention, vpc=vpc
-            )
-        )
+        (
+            self.publisher_task_definition,
+            self.publisher_security_group,
+            self.publisher_task_role,
+        ) = self._create_publisher_task_definition(log_retention=log_retention, vpc=vpc)
 
         self.recorder_service, self.recorder_security_group, self.recorder_task_role = (
             self._create_service(
@@ -181,9 +185,11 @@ class ServicesStack(Stack):
         )
 
         # Create scraper task definition (one-shot, triggered by Step Functions)
-        self.scraper_task_definition, self.scraper_security_group, self.scraper_task_role = (
-            self._create_scraper_task_definition(log_retention=log_retention, vpc=vpc)
-        )
+        (
+            self.scraper_task_definition,
+            self.scraper_security_group,
+            self.scraper_task_role,
+        ) = self._create_scraper_task_definition(log_retention=log_retention, vpc=vpc)
 
     def grant_database_access(self, proxy_security_group: ec2.ISecurityGroup) -> None:
         """Allow all pipeline services to connect to the RDS Proxy.

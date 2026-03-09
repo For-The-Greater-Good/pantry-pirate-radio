@@ -226,10 +226,10 @@ class DatabaseStack(Stack):
         Returns:
             Aurora Serverless v2 cluster
         """
-        # Environment-specific settings
-        min_capacity = 2 if is_prod else 0.5
-        max_capacity = 16 if is_prod else 2
-        backup_retention = Duration.days(30) if is_prod else Duration.days(1)
+        # Settings (unified across environments for cost parity)
+        min_capacity = 0.5
+        max_capacity = 2
+        backup_retention = Duration.days(30)
         deletion_protection = is_prod
         removal_policy = RemovalPolicy.RETAIN if is_prod else RemovalPolicy.DESTROY
 

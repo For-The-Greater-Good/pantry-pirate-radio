@@ -45,9 +45,7 @@ class TestMetabaseAccessStackResources:
 
     def test_creates_one_nlb(self, template):
         """MetabaseAccessStack should create 1 internet-facing NLB."""
-        template.resource_count_is(
-            "AWS::ElasticLoadBalancingV2::LoadBalancer", 1
-        )
+        template.resource_count_is("AWS::ElasticLoadBalancingV2::LoadBalancer", 1)
 
     def test_nlb_is_internet_facing(self, template):
         """NLB should be internet-facing for Metabase Cloud access."""

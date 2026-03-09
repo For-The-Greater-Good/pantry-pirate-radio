@@ -70,10 +70,13 @@ def get_validator_environment(config: ServiceConfig) -> dict[str, str]:
     if config.place_index_name:
         env["AMAZON_LOCATION_INDEX"] = config.place_index_name
         env["GEOCODING_PROVIDER"] = "amazon-location"
-    _warn_missing_required("Validator", {
-        "VALIDATOR_QUEUE_URL": config.queue_urls.get("validator", ""),
-        "RECONCILER_QUEUE_URL": config.queue_urls.get("reconciler", ""),
-    })
+    _warn_missing_required(
+        "Validator",
+        {
+            "VALIDATOR_QUEUE_URL": config.queue_urls.get("validator", ""),
+            "RECONCILER_QUEUE_URL": config.queue_urls.get("reconciler", ""),
+        },
+    )
     return env
 
 
@@ -106,10 +109,13 @@ def get_reconciler_environment(config: ServiceConfig) -> dict[str, str]:
         env["RECONCILER_QUEUE_URL"] = config.queue_urls["reconciler"]
     if config.queue_urls.get("recorder"):
         env["RECORDER_QUEUE_URL"] = config.queue_urls["recorder"]
-    _warn_missing_required("Reconciler", {
-        "RECONCILER_QUEUE_URL": config.queue_urls.get("reconciler", ""),
-        "RECORDER_QUEUE_URL": config.queue_urls.get("recorder", ""),
-    })
+    _warn_missing_required(
+        "Reconciler",
+        {
+            "RECONCILER_QUEUE_URL": config.queue_urls.get("reconciler", ""),
+            "RECORDER_QUEUE_URL": config.queue_urls.get("recorder", ""),
+        },
+    )
     return env
 
 
@@ -164,9 +170,12 @@ def get_recorder_environment(config: ServiceConfig) -> dict[str, str]:
         env["CONTENT_STORE_S3_BUCKET"] = config.content_bucket_name
     if config.content_index_table_name:
         env["CONTENT_STORE_DYNAMODB_TABLE"] = config.content_index_table_name
-    _warn_missing_required("Recorder", {
-        "RECORDER_QUEUE_URL": config.queue_urls.get("recorder", ""),
-    })
+    _warn_missing_required(
+        "Recorder",
+        {
+            "RECORDER_QUEUE_URL": config.queue_urls.get("recorder", ""),
+        },
+    )
     return env
 
 
@@ -205,9 +214,12 @@ def get_scraper_environment(
         env["CONTENT_STORE_S3_BUCKET"] = config.content_bucket_name
     if config.content_index_table_name:
         env["CONTENT_STORE_DYNAMODB_TABLE"] = config.content_index_table_name
-    _warn_missing_required("Scraper", {
-        "SQS_QUEUE_URL": config.queue_urls.get("llm", ""),
-    })
+    _warn_missing_required(
+        "Scraper",
+        {
+            "SQS_QUEUE_URL": config.queue_urls.get("llm", ""),
+        },
+    )
     return env
 
 

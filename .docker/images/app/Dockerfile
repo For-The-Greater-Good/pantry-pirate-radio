@@ -3,12 +3,18 @@
 # =============================================================================
 # This replaces: Dockerfile.app, Dockerfile.worker, Dockerfile.reconciler,
 # Dockerfile.recorder, Dockerfile.scraper, Dockerfile.test
+#
+# Two build paths share a common base-slim stage:
+#   base-slim → production-slim → unified-slim  (worker, validator, etc.)
+#   base-slim → base → production-base → unified (scraper, local dev)
 # =============================================================================
 
-# Base stage with common dependencies
-FROM python:3.11-slim-bullseye AS base
+# =============================================================================
+# BASE-SLIM - Core system deps without browser/OCR packages
+# =============================================================================
+FROM python:3.11-slim-bullseye AS base-slim
 
-# Install system dependencies including Node.js for Claude CLI and Playwright
+# Install core system dependencies (no browser libs, no Node.js, no OCR)
 # First add PostgreSQL 15 repository to get matching client version
 RUN apt-get update && apt-get install -y \
     curl \
@@ -20,6 +26,34 @@ RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
     fonts-liberation \
+    build-essential \
+    libpq-dev \
+    && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && apt-get update \
+    && apt-get install -y postgresql-client-15 git-lfs \
+    && git lfs install \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Install Poetry (upgrade pip and wheel first to fix CVE-2025-8869 and CVE-2026-24049)
+RUN pip install --upgrade pip>=26.0 wheel>=0.46.2 && pip install 'distlib<0.4.0' poetry
+
+# Configure Poetry
+ENV POETRY_VIRTUALENVS_CREATE=false
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock ./
+
+# =============================================================================
+# BASE - Full system deps (browser libs, Node.js, Claude CLI, OCR tools)
+# =============================================================================
+FROM base-slim AS base
+
+# Install Playwright browser system dependencies, OCR tools, and Node.js
+RUN apt-get update && apt-get install -y \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -52,19 +86,12 @@ RUN apt-get update && apt-get install -y \
     libxss1 \
     libxtst6 \
     xdg-utils \
-    build-essential \
-    libpq-dev \
     tesseract-ocr \
     tesseract-ocr-eng \
     poppler-utils \
-    && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
-    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
-    && apt-get update \
-    && apt-get install -y postgresql-client-15 git-lfs \
-    && git lfs install \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js (v18 LTS)
+# Install Node.js (v18 LTS) - needed for Claude CLI in local dev
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -72,20 +99,32 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 # Install Claude CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Set working directory
-WORKDIR /app
+# =============================================================================
+# PRODUCTION-SLIM - Python deps without browser binaries
+# =============================================================================
+FROM base-slim AS production-slim
 
-# Install Poetry (upgrade pip and wheel first to fix CVE-2025-8869 and CVE-2026-24049)
-RUN pip install --upgrade pip>=26.0 wheel>=0.46.2 && pip install 'distlib<0.4.0' poetry
+# Refresh pip to avoid attrs/pip vendor conflict during dependency resolution
+RUN pip install --upgrade pip
 
-# Configure Poetry
-ENV POETRY_VIRTUALENVS_CREATE=false
+# Install all Python dependencies (playwright pip package is tiny, ~1MB;
+# we just skip installing the browser binary and system deps)
+RUN poetry install --no-interaction --no-ansi
 
-# Copy dependency files
-COPY pyproject.toml poetry.lock ./
+# Copy everything
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/outputs /app/archives /data /app/data
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Make all scripts executable
+RUN find scripts -name "*.sh" -exec chmod +x {} \;
 
 # =============================================================================
-# PRODUCTION BASE - Complete image with everything
+# PRODUCTION BASE - Complete image with Playwright browsers
 # =============================================================================
 FROM base AS production-base
 
@@ -107,8 +146,6 @@ ENV PYTHONPATH=/app
 
 # Make all scripts executable
 RUN find scripts -name "*.sh" -exec chmod +x {} \;
-
-# Note: development-base is now same as production-base since we include everything
 
 # =============================================================================
 # FASTAPI APPLICATION SERVICE
@@ -163,7 +200,24 @@ FROM production-base AS test
 CMD ["poetry", "run", "pytest"]
 
 # =============================================================================
-# UNIFIED PRODUCTION IMAGE - Single image for all services
+# UNIFIED-SLIM - Slim image for AWS non-scraper services
+# =============================================================================
+FROM production-slim AS unified-slim
+
+# Make entrypoint script executable
+RUN chmod +x /app/scripts/docker-entrypoint.sh
+
+# Expose common ports (services can override in docker-compose)
+EXPOSE 8000 8080 9181 5050 8001
+
+# Use the unified entrypoint that selects service based on SERVICE_TYPE or args
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
+
+# Default to running the FastAPI app if no service specified
+CMD ["app"]
+
+# =============================================================================
+# UNIFIED PRODUCTION IMAGE - Single image for all services (local dev + scraper)
 # =============================================================================
 FROM production-base AS unified
 

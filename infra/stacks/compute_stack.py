@@ -74,8 +74,7 @@ class ComputeStack(Stack):
         self.desired_count = desired_count
         self.max_capacity = max_capacity
         self.ecr_repository_name = (
-            ecr_repository_name
-            or f"pantry-pirate-radio-worker-{environment_name}"
+            ecr_repository_name or f"pantry-pirate-radio-worker-{environment_name}"
         )
         self.ecr_repository = ecr_repository
         self.image_tag = image_tag
@@ -108,32 +107,25 @@ class ComputeStack(Stack):
         self.worker_service = self._create_worker_service()
 
         # Expose worker security group for database wiring
-        self.worker_security_group = (
-            self.worker_service.connections.security_groups[0]
-        )
+        self.worker_security_group = self.worker_service.connections.security_groups[0]
 
     def _create_vpc(self) -> ec2.Vpc:
         """Create VPC for ECS resources.
 
-        Uses a NAT Instance (t4g.nano, ~$3/mo) in dev for cost savings,
-        and managed NAT Gateways in prod for high availability.
+        Uses a single NAT Instance (t4g.nano, ~$3/mo) for cost savings.
+        Managed NAT Gateways ($32+/mo each) are not worth it for this workload.
         """
-        if self.environment_name == "dev":
-            nat_provider = ec2.NatProvider.instance_v2(
-                instance_type=ec2.InstanceType("t4g.nano"),
-                default_allowed_traffic=ec2.NatTrafficDirection.OUTBOUND_ONLY,
-            )
-            nat_gateways = 1
-        else:
-            nat_provider = None  # CDK default: managed NAT Gateway
-            nat_gateways = 2
+        nat_provider = ec2.NatProvider.instance_v2(
+            instance_type=ec2.InstanceType("t4g.nano"),
+            default_allowed_traffic=ec2.NatTrafficDirection.INBOUND_AND_OUTBOUND,
+        )
 
         vpc = ec2.Vpc(
             self,
             "WorkerVPC",
             vpc_name=f"pantry-pirate-radio-{self.environment_name}",
             max_azs=2,
-            nat_gateways=nat_gateways,
+            nat_gateways=1,
             nat_gateway_provider=nat_provider,
             subnet_configuration=[
                 ec2.SubnetConfiguration(
@@ -152,15 +144,18 @@ class ComputeStack(Stack):
         return vpc
 
     def _create_vpc_endpoints(self) -> None:
-        """Create free gateway VPC endpoints to reduce NAT traffic.
+        """Create VPC endpoints to reduce NAT Gateway data transfer costs.
 
         Gateway endpoints (free, no hourly charge):
-        - S3: Content store, batch bucket, exports bucket
+        - S3: Content store, batch bucket, exports bucket, ECR image layers
         - DynamoDB: Jobs table, content index, geocoding cache
 
-        Interface endpoints are intentionally omitted — their per-AZ
-        hourly cost (~$58/month for 4 endpoints) exceeds the NAT
-        data transfer savings in this workload.
+        Interface endpoints (~$14.40/month each in 2 AZs):
+        - ECR API + DKR: Docker image pull auth/metadata (layers via S3 gateway)
+        - CloudWatch Logs: All Fargate container log writes
+
+        At ~$43/month total, these save $150-200/month in NAT data transfer
+        from ECR image pulls and log writes across all Fargate services.
         """
         self.vpc.add_gateway_endpoint(
             "S3Endpoint",
@@ -169,6 +164,24 @@ class ComputeStack(Stack):
         self.vpc.add_gateway_endpoint(
             "DynamoDBEndpoint",
             service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+        )
+
+        # Interface endpoints for ECR and CloudWatch Logs
+        # These route high-volume traffic privately, bypassing NAT Gateway
+        self.vpc.add_interface_endpoint(
+            "EcrApiEndpoint",
+            service=ec2.InterfaceVpcEndpointAwsService.ECR,
+            private_dns_enabled=True,
+        )
+        self.vpc.add_interface_endpoint(
+            "EcrDkrEndpoint",
+            service=ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
+            private_dns_enabled=True,
+        )
+        self.vpc.add_interface_endpoint(
+            "CloudWatchLogsEndpoint",
+            service=ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
+            private_dns_enabled=True,
         )
 
     def _create_cluster(self) -> ecs.Cluster:
@@ -189,7 +202,7 @@ class ComputeStack(Stack):
             self,
             "WorkerLogs",
             log_group_name=f"/ecs/pantry-pirate-radio-worker-{self.environment_name}",
-            retention=logs.RetentionDays.ONE_MONTH,
+            retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=(
                 RemovalPolicy.RETAIN
                 if self.environment_name == "prod"

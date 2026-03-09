@@ -243,7 +243,7 @@ class TestDbInitStackEnvironments:
     def test_prod_log_retention(
         self, app, compute_stack_prod, database_stack_prod, secrets_stack_prod
     ):
-        """Prod environment should have 30-day log retention."""
+        """Prod environment should have 7-day log retention (unified)."""
         stack = DbInitStack(
             app,
             "ProdDbInit",
@@ -259,7 +259,7 @@ class TestDbInitStackEnvironments:
 
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
-            {"RetentionInDays": 30},
+            {"RetentionInDays": 7},
         )
 
 

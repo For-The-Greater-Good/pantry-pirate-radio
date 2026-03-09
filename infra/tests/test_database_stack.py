@@ -232,8 +232,8 @@ class TestDatabaseStackEnvironments:
             "AWS::RDS::DBCluster",
             {
                 "ServerlessV2ScalingConfiguration": {
-                    "MinCapacity": 2,
-                    "MaxCapacity": 16,
+                    "MinCapacity": 0.5,
+                    "MaxCapacity": 2,
                 }
             },
         )
@@ -286,8 +286,8 @@ class TestDatabaseStackEnvironments:
             {"BackupRetentionPeriod": 30},
         )
 
-    def test_dev_has_minimal_backup_retention(self, app):
-        """Dev environment should have 1-day backup retention."""
+    def test_dev_has_same_backup_retention(self, app):
+        """Dev environment should have same 30-day backup retention as prod."""
         compute_stack = ComputeStack(app, "ComputeStack6", environment_name="dev")
         stack = DatabaseStack(
             app,
@@ -299,7 +299,7 @@ class TestDatabaseStackEnvironments:
 
         template.has_resource_properties(
             "AWS::RDS::DBCluster",
-            {"BackupRetentionPeriod": 1},
+            {"BackupRetentionPeriod": 30},
         )
 
 

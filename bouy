@@ -2193,20 +2193,30 @@ print(json.dumps(l))
             fi
         }
 
-        # Helper: build unified Docker image
+        # Helper: build unified Docker images (slim + full)
         build_app_image() {
-            output info "Building unified Docker image..."
             DOCKERFILE=".docker/images/app/Dockerfile"
             IMAGE_TAG="latest"
 
+            output info "Building slim Docker image (for worker/validator/reconciler/recorder/publisher)..."
+            if ! docker build -t "pantry-pirate-radio-unified-slim:${IMAGE_TAG}" \
+                --platform linux/amd64 \
+                --target unified-slim \
+                -f "$DOCKERFILE" .; then
+                output error "Docker build failed (slim)"
+                exit 1
+            fi
+            output success "Slim Docker build complete"
+
+            output info "Building full Docker image (for scraper + local dev)..."
             if ! docker build -t "pantry-pirate-radio-unified:${IMAGE_TAG}" \
                 --platform linux/amd64 \
                 --target unified \
                 -f "$DOCKERFILE" .; then
-                output error "Docker build failed"
+                output error "Docker build failed (full)"
                 exit 1
             fi
-            output success "Docker build complete"
+            output success "Full Docker build complete"
         }
 
         # Helper: push images to ECR
@@ -2220,16 +2230,30 @@ print(json.dumps(l))
             fi
             output success "ECR login successful"
 
-            SERVICES="worker validator reconciler recorder scraper"
-            for svc in $SERVICES; do
+            # Slim services (no Playwright/browser deps needed)
+            SLIM_SERVICES="worker validator reconciler recorder publisher"
+            for svc in $SLIM_SERVICES; do
                 ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
-                output info "Pushing ${svc}..."
+                output info "Pushing ${svc} (slim)..."
+                docker tag "pantry-pirate-radio-unified-slim:${IMAGE_TAG}" "${ECR_REPO}:${IMAGE_TAG}"
+                if ! docker push "${ECR_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                    output error "Failed to push ${svc}"
+                    exit 1
+                fi
+                output success "Pushed ${svc} (slim)"
+            done
+
+            # Full services (need Playwright/browser deps)
+            FULL_SERVICES="scraper"
+            for svc in $FULL_SERVICES; do
+                ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
+                output info "Pushing ${svc} (full)..."
                 docker tag "pantry-pirate-radio-unified:${IMAGE_TAG}" "${ECR_REPO}:${IMAGE_TAG}"
                 if ! docker push "${ECR_REPO}:${IMAGE_TAG}" 2>/dev/null; then
                     output error "Failed to push ${svc}"
                     exit 1
                 fi
-                output success "Pushed ${svc}"
+                output success "Pushed ${svc} (full)"
             done
 
             # Build and push batch-lambda image (separate Lambda base image)

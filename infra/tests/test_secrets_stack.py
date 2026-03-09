@@ -47,18 +47,14 @@ class TestSecretsStackResources:
         """GitHub PAT secret should exist."""
         dev_template.has_resource_properties(
             "AWS::SecretsManager::Secret",
-            {
-                "Description": assertions.Match.string_like_regexp(".*GitHub.*PAT.*")
-            },
+            {"Description": assertions.Match.string_like_regexp(".*GitHub.*PAT.*")},
         )
 
     def test_llm_api_keys_secret_exists(self, dev_template):
         """LLM API keys secret should exist."""
         dev_template.has_resource_properties(
             "AWS::SecretsManager::Secret",
-            {
-                "Description": assertions.Match.string_like_regexp(".*LLM.*API.*keys.*")
-            },
+            {"Description": assertions.Match.string_like_regexp(".*LLM.*API.*keys.*")},
         )
 
 
@@ -158,22 +154,27 @@ class TestSecretsPopulation:
     def app(self):
         return cdk.App()
 
-    @patch("stacks.secrets_stack.SECRETS", {
-        "ANTHROPIC_API_KEY": "sk-ant-test",
-        "OPENROUTER_API_KEY": "sk-or-test",
-        "ARCGIS_API_KEY": "arcgis-test",
-        "DATA_REPO_TOKEN": "ghp_test",
-    })
+    @patch(
+        "stacks.secrets_stack.SECRETS",
+        {
+            "ANTHROPIC_API_KEY": "sk-ant-test",
+            "OPENROUTER_API_KEY": "sk-or-test",
+            "ARCGIS_API_KEY": "arcgis-test",
+            "DATA_REPO_TOKEN": "ghp_test",
+        },
+    )
     def test_llm_secret_populated_from_env(self, app):
         """LLM API keys secret should contain JSON from .env values."""
         stack = SecretsStack(app, "PopulatedStack", environment_name="dev")
         template = assertions.Template.from_stack(stack)
 
-        expected_json = json.dumps({
-            "ANTHROPIC_API_KEY": "sk-ant-test",
-            "OPENROUTER_API_KEY": "sk-or-test",
-            "ARCGIS_API_KEY": "arcgis-test",
-        })
+        expected_json = json.dumps(
+            {
+                "ANTHROPIC_API_KEY": "sk-ant-test",
+                "OPENROUTER_API_KEY": "sk-or-test",
+                "ARCGIS_API_KEY": "arcgis-test",
+            }
+        )
         template.has_resource_properties(
             "AWS::SecretsManager::Secret",
             {
@@ -182,9 +183,12 @@ class TestSecretsPopulation:
             },
         )
 
-    @patch("stacks.secrets_stack.SECRETS", {
-        "DATA_REPO_TOKEN": "ghp_test",
-    })
+    @patch(
+        "stacks.secrets_stack.SECRETS",
+        {
+            "DATA_REPO_TOKEN": "ghp_test",
+        },
+    )
     def test_github_pat_populated_from_env(self, app):
         """GitHub PAT secret should contain DATA_REPO_TOKEN from .env."""
         stack = SecretsStack(app, "PatStack", environment_name="dev")
@@ -207,19 +211,24 @@ class TestSecretsPopulation:
         # Both secrets should exist
         template.resource_count_is("AWS::SecretsManager::Secret", 2)
 
-    @patch("stacks.secrets_stack.SECRETS", {
-        "ANTHROPIC_API_KEY": "sk-ant-only",
-    })
+    @patch(
+        "stacks.secrets_stack.SECRETS",
+        {
+            "ANTHROPIC_API_KEY": "sk-ant-only",
+        },
+    )
     def test_partial_env_populates_available_keys(self, app):
         """LLM secret should include available keys with empty strings for missing ones."""
         stack = SecretsStack(app, "PartialStack", environment_name="dev")
         template = assertions.Template.from_stack(stack)
 
-        expected_json = json.dumps({
-            "ANTHROPIC_API_KEY": "sk-ant-only",
-            "OPENROUTER_API_KEY": "",
-            "ARCGIS_API_KEY": "",
-        })
+        expected_json = json.dumps(
+            {
+                "ANTHROPIC_API_KEY": "sk-ant-only",
+                "OPENROUTER_API_KEY": "",
+                "ARCGIS_API_KEY": "",
+            }
+        )
         template.has_resource_properties(
             "AWS::SecretsManager::Secret",
             {
