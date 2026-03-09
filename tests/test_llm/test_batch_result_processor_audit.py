@@ -32,9 +32,7 @@ class TestH4IdempotencyCheck:
         # Simulate ConditionalCheckFailedException (already processed)
         class ConditionalCheckFailedError(Exception):
             def __init__(self):
-                self.response = {
-                    "Error": {"Code": "ConditionalCheckFailedException"}
-                }
+                self.response = {"Error": {"Code": "ConditionalCheckFailedException"}}
                 super().__init__("ConditionalCheckFailedException")
 
         mock_dynamodb.update_item.side_effect = ConditionalCheckFailedError()

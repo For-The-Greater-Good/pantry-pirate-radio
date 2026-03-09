@@ -144,8 +144,8 @@ class TestC1EnqueueBeforeStore:
         self,
         mock_get_store,
         mock_enqueue,
-        mock_use_validator,
-        mock_is_sqs,
+        _mock_use_validator,
+        _mock_is_sqs,
     ):
         """When validator enqueue fails, content store should NOT have the result."""
         from datetime import datetime
@@ -187,8 +187,8 @@ class TestC1EnqueueBeforeStore:
         self,
         mock_get_store,
         mock_enqueue,
-        mock_use_validator,
-        mock_is_sqs,
+        _mock_use_validator,
+        _mock_is_sqs,
     ):
         """When validator enqueue succeeds, content store SHOULD be written."""
         from datetime import datetime
@@ -226,7 +226,7 @@ class TestH3AuthCooldown:
 
     @patch("app.llm.queue.processor._is_sqs_backend", return_value=True)
     @patch("time.sleep")
-    def test_auth_error_triggers_cooldown_in_sqs_mode(self, mock_sleep, mock_is_sqs):
+    def test_auth_error_triggers_cooldown_in_sqs_mode(self, mock_sleep, _mock_is_sqs):
         """Auth errors in SQS mode should trigger cooldown sleep."""
         from app.llm.providers.claude import ClaudeNotAuthenticatedException
         from app.llm.queue.processor import handle_claude_errors
@@ -250,7 +250,7 @@ class TestH3AuthCooldown:
 
     @patch("app.llm.queue.processor._is_sqs_backend", return_value=True)
     @patch("time.sleep")
-    def test_quota_error_triggers_cooldown_in_sqs_mode(self, mock_sleep, mock_is_sqs):
+    def test_quota_error_triggers_cooldown_in_sqs_mode(self, mock_sleep, _mock_is_sqs):
         """Quota errors in SQS mode should trigger cooldown sleep."""
         from app.llm.providers.claude import ClaudeQuotaExceededException
         from app.llm.queue.processor import handle_claude_errors
