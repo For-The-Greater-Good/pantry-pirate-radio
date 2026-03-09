@@ -202,7 +202,9 @@ class SQSQueueBackend:
         # within the 5-minute FIFO dedup window. Retries that need to bypass
         # dedup (e.g., batch_result_processor) append a UUID suffix.
         if self.queue_url.endswith(".fifo"):
-            send_kwargs["MessageDeduplicationId"] = job.id
+            # SQS FIFO dedup IDs must be <=128 chars, alphanumeric + punctuation.
+            # Job IDs are UUIDs (36 chars) but truncate defensively.
+            send_kwargs["MessageDeduplicationId"] = job.id[:128]
             send_kwargs["MessageGroupId"] = job.metadata.get("scraper_id", "default")
 
         # NOTE (M26): SQS send and DynamoDB write are not atomic. We send to

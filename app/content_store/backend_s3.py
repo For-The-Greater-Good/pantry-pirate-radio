@@ -434,8 +434,9 @@ class S3ContentStoreBackend:
         self._ensure_initialized()
         dynamodb = self._get_dynamodb_client()
 
-        # Scan table with pagination to handle tables >1MB
-        items: list = []
+        # Stream-count via paginated scan to avoid loading all items into memory
+        total = 0
+        processed = 0
         params: dict = {
             "TableName": self.dynamodb_table,
             "ProjectionExpression": "content_hash, result_path",
@@ -443,15 +444,15 @@ class S3ContentStoreBackend:
 
         while True:
             response = dynamodb.scan(**params)
-            items.extend(response.get("Items", []))
+            for item in response.get("Items", []):
+                total += 1
+                if "result_path" in item:
+                    processed += 1
 
-            # Check if there are more items to fetch
             if "LastEvaluatedKey" not in response:
                 break
             params["ExclusiveStartKey"] = response["LastEvaluatedKey"]
 
-        total = len(items)
-        processed = sum(1 for item in items if "result_path" in item)
         pending = total - processed
 
         return {
