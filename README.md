@@ -4,8 +4,6 @@
 
 ⚠️ WARNING: Licensed under sandia-ftgg-nc-os-1.0 ⚠️
 
-> **🚧 Please pardon our dust while we cleanup some aggressive refactoring and get the CI passing again**
-
 *Breaking down barriers to food security through unified resource access*
 
 [![Build Status](https://github.com/For-The-Greater-Good/pantry-pirate-radio/workflows/CI/badge.svg)](https://github.com/For-The-Greater-Good/pantry-pirate-radio/actions)
