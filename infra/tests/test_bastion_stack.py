@@ -59,9 +59,9 @@ class TestBastionStackResources:
             if resource["Type"] == "AWS::EC2::SecurityGroup":
                 props = resource.get("Properties", {})
                 ingress = props.get("SecurityGroupIngress", [])
-                assert ingress == [] or "SecurityGroupIngress" not in props, (
-                    "Bastion security group should have no inbound rules"
-                )
+                assert (
+                    ingress == [] or "SecurityGroupIngress" not in props
+                ), "Bastion security group should have no inbound rules"
 
     def test_instance_has_ssm_managed_role(self, dev_template):
         """Bastion should have IAM instance profile with SSM access."""
@@ -78,7 +78,9 @@ class TestBastionStackResources:
                             found_ssm_policy = True
                     elif isinstance(arn, str) and "AmazonSSMManagedInstanceCore" in arn:
                         found_ssm_policy = True
-        assert found_ssm_policy, "Bastion role should have AmazonSSMManagedInstanceCore policy"
+        assert (
+            found_ssm_policy
+        ), "Bastion role should have AmazonSSMManagedInstanceCore policy"
 
     def test_instance_in_private_subnet(self, dev_template):
         """Bastion should be in a private subnet."""

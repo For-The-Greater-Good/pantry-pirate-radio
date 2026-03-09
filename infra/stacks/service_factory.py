@@ -131,9 +131,7 @@ def create_fargate_service(
         cluster=cluster,
         task_definition=task_definition,
         desired_count=desired_count,
-        vpc_subnets=ec2.SubnetSelection(
-            subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-        ),
+        vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
         assign_public_ip=False,
         service_name=f"pantry-pirate-radio-{name}-{environment_name}",
         enable_execute_command=True,  # Enable ECS Exec for debugging

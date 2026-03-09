@@ -71,14 +71,20 @@ class TestBatchInferenceStackResources:
         template.has_resource_properties(
             "AWS::S3::Bucket",
             {
-                "LifecycleConfiguration": assertions.Match.object_like({
-                    "Rules": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "ExpirationInDays": 7,
-                            "Status": "Enabled",
-                        }),
-                    ]),
-                }),
+                "LifecycleConfiguration": assertions.Match.object_like(
+                    {
+                        "Rules": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "ExpirationInDays": 7,
+                                        "Status": "Enabled",
+                                    }
+                                ),
+                            ]
+                        ),
+                    }
+                ),
             },
         )
 
@@ -87,17 +93,23 @@ class TestBatchInferenceStackResources:
         template.has_resource_properties(
             "AWS::IAM::Role",
             {
-                "AssumeRolePolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Action": "sts:AssumeRole",
-                            "Effect": "Allow",
-                            "Principal": {
-                                "Service": "bedrock.amazonaws.com",
-                            },
-                        }),
-                    ]),
-                }),
+                "AssumeRolePolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": "sts:AssumeRole",
+                                        "Effect": "Allow",
+                                        "Principal": {
+                                            "Service": "bedrock.amazonaws.com",
+                                        },
+                                    }
+                                ),
+                            ]
+                        ),
+                    }
+                ),
             },
         )
 
@@ -132,7 +144,11 @@ class TestBatchInferenceStackResources:
         )
         template.has_resource_properties(
             "AWS::Lambda::Function",
-            {"PackageType": "Image", "Timeout": 900, "MemorySize": 1024},  # Result Processor
+            {
+                "PackageType": "Image",
+                "Timeout": 900,
+                "MemorySize": 1024,
+            },  # Result Processor
         )
 
     def test_creates_eventbridge_rule(self, template):
@@ -140,10 +156,12 @@ class TestBatchInferenceStackResources:
         template.has_resource_properties(
             "AWS::Events::Rule",
             {
-                "EventPattern": assertions.Match.object_like({
-                    "source": ["aws.bedrock"],
-                    "detail-type": ["Batch Inference Job State Change"],
-                }),
+                "EventPattern": assertions.Match.object_like(
+                    {
+                        "source": ["aws.bedrock"],
+                        "detail-type": ["Batch Inference Job State Change"],
+                    }
+                ),
             },
         )
 
@@ -163,9 +181,9 @@ class TestBatchInferenceStackResources:
                     resources = statement.get("Resource", [])
                     if isinstance(resources, str):
                         resources = [resources]
-                    assert "*" not in resources, (
-                        "bedrock:InvokeModel should not have Resource: *"
-                    )
+                    assert (
+                        "*" not in resources
+                    ), "bedrock:InvokeModel should not have Resource: *"
 
 
 class TestBatchInferenceStackLogging:

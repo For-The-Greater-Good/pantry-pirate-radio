@@ -38,34 +38,46 @@ class TestAppStackWiring:
     def all_stacks(self, app, environment_name, env):
         """Create all stacks with proper wiring as in app.py."""
         secrets_stack = SecretsStack(
-            app, f"SecretsStack-{environment_name}",
-            environment_name=environment_name, env=env,
+            app,
+            f"SecretsStack-{environment_name}",
+            environment_name=environment_name,
+            env=env,
         )
 
         ecr_stack = ECRStack(
-            app, f"ECRStack-{environment_name}",
-            environment_name=environment_name, env=env,
+            app,
+            f"ECRStack-{environment_name}",
+            environment_name=environment_name,
+            env=env,
         )
 
         storage_stack = StorageStack(
-            app, f"StorageStack-{environment_name}",
-            environment_name=environment_name, env=env,
+            app,
+            f"StorageStack-{environment_name}",
+            environment_name=environment_name,
+            env=env,
         )
 
         queue_stack = QueueStack(
-            app, f"QueueStack-{environment_name}",
-            environment_name=environment_name, env=env,
+            app,
+            f"QueueStack-{environment_name}",
+            environment_name=environment_name,
+            env=env,
         )
 
         compute_stack = ComputeStack(
-            app, f"ComputeStack-{environment_name}",
-            environment_name=environment_name, env=env,
+            app,
+            f"ComputeStack-{environment_name}",
+            environment_name=environment_name,
+            env=env,
         )
 
         database_stack = DatabaseStack(
-            app, f"DatabaseStack-{environment_name}",
+            app,
+            f"DatabaseStack-{environment_name}",
             vpc=compute_stack.vpc,
-            environment_name=environment_name, env=env,
+            environment_name=environment_name,
+            env=env,
         )
 
         # Create service config
@@ -83,7 +95,8 @@ class TestAppStackWiring:
         )
 
         services_stack = ServicesStack(
-            app, f"ServicesStack-{environment_name}",
+            app,
+            f"ServicesStack-{environment_name}",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
             environment_name=environment_name,
@@ -92,22 +105,28 @@ class TestAppStackWiring:
         )
 
         pipeline_stack = PipelineStack(
-            app, f"PipelineStack-{environment_name}",
+            app,
+            f"PipelineStack-{environment_name}",
             cluster=compute_stack.cluster,
             scraper_task_family=f"pantry-pirate-radio-scraper-{environment_name}",
-            environment_name=environment_name, env=env,
+            environment_name=environment_name,
+            env=env,
         )
 
         api_stack = APIStack(
-            app, f"APIStack-{environment_name}",
+            app,
+            f"APIStack-{environment_name}",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
-            environment_name=environment_name, env=env,
+            environment_name=environment_name,
+            env=env,
         )
 
         monitoring_stack = MonitoringStack(
-            app, f"MonitoringStack-{environment_name}",
-            environment_name=environment_name, env=env,
+            app,
+            f"MonitoringStack-{environment_name}",
+            environment_name=environment_name,
+            env=env,
         )
 
         # Grant permissions (mirroring app.py)
@@ -131,36 +150,62 @@ class TestAppStackWiring:
         database_stack.allow_connection_from(services_stack.recorder_security_group)
         database_stack.allow_connection_from(services_stack.scraper_security_group)
         database_stack.allow_connection_from(compute_stack.worker_security_group)
-        database_stack.allow_connection_from(api_stack.api_service.service.connections.security_groups[0])
+        database_stack.allow_connection_from(
+            api_stack.api_service.service.connections.security_groups[0]
+        )
 
         # IAM permission grants
 
         # Validator permissions
-        queue_stack.validator_queue.grant_consume_messages(services_stack.validator_task_role)
-        queue_stack.reconciler_queue.grant_send_messages(services_stack.validator_task_role)
-        database_stack.geocoding_cache_table.grant_read_write_data(services_stack.validator_task_role)
+        queue_stack.validator_queue.grant_consume_messages(
+            services_stack.validator_task_role
+        )
+        queue_stack.reconciler_queue.grant_send_messages(
+            services_stack.validator_task_role
+        )
+        database_stack.geocoding_cache_table.grant_read_write_data(
+            services_stack.validator_task_role
+        )
         storage_stack.content_bucket.grant_read(services_stack.validator_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.validator_task_role)
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.validator_task_role
+        )
 
         # Reconciler permissions
-        queue_stack.reconciler_queue.grant_consume_messages(services_stack.reconciler_task_role)
-        queue_stack.recorder_queue.grant_send_messages(services_stack.reconciler_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.reconciler_task_role)
+        queue_stack.reconciler_queue.grant_consume_messages(
+            services_stack.reconciler_task_role
+        )
+        queue_stack.recorder_queue.grant_send_messages(
+            services_stack.reconciler_task_role
+        )
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.reconciler_task_role
+        )
 
         # Publisher permissions
         secrets_stack.github_pat_secret.grant_read(services_stack.publisher_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.publisher_task_role)
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.publisher_task_role
+        )
 
         # Recorder permissions
-        queue_stack.recorder_queue.grant_consume_messages(services_stack.recorder_task_role)
+        queue_stack.recorder_queue.grant_consume_messages(
+            services_stack.recorder_task_role
+        )
         storage_stack.content_bucket.grant_read_write(services_stack.recorder_task_role)
-        storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_task_role)
+        storage_stack.content_index_table.grant_read_write_data(
+            services_stack.recorder_task_role
+        )
 
         # Scraper permissions
         queue_stack.llm_queue.grant_send_messages(services_stack.scraper_task_role)
         storage_stack.content_bucket.grant_read_write(services_stack.scraper_task_role)
-        storage_stack.content_index_table.grant_read_write_data(services_stack.scraper_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.scraper_task_role)
+        storage_stack.content_index_table.grant_read_write_data(
+            services_stack.scraper_task_role
+        )
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.scraper_task_role
+        )
 
         # Worker (LLM) permissions
         queue_stack.validator_queue.grant_send_messages(compute_stack.task_role)
@@ -210,27 +255,43 @@ class TestValidatorIAMPermissions:
     @pytest.fixture
     def wired_services_template(self, app, env):
         """Create services stack with IAM grants and return template."""
-        compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev", env=env)
+        compute_stack = ComputeStack(
+            app, "ComputeStack", environment_name="dev", env=env
+        )
         queue_stack = QueueStack(app, "QueueStack", environment_name="dev", env=env)
         database_stack = DatabaseStack(
-            app, "DatabaseStack",
+            app,
+            "DatabaseStack",
             vpc=compute_stack.vpc,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
-        storage_stack = StorageStack(app, "StorageStack", environment_name="dev", env=env)
+        storage_stack = StorageStack(
+            app, "StorageStack", environment_name="dev", env=env
+        )
         services_stack = ServicesStack(
-            app, "ServicesStack",
+            app,
+            "ServicesStack",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
 
         # Grant Validator permissions
-        queue_stack.validator_queue.grant_consume_messages(services_stack.validator_task_role)
-        queue_stack.reconciler_queue.grant_send_messages(services_stack.validator_task_role)
-        database_stack.geocoding_cache_table.grant_read_write_data(services_stack.validator_task_role)
+        queue_stack.validator_queue.grant_consume_messages(
+            services_stack.validator_task_role
+        )
+        queue_stack.reconciler_queue.grant_send_messages(
+            services_stack.validator_task_role
+        )
+        database_stack.geocoding_cache_table.grant_read_write_data(
+            services_stack.validator_task_role
+        )
         storage_stack.content_bucket.grant_read(services_stack.validator_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.validator_task_role)
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.validator_task_role
+        )
 
         return assertions.Template.from_stack(services_stack)
 
@@ -240,15 +301,21 @@ class TestValidatorIAMPermissions:
         wired_services_template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Action": assertions.Match.any_value(),
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
-            }
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": assertions.Match.any_value(),
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
         )
 
 
@@ -268,24 +335,36 @@ class TestReconcilerIAMPermissions:
     @pytest.fixture
     def wired_services_template(self, app, env):
         """Create services stack with IAM grants and return template."""
-        compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev", env=env)
+        compute_stack = ComputeStack(
+            app, "ComputeStack", environment_name="dev", env=env
+        )
         queue_stack = QueueStack(app, "QueueStack", environment_name="dev", env=env)
         database_stack = DatabaseStack(
-            app, "DatabaseStack",
+            app,
+            "DatabaseStack",
             vpc=compute_stack.vpc,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
         services_stack = ServicesStack(
-            app, "ServicesStack",
+            app,
+            "ServicesStack",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
 
         # Grant Reconciler permissions
-        queue_stack.reconciler_queue.grant_consume_messages(services_stack.reconciler_task_role)
-        queue_stack.recorder_queue.grant_send_messages(services_stack.reconciler_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.reconciler_task_role)
+        queue_stack.reconciler_queue.grant_consume_messages(
+            services_stack.reconciler_task_role
+        )
+        queue_stack.recorder_queue.grant_send_messages(
+            services_stack.reconciler_task_role
+        )
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.reconciler_task_role
+        )
 
         return assertions.Template.from_stack(services_stack)
 
@@ -294,14 +373,20 @@ class TestReconcilerIAMPermissions:
         wired_services_template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
-            }
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
         )
 
 
@@ -321,9 +406,13 @@ class TestWorkerIAMPermissions:
     @pytest.fixture
     def wired_compute_template(self, app, env):
         """Create compute stack with IAM grants and return template."""
-        compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev", env=env)
+        compute_stack = ComputeStack(
+            app, "ComputeStack", environment_name="dev", env=env
+        )
         queue_stack = QueueStack(app, "QueueStack", environment_name="dev", env=env)
-        secrets_stack = SecretsStack(app, "SecretsStack", environment_name="dev", env=env)
+        secrets_stack = SecretsStack(
+            app, "SecretsStack", environment_name="dev", env=env
+        )
 
         # Grant Worker permissions
         queue_stack.validator_queue.grant_send_messages(compute_stack.task_role)
@@ -337,14 +426,20 @@ class TestWorkerIAMPermissions:
         wired_compute_template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
-            }
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
         )
 
 
@@ -364,27 +459,39 @@ class TestScraperIAMPermissions:
     @pytest.fixture
     def wired_services_template(self, app, env):
         """Create services stack with IAM grants and return template."""
-        compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev", env=env)
+        compute_stack = ComputeStack(
+            app, "ComputeStack", environment_name="dev", env=env
+        )
         queue_stack = QueueStack(app, "QueueStack", environment_name="dev", env=env)
         database_stack = DatabaseStack(
-            app, "DatabaseStack",
+            app,
+            "DatabaseStack",
             vpc=compute_stack.vpc,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
-        storage_stack = StorageStack(app, "StorageStack", environment_name="dev", env=env)
+        storage_stack = StorageStack(
+            app, "StorageStack", environment_name="dev", env=env
+        )
         services_stack = ServicesStack(
-            app, "ServicesStack",
+            app,
+            "ServicesStack",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
 
         # Grant Scraper permissions
         queue_stack.llm_queue.grant_send_messages(services_stack.scraper_task_role)
         storage_stack.content_bucket.grant_read_write(services_stack.scraper_task_role)
-        storage_stack.content_index_table.grant_read_write_data(services_stack.scraper_task_role)
+        storage_stack.content_index_table.grant_read_write_data(
+            services_stack.scraper_task_role
+        )
         storage_stack.jobs_table.grant_read_write_data(services_stack.scraper_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.scraper_task_role)
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.scraper_task_role
+        )
 
         return assertions.Template.from_stack(services_stack)
 
@@ -393,14 +500,20 @@ class TestScraperIAMPermissions:
         wired_services_template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
-            }
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
         )
 
 
@@ -420,23 +533,33 @@ class TestPublisherIAMPermissions:
     @pytest.fixture
     def wired_services_template(self, app, env):
         """Create services stack with IAM grants and return template."""
-        compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev", env=env)
-        database_stack = DatabaseStack(
-            app, "DatabaseStack",
-            vpc=compute_stack.vpc,
-            environment_name="dev", env=env,
+        compute_stack = ComputeStack(
+            app, "ComputeStack", environment_name="dev", env=env
         )
-        secrets_stack = SecretsStack(app, "SecretsStack", environment_name="dev", env=env)
+        database_stack = DatabaseStack(
+            app,
+            "DatabaseStack",
+            vpc=compute_stack.vpc,
+            environment_name="dev",
+            env=env,
+        )
+        secrets_stack = SecretsStack(
+            app, "SecretsStack", environment_name="dev", env=env
+        )
         services_stack = ServicesStack(
-            app, "ServicesStack",
+            app,
+            "ServicesStack",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
 
         # Grant Publisher permissions
         secrets_stack.github_pat_secret.grant_read(services_stack.publisher_task_role)
-        database_stack.database_credentials_secret.grant_read(services_stack.publisher_task_role)
+        database_stack.database_credentials_secret.grant_read(
+            services_stack.publisher_task_role
+        )
 
         return assertions.Template.from_stack(services_stack)
 
@@ -445,14 +568,20 @@ class TestPublisherIAMPermissions:
         wired_services_template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
-            }
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
         )
 
 
@@ -472,20 +601,30 @@ class TestRecorderIAMPermissions:
     @pytest.fixture
     def wired_services_template(self, app, env):
         """Create services stack with IAM grants and return template."""
-        compute_stack = ComputeStack(app, "ComputeStack", environment_name="dev", env=env)
+        compute_stack = ComputeStack(
+            app, "ComputeStack", environment_name="dev", env=env
+        )
         queue_stack = QueueStack(app, "QueueStack", environment_name="dev", env=env)
-        storage_stack = StorageStack(app, "StorageStack", environment_name="dev", env=env)
+        storage_stack = StorageStack(
+            app, "StorageStack", environment_name="dev", env=env
+        )
         services_stack = ServicesStack(
-            app, "ServicesStack",
+            app,
+            "ServicesStack",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
-            environment_name="dev", env=env,
+            environment_name="dev",
+            env=env,
         )
 
         # Grant Recorder permissions
-        queue_stack.recorder_queue.grant_consume_messages(services_stack.recorder_task_role)
+        queue_stack.recorder_queue.grant_consume_messages(
+            services_stack.recorder_task_role
+        )
         storage_stack.content_bucket.grant_read_write(services_stack.recorder_task_role)
-        storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_task_role)
+        storage_stack.content_index_table.grant_read_write_data(
+            services_stack.recorder_task_role
+        )
 
         return assertions.Template.from_stack(services_stack)
 
@@ -494,12 +633,18 @@ class TestRecorderIAMPermissions:
         wired_services_template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
-            }
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
         )

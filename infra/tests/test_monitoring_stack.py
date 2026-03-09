@@ -216,7 +216,9 @@ class TestMonitoringStackAlarms:
 
     # --- H1-H8: Fargate CPU/Memory alarms ---
 
-    @pytest.mark.parametrize("service", ["worker", "validator", "reconciler", "recorder"])
+    @pytest.mark.parametrize(
+        "service", ["worker", "validator", "reconciler", "recorder"]
+    )
     def test_fargate_cpu_alarm_exists(self, template, service):
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
@@ -230,7 +232,9 @@ class TestMonitoringStackAlarms:
             },
         )
 
-    @pytest.mark.parametrize("service", ["worker", "validator", "reconciler", "recorder"])
+    @pytest.mark.parametrize(
+        "service", ["worker", "validator", "reconciler", "recorder"]
+    )
     def test_fargate_memory_alarm_exists(self, template, service):
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
@@ -270,7 +274,9 @@ class TestMonitoringStackAlarms:
 
     # --- H17-H20: Queue depth alarms ---
 
-    @pytest.mark.parametrize("queue_slug", ["validator", "reconciler", "recorder", "staging"])
+    @pytest.mark.parametrize(
+        "queue_slug", ["validator", "reconciler", "recorder", "staging"]
+    )
     def test_service_queue_depth_alarm_exists(self, template, queue_slug):
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
@@ -299,7 +305,8 @@ class TestMonitoringStackConfiguration:
 
     def test_custom_service_names(self, app):
         stack = MonitoringStack(
-            app, "CustomNamesStack",
+            app,
+            "CustomNamesStack",
             environment_name="prod",
             worker_service_name="custom-worker",
             cluster_name="custom-cluster",
@@ -330,7 +337,10 @@ class TestMonitoringStackConfiguration:
         assert stack.state_machine_name == "pantry-pirate-scraper-pipeline-dev"
         assert stack.staging_queue_name == "pantry-pirate-radio-staging-dev.fifo"
         assert stack.content_index_table_name == "pantry-pirate-radio-content-index-dev"
-        assert stack.geocoding_cache_table_name == "pantry-pirate-radio-geocoding-cache-dev"
+        assert (
+            stack.geocoding_cache_table_name
+            == "pantry-pirate-radio-geocoding-cache-dev"
+        )
         assert stack.content_bucket_name == "pantry-pirate-radio-content-dev"
         assert stack.batch_bucket_name == "pantry-pirate-radio-batch-dev"
         assert stack.exports_bucket_name == "pantry-pirate-radio-exports-dev"
@@ -347,10 +357,14 @@ class TestMonitoringStackConfiguration:
     def test_batch_inference_section_conditional(self, app):
         """Batch inference section only renders when batcher_function_name provided."""
         stack_without = MonitoringStack(
-            app, "NoBatchStack", environment_name="dev",
+            app,
+            "NoBatchStack",
+            environment_name="dev",
         )
         stack_with = MonitoringStack(
-            app, "WithBatchStack", environment_name="dev",
+            app,
+            "WithBatchStack",
+            environment_name="dev",
             batcher_function_name="my-batcher",
             result_processor_function_name="my-processor",
         )
@@ -361,13 +375,17 @@ class TestMonitoringStackConfiguration:
     def test_lambda_alarms_conditional(self):
         """Lambda error/throttle alarms only created when function names provided."""
         app_without = cdk.App()
-        stack_without = MonitoringStack(app_without, "NoLambdaAlarmStack", environment_name="dev")
+        stack_without = MonitoringStack(
+            app_without, "NoLambdaAlarmStack", environment_name="dev"
+        )
         tmpl_without = assertions.Template.from_stack(stack_without)
         tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 30)
 
         app_with = cdk.App()
         stack_with = MonitoringStack(
-            app_with, "WithLambdaAlarmStack", environment_name="dev",
+            app_with,
+            "WithLambdaAlarmStack",
+            environment_name="dev",
             batcher_function_name="my-batcher",
             result_processor_function_name="my-processor",
         )
@@ -377,7 +395,9 @@ class TestMonitoringStackConfiguration:
 
     def test_batcher_lambda_error_alarm(self, app):
         stack = MonitoringStack(
-            app, "BatcherErrorStack", environment_name="dev",
+            app,
+            "BatcherErrorStack",
+            environment_name="dev",
             batcher_function_name="my-batcher",
             result_processor_function_name="my-processor",
         )
@@ -389,14 +409,19 @@ class TestMonitoringStackConfiguration:
 
     def test_result_processor_lambda_throttle_alarm(self, app):
         stack = MonitoringStack(
-            app, "RPThrottleStack", environment_name="dev",
+            app,
+            "RPThrottleStack",
+            environment_name="dev",
             batcher_function_name="my-batcher",
             result_processor_function_name="my-processor",
         )
         template = assertions.Template.from_stack(stack)
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
-            {"AlarmName": "ppr-dev-result-processor-lambda-throttle", "Namespace": "AWS/Lambda"},
+            {
+                "AlarmName": "ppr-dev-result-processor-lambda-throttle",
+                "Namespace": "AWS/Lambda",
+            },
         )
 
 
@@ -413,7 +438,9 @@ class TestMonitoringStackBedrock:
 
     def test_custom_bedrock_model_id(self, app):
         stack = MonitoringStack(
-            app, "CustomBedrockStack", environment_name="dev",
+            app,
+            "CustomBedrockStack",
+            environment_name="dev",
             bedrock_model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
         )
         assert stack.bedrock_model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
@@ -453,7 +480,9 @@ class TestMonitoringStackAutoScaling:
 
     def test_custom_scaling_service_names(self, app):
         stack = MonitoringStack(
-            app, "CustomScalingStack", environment_name="dev",
+            app,
+            "CustomScalingStack",
+            environment_name="dev",
             validator_service_name="custom-validator",
             reconciler_service_name="custom-reconciler",
             recorder_service_name="custom-recorder",

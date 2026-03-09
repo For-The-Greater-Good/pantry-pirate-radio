@@ -96,7 +96,9 @@ class PipelineStack(Stack):
                 else scraper_container_name
             )
         else:
-            raise ValueError("Either scraper_task_family or scraper_task_definition must be provided")
+            raise ValueError(
+                "Either scraper_task_family or scraper_task_definition must be provided"
+            )
 
         # Create state machine
         self.state_machine = self._create_state_machine(
@@ -109,9 +111,7 @@ class PipelineStack(Stack):
         )
 
         # Create EventBridge schedule rule for scrapers
-        self.schedule_rule = self._create_schedule_rule(
-            enabled=schedule_enabled
-        )
+        self.schedule_rule = self._create_schedule_rule(enabled=schedule_enabled)
 
         # Create EventBridge schedule rule for publisher (SQLite export to S3)
         self.publisher_schedule_rule: events.Rule | None = None
@@ -166,10 +166,12 @@ class PipelineStack(Stack):
 
         # Override SQS_QUEUE_URL to staging queue when batch inference is enabled
         if staging_queue_url:
-            container_env.append({
-                "Name": "SQS_QUEUE_URL",
-                "Value": staging_queue_url,
-            })
+            container_env.append(
+                {
+                    "Name": "SQS_QUEUE_URL",
+                    "Value": staging_queue_url,
+                }
+            )
 
         # Determine what RunAllScrapers transitions to
         after_scrapers = "BatchOrForward" if batcher_lambda_arn else "PipelineSummary"
@@ -302,9 +304,7 @@ class PipelineStack(Stack):
             self,
             "ScraperPipeline",
             state_machine_name=f"pantry-pirate-scraper-pipeline-{self.environment_name}",
-            definition_body=sfn.DefinitionBody.from_string(
-                json.dumps(definition)
-            ),
+            definition_body=sfn.DefinitionBody.from_string(json.dumps(definition)),
             timeout=Duration.hours(4),
             tracing_enabled=True,
         )
@@ -316,8 +316,7 @@ class PipelineStack(Stack):
             f":task-definition/pantry-pirate-radio-*"
         )
         task_arn = (
-            f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}"
-            f":task/*"
+            f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}" f":task/*"
         )
         state_machine.add_to_role_policy(
             iam.PolicyStatement(
@@ -394,9 +393,7 @@ class PipelineStack(Stack):
         rule.add_target(
             targets.SfnStateMachine(
                 self.state_machine,
-                input=events.RuleTargetInput.from_object(
-                    {"scrapers": self._scrapers}
-                ),
+                input=events.RuleTargetInput.from_object({"scrapers": self._scrapers}),
             )
         )
 
@@ -447,15 +444,17 @@ class PipelineStack(Stack):
                 "ImportedPublisherTaskRole",
                 role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
             )
-        imported_task_def = ecs.FargateTaskDefinition.from_fargate_task_definition_attributes(
-            self,
-            "ImportedPublisherTask",
-            task_definition_arn=(
-                f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}"
-                f":task-definition/{publisher_task_family}"
-            ),
-            network_mode=ecs.NetworkMode.AWS_VPC,
-            task_role=imported_task_role,
+        imported_task_def = (
+            ecs.FargateTaskDefinition.from_fargate_task_definition_attributes(
+                self,
+                "ImportedPublisherTask",
+                task_definition_arn=(
+                    f"arn:aws:ecs:{Stack.of(self).region}:{Stack.of(self).account}"
+                    f":task-definition/{publisher_task_family}"
+                ),
+                network_mode=ecs.NetworkMode.AWS_VPC,
+                task_role=imported_task_role,
+            )
         )
 
         rule.add_target(

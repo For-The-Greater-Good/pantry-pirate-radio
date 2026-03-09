@@ -21,9 +21,11 @@ class TestAPIStackResources:
     @pytest.fixture
     def vpc_stack(self, app):
         """Create a VPC stack for testing."""
-        stack = cdk.Stack(app, "VPCStack", env=cdk.Environment(
-            account="123456789012", region="us-east-1"
-        ))
+        stack = cdk.Stack(
+            app,
+            "VPCStack",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
         vpc = ec2.Vpc(stack, "VPC", max_azs=2)
         return stack, vpc
 
@@ -105,9 +107,11 @@ class TestAPIStackTaskDefinition:
     @pytest.fixture
     def vpc_stack(self, app):
         """Create a VPC stack for testing."""
-        stack = cdk.Stack(app, "VPCStack2", env=cdk.Environment(
-            account="123456789012", region="us-east-1"
-        ))
+        stack = cdk.Stack(
+            app,
+            "VPCStack2",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
         vpc = ec2.Vpc(stack, "VPC", max_azs=2)
         return stack, vpc
 
@@ -201,9 +205,11 @@ class TestAPIStackAutoScaling:
     @pytest.fixture
     def vpc_stack(self, app):
         """Create a VPC stack for testing."""
-        stack = cdk.Stack(app, "VPCStack3", env=cdk.Environment(
-            account="123456789012", region="us-east-1"
-        ))
+        stack = cdk.Stack(
+            app,
+            "VPCStack3",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
         vpc = ec2.Vpc(stack, "VPC", max_azs=2)
         return stack, vpc
 
@@ -235,16 +241,12 @@ class TestAPIStackAutoScaling:
 
     def test_creates_scalable_target(self, template):
         """Stack should create auto-scaling target."""
-        template.resource_count_is(
-            "AWS::ApplicationAutoScaling::ScalableTarget", 1
-        )
+        template.resource_count_is("AWS::ApplicationAutoScaling::ScalableTarget", 1)
 
     def test_creates_scaling_policies(self, template):
         """Stack should create scaling policies."""
         # Should have CPU and request-based scaling policies
-        template.resource_count_is(
-            "AWS::ApplicationAutoScaling::ScalingPolicy", 2
-        )
+        template.resource_count_is("AWS::ApplicationAutoScaling::ScalingPolicy", 2)
 
     def test_scalable_target_has_correct_capacity(self, template):
         """Scalable target should have correct min/max capacity."""
@@ -268,9 +270,11 @@ class TestAPIStackAttributes:
     @pytest.fixture
     def vpc_stack(self, app):
         """Create a VPC stack for testing."""
-        stack = cdk.Stack(app, "VPCStack4", env=cdk.Environment(
-            account="123456789012", region="us-east-1"
-        ))
+        stack = cdk.Stack(
+            app,
+            "VPCStack4",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
         vpc = ec2.Vpc(stack, "VPC", max_azs=2)
         return stack, vpc
 
@@ -326,9 +330,11 @@ class TestAPIStackWithECRRepository:
     @pytest.fixture
     def vpc_stack(self, app):
         """Create a VPC stack for testing."""
-        stack = cdk.Stack(app, "VPCStack5", env=cdk.Environment(
-            account="123456789012", region="us-east-1"
-        ))
+        stack = cdk.Stack(
+            app,
+            "VPCStack5",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
         vpc = ec2.Vpc(stack, "VPC", max_azs=2)
         return stack, vpc
 
@@ -342,7 +348,9 @@ class TestAPIStackWithECRRepository:
     def ecr_stack(self, app):
         """Create ECR stack for repository objects."""
         return ECRStack(
-            app, "ECRTestStack", environment_name="dev",
+            app,
+            "ECRTestStack",
+            environment_name="dev",
             env=cdk.Environment(account="123456789012", region="us-east-1"),
         )
 
@@ -360,7 +368,9 @@ class TestAPIStackWithECRRepository:
         )
         assert api_stack.api_service is not None
 
-    def test_ecr_repo_auto_grants_pull_permissions(self, app, vpc_stack, cluster, ecr_stack):
+    def test_ecr_repo_auto_grants_pull_permissions(
+        self, app, vpc_stack, cluster, ecr_stack
+    ):
         """Using ECR repo object should auto-grant image pull permissions."""
         stack, vpc = vpc_stack
         api_stack = APIStack(
@@ -376,15 +386,23 @@ class TestAPIStackWithECRRepository:
         template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Action": assertions.Match.array_with([
-                                "ecr:BatchCheckLayerAvailability",
-                            ]),
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": assertions.Match.array_with(
+                                            [
+                                                "ecr:BatchCheckLayerAvailability",
+                                            ]
+                                        ),
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
             },
         )

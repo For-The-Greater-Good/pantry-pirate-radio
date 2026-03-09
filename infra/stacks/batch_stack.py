@@ -211,9 +211,7 @@ class BatchInferenceStack(Stack):
 
         return role
 
-    def _create_docker_image_code(
-        self, cmd: list[str]
-    ) -> _lambda.DockerImageCode:
+    def _create_docker_image_code(self, cmd: list[str]) -> _lambda.DockerImageCode:
         """Create Docker image code from ECR or local asset.
 
         Args:
@@ -379,9 +377,7 @@ class BatchInferenceStack(Stack):
             ),
         )
 
-        rule.add_target(
-            targets.LambdaFunction(self.result_processor_lambda)
-        )
+        rule.add_target(targets.LambdaFunction(self.result_processor_lambda))
 
         self.eventbridge_rule = rule
         return rule

@@ -74,8 +74,7 @@ class ComputeStack(Stack):
         self.desired_count = desired_count
         self.max_capacity = max_capacity
         self.ecr_repository_name = (
-            ecr_repository_name
-            or f"pantry-pirate-radio-worker-{environment_name}"
+            ecr_repository_name or f"pantry-pirate-radio-worker-{environment_name}"
         )
         self.ecr_repository = ecr_repository
         self.image_tag = image_tag
@@ -108,9 +107,7 @@ class ComputeStack(Stack):
         self.worker_service = self._create_worker_service()
 
         # Expose worker security group for database wiring
-        self.worker_security_group = (
-            self.worker_service.connections.security_groups[0]
-        )
+        self.worker_security_group = self.worker_service.connections.security_groups[0]
 
     def _create_vpc(self) -> ec2.Vpc:
         """Create VPC for ECS resources.

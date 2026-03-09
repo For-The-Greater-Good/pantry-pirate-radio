@@ -95,14 +95,16 @@ class LambdaApiStack(Stack):
             self,
             "ApiFunction",
             function_name=f"pantry-pirate-radio-api-{environment_name}",
-            code=_lambda.DockerImageCode.from_ecr(
-                repository=ecr_repository,
-                tag_or_digest="latest",
-            )
-            if ecr_repository
-            else _lambda.DockerImageCode.from_image_asset(
-                directory=".",
-                file="docker/images/api-lambda/Dockerfile",
+            code=(
+                _lambda.DockerImageCode.from_ecr(
+                    repository=ecr_repository,
+                    tag_or_digest="latest",
+                )
+                if ecr_repository
+                else _lambda.DockerImageCode.from_image_asset(
+                    directory=".",
+                    file="docker/images/api-lambda/Dockerfile",
+                )
             ),
             architecture=_lambda.Architecture.ARM_64,
             memory_size=memory_size,
@@ -207,7 +209,9 @@ class LambdaApiStack(Stack):
         )
 
         # Outputs
-        self.api_url = f"https://{self.http_api.ref}.execute-api.{self.region}.amazonaws.com"
+        self.api_url = (
+            f"https://{self.http_api.ref}.execute-api.{self.region}.amazonaws.com"
+        )
 
         CfnOutput(
             self,
@@ -223,9 +227,7 @@ class LambdaApiStack(Stack):
             description="Lambda function name",
         )
 
-    def grant_database_access(
-        self, proxy_security_group: ec2.ISecurityGroup
-    ) -> None:
+    def grant_database_access(self, proxy_security_group: ec2.ISecurityGroup) -> None:
         """Allow Lambda to connect to RDS Proxy.
 
         Uses L1 CfnSecurityGroupIngress to avoid circular cross-stack references.

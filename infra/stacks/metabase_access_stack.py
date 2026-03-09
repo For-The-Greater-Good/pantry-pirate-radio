@@ -116,7 +116,8 @@ class MetabaseAccessStack(Stack):
         )
 
         # Lambda function to resolve proxy DNS and sync target IPs
-        ip_sync_code = textwrap.dedent("""\
+        ip_sync_code = textwrap.dedent(
+            """\
             import json
             import os
             import socket
@@ -172,7 +173,8 @@ class MetabaseAccessStack(Stack):
                 except Exception as e:
                     print(f"ERROR: IP sync failed: {e}")
                     raise
-        """)
+        """
+        )
 
         ip_sync_log_group = logs.LogGroup(
             self,

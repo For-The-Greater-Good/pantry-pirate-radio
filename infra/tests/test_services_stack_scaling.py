@@ -31,7 +31,8 @@ class TestServicesStackAutoScaling:
     def stack_with_all_scaling(self, app, compute_stack, queue_stack):
         """Create services stack with all services auto-scaled."""
         stack = ServicesStack(
-            app, "AllScalingStack",
+            app,
+            "AllScalingStack",
             environment_name="dev",
             vpc=compute_stack.vpc,
             cluster=compute_stack.cluster,
@@ -86,7 +87,8 @@ class TestServicesStackAutoScaling:
         """Passing only validator_queue should create scaling for validator only."""
         compute = ComputeStack(app, "PartialCompute", environment_name="dev")
         stack = ServicesStack(
-            app, "PartialScaleStack",
+            app,
+            "PartialScaleStack",
             environment_name="dev",
             vpc=compute.vpc,
             cluster=compute.cluster,
@@ -100,7 +102,8 @@ class TestServicesStackAutoScaling:
         """Without configure_auto_scaling(), no scaling resources should exist."""
         compute = ComputeStack(app, "NoScaleCompute", environment_name="dev")
         stack = ServicesStack(
-            app, "NoScaleServicesStack",
+            app,
+            "NoScaleServicesStack",
             environment_name="dev",
             vpc=compute.vpc,
             cluster=compute.cluster,
