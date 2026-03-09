@@ -325,12 +325,17 @@ class ComputeStack(Stack):
                 }.items()
                 if v is not None
             },
-            # Health check for the worker
+            # Health check: use /proc/1/cmdline instead of pgrep
+            # (procps is not installed in python:3.11-slim-bullseye)
             health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "pgrep -f 'worker' || exit 1"],
+                command=[
+                    "CMD-SHELL",
+                    "cat /proc/1/cmdline | tr '\\0' ' ' | grep -q worker || exit 1",
+                ],
                 interval=Duration.seconds(30),
                 timeout=Duration.seconds(5),
                 retries=3,
+                start_period=Duration.seconds(60),
             ),
         )
 
