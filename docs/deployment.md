@@ -2,6 +2,8 @@
 
 This guide covers deploying Pantry Pirate Radio in production environments.
 
+> **AWS Deployment**: For deploying on AWS using CDK infrastructure (ECS Fargate, SQS, S3, Aurora), see the [AWS Deployment Guide](aws-deployment.md).
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
@@ -289,9 +291,13 @@ spec:
 The content deduplication store prevents duplicate LLM processing:
 
 ```bash
-# Content Store Settings
+# Content Store Settings (Local Development)
 CONTENT_STORE_PATH=/data/content-store  # Path to store content hashes
 CONTENT_STORE_ENABLED=true              # Enable deduplication (default: true if path set)
+
+# For AWS deployment, use S3 + DynamoDB backend instead
+# See docs/aws-deployment.md for configuration
+CONTENT_STORE_BACKEND=s3  # Use S3ContentStoreBackend
 ```
 
 #### Production Considerations

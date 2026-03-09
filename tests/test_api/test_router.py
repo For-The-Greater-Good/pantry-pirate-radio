@@ -168,7 +168,7 @@ class TestAPIRouter:
         mock_request = MagicMock(spec=Request)
         mock_request.state.correlation_id = "test-correlation-id"
 
-        with patch("app.api.v1.router.OpenAIProvider") as mock_provider_class:
+        with patch("app.llm.providers.openai.OpenAIProvider") as mock_provider_class:
             mock_provider = MagicMock()
             mock_provider.health_check = AsyncMock()
             mock_provider_class.return_value = mock_provider
@@ -188,7 +188,7 @@ class TestAPIRouter:
         mock_request = MagicMock(spec=Request)
         mock_request.state.correlation_id = "test-correlation-id"
 
-        with patch("app.api.v1.router.Redis") as mock_redis_class:
+        with patch("redis.asyncio.Redis") as mock_redis_class:
             mock_redis = MagicMock()
             mock_redis.ping = AsyncMock()
             mock_redis.info = AsyncMock(

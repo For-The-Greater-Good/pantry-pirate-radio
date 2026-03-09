@@ -1,0 +1,225 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+      - 'app/**'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-aws.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Run CDK tests
+        working-directory: infra
+        run: pytest -v
+
+  build-and-push:
+    name: Build and Push Docker Images
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.set-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: set-tag
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build unified Docker image
+        env:
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+        run: |
+          docker build -t pantry-pirate-radio-unified:$IMAGE_TAG \
+                 --target unified \
+                 -f .docker/images/app/Dockerfile .
+
+      - name: Tag and push to all ECR repos
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          for svc in worker validator reconciler recorder scraper; do
+            ECR_REPO="$ECR_REGISTRY/pantry-pirate-radio-${svc}-$ENVIRONMENT"
+            docker tag pantry-pirate-radio-unified:$IMAGE_TAG ${ECR_REPO}:${IMAGE_TAG}
+            docker push ${ECR_REPO}:${IMAGE_TAG}
+            docker tag pantry-pirate-radio-unified:$IMAGE_TAG ${ECR_REPO}:latest
+            docker push ${ECR_REPO}:latest
+          done
+
+      - name: Build and push api-lambda image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          ECR_REPO="$ECR_REGISTRY/pantry-pirate-radio-api-lambda-$ENVIRONMENT"
+          docker build -t pantry-pirate-radio-api-lambda:$IMAGE_TAG \
+            -f .docker/images/api-lambda/Dockerfile .
+          docker tag pantry-pirate-radio-api-lambda:$IMAGE_TAG ${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REPO}:${IMAGE_TAG}
+          docker tag pantry-pirate-radio-api-lambda:$IMAGE_TAG ${ECR_REPO}:latest
+          docker push ${ECR_REPO}:latest
+
+      - name: Build and push batch-lambda image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          ECR_REPO="$ECR_REGISTRY/pantry-pirate-radio-batch-lambda-$ENVIRONMENT"
+          docker build -t pantry-pirate-radio-batch-lambda:$IMAGE_TAG \
+            -f .docker/images/batch-lambda/Dockerfile .
+          docker tag pantry-pirate-radio-batch-lambda:$IMAGE_TAG ${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REPO}:${IMAGE_TAG}
+          docker tag pantry-pirate-radio-batch-lambda:$IMAGE_TAG ${ECR_REPO}:latest
+          docker push ${ECR_REPO}:latest
+
+  deploy-infrastructure:
+    name: Deploy CDK Infrastructure
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK Deploy
+        working-directory: infra
+        env:
+          CDK_DEPLOY_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          CDK_DEPLOY_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          CDK_DEPLOY_REGION: ${{ env.AWS_REGION }}
+          CDK_CERTIFICATE_ARN: ${{ secrets.CDK_CERTIFICATE_ARN }}
+          CDK_DOMAIN_NAME: ${{ secrets.CDK_DOMAIN_NAME }}
+          CDK_ALERT_EMAIL: ${{ secrets.CDK_ALERT_EMAIL }}
+        run: cdk deploy --all --require-approval never
+
+  update-services:
+    name: Update ECS Services
+    needs: [build-and-push, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update all ECS services
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          set -e
+          CLUSTER="pantry-pirate-radio-$ENVIRONMENT"
+          for svc in worker validator reconciler recorder; do
+            SERVICE="pantry-pirate-radio-${svc}-$ENVIRONMENT"
+            echo "Redeploying $SERVICE..."
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$SERVICE" \
+              --force-new-deployment \
+              --no-cli-pager
+          done
+
+      - name: Update Lambda function code
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.image_tag && format('{0}.dkr.ecr.{1}.amazonaws.com', secrets.AWS_ACCOUNT_ID, env.AWS_REGION) || '' }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          set -e
+          # Update API Lambda (function name from CDK — auto-generated, find by tag)
+          API_LAMBDA=$(aws lambda list-functions --no-cli-pager \
+            --query "Functions[?starts_with(FunctionName, 'LambdaApiStack')].FunctionName" \
+            --output text 2>/dev/null)
+          if [ -n "$API_LAMBDA" ]; then
+            echo "Updating API Lambda: $API_LAMBDA"
+            aws lambda update-function-code \
+              --function-name "$API_LAMBDA" \
+              --image-uri "${ECR_REGISTRY}/pantry-pirate-radio-api-lambda-${ENVIRONMENT}:${IMAGE_TAG}" \
+              --no-cli-pager
+          fi
+
+          # Update Batcher and Result Processor Lambdas (auto-generated names)
+          for prefix in BatcherLambda ResultProcessorLambda; do
+            LAMBDA_NAME=$(aws lambda list-functions --no-cli-pager \
+              --query "Functions[?starts_with(FunctionName, 'BatchInferenceStack') && contains(FunctionName, '${prefix}')].FunctionName" \
+              --output text 2>/dev/null)
+            if [ -n "$LAMBDA_NAME" ]; then
+              echo "Updating $prefix: $LAMBDA_NAME"
+              aws lambda update-function-code \
+                --function-name "$LAMBDA_NAME" \
+                --image-uri "${ECR_REGISTRY}/pantry-pirate-radio-batch-lambda-${ENVIRONMENT}:${IMAGE_TAG}" \
+                --no-cli-pager
+            fi
+          done
+

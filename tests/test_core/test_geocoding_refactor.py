@@ -178,17 +178,16 @@ class TestNoDuplicateCode:
 class TestServiceIntegration:
     """Test integration between geocoding components."""
 
-    @patch("app.core.geocoding.service.Redis")
-    def test_service_caching_works(self, mock_redis):
+    @patch("app.core.geocoding.service.get_geocoding_cache_backend")
+    def test_service_caching_works(self, mock_cache_factory):
         """Test that geocoding service caching works correctly."""
         from app.core.geocoding import get_geocoding_service
 
-        mock_redis_instance = MagicMock()
-        mock_redis.from_url.return_value = mock_redis_instance
-        mock_redis_instance.get.return_value = None
+        mock_backend = MagicMock()
+        mock_cache_factory.return_value = mock_backend
 
         service = get_geocoding_service()
-        assert service.redis_client is not None
+        assert service._cache is not None
 
     def test_validator_corrector_integration(self):
         """Test that validator and corrector work together."""

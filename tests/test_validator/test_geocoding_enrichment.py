@@ -12,13 +12,11 @@ from app.validator.job_processor import ValidationProcessor
 class TestGeocodingEnricher:
     """Test geocoding enrichment functionality."""
 
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_enrich_location_with_missing_coordinates(self, mock_redis_from_url):
+    def test_enrich_location_with_missing_coordinates(self):
         """Test geocoding when location has address but no coordinates."""
-        # Mock Redis to ensure no caching interference
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values
-        mock_redis_from_url.return_value = mock_redis
+        # Mock cache backend to ensure no caching interference
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # No cached values
 
         # Arrange
         location_data = {
@@ -46,7 +44,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher(
             geocoding_service=mock_geocoding_service,
             config=config,
-            redis_client=mock_redis,
+            cache_backend=mock_backend,
         )
 
         # Act
@@ -147,13 +145,11 @@ class TestGeocodingEnricher:
         assert enriched_location["longitude"] == -87.6298
         assert source == "arcgis"
 
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_provider_fallback_chain(self, mock_redis_from_url):
+    def test_provider_fallback_chain(self):
         """Test fallback through provider chain: ArcGIS → Nominatim → Census."""
-        # Mock Redis to ensure no caching interference
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values
-        mock_redis_from_url.return_value = mock_redis
+        # Mock cache backend to ensure no caching interference
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # No cached values
         # Arrange
         location_data = {
             "name": "Food Distribution",
@@ -183,7 +179,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher(
             geocoding_service=mock_geocoding_service,
             config=config,
-            redis_client=mock_redis,
+            cache_backend=mock_backend,
         )
 
         # Act
@@ -207,13 +203,11 @@ class TestGeocodingEnricher:
             ]
             assert len(calls) > 0
 
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_census_provider_fallback(self, mock_redis_from_url):
+    def test_census_provider_fallback(self):
         """Test fallback to Census geocoder when others fail."""
-        # Mock Redis to ensure no caching interference
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values
-        mock_redis_from_url.return_value = mock_redis
+        # Mock cache backend to ensure no caching interference
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # No cached values
         # Arrange
         location_data = {
             "name": "Rural Food Bank",
@@ -244,7 +238,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher(
             geocoding_service=mock_geocoding_service,
             config=config,
-            redis_client=mock_redis,
+            cache_backend=mock_backend,
         )
 
         # Act
@@ -261,13 +255,11 @@ class TestGeocodingEnricher:
         )
         assert total_calls >= 2  # At least 2 providers should have been tried
 
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_all_providers_fail(self, mock_redis_from_url):
+    def test_all_providers_fail(self):
         """Test behavior when all geocoding providers fail."""
-        # Mock Redis to ensure no caching interference
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values
-        mock_redis_from_url.return_value = mock_redis
+        # Mock cache backend to ensure no caching interference
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # No cached values
         # Arrange
         location_data = {
             "name": "Unknown Location",
@@ -298,7 +290,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher(
             geocoding_service=mock_geocoding_service,
             config=config,
-            redis_client=mock_redis,
+            cache_backend=mock_backend,
         )
 
         # Act
@@ -350,13 +342,11 @@ class TestGeocodingEnricher:
         mock_geocoding_service.geocode.assert_not_called()
         mock_geocoding_service.reverse_geocode.assert_not_called()
 
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_enrich_multiple_locations_in_job(self, mock_redis_from_url):
+    def test_enrich_multiple_locations_in_job(self):
         """Test enriching multiple locations in a single job."""
-        # Mock Redis to ensure no caching interference
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values
-        mock_redis_from_url.return_value = mock_redis
+        # Mock cache backend to ensure no caching interference
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # No cached values
         # Arrange
         job_data = {
             "organization": [{"name": "Test Org"}],
@@ -415,7 +405,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher(
             geocoding_service=mock_geocoding_service,
             config=config,
-            redis_client=mock_redis,
+            cache_backend=mock_backend,
         )
 
         # Act

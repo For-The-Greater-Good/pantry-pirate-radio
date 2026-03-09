@@ -151,19 +151,16 @@ def test_error_handling(
     archive_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test error handling."""
+    """Test error handling re-raises after logging and metrics."""
     # Set environment variables
     monkeypatch.setenv("OUTPUT_DIR", str(output_dir))
     monkeypatch.setenv("ARCHIVE_DIR", str(archive_dir))
 
-    # Test error handling with direct call
     from app.recorder.utils import record_result
 
-    result = record_result({})  # Empty dict should fail validation
-
-    # Check result
-    assert result["status"] == "failed"
-    assert result["error"] is not None
+    # Empty dict should raise ValueError (missing job_id)
+    with pytest.raises(ValueError, match="Missing required field: job_id"):
+        record_result({})
 
     # Check no file was created
     assert len(list(output_dir.iterdir())) == 0
@@ -269,11 +266,9 @@ def test_metrics_on_exception(
 
     monkeypatch.setattr("builtins.open", mock_open)
 
-    result = record_result(problematic_data)
-
-    # Check result indicates failure
-    assert result["status"] == "failed"
-    assert "Cannot write to file" in result["error"]
+    # The exception should be re-raised after logging and metrics
+    with pytest.raises(PermissionError, match="Cannot write to file"):
+        record_result(problematic_data)
 
     # Check that metrics were incremented for unknown scraper_id
     final_failure_count = RECORDER_JOBS.labels(

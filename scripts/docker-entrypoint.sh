@@ -30,17 +30,29 @@ case "$SERVICE" in
     
     recorder)
         echo "Starting recorder worker..."
-        exec rq worker recorder
+        if [ "$QUEUE_BACKEND" = "sqs" ]; then
+            exec python -m app.recorder.fargate_worker
+        else
+            exec rq worker recorder
+        fi
         ;;
-    
+
     reconciler)
         echo "Starting reconciler worker..."
-        exec rq worker reconciler
+        if [ "$QUEUE_BACKEND" = "sqs" ]; then
+            exec python -m app.reconciler.fargate_worker
+        else
+            exec rq worker reconciler
+        fi
         ;;
-    
+
     validator)
         echo "Starting validator worker..."
-        exec rq worker validator
+        if [ "$QUEUE_BACKEND" = "sqs" ]; then
+            exec python -m app.validator.fargate_worker
+        else
+            exec rq worker validator
+        fi
         ;;
     
     scraper)
@@ -49,6 +61,10 @@ case "$SERVICE" in
             # If additional arguments provided, pass them to scraper
             shift
             exec python -m app.scraper "$@"
+        elif [ -n "$SCRAPER_NAME" ] && [ "$SCRAPER_NAME" != "placeholder" ]; then
+            # SCRAPER_NAME env var set by Step Functions container override
+            echo "Running scraper from env: $SCRAPER_NAME"
+            exec python -m app.scraper "$SCRAPER_NAME"
         else
             # Default scraper behavior
             exec tail -f /dev/null  # Keep container running for manual scraper runs

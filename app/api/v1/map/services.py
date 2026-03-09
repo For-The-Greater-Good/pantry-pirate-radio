@@ -1,6 +1,6 @@
 """Service layer for map data aggregation and processing."""
 
-import logging
+import structlog
 from datetime import datetime, UTC
 from math import radians, cos, sin, asin, sqrt
 from typing import List, Dict, Any, Optional, Tuple
@@ -18,7 +18,7 @@ from app.api.v1.map.models import (
 )
 from app.core.state_mapping import normalize_state_to_code, VALID_STATE_CODES
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class MapDataService:
@@ -181,7 +181,8 @@ class MapDataService:
         if conditions:
             query += " AND " + " AND ".join(conditions)
 
-        query += f" ORDER BY l.latitude, l.longitude, ls.scraper_id LIMIT {limit}"
+        query += " ORDER BY l.latitude, l.longitude, ls.scraper_id LIMIT :limit"
+        params["limit"] = limit
 
         # Execute query
         result = await self.session.execute(text(query), params)

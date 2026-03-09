@@ -1,0 +1,127 @@
+name: CDK Tests
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+
+jobs:
+  cdk-test:
+    name: CDK Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Run CDK tests
+        working-directory: infra
+        run: pytest -v --tb=short
+
+  cdk-diff:
+    name: CDK Diff
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+        continue-on-error: true
+
+      - name: CDK Diff
+        id: diff
+        working-directory: infra
+        env:
+          CDK_DEPLOY_ENVIRONMENT: dev
+        run: |
+          cdk diff --all 2>&1 | tee diff-output.txt || true
+        continue-on-error: true
+
+      - name: Comment PR with diff
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const diffFile = 'infra/diff-output.txt';
+            let diff = 'No diff output';
+            try {
+              diff = fs.readFileSync(diffFile, 'utf8');
+            } catch (e) {
+              // diff-output.txt may not exist if CDK diff step was skipped
+            }
+            const output = [
+              '#### CDK Diff',
+              '',
+              '<details>',
+              '<summary>Show Diff</summary>',
+              '',
+              '```',
+              diff,
+              '```',
+              '',
+              '</details>',
+              '',
+              `*Pushed by: @${context.actor}, Action: \`${context.eventName}\`*`
+            ].join('\n');
+
+            // Find existing CDK Diff comment to update instead of creating duplicates
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body.startsWith('#### CDK Diff'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              });
+            }
+        continue-on-error: true

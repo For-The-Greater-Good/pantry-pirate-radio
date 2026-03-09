@@ -1,4 +1,10 @@
-"""AWS Bedrock provider implementation using the Converse API."""
+"""AWS Bedrock provider implementation using the Converse API.
+
+Provides both a provider class (BedrockProvider) and reusable module-level
+functions (build_converse_request, parse_converse_response) for constructing
+and parsing Bedrock Converse API requests/responses. The module-level functions
+are used by both the provider and the batch inference Lambdas.
+"""
 
 import asyncio
 import json
@@ -10,6 +16,250 @@ from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import GenerateConfig, LLMInput, LLMResponse
 
 logger = get_logger().bind(module="bedrock_provider")
+
+
+# ---------------------------------------------------------------------------
+# Module-level reusable functions for Converse API request/response handling.
+# Used by BedrockProvider.generate() and by batch inference Lambdas.
+# ---------------------------------------------------------------------------
+
+
+def _build_messages(prompt: LLMInput) -> list[dict[str, Any]]:
+    """Convert LLMInput into Bedrock message format.
+
+    Bedrock requires content as [{"text": "..."}] arrays.
+    System messages are excluded here (handled by _extract_system_prompt).
+
+    Args:
+        prompt: String or list of chat messages
+
+    Returns:
+        List of Bedrock-format messages
+    """
+    if isinstance(prompt, str):
+        return [{"role": "user", "content": [{"text": prompt}]}]
+
+    messages: list[dict[str, Any]] = []
+    for msg in prompt:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            continue  # Handled separately
+        messages.append({"role": role, "content": [{"text": content}]})
+    return messages
+
+
+def _extract_system_prompt(prompt: LLMInput) -> list[dict[str, str]] | None:
+    """Extract system messages into Bedrock's separate system parameter.
+
+    Args:
+        prompt: String or list of chat messages
+
+    Returns:
+        System prompt list for Bedrock, or None
+    """
+    if isinstance(prompt, str):
+        return None
+
+    system_parts: list[dict[str, str]] = []
+    for msg in prompt:
+        if msg.get("role") == "system":
+            system_parts.append({"text": msg.get("content", "")})
+
+    return system_parts if system_parts else None
+
+
+def _build_tool_config(
+    schema: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Build Bedrock toolConfig for structured output via forced tool use.
+
+    Handles the pipeline's wrapper format:
+    {"type": "json_schema", "json_schema": {"name": ..., "schema": {...}}}
+
+    Args:
+        schema: JSON schema or None
+
+    Returns:
+        Bedrock toolConfig dict, or None if no schema
+    """
+    if schema is None:
+        return None
+
+    # Unwrap pipeline's json_schema wrapper if present
+    inner_schema = schema
+    if (
+        isinstance(schema, dict)
+        and schema.get("type") == "json_schema"
+        and "json_schema" in schema
+    ):
+        json_schema = schema["json_schema"]
+        inner_schema = json_schema.get("schema", json_schema)
+
+    # Validate the unwrapped schema has minimum required structure
+    if not isinstance(inner_schema, dict):
+        logger.warning(
+            "Bedrock schema is not a dict, skipping tool config",
+            schema_type=type(inner_schema).__name__,
+        )
+        return None
+
+    if "type" not in inner_schema:
+        logger.warning(
+            "Bedrock schema missing 'type' field",
+            schema_keys=list(inner_schema.keys()),
+        )
+
+    return {
+        "tools": [
+            {
+                "toolSpec": {
+                    "name": "structured_output",
+                    "description": "Output structured data matching the schema",
+                    "inputSchema": {"json": inner_schema},
+                }
+            }
+        ],
+        "toolChoice": {"tool": {"name": "structured_output"}},
+    }
+
+
+def _map_usage(bedrock_usage: dict[str, int]) -> dict[str, int]:
+    """Map Bedrock usage fields to standard format.
+
+    Args:
+        bedrock_usage: Bedrock's {inputTokens, outputTokens} dict
+
+    Returns:
+        Standard {prompt_tokens, completion_tokens, total_tokens} dict
+    """
+    prompt = bedrock_usage.get("inputTokens", 0)
+    completion = bedrock_usage.get("outputTokens", 0)
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": prompt + completion,
+    }
+
+
+def build_converse_request(
+    prompt: LLMInput,
+    format_schema: dict[str, Any] | None = None,
+    temperature: float = 0.7,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    """Build a Converse API request body from an LLM prompt.
+
+    This is the public entry point used by both BedrockProvider.generate()
+    and the Batcher Lambda to construct request bodies.
+
+    Args:
+        prompt: String or list of chat messages
+        format_schema: Optional JSON schema for structured output
+        temperature: Sampling temperature (0-1)
+        max_tokens: Maximum tokens to generate (omitted if None)
+
+    Returns:
+        Dict with messages, inferenceConfig, and optionally system/toolConfig.
+        Does NOT include modelId (caller sets that).
+    """
+    messages = _build_messages(prompt)
+    system = _extract_system_prompt(prompt)
+
+    params: dict[str, Any] = {
+        "messages": messages,
+        "inferenceConfig": {
+            "temperature": temperature,
+        },
+    }
+
+    if max_tokens is not None:
+        params["inferenceConfig"]["maxTokens"] = max_tokens
+
+    if system:
+        params["system"] = system
+
+    tool_config = _build_tool_config(format_schema)
+    if tool_config:
+        params["toolConfig"] = tool_config
+
+    return params
+
+
+def parse_converse_response(
+    response: dict[str, Any],
+    model_id: str,
+    format_schema: dict[str, Any] | None = None,
+) -> LLMResponse:
+    """Parse a Bedrock Converse API response into an LLMResponse.
+
+    This is the public entry point used by both BedrockProvider.generate()
+    and the Result Processor Lambda to parse Converse responses.
+
+    Args:
+        response: Raw Converse API response dict
+        model_id: Model identifier for the response
+        format_schema: Optional JSON schema (enables structured output parsing)
+
+    Returns:
+        LLMResponse with text, model, usage, and optionally parsed data
+
+    Raises:
+        ValueError: If the response contains no content
+    """
+    output = response.get("output", {})
+    message = output.get("message", {})
+    content_blocks = message.get("content", [])
+    stop_reason = response.get("stopReason", "")
+    usage = _map_usage(response.get("usage", {}))
+
+    # Handle tool_use (structured output)
+    if stop_reason == "tool_use" and format_schema:
+        for block in content_blocks:
+            if "toolUse" in block:
+                parsed_data = block["toolUse"]["input"]
+                return LLMResponse(
+                    text=json.dumps(parsed_data),
+                    model=model_id,
+                    usage=usage,
+                    parsed=parsed_data,
+                )
+
+    # Handle text response
+    text_parts = [block["text"] for block in content_blocks if "text" in block]
+    if not text_parts:
+        raise ValueError("Empty response from Bedrock")
+
+    text = "".join(text_parts)
+
+    # Try to parse JSON if format was requested
+    parsed = None
+    if format_schema and text:
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as parse_err:
+            logger.warning(
+                "Failed to parse JSON from Bedrock text response",
+                error=str(parse_err),
+                content_length=len(text),
+                content_preview=text[:500],
+                model=model_id,
+            )
+
+    response_data: dict[str, Any] = {
+        "text": text,
+        "model": model_id,
+        "usage": usage,
+    }
+    if parsed is not None:
+        response_data["parsed"] = parsed
+
+    return LLMResponse(**response_data)
+
+
+# ---------------------------------------------------------------------------
+# BedrockProvider class
+# ---------------------------------------------------------------------------
 
 
 class BedrockConfig(LLMConfig):
@@ -100,120 +350,26 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
             self._client = boto3.client(**client_kwargs)
         return self._client
 
+    # Keep instance methods as thin wrappers for backward compatibility
+    # with tests that call provider._build_messages(), etc.
+
     def _build_messages(self, prompt: LLMInput) -> list[dict[str, Any]]:
-        """Convert LLMInput into Bedrock message format.
-
-        Bedrock requires content as [{"text": "..."}] arrays.
-        System messages are excluded here (handled by _extract_system_prompt).
-
-        Args:
-            prompt: String or list of chat messages
-
-        Returns:
-            List of Bedrock-format messages
-        """
-        if isinstance(prompt, str):
-            return [{"role": "user", "content": [{"text": prompt}]}]
-
-        messages: list[dict[str, Any]] = []
-        for msg in prompt:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            if role == "system":
-                continue  # Handled separately
-            messages.append({"role": role, "content": [{"text": content}]})
-        return messages
+        """Convert LLMInput into Bedrock message format."""
+        return _build_messages(prompt)
 
     def _extract_system_prompt(self, prompt: LLMInput) -> list[dict[str, str]] | None:
-        """Extract system messages into Bedrock's separate system parameter.
-
-        Args:
-            prompt: String or list of chat messages
-
-        Returns:
-            System prompt list for Bedrock, or None
-        """
-        if isinstance(prompt, str):
-            return None
-
-        system_parts: list[dict[str, str]] = []
-        for msg in prompt:
-            if msg.get("role") == "system":
-                system_parts.append({"text": msg.get("content", "")})
-
-        return system_parts if system_parts else None
+        """Extract system messages into Bedrock's separate system parameter."""
+        return _extract_system_prompt(prompt)
 
     def _build_tool_config(
         self, schema: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        """Build Bedrock toolConfig for structured output via forced tool use.
-
-        Handles the pipeline's wrapper format:
-        {"type": "json_schema", "json_schema": {"name": ..., "schema": {...}}}
-
-        Args:
-            schema: JSON schema or None
-
-        Returns:
-            Bedrock toolConfig dict, or None if no schema
-        """
-        if schema is None:
-            return None
-
-        # Unwrap pipeline's json_schema wrapper if present
-        inner_schema = schema
-        if (
-            isinstance(schema, dict)
-            and schema.get("type") == "json_schema"
-            and "json_schema" in schema
-        ):
-            json_schema = schema["json_schema"]
-            inner_schema = json_schema.get("schema", json_schema)
-
-        # Validate the unwrapped schema has minimum required structure
-        if not isinstance(inner_schema, dict):
-            logger.warning(
-                "Bedrock schema is not a dict, skipping tool config",
-                schema_type=type(inner_schema).__name__,
-            )
-            return None
-
-        if "type" not in inner_schema:
-            logger.warning(
-                "Bedrock schema missing 'type' field",
-                schema_keys=list(inner_schema.keys()),
-                model=self.config.model_name,
-            )
-
-        return {
-            "tools": [
-                {
-                    "toolSpec": {
-                        "name": "structured_output",
-                        "description": "Output structured data matching the schema",
-                        "inputSchema": {"json": inner_schema},
-                    }
-                }
-            ],
-            "toolChoice": {"tool": {"name": "structured_output"}},
-        }
+        """Build Bedrock toolConfig for structured output."""
+        return _build_tool_config(schema)
 
     def _map_usage(self, bedrock_usage: dict[str, int]) -> dict[str, int]:
-        """Map Bedrock usage fields to standard format.
-
-        Args:
-            bedrock_usage: Bedrock's {inputTokens, outputTokens} dict
-
-        Returns:
-            Standard {prompt_tokens, completion_tokens, total_tokens} dict
-        """
-        prompt = bedrock_usage.get("inputTokens", 0)
-        completion = bedrock_usage.get("outputTokens", 0)
-        return {
-            "prompt_tokens": prompt,
-            "completion_tokens": completion,
-            "total_tokens": prompt + completion,
-        }
+        """Map Bedrock usage fields to standard format."""
+        return _map_usage(bedrock_usage)
 
     async def generate(
         self,
@@ -246,30 +402,18 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
             ):
                 format = config.format
 
-            # Build Bedrock parameters
-            messages = self._build_messages(prompt)
-            system = self._extract_system_prompt(prompt)
+            temperature = config.temperature if config else self.config.temperature
 
-            params: dict[str, Any] = {
-                "modelId": self.config.model_name,
-                "messages": messages,
-                "inferenceConfig": {
-                    "temperature": (
-                        config.temperature if config else self.config.temperature
-                    ),
-                },
-            }
+            # Build request using shared function
+            request_body = build_converse_request(
+                prompt=prompt,
+                format_schema=format,
+                temperature=temperature,
+                max_tokens=self.config.max_tokens,
+            )
 
-            if self.config.max_tokens is not None:
-                params["inferenceConfig"]["maxTokens"] = self.config.max_tokens
-
-            if system:
-                params["system"] = system
-
-            # Add tool config for structured output
-            tool_config = self._build_tool_config(format)
-            if tool_config:
-                params["toolConfig"] = tool_config
+            # Add modelId (not included in build_converse_request)
+            params = {"modelId": self.config.model_name, **request_body}
 
             logger.info(
                 "Making Bedrock Converse request",
@@ -281,58 +425,71 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
             client = self.model
             result = await asyncio.to_thread(client.converse, **params)
 
-            # Extract response
-            output = result.get("output", {})
-            message = output.get("message", {})
-            content_blocks = message.get("content", [])
-            stop_reason = result.get("stopReason", "")
-            usage = self._map_usage(result.get("usage", {}))
-
-            # Handle tool_use (structured output)
-            if stop_reason == "tool_use" and format:
-                for block in content_blocks:
-                    if "toolUse" in block:
-                        parsed_data = block["toolUse"]["input"]
-                        return LLMResponse(
-                            text=json.dumps(parsed_data),
-                            model=self.config.model_name,
-                            usage=usage,
-                            parsed=parsed_data,
-                        )
-
-            # Handle text response
-            text_parts = [block["text"] for block in content_blocks if "text" in block]
-            if not text_parts:
-                raise ValueError("Empty response from Bedrock")
-
-            text = "".join(text_parts)
-
-            # Try to parse JSON if format was requested
-            parsed = None
-            if format and text:
-                try:
-                    parsed = json.loads(text)
-                except json.JSONDecodeError as parse_err:
-                    logger.warning(
-                        "Failed to parse JSON from Bedrock text response",
-                        error=str(parse_err),
-                        content_length=len(text),
-                        content_preview=text[:500],
-                        model=self.config.model_name,
-                    )
-
-            response_data: dict[str, Any] = {
-                "text": text,
-                "model": self.config.model_name,
-                "usage": usage,
-            }
-            if parsed is not None:
-                response_data["parsed"] = parsed
-
-            return LLMResponse(**response_data)
+            # Parse response using shared function
+            return parse_converse_response(
+                response=result,
+                model_id=self.config.model_name,
+                format_schema=format,
+            )
 
         except ValueError:
             raise
         except Exception as e:
+            # Handle botocore ClientError specifically when available
+            try:
+                from botocore.exceptions import ClientError
+            except ImportError:
+                ClientError = None  # type: ignore[assignment,misc]
+
+            if ClientError is not None and isinstance(e, ClientError):
+                error_code = e.response.get("Error", {}).get("Code", "")
+                error_message = e.response.get("Error", {}).get("Message", str(e))
+
+                if error_code in (
+                    "ThrottlingException",
+                    "TooManyRequestsException",
+                    "ServiceUnavailableException",
+                    "ModelTimeoutException",
+                ):
+                    logger.warning(
+                        "bedrock_retryable_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise RuntimeError(
+                        f"Bedrock retryable error ({error_code}): " f"{error_message}"
+                    ) from e
+                elif error_code in (
+                    "AccessDeniedException",
+                    "UnrecognizedClientException",
+                    "ExpiredTokenException",
+                ):
+                    logger.error(
+                        "bedrock_auth_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise PermissionError(
+                        f"Bedrock auth error ({error_code}): " f"{error_message}"
+                    ) from e
+                elif error_code == "ValidationException":
+                    logger.error(
+                        "bedrock_validation_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise ValueError(
+                        f"Bedrock validation error: {error_message}"
+                    ) from e
+                else:
+                    logger.error(
+                        "bedrock_client_error",
+                        error_code=error_code,
+                        error_message=error_message,
+                    )
+                    raise ValueError(
+                        f"Bedrock error ({error_code}): {error_message}"
+                    ) from e
+
             logger.error("Error in Bedrock generation", exc_info=e)
             raise ValueError(f"Error generating with Bedrock: {e}") from e

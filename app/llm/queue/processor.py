@@ -1,7 +1,8 @@
-"""Job processor for RQ."""
+"""Job processor for RQ and SQS backends."""
 
 import asyncio
-import logging
+import structlog
+import os
 from collections.abc import AsyncGenerator, Coroutine
 from datetime import datetime
 from typing import Any, cast
@@ -10,9 +11,54 @@ from app.core.config import settings
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import LLMResponse
 from app.llm.queue.models import JobResult, JobStatus, LLMJob
-from app.llm.queue.queues import reconciler_queue, recorder_queue, llm_queue
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+
+
+def validate_sqs_queue_urls() -> None:
+    """Validate all required SQS queue URLs at startup.
+
+    Called by workers before entering the main loop to fail fast with
+    descriptive errors instead of failing at first message processing.
+
+    Raises:
+        ValueError: If any required queue URL is missing or empty
+    """
+    if not _is_sqs_backend():
+        return
+
+    from app.llm.queue.processor import should_use_validator
+
+    required_urls: dict[str, str] = {}
+
+    if should_use_validator():
+        required_urls["VALIDATOR_QUEUE_URL"] = os.environ.get("VALIDATOR_QUEUE_URL", "")
+    else:
+        required_urls["RECONCILER_QUEUE_URL"] = os.environ.get(
+            "RECONCILER_QUEUE_URL", ""
+        )
+
+    # Recorder is optional but warn if missing
+    recorder_url = os.environ.get("RECORDER_QUEUE_URL", "")
+    if not recorder_url:
+        logger.warning("RECORDER_QUEUE_URL not set — recording will be skipped")
+
+    missing = [name for name, val in required_urls.items() if not val]
+    if missing:
+        raise ValueError(
+            f"Missing required SQS queue URL(s): {', '.join(sorted(missing))}. "
+            f"Set these environment variables before starting the worker."
+        )
+
+    logger.info(
+        "sqs_queue_urls_validated",
+        validated_urls=list(required_urls.keys()),
+    )
+
+
+def _is_sqs_backend() -> bool:
+    """Check if the queue backend is SQS."""
+    return os.environ.get("QUEUE_BACKEND", "redis").lower() == "sqs"
 
 
 def get_next_queue(current_queue: str) -> str:
@@ -47,12 +93,30 @@ def should_use_validator() -> bool:
 def enqueue_to_validator(job_result: JobResult) -> str:
     """Enqueue job to validator queue.
 
+    Uses SQS when QUEUE_BACKEND=sqs, otherwise falls back to RQ.
+
     Args:
         job_result: Job result to enqueue
 
     Returns:
-        Job ID
+        Job ID or SQS message ID
     """
+    if _is_sqs_backend():
+        from app.pipeline.sqs_sender import send_to_sqs
+
+        queue_url = os.environ.get("VALIDATOR_QUEUE_URL", "")
+        scraper_id = "default"
+        if job_result.job and job_result.job.metadata:
+            scraper_id = job_result.job.metadata.get("scraper_id", "default")
+
+        return send_to_sqs(
+            queue_url=queue_url,
+            message_body=job_result.model_dump(mode="json"),
+            message_group_id=scraper_id,
+            deduplication_id=job_result.job_id,
+            source="llm-worker",
+        )
+
     from app.validator.queues import get_validator_queue
 
     validator_queue = get_validator_queue()
@@ -188,34 +252,11 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
             and llm_result.text != "Empty response from model"
         )
 
-        # Store result in content store ONLY if valid
-        from app.content_store.config import get_content_store
-
-        content_store = get_content_store()
-        if content_store and is_valid_response:
-            if "content_hash" in job.metadata:
-                content_hash = job.metadata["content_hash"]
-                logger.info(
-                    f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
-                )
-                try:
-                    content_store.store_result(content_hash, llm_result.text, job.id)
-                    logger.info(
-                        f"Successfully stored result for hash {content_hash[:8]}..."
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to store result in content store: {e}")
-                    # Don't fail the job, but log the error
-            else:
-                logger.debug(f"No content_hash in job metadata for job {job.id}")
-        elif not is_valid_response:
-            logger.warning(
-                f"Not storing invalid response in content store for job {job.id}: '{llm_result.text[:50]}...'"
-            )
-        else:
-            logger.debug("Content store not configured")
-
-        # Check if validator is enabled and route accordingly
+        # C1 FIX: Enqueue to downstream queue FIRST, then store in content
+        # store. This prevents data loss when enqueue fails after content
+        # store write succeeds — on retry, the content store would return
+        # "completed" and the job would never be reprocessed.
+        # Validator/reconciler enqueue is idempotent via FIFO dedup.
         if should_use_validator():
             # Route through validator first
             try:
@@ -232,15 +273,33 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
         else:
             # Route directly to reconciler (backward compatibility)
             try:
-                reconciler_job = reconciler_queue.enqueue_call(
-                    func="app.reconciler.job_processor.process_job_result",
-                    args=(job_result,),
-                    result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                    failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-                )
-                logger.info(
-                    f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
-                )
+                if _is_sqs_backend():
+                    from app.pipeline.sqs_sender import send_to_sqs
+
+                    reconciler_url = os.environ.get("RECONCILER_QUEUE_URL", "")
+                    scraper_id = job.metadata.get("scraper_id", "default")
+                    msg_id = send_to_sqs(
+                        queue_url=reconciler_url,
+                        message_body=job_result.model_dump(mode="json"),
+                        message_group_id=scraper_id,
+                        deduplication_id=job.id,
+                        source="llm-worker",
+                    )
+                    logger.info(
+                        f"Successfully sent reconciler SQS message {msg_id} for LLM job {job.id}"
+                    )
+                else:
+                    from app.llm.queue.queues import reconciler_queue
+
+                    reconciler_job = reconciler_queue.enqueue_call(
+                        func="app.reconciler.job_processor.process_job_result",
+                        args=(job_result,),
+                        result_ttl=settings.REDIS_TTL_SECONDS,
+                        failure_ttl=settings.REDIS_TTL_SECONDS,
+                    )
+                    logger.info(
+                        f"Successfully enqueued reconciler job {reconciler_job.id} for LLM job {job.id}"
+                    )
             except Exception as e:
                 logger.error(
                     f"Failed to enqueue reconciler job for LLM job {job.id}: {e}"
@@ -248,23 +307,69 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 # Re-raise to ensure the LLM job fails and can be retried
                 raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
 
+        # Store result in content store AFTER successful enqueue (non-critical)
+        from app.content_store.config import get_content_store
+
+        content_store = get_content_store()
+        if content_store and is_valid_response:
+            if "content_hash" in job.metadata:
+                content_hash = job.metadata["content_hash"]
+                logger.info(
+                    f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
+                )
+                try:
+                    content_store.store_result(content_hash, llm_result.text, job.id)
+                    logger.info(
+                        f"Successfully stored result for hash {content_hash[:8]}..."
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to store result in content store: {e}",
+                        exc_info=True,
+                    )
+                    # Don't fail the job — enqueue already succeeded
+            else:
+                logger.debug(f"No content_hash in job metadata for job {job.id}")
+        elif not is_valid_response:
+            logger.warning(
+                f"Not storing invalid response in content store for job {job.id}: '{llm_result.text[:50]}...'"
+            )
+        else:
+            logger.debug("Content store not configured")
+
+        recorder_data = {
+            "job_id": job.id,
+            "job": job.model_dump(),
+            "result": llm_result,
+            "error": None,
+        }
         try:
-            recorder_job = recorder_queue.enqueue_call(
-                func="app.recorder.utils.record_result",
-                args=(
-                    {
-                        "job_id": job.id,
-                        "job": job.model_dump(),
-                        "result": llm_result,
-                        "error": None,
-                    },
-                ),
-                result_ttl=settings.REDIS_TTL_SECONDS,  # Keep results for configured TTL
-                failure_ttl=settings.REDIS_TTL_SECONDS,  # Keep failed jobs for configured TTL
-            )
-            logger.info(
-                f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
-            )
+            if _is_sqs_backend():
+                from app.pipeline.sqs_sender import send_to_sqs
+
+                recorder_url = os.environ.get("RECORDER_QUEUE_URL", "")
+                scraper_id = job.metadata.get("scraper_id", "default")
+                msg_id = send_to_sqs(
+                    queue_url=recorder_url,
+                    message_body=recorder_data,
+                    message_group_id=scraper_id,
+                    source="llm-worker",
+                )
+                logger.info(
+                    f"Successfully sent recorder SQS message {msg_id} for LLM job {job.id}"
+                )
+            else:
+                from app.llm.queue.queues import recorder_queue
+
+                recorder_job = recorder_queue.enqueue_call(
+                    func="app.recorder.utils.record_result",
+                    args=(recorder_data,),
+                    result_ttl=settings.REDIS_TTL_SECONDS,
+                    failure_ttl=settings.REDIS_TTL_SECONDS,
+                )
+                logger.info(
+                    f"Successfully enqueued recorder job {recorder_job.id} for LLM job {job.id}"
+                )
         except Exception as e:
             # Log error but don't fail the job - recording is optional
             logger.error(f"Failed to enqueue recorder job for LLM job {job.id}: {e}")
@@ -288,11 +393,24 @@ def handle_claude_errors(e: Exception, job: LLMJob) -> None:
         )
 
         if isinstance(e, ClaudeNotAuthenticatedException):
-            # Update auth state in Redis
-            from app.llm.queue.auth_state import AuthStateManager
+            # Update auth state in Redis (only available with Redis backend)
+            if not _is_sqs_backend():
+                from app.llm.queue.auth_state import AuthStateManager
+                from app.llm.queue.queues import llm_queue
 
-            auth_manager = AuthStateManager(llm_queue.connection)
-            auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
+                auth_manager = AuthStateManager(llm_queue.connection)
+                auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
+            else:
+                # H3 FIX: In SQS mode, sleep for retry_after to avoid
+                # burning through retries on auth failures
+                retry_after = getattr(e, "retry_after", 60) or 60
+                logger.warning(
+                    "sqs_mode_auth_cooldown",
+                    retry_after=retry_after,
+                )
+                import time
+
+                time.sleep(retry_after)
 
             logger.error(
                 f"Claude authentication failed: {e}. "
@@ -302,11 +420,24 @@ def handle_claude_errors(e: Exception, job: LLMJob) -> None:
             raise
 
         elif isinstance(e, ClaudeQuotaExceededException):
-            # Update quota state in Redis
-            from app.llm.queue.auth_state import AuthStateManager
+            # Update quota state in Redis (only available with Redis backend)
+            if not _is_sqs_backend():
+                from app.llm.queue.auth_state import AuthStateManager
+                from app.llm.queue.queues import llm_queue
 
-            auth_manager = AuthStateManager(llm_queue.connection)
-            auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
+                auth_manager = AuthStateManager(llm_queue.connection)
+                auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
+            else:
+                # H3 FIX: In SQS mode, sleep for retry_after to avoid
+                # burning through retries on quota exhaustion
+                retry_after = getattr(e, "retry_after", 300) or 300
+                logger.warning(
+                    "sqs_mode_quota_cooldown",
+                    retry_after=retry_after,
+                )
+                import time
+
+                time.sleep(retry_after)
 
             logger.error(
                 f"Claude quota exceeded: {e}. " f"Worker will pause job processing."

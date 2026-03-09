@@ -230,9 +230,9 @@ class TestEnrichmentIntegration:
     @patch("app.validator.job_processor.enqueue_to_reconciler")
     @patch("app.validator.job_processor.get_db_session")
     @patch("app.validator.enrichment.GeocodingService")
-    @patch("app.validator.enrichment.redis.from_url")
+    @patch("app.validator.enrichment.get_geocoding_cache_backend")
     def test_provider_fallback_in_pipeline(
-        self, mock_redis_from_url, mock_geocoding_class, mock_get_db, mock_enqueue
+        self, mock_cache_factory, mock_geocoding_class, mock_get_db, mock_enqueue
     ):
         """Test provider fallback chain in real pipeline."""
         # Arrange
@@ -240,11 +240,10 @@ class TestEnrichmentIntegration:
         mock_get_db.return_value.__enter__.return_value = mock_db
         mock_get_db.return_value.__exit__.return_value = None
 
-        # Setup Redis mock to avoid circuit breaker interference
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values or circuit breaker state
-        mock_redis.ping.return_value = True
-        mock_redis_from_url.return_value = mock_redis
+        # Setup cache backend mock to avoid interference
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # No cached values
+        mock_cache_factory.return_value = mock_backend
 
         mock_geocoding = MagicMock()
         mock_geocoding_class.return_value = mock_geocoding
@@ -385,9 +384,9 @@ class TestEnrichmentIntegration:
     @patch("app.validator.job_processor.enqueue_to_reconciler")
     @patch("app.validator.job_processor.get_db_session")
     @patch("app.validator.enrichment.GeocodingService")
-    @patch("app.validator.enrichment.redis.from_url")
+    @patch("app.validator.enrichment.get_geocoding_cache_backend")
     def test_enrichment_performance_with_caching(
-        self, mock_redis_from_url, mock_geocoding_class, mock_get_db, mock_enqueue
+        self, mock_cache_factory, mock_geocoding_class, mock_get_db, mock_enqueue
     ):
         """Test that enrichment uses caching for repeated addresses."""
         # Arrange
@@ -395,22 +394,19 @@ class TestEnrichmentIntegration:
         mock_get_db.return_value.__enter__.return_value = mock_db
         mock_get_db.return_value.__exit__.return_value = None
 
-        # Setup Redis mock for caching behavior
-        mock_redis = MagicMock()
-        cache_calls = {}
+        # Setup cache backend mock for caching behavior
+        mock_backend = MagicMock()
+        cache_store = {}
 
-        def redis_get_side_effect(key):
-            return cache_calls.get(key)
+        def backend_get_side_effect(key):
+            return cache_store.get(key)
 
-        def redis_setex_side_effect(key, ttl, value):
-            # Store with TTL (ttl parameter is required for setex signature)
-            _ = ttl  # Mark as intentionally unused - required for method signature
-            cache_calls[key] = value
+        def backend_set_side_effect(key, data, ttl):
+            cache_store[key] = data
 
-        mock_redis.get.side_effect = redis_get_side_effect
-        mock_redis.setex.side_effect = redis_setex_side_effect
-        mock_redis.ping.return_value = True
-        mock_redis_from_url.return_value = mock_redis
+        mock_backend.get.side_effect = backend_get_side_effect
+        mock_backend.set.side_effect = backend_set_side_effect
+        mock_cache_factory.return_value = mock_backend
 
         mock_geocoding = MagicMock()
         mock_geocoding_class.return_value = mock_geocoding
@@ -554,16 +550,16 @@ class TestEnrichmentIntegration:
 
     @patch("app.validator.job_processor.enqueue_to_reconciler")
     @patch("app.validator.job_processor.get_db_session")
-    @patch("app.validator.enrichment.redis.from_url")  # Mock Redis
+    @patch("app.validator.enrichment.get_geocoding_cache_backend")
     @patch("app.validator.enrichment.GeocodingService")
     def test_enrichment_handles_partial_failures(
-        self, mock_geocoding_class, mock_redis_from_url, mock_get_db, mock_enqueue
+        self, mock_geocoding_class, mock_cache_factory, mock_get_db, mock_enqueue
     ):
         """Test that partial enrichment failures don't break the pipeline."""
-        # Mock Redis to avoid caching
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None
-        mock_redis_from_url.return_value = mock_redis
+        # Mock cache backend to avoid caching
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None
+        mock_cache_factory.return_value = mock_backend
 
         # Arrange
         mock_db = MagicMock()

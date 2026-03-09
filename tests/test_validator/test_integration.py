@@ -72,7 +72,7 @@ class TestValidatorIntegration:
                 mock_validator_queue = MagicMock()
                 mock_get_validator_queue.return_value = mock_validator_queue
 
-                with patch("app.llm.queue.processor.recorder_queue"):
+                with patch("app.llm.queue.queues.recorder_queue"):
                     llm_result = process_llm_job(job, mock_provider)
                     assert llm_result == llm_response
 
@@ -92,7 +92,7 @@ class TestValidatorIntegration:
 
             # Step 2: Validator processing
             with patch(
-                "app.validator.job_processor.reconciler_queue"
+                "app.llm.queue.queues.reconciler_queue"
             ) as mock_reconciler_queue:
                 validation_result = process_validation_job(job_result)
 

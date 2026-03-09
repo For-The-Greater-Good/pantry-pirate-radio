@@ -1,11 +1,15 @@
-"""Application startup and shutdown events."""
+"""Application startup and shutdown events.
+
+WARNING: This module eagerly imports Redis, RQ, and Prometheus clients.
+It must NOT be imported in Lambda environments (use app/api/lambda_app.py instead).
+"""
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, TypeVar, cast
 
-from prometheus_client import Counter, Gauge
+from prometheus_client import Gauge
 from redis import Redis
 
 # ConnectionPool is used in type annotations for Redis protocol compatibility
@@ -59,18 +63,8 @@ REDIS_POOL_CONNECTIONS = Gauge(
 )
 
 
-# Prometheus metrics
-REQUESTS_TOTAL = Counter(
-    "app_http_requests_total",
-    "Total number of HTTP requests",
-    labelnames=["method", "path"],
-)
-
-RESPONSES_TOTAL = Counter(
-    "app_http_responses_total",
-    "Total number of HTTP responses",
-    labelnames=["status_code"],
-)
+# Prometheus metrics (imported from app.core.metrics to avoid circular deps)
+from app.core.metrics import REQUESTS_TOTAL, RESPONSES_TOTAL  # noqa: E402, F401
 
 logger: logging.Logger = logging.getLogger("app.core.events")
 

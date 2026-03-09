@@ -15,7 +15,7 @@ def project_root() -> Path:
 
 
 # Import fixtures from root conftest and cache
-pytest_plugins = ["tests.fixtures.cache"]
+pytest_plugins = ["tests.fixtures.cache", "tests.fixtures.content_store"]
 
 # Set required LLM environment variables for tests
 os.environ.update(

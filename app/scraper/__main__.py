@@ -31,8 +31,21 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
         ImportError: If scraper module/class cannot be imported
         ValueError: If loaded class is not a ScraperJob
     """
-    try:
-        module = importlib.import_module(f"app.scraper.{scraper_name}_scraper")
+    # Try import paths in order:
+    # 1. Exact name (e.g. "scrapers.the_food_pantries_org" -> app.scraper.scrapers.the_food_pantries_org_scraper)
+    # 2. Framework-level (e.g. "sample" -> app.scraper.sample_scraper)
+    # 3. Private submodule fallback (e.g. "the_food_pantries_org" -> app.scraper.scrapers.the_food_pantries_org_scraper)
+    import_paths = [f"app.scraper.{scraper_name}_scraper"]
+    if not scraper_name.startswith("scrapers."):
+        import_paths.append(f"app.scraper.scrapers.{scraper_name}_scraper")
+
+    last_error = None
+    for module_path in import_paths:
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError as e:
+            last_error = e
+            continue
 
         # Get all classes that end with "Scraper" in the module
         available_classes = [
@@ -52,7 +65,8 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
 
         # Multiple classes found - do case-insensitive matching
         # Normalize the scraper name by removing underscores and converting to lowercase
-        scraper_name_normalized = scraper_name.replace("_", "").lower()
+        base_name = scraper_name.replace("scrapers.", "")
+        scraper_name_normalized = base_name.replace("_", "").lower()
 
         for class_name in available_classes:
             # Normalize class name by removing "Scraper" suffix and converting to lowercase
@@ -69,9 +83,8 @@ def load_scraper_class(scraper_name: str) -> type[ScraperJob]:
         )
         return getattr(module, available_classes[0])
 
-    except ImportError as e:
-        logger.error(f"Failed to import scraper '{scraper_name}': {e}")
-        raise
+    logger.error(f"Failed to import scraper '{scraper_name}': {last_error}")
+    raise ImportError(f"No module named '{import_paths[0]}'") from last_error
 
 
 def list_available_scrapers() -> list[str]:
