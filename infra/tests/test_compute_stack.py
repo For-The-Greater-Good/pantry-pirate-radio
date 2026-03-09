@@ -266,8 +266,8 @@ class TestComputeStackEnvironments:
             {"InstanceType": "t4g.nano"},
         )
 
-    def test_prod_uses_multiple_nat_gateways(self, app):
-        """Prod environment should use multiple NAT gateways for HA."""
+    def test_prod_uses_nat_instance(self, app):
+        """Prod environment should also use NAT Instance (same as dev)."""
         stack = ComputeStack(
             app,
             "ProdStack",
@@ -276,8 +276,12 @@ class TestComputeStackEnvironments:
         )
         template = assertions.Template.from_stack(stack)
 
-        # Prod should have 2 NAT gateways (one per AZ)
-        template.resource_count_is("AWS::EC2::NatGateway", 2)
+        # Prod should have 0 managed NAT Gateways (uses NAT Instance like dev)
+        template.resource_count_is("AWS::EC2::NatGateway", 0)
+        template.has_resource_properties(
+            "AWS::EC2::Instance",
+            {"InstanceType": "t4g.nano"},
+        )
 
 
 class TestComputeStackVPCEndpoints:
@@ -303,21 +307,43 @@ class TestComputeStackVPCEndpoints:
         """Get CloudFormation template from stack."""
         return assertions.Template.from_stack(stack)
 
-    def test_creates_gateway_endpoints(self, template):
-        """Should create exactly 2 free gateway endpoints (S3 + DynamoDB)."""
-        template.resource_count_is("AWS::EC2::VPCEndpoint", 2)
+    def test_creates_vpc_endpoints(self, template):
+        """Should create 5 VPC endpoints (2 gateway + 3 interface)."""
+        template.resource_count_is("AWS::EC2::VPCEndpoint", 5)
 
-    def test_all_endpoints_are_gateway_type(self, template):
-        """All VPC endpoints should be Gateway type (free), not Interface (paid)."""
+    def test_creates_gateway_endpoints(self, template):
+        """Should create S3 and DynamoDB gateway endpoints (free)."""
         raw = template.to_json()
         endpoints = [
-            r for r in raw["Resources"].values()
+            r
+            for r in raw["Resources"].values()
             if r["Type"] == "AWS::EC2::VPCEndpoint"
+            and r["Properties"].get("VpcEndpointType") == "Gateway"
+        ]
+        assert len(endpoints) == 2
+
+    def test_creates_interface_endpoints(self, template):
+        """Should create ECR API, ECR DKR, and CloudWatch Logs interface endpoints."""
+        raw = template.to_json()
+        endpoints = [
+            r
+            for r in raw["Resources"].values()
+            if r["Type"] == "AWS::EC2::VPCEndpoint"
+            and r["Properties"].get("VpcEndpointType") == "Interface"
+        ]
+        assert len(endpoints) == 3
+
+    def test_interface_endpoints_have_private_dns(self, template):
+        """Interface endpoints should have private DNS enabled."""
+        raw = template.to_json()
+        endpoints = [
+            r
+            for r in raw["Resources"].values()
+            if r["Type"] == "AWS::EC2::VPCEndpoint"
+            and r["Properties"].get("VpcEndpointType") == "Interface"
         ]
         for ep in endpoints:
-            assert ep["Properties"]["VpcEndpointType"] == "Gateway", (
-                "Interface endpoints cost ~$14.60/month each and should not be created."
-            )
+            assert ep["Properties"].get("PrivateDnsEnabled") is True
 
 
 class TestComputeStackWithECRRepository:
@@ -332,7 +358,9 @@ class TestComputeStackWithECRRepository:
     def ecr_stack(self, app):
         """Create ECR stack for repository objects."""
         return ECRStack(
-            app, "ECRTestStack", environment_name="dev",
+            app,
+            "ECRTestStack",
+            environment_name="dev",
             env=cdk.Environment(account="123456789012", region="us-east-1"),
         )
 
@@ -360,16 +388,24 @@ class TestComputeStackWithECRRepository:
         template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Action": assertions.Match.array_with([
-                                "ecr:BatchCheckLayerAvailability",
-                            ]),
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": assertions.Match.array_with(
+                                            [
+                                                "ecr:BatchCheckLayerAvailability",
+                                            ]
+                                        ),
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
             },
         )
 
@@ -386,7 +422,9 @@ class TestComputeStackAutoScaling:
     def queue_stack(self, app):
         """Create queue stack for SQS queues."""
         return QueueStack(
-            app, "AutoScaleQueueStack", environment_name="dev",
+            app,
+            "AutoScaleQueueStack",
+            environment_name="dev",
             env=cdk.Environment(account="123456789012", region="us-east-1"),
         )
 
@@ -394,7 +432,8 @@ class TestComputeStackAutoScaling:
     def stack_with_scaling(self, app, queue_stack):
         """Create compute stack with auto-scaling configured."""
         stack = ComputeStack(
-            app, "AutoScaleComputeStack",
+            app,
+            "AutoScaleComputeStack",
             environment_name="dev",
             max_capacity=20,
             env=cdk.Environment(account="123456789012", region="us-east-1"),
@@ -432,7 +471,8 @@ class TestComputeStackAutoScaling:
     def test_without_configure_no_scaling_resources(self, app):
         """Without configure_auto_scaling(), no scaling resources should exist."""
         stack = ComputeStack(
-            app, "NoScaleStack",
+            app,
+            "NoScaleStack",
             environment_name="dev",
             env=cdk.Environment(account="123456789012", region="us-east-1"),
         )
@@ -455,7 +495,8 @@ class TestComputeStackAutoScaling:
         """Alarms should treat missing data as notBreaching for reliable scale-from-zero."""
         raw = template_with_scaling.to_json()
         alarms = [
-            r for r in raw["Resources"].values()
+            r
+            for r in raw["Resources"].values()
             if r["Type"] == "AWS::CloudWatch::Alarm"
         ]
         assert len(alarms) == 2
@@ -465,16 +506,16 @@ class TestComputeStackAutoScaling:
                 "to avoid INSUFFICIENT_DATA during idle periods"
             )
 
-    def test_scaling_policy_has_metric_aggregation_type(
-        self, template_with_scaling
-    ):
+    def test_scaling_policy_has_metric_aggregation_type(self, template_with_scaling):
         """Step scaling policies should have explicit MetricAggregationType."""
         template_with_scaling.has_resource_properties(
             "AWS::ApplicationAutoScaling::ScalingPolicy",
             {
                 "PolicyType": "StepScaling",
-                "StepScalingPolicyConfiguration": assertions.Match.object_like({
-                    "MetricAggregationType": "Average",
-                }),
+                "StepScalingPolicyConfiguration": assertions.Match.object_like(
+                    {
+                        "MetricAggregationType": "Average",
+                    }
+                ),
             },
         )

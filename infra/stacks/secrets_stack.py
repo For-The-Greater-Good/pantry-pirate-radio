@@ -86,9 +86,9 @@ class SecretsStack(Stack):
             "GitHubPATSecret",
             secret_name=f"pantry-pirate-radio/github-pat-{self.environment_name}",
             description=f"GitHub PAT for HAARRRvest repository access - {self.environment_name}",
-            secret_string_value=SecretValue.unsafe_plain_text(pat_value)
-            if pat_value
-            else None,
+            secret_string_value=(
+                SecretValue.unsafe_plain_text(pat_value) if pat_value else None
+            ),
             removal_policy=removal_policy,
         )
 
@@ -117,9 +117,11 @@ class SecretsStack(Stack):
             "LLMApiKeysSecret",
             secret_name=f"pantry-pirate-radio/llm-api-keys-{self.environment_name}",
             description=f"LLM API keys (Anthropic/OpenRouter/ArcGIS) - {self.environment_name}",
-            secret_string_value=SecretValue.unsafe_plain_text(json.dumps(api_keys))
-            if has_any_key
-            else None,
+            secret_string_value=(
+                SecretValue.unsafe_plain_text(json.dumps(api_keys))
+                if has_any_key
+                else None
+            ),
             removal_policy=removal_policy,
         )
 

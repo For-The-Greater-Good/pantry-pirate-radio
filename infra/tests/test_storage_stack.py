@@ -202,9 +202,7 @@ class TestStorageStackEnvironments:
 
         template.has_resource_properties(
             "AWS::DynamoDB::Table",
-            {
-                "PointInTimeRecoverySpecification": {"PointInTimeRecoveryEnabled": True}
-            },
+            {"PointInTimeRecoverySpecification": {"PointInTimeRecoveryEnabled": True}},
         )
 
     def test_dev_tables_no_pitr(self, app):
@@ -215,11 +213,7 @@ class TestStorageStackEnvironments:
         # Dev tables should have PITR specification but with enabled=False
         template.has_resource_properties(
             "AWS::DynamoDB::Table",
-            {
-                "PointInTimeRecoverySpecification": {
-                    "PointInTimeRecoveryEnabled": False
-                }
-            },
+            {"PointInTimeRecoverySpecification": {"PointInTimeRecoveryEnabled": False}},
         )
 
 

@@ -78,16 +78,21 @@ class TestPipelineStackResources:
                     definition = json.loads("".join(str(p) for p in parts[1]))
 
                 # Navigate to container overrides
-                run_task = definition["States"]["RunAllScrapers"]["ItemProcessor"]["States"]["RunScraperTask"]
+                run_task = definition["States"]["RunAllScrapers"]["ItemProcessor"][
+                    "States"
+                ]["RunScraperTask"]
                 overrides = run_task["Parameters"]["Overrides"]["ContainerOverrides"][0]
-                env_vars = {e["Name"]: e.get("Value", e.get("Value.$")) for e in overrides["Environment"]}
+                env_vars = {
+                    e["Name"]: e.get("Value", e.get("Value.$"))
+                    for e in overrides["Environment"]
+                }
 
-                assert env_vars.get("SERVICE_TYPE") == "scraper", (
-                    "SERVICE_TYPE should be 'scraper'"
-                )
-                assert env_vars.get("SCRAPER_NAME") == "$.scraper_name", (
-                    "SCRAPER_NAME should reference input path"
-                )
+                assert (
+                    env_vars.get("SERVICE_TYPE") == "scraper"
+                ), "SERVICE_TYPE should be 'scraper'"
+                assert (
+                    env_vars.get("SCRAPER_NAME") == "$.scraper_name"
+                ), "SCRAPER_NAME should reference input path"
                 break
         else:
             pytest.fail("No StateMachine resource found")
@@ -208,11 +213,13 @@ class TestBatcherIntegration:
                     definition = json.loads("".join(str(p) for p in parts[1]))
 
                 # Verify BatchOrForward state exists
-                assert "BatchOrForward" in definition["States"], (
-                    "State machine should have BatchOrForward state"
-                )
+                assert (
+                    "BatchOrForward" in definition["States"]
+                ), "State machine should have BatchOrForward state"
                 # Verify RunAllScrapers transitions to BatchOrForward
-                assert definition["States"]["RunAllScrapers"]["Next"] == "BatchOrForward"
+                assert (
+                    definition["States"]["RunAllScrapers"]["Next"] == "BatchOrForward"
+                )
                 break
         else:
             pytest.fail("No StateMachine resource found")
@@ -239,11 +246,13 @@ class TestBatcherIntegration:
                     parts = def_string["Fn::Join"]
                     definition = json.loads("".join(str(p) for p in parts[1]))
 
-                assert "BatchOrForward" not in definition["States"], (
-                    "State machine should NOT have BatchOrForward without batcher"
-                )
+                assert (
+                    "BatchOrForward" not in definition["States"]
+                ), "State machine should NOT have BatchOrForward without batcher"
                 # RunAllScrapers should go directly to PipelineSummary
-                assert definition["States"]["RunAllScrapers"]["Next"] == "PipelineSummary"
+                assert (
+                    definition["States"]["RunAllScrapers"]["Next"] == "PipelineSummary"
+                )
                 break
         else:
             pytest.fail("No StateMachine resource found")
@@ -273,13 +282,18 @@ class TestBatcherIntegration:
                     parts = def_string["Fn::Join"]
                     definition = json.loads("".join(str(p) for p in parts[1]))
 
-                run_task = definition["States"]["RunAllScrapers"]["ItemProcessor"]["States"]["RunScraperTask"]
+                run_task = definition["States"]["RunAllScrapers"]["ItemProcessor"][
+                    "States"
+                ]["RunScraperTask"]
                 overrides = run_task["Parameters"]["Overrides"]["ContainerOverrides"][0]
-                env_vars = {e["Name"]: e.get("Value", e.get("Value.$")) for e in overrides["Environment"]}
+                env_vars = {
+                    e["Name"]: e.get("Value", e.get("Value.$"))
+                    for e in overrides["Environment"]
+                }
 
-                assert env_vars.get("SQS_QUEUE_URL") == staging_url, (
-                    f"SQS_QUEUE_URL should be staging queue URL, got {env_vars.get('SQS_QUEUE_URL')}"
-                )
+                assert (
+                    env_vars.get("SQS_QUEUE_URL") == staging_url
+                ), f"SQS_QUEUE_URL should be staging queue URL, got {env_vars.get('SQS_QUEUE_URL')}"
                 break
         else:
             pytest.fail("No StateMachine resource found")

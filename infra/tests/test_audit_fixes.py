@@ -57,12 +57,12 @@ class TestC4ReconcilerDeploymentConstraint:
             props = resource.get("Properties", {})
             deployment_config = props.get("DeploymentConfiguration", {})
             circuit_breaker = deployment_config.get("DeploymentCircuitBreaker", {})
-            assert circuit_breaker.get("Enable") is True, (
-                f"Service {_logical_id} missing circuit breaker"
-            )
-            assert circuit_breaker.get("Rollback") is True, (
-                f"Service {_logical_id} missing circuit breaker rollback"
-            )
+            assert (
+                circuit_breaker.get("Enable") is True
+            ), f"Service {_logical_id} missing circuit breaker"
+            assert (
+                circuit_breaker.get("Rollback") is True
+            ), f"Service {_logical_id} missing circuit breaker rollback"
 
 
 class TestM1RecorderVisibilityTimeout:
@@ -82,7 +82,9 @@ class TestM1RecorderVisibilityTimeout:
         template.has_resource_properties(
             "AWS::SQS::Queue",
             {
-                "QueueName": assertions.Match.string_like_regexp(".*recorder.*dev\\.fifo"),
+                "QueueName": assertions.Match.string_like_regexp(
+                    ".*recorder.*dev\\.fifo"
+                ),
                 "VisibilityTimeout": 300,
             },
         )
@@ -92,7 +94,9 @@ class TestM1RecorderVisibilityTimeout:
         template.has_resource_properties(
             "AWS::SQS::Queue",
             {
-                "QueueName": assertions.Match.string_like_regexp(".*reconciler.*dev\\.fifo"),
+                "QueueName": assertions.Match.string_like_regexp(
+                    ".*reconciler.*dev\\.fifo"
+                ),
                 "VisibilityTimeout": 300,
             },
         )

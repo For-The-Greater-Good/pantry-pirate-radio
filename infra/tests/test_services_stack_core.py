@@ -107,7 +107,7 @@ class TestServicesStackEnvironments:
         )
 
     def test_prod_log_retention(self, app):
-        """Prod environment should have longer log retention."""
+        """Prod environment should have 7-day log retention (unified)."""
         compute_stack = ComputeStack(app, "ComputeStack2", environment_name="prod")
         stack = ServicesStack(
             app,
@@ -118,10 +118,10 @@ class TestServicesStackEnvironments:
         )
         template = assertions.Template.from_stack(stack)
 
-        # Prod should have 30-day retention
+        # Prod uses same 7-day retention as dev (unified)
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
-            {"RetentionInDays": 30},
+            {"RetentionInDays": 7},
         )
 
 
@@ -279,17 +279,25 @@ class TestServicesStackWithConfig:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "QUEUE_BACKEND",
-                                "Value": "sqs",
-                            })
-                        ])
-                    })
-                ])
-            }
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "QUEUE_BACKEND",
+                                                "Value": "sqs",
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
+            },
         )
 
     def test_scraper_container_has_service_type(self, app, compute_stack):
@@ -310,17 +318,25 @@ class TestServicesStackWithConfig:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "SERVICE_TYPE",
-                                "Value": "scraper",
-                            })
-                        ])
-                    })
-                ])
-            }
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "SERVICE_TYPE",
+                                                "Value": "scraper",
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
+            },
         )
 
     def test_validator_has_amazon_location_env_vars(self, app, compute_stack):
@@ -344,16 +360,24 @@ class TestServicesStackWithConfig:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "AMAZON_LOCATION_INDEX",
-                                "Value": "test-geocoding-index",
-                            })
-                        ])
-                    })
-                ])
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "AMAZON_LOCATION_INDEX",
+                                                "Value": "test-geocoding-index",
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
             },
         )
 
@@ -378,16 +402,24 @@ class TestServicesStackWithConfig:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "GEOCODING_PROVIDER",
-                                "Value": "amazon-location",
-                            })
-                        ])
-                    })
-                ])
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "GEOCODING_PROVIDER",
+                                                "Value": "amazon-location",
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
             },
         )
 
@@ -396,7 +428,9 @@ class TestServicesStackWithConfig:
         from stacks.services_stack import ServiceConfig
 
         config = ServiceConfig(
-            queue_urls={"llm": "https://sqs.us-east-1.amazonaws.com/123456/llm-queue.fifo"},
+            queue_urls={
+                "llm": "https://sqs.us-east-1.amazonaws.com/123456/llm-queue.fifo"
+            },
             jobs_table_name="test-jobs-table",
         )
         stack = ServicesStack(
@@ -412,33 +446,49 @@ class TestServicesStackWithConfig:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "SQS_QUEUE_URL",
-                                "Value": "https://sqs.us-east-1.amazonaws.com/123456/llm-queue.fifo",
-                            }),
-                        ])
-                    })
-                ])
-            }
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "SQS_QUEUE_URL",
+                                                "Value": "https://sqs.us-east-1.amazonaws.com/123456/llm-queue.fifo",
+                                            }
+                                        ),
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
+            },
         )
 
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "SQS_JOBS_TABLE",
-                                "Value": "test-jobs-table",
-                            }),
-                        ])
-                    })
-                ])
-            }
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "SQS_JOBS_TABLE",
+                                                "Value": "test-jobs-table",
+                                            }
+                                        ),
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
+            },
         )
 
 
@@ -489,15 +539,21 @@ class TestPublisherTaskDefinition:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Command": assertions.Match.array_with([
-                            "python",
-                            "-m",
-                            "app.datasette.exporter",
-                        ]),
-                    })
-                ])
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Command": assertions.Match.array_with(
+                                    [
+                                        "python",
+                                        "-m",
+                                        "app.datasette.exporter",
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                )
             },
         )
 
@@ -519,16 +575,24 @@ class TestPublisherTaskDefinition:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "EXPORT_S3_BUCKET",
-                                "Value": "my-exports-bucket",
-                            })
-                        ])
-                    })
-                ])
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "EXPORT_S3_BUCKET",
+                                                "Value": "my-exports-bucket",
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
             },
         )
 
@@ -550,16 +614,24 @@ class TestPublisherTaskDefinition:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
             {
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "DATABASE_HOST",
-                                "Value": "my-proxy.rds.amazonaws.com",
-                            })
-                        ])
-                    })
-                ])
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": "DATABASE_HOST",
+                                                "Value": "my-proxy.rds.amazonaws.com",
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
             },
         )
 
@@ -610,15 +682,23 @@ class TestServicesStackWithECRRepositories:
         template.has_resource_properties(
             "AWS::IAM::Policy",
             {
-                "PolicyDocument": assertions.Match.object_like({
-                    "Statement": assertions.Match.array_with([
-                        assertions.Match.object_like({
-                            "Action": assertions.Match.array_with([
-                                "ecr:BatchCheckLayerAvailability",
-                            ]),
-                            "Effect": "Allow",
-                        })
-                    ])
-                })
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": assertions.Match.array_with(
+                                            [
+                                                "ecr:BatchCheckLayerAvailability",
+                                            ]
+                                        ),
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
             },
         )

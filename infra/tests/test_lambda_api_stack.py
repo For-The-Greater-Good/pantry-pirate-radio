@@ -72,12 +72,16 @@ class TestLambdaApiStackResources:
         template.has_resource_properties(
             "AWS::Lambda::Function",
             {
-                "Environment": assertions.Match.object_like({
-                    "Variables": assertions.Match.object_like({
-                        "DATABASE_USER": "pantry_pirate",
-                        "DATABASE_PORT": "5432",
-                    }),
-                }),
+                "Environment": assertions.Match.object_like(
+                    {
+                        "Variables": assertions.Match.object_like(
+                            {
+                                "DATABASE_USER": "pantry_pirate",
+                                "DATABASE_PORT": "5432",
+                            }
+                        ),
+                    }
+                ),
             },
         )
 
@@ -114,9 +118,11 @@ class TestLambdaApiStackResources:
         template.has_resource_properties(
             "AWS::ApiGatewayV2::Stage",
             {
-                "AccessLogSettings": assertions.Match.object_like({
-                    "DestinationArn": assertions.Match.any_value(),
-                }),
+                "AccessLogSettings": assertions.Match.object_like(
+                    {
+                        "DestinationArn": assertions.Match.any_value(),
+                    }
+                ),
             },
         )
 
@@ -124,11 +130,13 @@ class TestLambdaApiStackResources:
         """Should create a CloudWatch log group for API Gateway access logs."""
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
-            assertions.Match.object_like({
-                "LogGroupName": assertions.Match.string_like_regexp(
-                    "/aws/apigateway/pantry-pirate-radio-api-.*"
-                ),
-            }),
+            assertions.Match.object_like(
+                {
+                    "LogGroupName": assertions.Match.string_like_regexp(
+                        "/aws/apigateway/pantry-pirate-radio-api-.*"
+                    ),
+                }
+            ),
         )
 
     def test_creates_lambda_integration(self, template):
@@ -154,9 +162,11 @@ class TestLambdaApiStackResources:
         """Should create a CloudWatch log group."""
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
-            assertions.Match.object_like({
-                "RetentionInDays": 14,
-            }),
+            assertions.Match.object_like(
+                {
+                    "RetentionInDays": 7,
+                }
+            ),
         )
 
     def test_outputs_api_url(self, template):
@@ -264,12 +274,14 @@ class TestLambdaApiStackProvisionedConcurrency:
         )
 
     def test_prod_log_retention(self, template):
-        """Prod stack should have longer log retention."""
+        """Prod stack should have 7-day log retention (unified)."""
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
-            assertions.Match.object_like({
-                "RetentionInDays": 90,
-            }),
+            assertions.Match.object_like(
+                {
+                    "RetentionInDays": 7,
+                }
+            ),
         )
 
 

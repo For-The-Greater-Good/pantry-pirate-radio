@@ -43,7 +43,9 @@ class TestSharedConfig:
     def test_shared_values_are_strings(self):
         """All SHARED values must be strings for CDK env dicts."""
         for key, value in SHARED.items():
-            assert isinstance(value, str), f"SHARED[{key!r}] = {value!r} is not a string"
+            assert isinstance(
+                value, str
+            ), f"SHARED[{key!r}] = {value!r} is not a string"
 
     def test_shared_llm_max_tokens(self):
         """LLM_MAX_TOKENS must be '64768' (not '8192' or 'None')."""
@@ -58,9 +60,10 @@ class TestSharedConfig:
             "CONTENT_STORE_ENABLED",
         ]
         for key in bool_keys:
-            assert SHARED[key] in ("true", "false"), (
-                f"SHARED[{key!r}] = {SHARED[key]!r}, expected 'true' or 'false'"
-            )
+            assert SHARED[key] in (
+                "true",
+                "false",
+            ), f"SHARED[{key!r}] = {SHARED[key]!r}, expected 'true' or 'false'"
 
     def test_shared_geocoding_providers_is_json_list(self):
         """ENRICHMENT_GEOCODING_PROVIDERS must be a JSON-encoded list."""
@@ -74,7 +77,12 @@ class TestSecretsConfig:
 
     def test_secrets_only_contains_allowed_keys(self):
         """SECRETS must only contain known secret keys."""
-        allowed = {"ARCGIS_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "DATA_REPO_TOKEN"}
+        allowed = {
+            "ARCGIS_API_KEY",
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "DATA_REPO_TOKEN",
+        }
         for key in SECRETS:
             assert key in allowed, f"Unexpected secret key: {key!r}"
 
@@ -103,34 +111,40 @@ class TestBatchStackUsesSharedConfig:
             vpc=compute.vpc,
             ecr_repository=ecr.repositories.get("batch-lambda"),
         )
-        return assertions.Template.from_stack(
-            app.node.find_child("BatchStack")
-        )
+        return assertions.Template.from_stack(app.node.find_child("BatchStack"))
 
     def test_batcher_lambda_has_shared_llm_max_tokens(self, template):
         """Batcher Lambda must use shared LLM_MAX_TOKENS (64768)."""
         template.has_resource_properties(
             "AWS::Lambda::Function",
-            assertions.Match.object_like({
-                "Environment": {
-                    "Variables": assertions.Match.object_like({
-                        "LLM_MAX_TOKENS": SHARED["LLM_MAX_TOKENS"],
-                    }),
-                },
-            }),
+            assertions.Match.object_like(
+                {
+                    "Environment": {
+                        "Variables": assertions.Match.object_like(
+                            {
+                                "LLM_MAX_TOKENS": SHARED["LLM_MAX_TOKENS"],
+                            }
+                        ),
+                    },
+                }
+            ),
         )
 
     def test_batcher_lambda_has_shared_llm_temperature(self, template):
         """Batcher Lambda must use shared LLM_TEMPERATURE."""
         template.has_resource_properties(
             "AWS::Lambda::Function",
-            assertions.Match.object_like({
-                "Environment": {
-                    "Variables": assertions.Match.object_like({
-                        "LLM_TEMPERATURE": SHARED["LLM_TEMPERATURE"],
-                    }),
-                },
-            }),
+            assertions.Match.object_like(
+                {
+                    "Environment": {
+                        "Variables": assertions.Match.object_like(
+                            {
+                                "LLM_TEMPERATURE": SHARED["LLM_TEMPERATURE"],
+                            }
+                        ),
+                    },
+                }
+            ),
         )
 
 
@@ -156,96 +170,154 @@ class TestServicesStackUsesSharedConfig:
             cluster=cluster,
             config=config,
         )
-        return assertions.Template.from_stack(
-            app.node.find_child("ServicesStack")
-        )
+        return assertions.Template.from_stack(app.node.find_child("ServicesStack"))
 
     def test_validator_has_geocoding_provider(self, template):
         """Validator task def must include GEOCODING_PROVIDER."""
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            assertions.Match.object_like({
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "GEOCODING_PROVIDER",
-                                "Value": SHARED["GEOCODING_PROVIDER"],
-                            }),
-                        ]),
-                    }),
-                ]),
-            }),
+            assertions.Match.object_like(
+                {
+                    "ContainerDefinitions": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Environment": assertions.Match.array_with(
+                                        [
+                                            assertions.Match.object_like(
+                                                {
+                                                    "Name": "GEOCODING_PROVIDER",
+                                                    "Value": SHARED[
+                                                        "GEOCODING_PROVIDER"
+                                                    ],
+                                                }
+                                            ),
+                                        ]
+                                    ),
+                                }
+                            ),
+                        ]
+                    ),
+                }
+            ),
         )
 
     def test_validator_has_geocoding_enable_fallback(self, template):
         """Validator task def must include GEOCODING_ENABLE_FALLBACK."""
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            assertions.Match.object_like({
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "GEOCODING_ENABLE_FALLBACK",
-                                "Value": SHARED["GEOCODING_ENABLE_FALLBACK"],
-                            }),
-                        ]),
-                    }),
-                ]),
-            }),
+            assertions.Match.object_like(
+                {
+                    "ContainerDefinitions": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Environment": assertions.Match.array_with(
+                                        [
+                                            assertions.Match.object_like(
+                                                {
+                                                    "Name": "GEOCODING_ENABLE_FALLBACK",
+                                                    "Value": SHARED[
+                                                        "GEOCODING_ENABLE_FALLBACK"
+                                                    ],
+                                                }
+                                            ),
+                                        ]
+                                    ),
+                                }
+                            ),
+                        ]
+                    ),
+                }
+            ),
         )
 
     def test_validator_has_enrichment_geocoding_providers(self, template):
         """Validator task def must include ENRICHMENT_GEOCODING_PROVIDERS."""
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            assertions.Match.object_like({
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "ENRICHMENT_GEOCODING_PROVIDERS",
-                                "Value": SHARED["ENRICHMENT_GEOCODING_PROVIDERS"],
-                            }),
-                        ]),
-                    }),
-                ]),
-            }),
+            assertions.Match.object_like(
+                {
+                    "ContainerDefinitions": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Environment": assertions.Match.array_with(
+                                        [
+                                            assertions.Match.object_like(
+                                                {
+                                                    "Name": "ENRICHMENT_GEOCODING_PROVIDERS",
+                                                    "Value": SHARED[
+                                                        "ENRICHMENT_GEOCODING_PROVIDERS"
+                                                    ],
+                                                }
+                                            ),
+                                        ]
+                                    ),
+                                }
+                            ),
+                        ]
+                    ),
+                }
+            ),
         )
 
     def test_validator_has_validator_enabled(self, template):
         """Validator task def must include VALIDATOR_ENABLED."""
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            assertions.Match.object_like({
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "VALIDATOR_ENABLED",
-                                "Value": SHARED["VALIDATOR_ENABLED"],
-                            }),
-                        ]),
-                    }),
-                ]),
-            }),
+            assertions.Match.object_like(
+                {
+                    "ContainerDefinitions": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Environment": assertions.Match.array_with(
+                                        [
+                                            assertions.Match.object_like(
+                                                {
+                                                    "Name": "VALIDATOR_ENABLED",
+                                                    "Value": SHARED[
+                                                        "VALIDATOR_ENABLED"
+                                                    ],
+                                                }
+                                            ),
+                                        ]
+                                    ),
+                                }
+                            ),
+                        ]
+                    ),
+                }
+            ),
         )
 
     def test_validator_has_validation_rejection_threshold(self, template):
         """Validator task def must include VALIDATION_REJECTION_THRESHOLD."""
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            assertions.Match.object_like({
-                "ContainerDefinitions": assertions.Match.array_with([
-                    assertions.Match.object_like({
-                        "Environment": assertions.Match.array_with([
-                            assertions.Match.object_like({
-                                "Name": "VALIDATION_REJECTION_THRESHOLD",
-                                "Value": SHARED["VALIDATION_REJECTION_THRESHOLD"],
-                            }),
-                        ]),
-                    }),
-                ]),
-            }),
+            assertions.Match.object_like(
+                {
+                    "ContainerDefinitions": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Environment": assertions.Match.array_with(
+                                        [
+                                            assertions.Match.object_like(
+                                                {
+                                                    "Name": "VALIDATION_REJECTION_THRESHOLD",
+                                                    "Value": SHARED[
+                                                        "VALIDATION_REJECTION_THRESHOLD"
+                                                    ],
+                                                }
+                                            ),
+                                        ]
+                                    ),
+                                }
+                            ),
+                        ]
+                    ),
+                }
+            ),
         )
