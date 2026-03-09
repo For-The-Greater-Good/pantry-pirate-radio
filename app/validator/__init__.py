@@ -30,8 +30,33 @@ from app.validator.config import (
 # NOTE: job_processor and queues are NOT imported here because queues.py
 # imports from app.llm.queue.queues which creates a Redis connection at
 # module load time, crashing in SQS-based environments (AWS Fargate).
-# Import them directly from app.validator.job_processor and
-# app.validator.queues where needed.
+# Use the lazy factory functions below instead.
+
+
+def get_process_validation_job():
+    """Lazy import factory for process_validation_job.
+
+    M6 FIX: Provides a stable API so callers don't need to know about
+    the Redis import constraint. Only imports job_processor when called.
+
+    Returns:
+        The process_validation_job function
+    """
+    from app.validator.job_processor import process_validation_job
+
+    return process_validation_job
+
+
+def get_enqueue_to_reconciler():
+    """Lazy import factory for enqueue_to_reconciler.
+
+    Returns:
+        The enqueue_to_reconciler function
+    """
+    from app.validator.job_processor import enqueue_to_reconciler
+
+    return enqueue_to_reconciler
+
 
 __version__ = "1.0.0"
 
@@ -45,4 +70,7 @@ __all__ = [
     "should_log_data_flow",
     "get_validation_thresholds",
     "get_feature_flags",
+    # Lazy import factories (M6)
+    "get_process_validation_job",
+    "get_enqueue_to_reconciler",
 ]

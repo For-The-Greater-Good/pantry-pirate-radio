@@ -31,7 +31,7 @@ import structlog
 from app.llm.providers.factory import create_provider
 from app.llm.queue.backend import get_queue_backend
 from app.llm.queue.backend_sqs import SQSQueueBackend
-from app.llm.queue.processor import process_llm_job
+from app.llm.queue.processor import process_llm_job, validate_sqs_queue_urls
 from app.llm.queue.types import JobStatus
 
 logger = structlog.get_logger(__name__)
@@ -43,13 +43,20 @@ class _HeartbeatThread:
     Uses ``threading.Event`` for clean shutdown instead of a self-rescheduling
     ``threading.Timer`` chain, which avoids unbounded timer creation and makes
     cancellation deterministic.
+
+    H5 FIX: Retries transient failures with exponential backoff (3 attempts)
+    before giving up. Sets ``failed`` flag so the main thread can detect
+    heartbeat death and abort processing cleanly.
     """
+
+    _MAX_RETRIES = 3
 
     def __init__(self, interval: float, callback: Any) -> None:
         self._interval = interval
         self._callback = callback
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self.failed = False
 
     def start(self) -> None:
         """Start the heartbeat thread."""
@@ -63,10 +70,29 @@ class _HeartbeatThread:
     def _run(self) -> None:
         """Loop until stop is requested, calling callback each interval."""
         while not self._stop_event.wait(self._interval):
-            try:
-                self._callback()
-            except Exception:
-                logger.warning("heartbeat_callback_error", exc_info=True)
+            success = False
+            for attempt in range(self._MAX_RETRIES):
+                try:
+                    self._callback()
+                    success = True
+                    break
+                except Exception:
+                    logger.warning(
+                        "heartbeat_callback_error",
+                        attempt=attempt + 1,
+                        max_retries=self._MAX_RETRIES,
+                        exc_info=True,
+                    )
+                    if attempt < self._MAX_RETRIES - 1:
+                        # Exponential backoff between retries
+                        time.sleep(2 ** (attempt + 1))
+
+            if not success:
+                logger.error(
+                    "heartbeat_permanently_failed",
+                    message="Heartbeat thread giving up after max retries",
+                )
+                self.failed = True
                 break
 
 
@@ -204,6 +230,14 @@ class FargateWorker:
             try:
                 # Process the job
                 result = process_llm_job(job, self.provider)
+
+                # H5: Check if heartbeat died (message may have been redelivered)
+                if heartbeat.failed:
+                    logger.error(
+                        "heartbeat_failed_during_llm_processing",
+                        job_id=job_id,
+                    )
+                    return False
 
                 # Update status to completed with result
                 self.backend.update_status(job_id, JobStatus.COMPLETED, result=result)
@@ -398,6 +432,9 @@ def main() -> int:
                 backend_type=type(backend).__name__,
             )
             return 1
+
+        # C3: Validate required SQS queue URLs at startup (fail fast)
+        validate_sqs_queue_urls()
 
         # Create and run worker
         worker = FargateWorker(backend)

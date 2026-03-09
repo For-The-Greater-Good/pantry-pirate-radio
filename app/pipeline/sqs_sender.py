@@ -164,7 +164,8 @@ def send_to_sqs(
 def _is_retryable(exc: Exception) -> bool:
     """Check whether an exception is a transient AWS error worth retrying.
 
-    Uses duck typing to avoid requiring botocore at import time.
+    M3 FIX: Uses proper isinstance checks via lazy botocore import instead
+    of fragile string comparisons on class names.
 
     Args:
         exc: The exception to check
@@ -172,17 +173,28 @@ def _is_retryable(exc: Exception) -> bool:
     Returns:
         True if the error is transient and should be retried
     """
-    # Check for botocore ClientError with retryable error code
-    if type(exc).__name__ == "ClientError" and hasattr(exc, "response"):
-        try:
-            error_code = exc.response.get("Error", {}).get("Code", "")  # type: ignore[attr-defined]
-            return error_code in _RETRYABLE_ERROR_CODES
-        except (AttributeError, TypeError):
-            pass
+    try:
+        from botocore.exceptions import BotoCoreError, ClientError
 
-    # Check for botocore BotoCoreError (covers connection/endpoint errors)
-    if type(exc).__name__ == "BotoCoreError":
-        return True
+        # Check for botocore ClientError with retryable error code
+        if isinstance(exc, ClientError):
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            return error_code in _RETRYABLE_ERROR_CODES
+
+        # BotoCoreError covers connection/endpoint errors
+        if isinstance(exc, BotoCoreError):
+            return True
+    except ImportError:
+        # Fallback to duck typing if botocore not available
+        if type(exc).__name__ == "ClientError" and hasattr(exc, "response"):
+            try:
+                error_code = exc.response.get("Error", {}).get("Code", "")  # type: ignore[attr-defined]
+                return error_code in _RETRYABLE_ERROR_CODES
+            except (AttributeError, TypeError):
+                pass
+
+        if type(exc).__name__ == "BotoCoreError":
+            return True
 
     # Retry on generic connection/timeout errors
     if isinstance(exc, ConnectionError | TimeoutError):

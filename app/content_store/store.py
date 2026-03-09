@@ -96,8 +96,16 @@ class ContentStore:
         """
         return hashlib.sha256(content.encode()).hexdigest()
 
+    def _is_sqs_mode(self) -> bool:
+        """Check if running in SQS mode (no Redis connection)."""
+        return self.redis_conn is None
+
     def _is_job_active(self, job_id: str) -> bool:
         """Check if a job is still active (queued or running).
+
+        In SQS mode (no Redis), this check is skipped entirely by the caller
+        (H2 fix). This method requires Redis/RQ and should only be called
+        when redis_conn is available.
 
         Args:
             job_id: RQ job ID
@@ -110,9 +118,10 @@ class ContentStore:
         from rq.job import Job
 
         if self.redis_conn is None:
-            # Without Redis (SQS mode), can't check RQ job status.
-            # Return False to allow reprocessing (SQS has its own dedup).
-            return False
+            # H2 FIX: Without Redis (SQS mode), can't check RQ job status.
+            # Callers should check _is_sqs_mode() first. Return True to be
+            # conservative (prevents clearing job_id and causing re-queuing).
+            return True
         try:
             job = Job.fetch(job_id, connection=self.redis_conn)
             status = job.get_status()
@@ -196,12 +205,17 @@ class ContentStore:
                 job_id=data.get("job_id"),
             )
 
-        # Check if content already exists with a job_id (for cleanup only)
+        # Check if content already exists with a job_id (for cleanup only).
+        # H2 FIX: In SQS mode, skip the active job check since we can't
+        # query RQ job status. The result cache check above already prevents
+        # reprocessing of completed content, and SQS FIFO dedup handles
+        # duplicates within the 5-minute window.
         existing_job_id = self.get_job_id(content_hash)
-        if existing_job_id and not self._is_job_active(existing_job_id):
-            # Job is no longer active (failed, expired, etc.)
-            # Clear the old job_id so content can be reprocessed
-            self.clear_job_id(content_hash)
+        if existing_job_id and not self._is_sqs_mode():
+            if not self._is_job_active(existing_job_id):
+                # Job is no longer active (failed, expired, etc.)
+                # Clear the old job_id so content can be reprocessed
+                self.clear_job_id(content_hash)
 
         # Store content if not already stored
         if not self._backend.content_exists(content_hash):

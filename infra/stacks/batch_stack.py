@@ -266,6 +266,7 @@ class BatchInferenceStack(Stack):
             tracing=_lambda.Tracing.ACTIVE,
             environment={
                 "STAGING_QUEUE_URL": self.staging_queue.queue_url,
+                "STAGING_DLQ_URL": self.staging_dlq.queue_url,
                 "LLM_QUEUE_URL": llm_queue.queue_url,
                 "BATCH_BUCKET": self.batch_bucket.bucket_name,
                 "BEDROCK_MODEL_ID": bedrock_model_id,
@@ -404,6 +405,7 @@ class BatchInferenceStack(Stack):
         """
         # Batcher Lambda permissions
         self.staging_queue.grant_consume_messages(self.batcher_lambda)
+        self.staging_dlq.grant_send_messages(self.batcher_lambda)
         llm_queue.grant_send_messages(self.batcher_lambda)
         self.batch_bucket.grant_read_write(self.batcher_lambda)
         jobs_table.grant_read_write_data(self.batcher_lambda)

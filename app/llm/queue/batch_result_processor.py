@@ -310,6 +310,39 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         event_detail_keys=list(detail.keys()),
     )
 
+    # H4 FIX: Idempotency check — skip if already processed.
+    # EventBridge may invoke this Lambda multiple times for the same event.
+    # Use a conditional write to atomically claim processing.
+    if jobs_table:
+        try:
+            dynamodb.update_item(
+                TableName=jobs_table,
+                Key={"job_id": {"S": f"batch:{job_arn}"}},
+                UpdateExpression="SET processing_started_at = :ts",
+                ConditionExpression="attribute_not_exists(processing_started_at)",
+                ExpressionAttributeValues={
+                    ":ts": {"S": datetime.now(UTC).isoformat()},
+                },
+            )
+        except Exception as e:
+            # Check if it's a ConditionalCheckFailedException (already processing)
+            error_code = ""
+            if hasattr(e, "response"):
+                error_code = e.response.get("Error", {}).get("Code", "")  # type: ignore[union-attr]
+            if error_code == "ConditionalCheckFailedException":
+                logger.info(
+                    "batch_result_already_processing",
+                    batch_job_arn=job_arn,
+                    status=status,
+                )
+                return {"status": "already_processed", "batch_job_arn": job_arn}
+            # Other errors should not block processing
+            logger.warning(
+                "batch_idempotency_check_failed",
+                batch_job_arn=job_arn,
+                error=str(e),
+            )
+
     # Get batch metadata from DynamoDB
     metadata = _get_batch_metadata(dynamodb, s3, jobs_table, batch_bucket, job_arn)
     original_jobs = metadata["original_jobs"]

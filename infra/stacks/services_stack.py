@@ -150,6 +150,10 @@ class ServicesStack(Stack):
                 environment=get_reconciler_environment(self.config),
                 secrets=get_reconciler_secrets(self.config),
                 command=["python", "-m", "app.reconciler.fargate_worker"],
+                # C4: Prevent concurrent reconciler instances during deployment.
+                # Stops old task before starting new one to avoid duplicate DB writes.
+                max_healthy_percent=100,
+                min_healthy_percent=0,
             )
         )
 
@@ -334,6 +338,8 @@ class ServicesStack(Stack):
         environment: dict[str, str] | None = None,
         secrets: dict[str, ecs.Secret] | None = None,
         command: list[str] | None = None,
+        max_healthy_percent: int | None = None,
+        min_healthy_percent: int | None = None,
     ) -> tuple[ecs.FargateService, ec2.ISecurityGroup, iam.IRole]:
         """Create a Fargate service. Delegates to service_factory module."""
         return create_fargate_service(
@@ -350,6 +356,8 @@ class ServicesStack(Stack):
             environment=environment,
             secrets=secrets,
             command=command,
+            max_healthy_percent=max_healthy_percent,
+            min_healthy_percent=min_healthy_percent,
         )
 
     def _create_publisher_task_definition(

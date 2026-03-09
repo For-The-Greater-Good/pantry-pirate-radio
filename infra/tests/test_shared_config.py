@@ -74,7 +74,7 @@ class TestSecretsConfig:
 
     def test_secrets_only_contains_allowed_keys(self):
         """SECRETS must only contain known secret keys."""
-        allowed = {"ARCGIS_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"}
+        allowed = {"ARCGIS_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "DATA_REPO_TOKEN"}
         for key in SECRETS:
             assert key in allowed, f"Unexpected secret key: {key!r}"
 

@@ -120,10 +120,15 @@ class TestSendToSqsRetry:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
-        # Create a mock ClientError with throttling
-        throttle_error = type("ClientError", (Exception,), {})()
-        throttle_error.response = {"Error": {"Code": "Throttling"}}
-        type(throttle_error).__name__ = "ClientError"
+        # Create a real botocore ClientError with throttling
+        from botocore.exceptions import ClientError
+
+        throttle_error = ClientError(
+            error_response={
+                "Error": {"Code": "Throttling", "Message": "Rate exceeded"}
+            },
+            operation_name="SendMessage",
+        )
 
         # First call throttles, second succeeds
         mock_client.send_message.side_effect = [
@@ -227,14 +232,22 @@ class TestIsRetryable:
 
     def test_client_error_throttling_is_retryable(self):
         """ClientError with Throttling code should be retryable."""
-        err = type("ClientError", (Exception,), {})()
-        err.response = {"Error": {"Code": "Throttling"}}
-        type(err).__name__ = "ClientError"
+        from botocore.exceptions import ClientError
+
+        err = ClientError(
+            error_response={
+                "Error": {"Code": "Throttling", "Message": "Rate exceeded"}
+            },
+            operation_name="SendMessage",
+        )
         assert _is_retryable(err) is True
 
     def test_client_error_access_denied_is_not_retryable(self):
         """ClientError with AccessDenied code should NOT be retryable."""
-        err = type("ClientError", (Exception,), {})()
-        err.response = {"Error": {"Code": "AccessDenied"}}
-        type(err).__name__ = "ClientError"
+        from botocore.exceptions import ClientError
+
+        err = ClientError(
+            error_response={"Error": {"Code": "AccessDenied", "Message": "Denied"}},
+            operation_name="SendMessage",
+        )
         assert _is_retryable(err) is False

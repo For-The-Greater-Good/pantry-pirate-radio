@@ -15,6 +15,47 @@ from app.llm.queue.models import JobResult, JobStatus, LLMJob
 logger = structlog.get_logger(__name__)
 
 
+def validate_sqs_queue_urls() -> None:
+    """Validate all required SQS queue URLs at startup.
+
+    Called by workers before entering the main loop to fail fast with
+    descriptive errors instead of failing at first message processing.
+
+    Raises:
+        ValueError: If any required queue URL is missing or empty
+    """
+    if not _is_sqs_backend():
+        return
+
+    from app.llm.queue.processor import should_use_validator
+
+    required_urls: dict[str, str] = {}
+
+    if should_use_validator():
+        required_urls["VALIDATOR_QUEUE_URL"] = os.environ.get("VALIDATOR_QUEUE_URL", "")
+    else:
+        required_urls["RECONCILER_QUEUE_URL"] = os.environ.get(
+            "RECONCILER_QUEUE_URL", ""
+        )
+
+    # Recorder is optional but warn if missing
+    recorder_url = os.environ.get("RECORDER_QUEUE_URL", "")
+    if not recorder_url:
+        logger.warning("RECORDER_QUEUE_URL not set — recording will be skipped")
+
+    missing = [name for name, val in required_urls.items() if not val]
+    if missing:
+        raise ValueError(
+            f"Missing required SQS queue URL(s): {', '.join(sorted(missing))}. "
+            f"Set these environment variables before starting the worker."
+        )
+
+    logger.info(
+        "sqs_queue_urls_validated",
+        validated_urls=list(required_urls.keys()),
+    )
+
+
 def _is_sqs_backend() -> bool:
     """Check if the queue backend is SQS."""
     return os.environ.get("QUEUE_BACKEND", "redis").lower() == "sqs"
@@ -211,37 +252,11 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
             and llm_result.text != "Empty response from model"
         )
 
-        # Store result in content store ONLY if valid
-        from app.content_store.config import get_content_store
-
-        content_store = get_content_store()
-        if content_store and is_valid_response:
-            if "content_hash" in job.metadata:
-                content_hash = job.metadata["content_hash"]
-                logger.info(
-                    f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
-                )
-                try:
-                    content_store.store_result(content_hash, llm_result.text, job.id)
-                    logger.info(
-                        f"Successfully stored result for hash {content_hash[:8]}..."
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to store result in content store: {e}",
-                        exc_info=True,
-                    )
-                    # Don't fail the job, but log the error
-            else:
-                logger.debug(f"No content_hash in job metadata for job {job.id}")
-        elif not is_valid_response:
-            logger.warning(
-                f"Not storing invalid response in content store for job {job.id}: '{llm_result.text[:50]}...'"
-            )
-        else:
-            logger.debug("Content store not configured")
-
-        # Check if validator is enabled and route accordingly
+        # C1 FIX: Enqueue to downstream queue FIRST, then store in content
+        # store. This prevents data loss when enqueue fails after content
+        # store write succeeds — on retry, the content store would return
+        # "completed" and the job would never be reprocessed.
+        # Validator/reconciler enqueue is idempotent via FIFO dedup.
         if should_use_validator():
             # Route through validator first
             try:
@@ -291,6 +306,36 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                 )
                 # Re-raise to ensure the LLM job fails and can be retried
                 raise ValueError(f"Failed to enqueue reconciler job: {e}") from e
+
+        # Store result in content store AFTER successful enqueue (non-critical)
+        from app.content_store.config import get_content_store
+
+        content_store = get_content_store()
+        if content_store and is_valid_response:
+            if "content_hash" in job.metadata:
+                content_hash = job.metadata["content_hash"]
+                logger.info(
+                    f"Storing result in content store for hash {content_hash[:8]}... (job {job.id})"
+                )
+                try:
+                    content_store.store_result(content_hash, llm_result.text, job.id)
+                    logger.info(
+                        f"Successfully stored result for hash {content_hash[:8]}..."
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to store result in content store: {e}",
+                        exc_info=True,
+                    )
+                    # Don't fail the job — enqueue already succeeded
+            else:
+                logger.debug(f"No content_hash in job metadata for job {job.id}")
+        elif not is_valid_response:
+            logger.warning(
+                f"Not storing invalid response in content store for job {job.id}: '{llm_result.text[:50]}...'"
+            )
+        else:
+            logger.debug("Content store not configured")
 
         recorder_data = {
             "job_id": job.id,
@@ -355,6 +400,17 @@ def handle_claude_errors(e: Exception, job: LLMJob) -> None:
 
                 auth_manager = AuthStateManager(llm_queue.connection)
                 auth_manager.set_auth_failed(str(e), retry_after=e.retry_after)
+            else:
+                # H3 FIX: In SQS mode, sleep for retry_after to avoid
+                # burning through retries on auth failures
+                retry_after = getattr(e, "retry_after", 60) or 60
+                logger.warning(
+                    "sqs_mode_auth_cooldown",
+                    retry_after=retry_after,
+                )
+                import time
+
+                time.sleep(retry_after)
 
             logger.error(
                 f"Claude authentication failed: {e}. "
@@ -371,6 +427,17 @@ def handle_claude_errors(e: Exception, job: LLMJob) -> None:
 
                 auth_manager = AuthStateManager(llm_queue.connection)
                 auth_manager.set_quota_exceeded(str(e), retry_after=e.retry_after)
+            else:
+                # H3 FIX: In SQS mode, sleep for retry_after to avoid
+                # burning through retries on quota exhaustion
+                retry_after = getattr(e, "retry_after", 300) or 300
+                logger.warning(
+                    "sqs_mode_quota_cooldown",
+                    retry_after=retry_after,
+                )
+                import time
+
+                time.sleep(retry_after)
 
             logger.error(
                 f"Claude quota exceeded: {e}. " f"Worker will pause job processing."

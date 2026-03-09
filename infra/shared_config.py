@@ -119,6 +119,7 @@ _SECRET_KEYS = {
     "ARCGIS_API_KEY",
     "OPENROUTER_API_KEY",
     "ANTHROPIC_API_KEY",
+    "DATA_REPO_TOKEN",
 }
 
 SHARED: dict[str, str] = _load_shared_defaults()

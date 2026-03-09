@@ -261,6 +261,7 @@ class TestVisibilityHeartbeat:
 
         # Mock the heartbeat to avoid real threading
         mock_heartbeat = MagicMock(spec=_HeartbeatThread)
+        mock_heartbeat.failed = False
         with patch.object(
             worker, "_start_visibility_heartbeat", return_value=mock_heartbeat
         ) as mock_start:

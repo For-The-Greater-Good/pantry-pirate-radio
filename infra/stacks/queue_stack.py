@@ -81,11 +81,12 @@ class QueueStack(Stack):
             dlq=self.reconciler_dlq,
         )
 
-        # Create Recorder queue (120s visibility)
+        # Create Recorder queue (300s visibility — M1: increased from 120s
+        # to match reconciler, preventing redelivery during slow S3 writes)
         self.recorder_dlq = self._create_dlq("recorder")
         self.recorder_queue = self._create_queue(
             name="recorder",
-            visibility_timeout_seconds=120,
+            visibility_timeout_seconds=300,
             dlq=self.recorder_dlq,
         )
 

@@ -31,7 +31,7 @@ from app.pipeline.sqs_sender import send_to_sqs
 
 logger = structlog.get_logger(__name__)
 
-BATCH_THRESHOLD = int(os.environ.get("BATCH_THRESHOLD", "100"))
+_DEFAULT_BATCH_THRESHOLD = 100
 
 
 def _get_clients() -> tuple:
@@ -47,9 +47,47 @@ def _get_clients() -> tuple:
     return sqs, s3, bedrock, dynamodb
 
 
+def _forward_to_dlq(
+    sqs_client: Any,
+    dlq_url: str,
+    original_body: str,
+    message_id: str,
+    error: str,
+) -> None:
+    """Forward a poison pill message to the staging DLQ.
+
+    Args:
+        sqs_client: boto3 SQS client
+        dlq_url: Staging DLQ URL
+        original_body: Original message body (raw string)
+        message_id: Original SQS message ID
+        error: Error description
+    """
+    dlq_envelope = json.dumps(
+        {
+            "original_body": original_body,
+            "original_message_id": message_id,
+            "error": error,
+            "source": "batcher-poison-pill",
+        },
+        default=str,
+    )
+    sqs_client.send_message(
+        QueueUrl=dlq_url,
+        MessageBody=dlq_envelope,
+        MessageGroupId="poison-pills",
+    )
+    logger.warning(
+        "poison_pill_forwarded_to_dlq",
+        message_id=message_id,
+        error=error,
+    )
+
+
 def _drain_staging_queue(
     sqs_client: Any,
     queue_url: str,
+    dlq_url: str = "",
     max_iterations: int = 1000,
 ) -> list[tuple[dict[str, Any], str]]:
     """Drain all messages from the staging queue.
@@ -57,17 +95,19 @@ def _drain_staging_queue(
     Receives messages in batches of 10. Valid messages are collected with
     their receipt handles but NOT deleted — the caller is responsible for
     deleting them after successful downstream processing. Malformed
-    (unparseable) messages are deleted immediately as poison pills.
+    (unparseable) messages are forwarded to the DLQ for inspection.
 
     Args:
         sqs_client: boto3 SQS client
         queue_url: SQS queue URL
+        dlq_url: DLQ URL for poison pill forwarding
         max_iterations: Safety limit on receive_message calls
 
     Returns:
         List of (parsed_body, receipt_handle) tuples
     """
     all_messages: list[tuple[dict[str, Any], str]] = []
+    poison_pill_count = 0
 
     for _ in range(max_iterations):
         response = sqs_client.receive_message(
@@ -86,17 +126,40 @@ def _drain_staging_queue(
                 body = json.loads(msg["Body"])
                 all_messages.append((body, msg["ReceiptHandle"]))
             except (json.JSONDecodeError, KeyError) as e:
+                poison_pill_count += 1
                 logger.error(
                     "failed_to_parse_staging_message",
                     message_id=msg.get("MessageId"),
                     error=str(e),
                 )
-                # Delete malformed messages immediately — they are
-                # poison pills that can never be processed successfully.
+                # C2 FIX: Forward poison pills to DLQ for inspection
+                # instead of silently deleting them.
+                if dlq_url:
+                    try:
+                        _forward_to_dlq(
+                            sqs_client,
+                            dlq_url,
+                            msg.get("Body", ""),
+                            msg.get("MessageId", "unknown"),
+                            str(e),
+                        )
+                    except Exception as dlq_error:
+                        logger.error(
+                            "failed_to_forward_poison_pill_to_dlq",
+                            message_id=msg.get("MessageId"),
+                            error=str(dlq_error),
+                        )
+                # Delete from source queue after forwarding (or if no DLQ)
                 sqs_client.delete_message(
                     QueueUrl=queue_url,
                     ReceiptHandle=msg["ReceiptHandle"],
                 )
+
+    if poison_pill_count > 0:
+        logger.warning(
+            "staging_queue_poison_pills",
+            count=poison_pill_count,
+        )
 
     logger.info("staging_queue_drained", total_messages=len(all_messages))
     return all_messages
@@ -183,11 +246,17 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
     max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "8192"))
     jobs_table = os.environ.get("SQS_JOBS_TABLE", "")
+    # M4 FIX: Read per invocation so env var changes take effect without redeployment
+    batch_threshold = int(
+        os.environ.get("BATCH_THRESHOLD", str(_DEFAULT_BATCH_THRESHOLD))
+    )
+    # C2: DLQ URL for poison pill forwarding
+    staging_dlq_url = os.environ.get("STAGING_DLQ_URL", "")
 
     sqs, s3, bedrock, dynamodb = _get_clients()
 
     # 1. Drain staging queue — messages are NOT deleted yet
-    drained = _drain_staging_queue(sqs, staging_queue_url)
+    drained = _drain_staging_queue(sqs, staging_queue_url, dlq_url=staging_dlq_url)
 
     # Separate bodies from receipt handles
     records = [body for body, _handle in drained]
@@ -195,14 +264,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     record_count = len(records)
 
     # 2. Decide batch vs on-demand
-    decision = "batch" if record_count >= BATCH_THRESHOLD else "on-demand"
+    decision = "batch" if record_count >= batch_threshold else "on-demand"
 
     logger.info(
         "batch_decision",
         record_count=record_count,
         decision=decision,
         execution_id=execution_id,
-        threshold=BATCH_THRESHOLD,
+        threshold=batch_threshold,
     )
 
     if record_count == 0:

@@ -26,6 +26,8 @@ def create_fargate_service(
     environment: dict[str, str] | None = None,
     secrets: dict[str, ecs.Secret] | None = None,
     command: list[str] | None = None,
+    max_healthy_percent: int | None = None,
+    min_healthy_percent: int | None = None,
 ) -> tuple[ecs.FargateService, ec2.ISecurityGroup, iam.IRole]:
     """Create a Fargate service with log group, task definition, and security group.
 
@@ -43,6 +45,8 @@ def create_fargate_service(
         environment: Environment variables for the container
         secrets: Secrets for the container
         command: Container command override (bypasses entrypoint)
+        max_healthy_percent: Maximum healthy percentage during deployment
+        min_healthy_percent: Minimum healthy percentage during deployment
 
     Returns:
         Tuple of (Fargate service, security group, task role)
@@ -113,6 +117,13 @@ def create_fargate_service(
         allow_all_outbound=True,
     )
 
+    # Build optional deployment config kwargs
+    deployment_kwargs: dict = {}
+    if max_healthy_percent is not None:
+        deployment_kwargs["max_healthy_percent"] = max_healthy_percent
+    if min_healthy_percent is not None:
+        deployment_kwargs["min_healthy_percent"] = min_healthy_percent
+
     # Create Fargate service
     service = ecs.FargateService(
         scope,
@@ -127,6 +138,8 @@ def create_fargate_service(
         service_name=f"pantry-pirate-radio-{name}-{environment_name}",
         enable_execute_command=True,  # Enable ECS Exec for debugging
         security_groups=[security_group],
+        circuit_breaker=ecs.DeploymentCircuitBreaker(rollback=True),
+        **deployment_kwargs,
     )
 
     return service, security_group, task_definition.task_role

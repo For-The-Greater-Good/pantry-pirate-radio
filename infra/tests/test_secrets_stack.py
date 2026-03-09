@@ -1,5 +1,8 @@
 """Tests for SecretsStack CDK stack."""
 
+import json
+from unittest.mock import patch
+
 import aws_cdk as cdk
 import pytest
 from aws_cdk import assertions
@@ -144,5 +147,83 @@ class TestSecretsStackSecretNames:
                 "Name": assertions.Match.string_like_regexp(
                     ".*pantry-pirate-radio.*staging.*"
                 )
+            },
+        )
+
+
+class TestSecretsPopulation:
+    """Tests for secrets population from .env via shared_config.SECRETS."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @patch("stacks.secrets_stack.SECRETS", {
+        "ANTHROPIC_API_KEY": "sk-ant-test",
+        "OPENROUTER_API_KEY": "sk-or-test",
+        "ARCGIS_API_KEY": "arcgis-test",
+        "DATA_REPO_TOKEN": "ghp_test",
+    })
+    def test_llm_secret_populated_from_env(self, app):
+        """LLM API keys secret should contain JSON from .env values."""
+        stack = SecretsStack(app, "PopulatedStack", environment_name="dev")
+        template = assertions.Template.from_stack(stack)
+
+        expected_json = json.dumps({
+            "ANTHROPIC_API_KEY": "sk-ant-test",
+            "OPENROUTER_API_KEY": "sk-or-test",
+            "ARCGIS_API_KEY": "arcgis-test",
+        })
+        template.has_resource_properties(
+            "AWS::SecretsManager::Secret",
+            {
+                "Name": "pantry-pirate-radio/llm-api-keys-dev",
+                "SecretString": expected_json,
+            },
+        )
+
+    @patch("stacks.secrets_stack.SECRETS", {
+        "DATA_REPO_TOKEN": "ghp_test",
+    })
+    def test_github_pat_populated_from_env(self, app):
+        """GitHub PAT secret should contain DATA_REPO_TOKEN from .env."""
+        stack = SecretsStack(app, "PatStack", environment_name="dev")
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::SecretsManager::Secret",
+            {
+                "Name": "pantry-pirate-radio/github-pat-dev",
+                "SecretString": "ghp_test",
+            },
+        )
+
+    @patch("stacks.secrets_stack.SECRETS", {})
+    def test_empty_env_creates_secrets_without_values(self, app):
+        """Secrets should still be created when .env has no values."""
+        stack = SecretsStack(app, "EmptyStack", environment_name="dev")
+        template = assertions.Template.from_stack(stack)
+
+        # Both secrets should exist
+        template.resource_count_is("AWS::SecretsManager::Secret", 2)
+
+    @patch("stacks.secrets_stack.SECRETS", {
+        "ANTHROPIC_API_KEY": "sk-ant-only",
+    })
+    def test_partial_env_populates_available_keys(self, app):
+        """LLM secret should include available keys with empty strings for missing ones."""
+        stack = SecretsStack(app, "PartialStack", environment_name="dev")
+        template = assertions.Template.from_stack(stack)
+
+        expected_json = json.dumps({
+            "ANTHROPIC_API_KEY": "sk-ant-only",
+            "OPENROUTER_API_KEY": "",
+            "ARCGIS_API_KEY": "",
+        })
+        template.has_resource_properties(
+            "AWS::SecretsManager::Secret",
+            {
+                "Name": "pantry-pirate-radio/llm-api-keys-dev",
+                "SecretString": expected_json,
             },
         )

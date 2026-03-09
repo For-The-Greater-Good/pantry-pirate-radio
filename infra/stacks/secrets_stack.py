@@ -2,15 +2,24 @@
 
 Creates AWS Secrets Manager secrets for centralized secrets management:
 - GitHub PAT for HAARRRvest publishing
-- LLM API keys (Anthropic/OpenRouter)
+- LLM API keys (Anthropic/OpenRouter/ArcGIS)
+
+Secret values are seeded from .env at deploy time. CloudFormation only updates
+the value if it changes in the template (i.e., if .env changes between deploys).
 
 Note: Database credentials are managed by DatabaseStack to avoid cross-stack
 dependency issues with Aurora cluster credentials.
 """
 
-from aws_cdk import RemovalPolicy, Stack
+import json
+
+from aws_cdk import RemovalPolicy, SecretValue, Stack
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
+from shared_config import SECRETS
+
+# Keys expected in the LLM API keys secret JSON object
+_LLM_SECRET_KEYS = ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "ARCGIS_API_KEY")
 
 
 class SecretsStack(Stack):
@@ -18,7 +27,9 @@ class SecretsStack(Stack):
 
     Creates Secrets Manager secrets for:
     - GitHub Personal Access Token for HAARRRvest repository
-    - LLM API keys (Anthropic Claude, OpenRouter)
+    - LLM API keys (Anthropic Claude, OpenRouter, ArcGIS)
+
+    Values are seeded from the project .env file at CDK synth time.
 
     Note: Database credentials are managed by DatabaseStack.
 
@@ -63,19 +74,21 @@ class SecretsStack(Stack):
     ) -> secretsmanager.Secret:
         """Create secret for GitHub Personal Access Token.
 
-        This secret is for HAARRRvest repository access.
-        The actual PAT value must be provided externally after stack creation.
+        Seeds the value from DATA_REPO_TOKEN in .env if available.
 
         Returns:
             Secrets Manager secret for GitHub PAT
         """
+        pat_value = SECRETS.get("DATA_REPO_TOKEN", "")
+
         secret = secretsmanager.Secret(
             self,
             "GitHubPATSecret",
             secret_name=f"pantry-pirate-radio/github-pat-{self.environment_name}",
             description=f"GitHub PAT for HAARRRvest repository access - {self.environment_name}",
-            # No auto-generation - must be set manually via AWS Console/CLI
-            secret_string_value=None,
+            secret_string_value=SecretValue.unsafe_plain_text(pat_value)
+            if pat_value
+            else None,
             removal_policy=removal_policy,
         )
 
@@ -86,22 +99,27 @@ class SecretsStack(Stack):
     ) -> secretsmanager.Secret:
         """Create secret for LLM provider API keys.
 
-        Stores API keys for:
-        - Anthropic Claude (ANTHROPIC_API_KEY)
-        - OpenRouter (OPENROUTER_API_KEY)
+        Stores API keys as a JSON object with keys:
+        - ANTHROPIC_API_KEY
+        - OPENROUTER_API_KEY
+        - ARCGIS_API_KEY
 
-        The actual values must be provided externally after stack creation.
+        Seeds values from .env if available.
 
         Returns:
             Secrets Manager secret for LLM API keys
         """
+        api_keys = {k: SECRETS.get(k, "") for k in _LLM_SECRET_KEYS}
+        has_any_key = any(api_keys.values())
+
         secret = secretsmanager.Secret(
             self,
             "LLMApiKeysSecret",
             secret_name=f"pantry-pirate-radio/llm-api-keys-{self.environment_name}",
-            description=f"LLM API keys (Anthropic/OpenRouter) - {self.environment_name}",
-            # No auto-generation - must be set manually via AWS Console/CLI
-            secret_string_value=None,
+            description=f"LLM API keys (Anthropic/OpenRouter/ArcGIS) - {self.environment_name}",
+            secret_string_value=SecretValue.unsafe_plain_text(json.dumps(api_keys))
+            if has_any_key
+            else None,
             removal_policy=removal_policy,
         )
 

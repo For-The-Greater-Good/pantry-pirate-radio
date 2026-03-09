@@ -27,6 +27,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 from typing import Any, Callable
 
@@ -35,6 +36,78 @@ import structlog
 from app.pipeline.sqs_sender import send_to_sqs
 
 logger = structlog.get_logger(__name__)
+
+
+class _VisibilityHeartbeat:
+    """Background thread that extends SQS message visibility during processing.
+
+    Matches the pattern in FargateWorker._HeartbeatThread but with retry logic
+    (H5 fix applied here as well).
+    """
+
+    _MAX_RETRIES = 3
+
+    def __init__(
+        self,
+        sqs_client: Any,
+        queue_url: str,
+        receipt_handle: str,
+        visibility_timeout: int,
+        service_name: str,
+    ) -> None:
+        self._sqs_client = sqs_client
+        self._queue_url = queue_url
+        self._receipt_handle = receipt_handle
+        self._new_timeout = visibility_timeout
+        self._service_name = service_name
+        self._stop_event = threading.Event()
+        # Extend at half the timeout interval
+        self._interval = visibility_timeout / 2
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self.failed = False
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=self._interval + 1)
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._interval):
+            success = False
+            for attempt in range(self._MAX_RETRIES):
+                try:
+                    self._sqs_client.change_message_visibility(
+                        QueueUrl=self._queue_url,
+                        ReceiptHandle=self._receipt_handle,
+                        VisibilityTimeout=self._new_timeout,
+                    )
+                    logger.debug(
+                        "visibility_extended",
+                        service=self._service_name,
+                        new_timeout=self._new_timeout,
+                    )
+                    success = True
+                    break
+                except Exception:
+                    logger.warning(
+                        "heartbeat_extend_failed",
+                        service=self._service_name,
+                        attempt=attempt + 1,
+                        max_retries=self._MAX_RETRIES,
+                        exc_info=True,
+                    )
+                    if attempt < self._MAX_RETRIES - 1:
+                        time.sleep(2 ** (attempt + 1))
+
+            if not success:
+                logger.error(
+                    "heartbeat_permanently_failed",
+                    service=self._service_name,
+                )
+                self.failed = True
+                break
 
 
 class PipelineWorker:
@@ -68,6 +141,13 @@ class PipelineWorker:
         visibility_timeout: int = 300,
         max_consecutive_errors: int = 10,
     ) -> None:
+        # C3: Validate queue URLs at startup (fail fast)
+        if not queue_url:
+            raise ValueError(
+                f"queue_url is required for {service_name} PipelineWorker. "
+                f"Set the appropriate SQS_QUEUE_URL environment variable."
+            )
+
         self.queue_url = queue_url
         self.process_fn = process_fn
         self.service_name = service_name
@@ -196,9 +276,30 @@ class PipelineWorker:
             source=message["source"],
         )
 
+        # H1: Start visibility heartbeat to prevent message redelivery
+        # during long-running processing
+        sqs = self._get_sqs_client()
+        heartbeat = _VisibilityHeartbeat(
+            sqs_client=sqs,
+            queue_url=self.queue_url,
+            receipt_handle=receipt_handle,
+            visibility_timeout=self.visibility_timeout,
+            service_name=self.service_name,
+        )
+        heartbeat.start()
+
         try:
             # Call the processing function
             result = self.process_fn(data)
+
+            # Check if heartbeat died (message may have been redelivered)
+            if heartbeat.failed:
+                logger.error(
+                    "heartbeat_failed_during_processing",
+                    service=self.service_name,
+                    job_id=job_id,
+                )
+                return False
 
             # Forward result to next queue if configured and result is provided.
             # NOTE (M27): The forward-then-delete ordering provides at-least-once
@@ -225,7 +326,6 @@ class PipelineWorker:
                 )
 
             # Delete message after successful processing
-            sqs = self._get_sqs_client()
             sqs.delete_message(
                 QueueUrl=self.queue_url,
                 ReceiptHandle=receipt_handle,
@@ -250,6 +350,8 @@ class PipelineWorker:
             )
             # Don't delete message — let it retry via visibility timeout
             return False
+        finally:
+            heartbeat.stop()
 
     def run(self) -> None:
         """Run the worker main loop.

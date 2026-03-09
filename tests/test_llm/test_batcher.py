@@ -7,11 +7,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.llm.queue.batcher import (
-    BATCH_THRESHOLD,
+    _DEFAULT_BATCH_THRESHOLD,
     _delete_messages,
     _drain_staging_queue,
     handler,
 )
+
+BATCH_THRESHOLD = _DEFAULT_BATCH_THRESHOLD
 
 # Required env vars for handler() validation gate
 _HANDLER_ENV = {
