@@ -4,7 +4,14 @@ set -e
 # Build all Docker images
 echo "Building all Docker images..."
 
-# Build main app image with all targets
+# Build slim base (no Playwright/browser deps)
+docker build \
+  --target production-slim \
+  -t pantry-pirate-radio:production-slim \
+  -f .docker/images/app/Dockerfile \
+  .
+
+# Build full base (with Playwright/browser deps)
 docker build \
   --target production-base \
   -t pantry-pirate-radio:production-base \

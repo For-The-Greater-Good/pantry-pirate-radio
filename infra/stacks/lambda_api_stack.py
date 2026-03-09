@@ -12,7 +12,7 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as _lambda
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as secretsmanager
-from aws_cdk import aws_wafv2 as wafv2
+
 from constructs import Construct
 
 
@@ -86,9 +86,7 @@ class LambdaApiStack(Stack):
             self,
             "ApiLambdaLogs",
             log_group_name=f"/aws/lambda/pantry-pirate-radio-api-{environment_name}",
-            retention=logs.RetentionDays.TWO_WEEKS
-            if environment_name != "prod"
-            else logs.RetentionDays.THREE_MONTHS,
+            retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY,
         )
 
@@ -179,9 +177,7 @@ class LambdaApiStack(Stack):
             self,
             "ApiGwAccessLogs",
             log_group_name=f"/aws/apigateway/pantry-pirate-radio-api-{environment_name}",
-            retention=logs.RetentionDays.TWO_WEEKS
-            if environment_name != "prod"
-            else logs.RetentionDays.THREE_MONTHS,
+            retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY,
         )
 
@@ -198,49 +194,10 @@ class LambdaApiStack(Stack):
             ),
         )
 
-        # WAFv2 WebACL — rate-limit 1000 requests per 5 minutes per IP
-        self.web_acl = wafv2.CfnWebACL(
-            self,
-            "ApiWaf",
-            name=f"pantry-pirate-radio-api-waf-{environment_name}",
-            scope="REGIONAL",
-            default_action=wafv2.CfnWebACL.DefaultActionProperty(allow={}),
-            visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-                cloud_watch_metrics_enabled=True,
-                metric_name=f"ppr-api-waf-{environment_name}",
-                sampled_requests_enabled=True,
-            ),
-            rules=[
-                wafv2.CfnWebACL.RuleProperty(
-                    name="RateLimitPerIP",
-                    priority=1,
-                    action=wafv2.CfnWebACL.RuleActionProperty(block={}),
-                    visibility_config=wafv2.CfnWebACL.VisibilityConfigProperty(
-                        cloud_watch_metrics_enabled=True,
-                        metric_name=f"ppr-api-rate-limit-{environment_name}",
-                        sampled_requests_enabled=True,
-                    ),
-                    statement=wafv2.CfnWebACL.StatementProperty(
-                        rate_based_statement=wafv2.CfnWebACL.RateBasedStatementProperty(
-                            limit=1000,
-                            aggregate_key_type="IP",
-                        ),
-                    ),
-                ),
-            ],
-        )
-
-        # Associate WAF with API Gateway stage
-        stage_arn = (
-            f"arn:aws:apigateway:{self.region}::/apis/"
-            f"{self.http_api.ref}/stages/$default"
-        )
-        wafv2.CfnWebACLAssociation(
-            self,
-            "ApiWafAssociation",
-            resource_arn=stage_arn,
-            web_acl_arn=self.web_acl.attr_arn,
-        )
+        # NOTE: WAFv2 does NOT support API Gateway HTTP APIs (v2).
+        # It only supports REST APIs (v1), ALBs, CloudFront, AppSync, etc.
+        # Rate limiting is handled by API Gateway's built-in throttling instead.
+        # To add WAF protection, put CloudFront in front of the HTTP API.
 
         # Grant API Gateway permission to invoke Lambda
         self.api_function.add_permission(

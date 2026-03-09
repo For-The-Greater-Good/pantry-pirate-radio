@@ -266,8 +266,8 @@ class TestComputeStackEnvironments:
             {"InstanceType": "t4g.nano"},
         )
 
-    def test_prod_uses_multiple_nat_gateways(self, app):
-        """Prod environment should use multiple NAT gateways for HA."""
+    def test_prod_uses_nat_instance(self, app):
+        """Prod environment should also use NAT Instance (same as dev)."""
         stack = ComputeStack(
             app,
             "ProdStack",
@@ -276,8 +276,12 @@ class TestComputeStackEnvironments:
         )
         template = assertions.Template.from_stack(stack)
 
-        # Prod should have 2 NAT gateways (one per AZ)
-        template.resource_count_is("AWS::EC2::NatGateway", 2)
+        # Prod should have 0 managed NAT Gateways (uses NAT Instance like dev)
+        template.resource_count_is("AWS::EC2::NatGateway", 0)
+        template.has_resource_properties(
+            "AWS::EC2::Instance",
+            {"InstanceType": "t4g.nano"},
+        )
 
 
 class TestComputeStackVPCEndpoints:
@@ -303,21 +307,40 @@ class TestComputeStackVPCEndpoints:
         """Get CloudFormation template from stack."""
         return assertions.Template.from_stack(stack)
 
-    def test_creates_gateway_endpoints(self, template):
-        """Should create exactly 2 free gateway endpoints (S3 + DynamoDB)."""
-        template.resource_count_is("AWS::EC2::VPCEndpoint", 2)
+    def test_creates_vpc_endpoints(self, template):
+        """Should create 5 VPC endpoints (2 gateway + 3 interface)."""
+        template.resource_count_is("AWS::EC2::VPCEndpoint", 5)
 
-    def test_all_endpoints_are_gateway_type(self, template):
-        """All VPC endpoints should be Gateway type (free), not Interface (paid)."""
+    def test_creates_gateway_endpoints(self, template):
+        """Should create S3 and DynamoDB gateway endpoints (free)."""
         raw = template.to_json()
         endpoints = [
             r for r in raw["Resources"].values()
             if r["Type"] == "AWS::EC2::VPCEndpoint"
+            and r["Properties"].get("VpcEndpointType") == "Gateway"
+        ]
+        assert len(endpoints) == 2
+
+    def test_creates_interface_endpoints(self, template):
+        """Should create ECR API, ECR DKR, and CloudWatch Logs interface endpoints."""
+        raw = template.to_json()
+        endpoints = [
+            r for r in raw["Resources"].values()
+            if r["Type"] == "AWS::EC2::VPCEndpoint"
+            and r["Properties"].get("VpcEndpointType") == "Interface"
+        ]
+        assert len(endpoints) == 3
+
+    def test_interface_endpoints_have_private_dns(self, template):
+        """Interface endpoints should have private DNS enabled."""
+        raw = template.to_json()
+        endpoints = [
+            r for r in raw["Resources"].values()
+            if r["Type"] == "AWS::EC2::VPCEndpoint"
+            and r["Properties"].get("VpcEndpointType") == "Interface"
         ]
         for ep in endpoints:
-            assert ep["Properties"]["VpcEndpointType"] == "Gateway", (
-                "Interface endpoints cost ~$14.60/month each and should not be created."
-            )
+            assert ep["Properties"].get("PrivateDnsEnabled") is True
 
 
 class TestComputeStackWithECRRepository:

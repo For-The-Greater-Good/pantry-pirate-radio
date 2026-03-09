@@ -249,7 +249,7 @@ class BatchInferenceStack(Stack):
             self,
             "BatcherLambdaLogs",
             log_group_name=f"/aws/lambda/pantry-pirate-radio-batcher-{self.environment_name}",
-            retention=logs.RetentionDays.ONE_MONTH,
+            retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY,
         )
 
@@ -328,7 +328,7 @@ class BatchInferenceStack(Stack):
             self,
             "ResultProcessorLambdaLogs",
             log_group_name=f"/aws/lambda/pantry-pirate-radio-result-processor-{self.environment_name}",
-            retention=logs.RetentionDays.ONE_MONTH,
+            retention=logs.RetentionDays.ONE_WEEK,
             removal_policy=RemovalPolicy.DESTROY,
         )
 

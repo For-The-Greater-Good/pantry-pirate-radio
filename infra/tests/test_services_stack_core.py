@@ -107,7 +107,7 @@ class TestServicesStackEnvironments:
         )
 
     def test_prod_log_retention(self, app):
-        """Prod environment should have longer log retention."""
+        """Prod environment should have 7-day log retention (unified)."""
         compute_stack = ComputeStack(app, "ComputeStack2", environment_name="prod")
         stack = ServicesStack(
             app,
@@ -118,10 +118,10 @@ class TestServicesStackEnvironments:
         )
         template = assertions.Template.from_stack(stack)
 
-        # Prod should have 30-day retention
+        # Prod uses same 7-day retention as dev (unified)
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
-            {"RetentionInDays": 30},
+            {"RetentionInDays": 7},
         )
 
 

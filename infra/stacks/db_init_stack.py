@@ -106,9 +106,7 @@ class DbInitStack(Stack):
 
         # Environment-specific configuration
         is_prod = environment_name == "prod"
-        retention = (
-            logs.RetentionDays.ONE_MONTH if is_prod else logs.RetentionDays.ONE_WEEK
-        )
+        retention = logs.RetentionDays.ONE_WEEK
 
         # 1. SSM Parameter to track initialization state
         self.init_flag = self._create_init_flag_parameter()

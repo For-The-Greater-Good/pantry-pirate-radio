@@ -120,7 +120,7 @@ class ServicesStack(Stack):
 
         # Environment-specific configuration
         is_prod = environment_name == "prod"
-        log_retention = logs.RetentionDays.ONE_MONTH if is_prod else logs.RetentionDays.ONE_WEEK
+        log_retention = logs.RetentionDays.ONE_WEEK
 
         # Create services and expose security groups and task roles
         self.validator_service, self.validator_security_group, self.validator_task_role = (

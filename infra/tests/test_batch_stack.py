@@ -202,7 +202,7 @@ class TestBatchInferenceStackLogging:
             "AWS::Logs::LogGroup",
             {
                 "LogGroupName": "/aws/lambda/pantry-pirate-radio-batcher-dev",
-                "RetentionInDays": 30,
+                "RetentionInDays": 7,
             },
         )
 
@@ -212,7 +212,7 @@ class TestBatchInferenceStackLogging:
             "AWS::Logs::LogGroup",
             {
                 "LogGroupName": "/aws/lambda/pantry-pirate-radio-result-processor-dev",
-                "RetentionInDays": 30,
+                "RetentionInDays": 7,
             },
         )
 

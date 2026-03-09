@@ -155,7 +155,7 @@ class TestLambdaApiStackResources:
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
             assertions.Match.object_like({
-                "RetentionInDays": 14,
+                "RetentionInDays": 7,
             }),
         )
 
@@ -264,11 +264,11 @@ class TestLambdaApiStackProvisionedConcurrency:
         )
 
     def test_prod_log_retention(self, template):
-        """Prod stack should have longer log retention."""
+        """Prod stack should have 7-day log retention (unified)."""
         template.has_resource_properties(
             "AWS::Logs::LogGroup",
             assertions.Match.object_like({
-                "RetentionInDays": 90,
+                "RetentionInDays": 7,
             }),
         )
 
