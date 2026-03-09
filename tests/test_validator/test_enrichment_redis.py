@@ -1,4 +1,4 @@
-"""Tests for Redis-based geocoding enrichment features."""
+"""Tests for geocoding enrichment caching, circuit breaker, and metrics."""
 
 import json
 import time
@@ -6,85 +6,91 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 from unittest.mock import Mock
-import redis
 
 from app.validator.enrichment import GeocodingEnricher
 
 
-class TestRedisCache:
-    """Test Redis-based caching functionality."""
+class TestCacheBackend:
+    """Test cache backend integration in GeocodingEnricher."""
 
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_redis_initialization(self, mock_redis_from_url):
-        """Test Redis client initialization."""
-        mock_redis = MagicMock()
-        mock_redis_from_url.return_value = mock_redis
-
-        enricher = GeocodingEnricher()
-
-        mock_redis_from_url.assert_called_once()
-        mock_redis.ping.assert_called_once()
-
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_redis_connection_failure(self, mock_redis_from_url):
-        """Test graceful handling of Redis connection failure."""
-        mock_redis_from_url.side_effect = redis.ConnectionError("Cannot connect")
+    @patch("app.validator.enrichment.get_geocoding_cache_backend")
+    def test_auto_detects_cache_backend(self, mock_factory):
+        """Test cache backend is auto-detected when not provided."""
+        mock_backend = MagicMock()
+        mock_factory.return_value = mock_backend
 
         enricher = GeocodingEnricher()
 
-        assert enricher.redis_client is None
+        mock_factory.assert_called_once()
+        assert enricher._cache is mock_backend
 
-    def test_cache_key_generation(self):
-        """Test cache key generation with hashing."""
-        enricher = GeocodingEnricher(redis_client=None)
+    def test_explicit_cache_backend(self):
+        """Test explicit cache backend skips auto-detection."""
+        mock_backend = MagicMock()
 
-        key1 = enricher._get_cache_key("arcgis", "123 Main St, New York, NY 10001")
-        key2 = enricher._get_cache_key("nominatim", "123 Main St, New York, NY 10001")
-        key3 = enricher._get_cache_key("arcgis", "456 Oak Ave, Boston, MA 02101")
+        enricher = GeocodingEnricher(cache_backend=mock_backend)
 
-        # Different providers should have different keys
-        assert key1 != key2
-        # Different addresses should have different keys
-        assert key1 != key3
-        # Keys should have consistent format
-        assert key1.startswith("geocoding:arcgis:")
-        assert key2.startswith("geocoding:nominatim:")
+        assert enricher._cache is mock_backend
+
+    @patch("app.validator.enrichment.get_geocoding_cache_backend")
+    def test_no_cache_backend_available(self, mock_factory):
+        """Test graceful handling when no cache backend is available."""
+        mock_factory.return_value = None
+
+        enricher = GeocodingEnricher()
+
+        assert enricher._cache is None
 
     def test_cache_hit(self):
         """Test retrieving cached coordinates."""
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps({"lat": 40.7128, "lon": -74.0060})
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = {"lat": 40.7128, "lon": -74.0060}
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        enricher = GeocodingEnricher(cache_backend=mock_backend)
         coords = enricher._get_cached_coordinates("arcgis", "123 Main St")
 
         assert coords == (40.7128, -74.0060)
-        mock_redis.get.assert_called_once()
+        mock_backend.get.assert_called_once()
 
     def test_cache_miss(self):
         """Test cache miss returns None."""
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        enricher = GeocodingEnricher(cache_backend=mock_backend)
         coords = enricher._get_cached_coordinates("arcgis", "123 Main St")
 
         assert coords is None
 
     def test_cache_storage(self):
         """Test storing coordinates in cache."""
-        mock_redis = MagicMock()
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        mock_backend = MagicMock()
+        enricher = GeocodingEnricher(cache_backend=mock_backend)
         enricher.cache_ttl = 86400
 
         enricher._cache_coordinates("arcgis", "123 Main St", (40.7128, -74.0060))
 
-        mock_redis.setex.assert_called_once()
-        call_args = mock_redis.setex.call_args
-        assert call_args[0][1] == 86400  # TTL
-        stored_value = json.loads(call_args[0][2])
-        assert stored_value["lat"] == 40.7128
-        assert stored_value["lon"] == -74.0060
+        mock_backend.set.assert_called_once()
+        call_args = mock_backend.set.call_args[0]
+        assert call_args[1] == {"lat": 40.7128, "lon": -74.0060}
+        assert call_args[2] == 86400
+
+    def test_cache_disabled_get(self):
+        """Test _get_cached_coordinates returns None when cache is None."""
+        enricher = GeocodingEnricher(cache_backend=None)
+        # Ensure _cache is actually None (factory may try to set it)
+        enricher._cache = None
+
+        coords = enricher._get_cached_coordinates("arcgis", "123 Main St")
+        assert coords is None
+
+    def test_cache_disabled_set(self):
+        """Test _cache_coordinates is no-op when cache is None."""
+        enricher = GeocodingEnricher(cache_backend=None)
+        enricher._cache = None
+
+        # Should not raise
+        enricher._cache_coordinates("arcgis", "123 Main St", (40.7128, -74.0060))
 
 
 class TestRetryLogic:
@@ -105,17 +111,17 @@ class TestRetryLogic:
             (40.7128, -74.0060),  # Success on third try
         ]
 
-        enricher = GeocodingEnricher(geocoding_service=mock_service)
+        enricher = GeocodingEnricher(
+            geocoding_service=mock_service, cache_backend=MagicMock()
+        )
         coords = enricher._geocode_with_retry("arcgis", "123 Main St", max_retries=3)
 
         assert coords == (40.7128, -74.0060)
-        # Should call either geocode or geocode_with_provider
         total_calls = (
             mock_service.geocode_with_provider.call_count
             + mock_service.geocode.call_count
         )
         assert total_calls == 3
-        # Check exponential backoff was applied
         assert mock_sleep.call_count == 2
 
     def test_no_retry_on_no_result(self):
@@ -124,11 +130,12 @@ class TestRetryLogic:
         mock_service.geocode_with_provider.return_value = None
         mock_service.geocode.return_value = None
 
-        enricher = GeocodingEnricher(geocoding_service=mock_service)
+        enricher = GeocodingEnricher(
+            geocoding_service=mock_service, cache_backend=MagicMock()
+        )
         coords = enricher._geocode_with_retry("arcgis", "123 Main St", max_retries=3)
 
         assert coords is None
-        # Should only try once, no retries for None result
         total_calls = (
             mock_service.geocode_with_provider.call_count
             + mock_service.geocode.call_count
@@ -142,7 +149,9 @@ class TestRetryLogic:
         mock_service.geocode_with_provider.side_effect = TimeoutError("Timeout")
         mock_service.geocode.side_effect = TimeoutError("Timeout")
 
-        enricher = GeocodingEnricher(geocoding_service=mock_service)
+        enricher = GeocodingEnricher(
+            geocoding_service=mock_service, cache_backend=MagicMock()
+        )
         coords = enricher._geocode_with_retry("arcgis", "123 Main St", max_retries=2)
 
         assert coords is None
@@ -154,117 +163,106 @@ class TestRetryLogic:
 
 
 class TestCircuitBreaker:
-    """Test circuit breaker functionality."""
+    """Test in-memory circuit breaker functionality."""
 
     def test_circuit_breaker_opens_after_threshold(self):
         """Test circuit breaker opens after failure threshold."""
-        mock_redis = MagicMock()
-        mock_redis.incr.return_value = 5  # Threshold reached
-
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
         enricher.provider_config = {
-            "arcgis": {"circuit_breaker_threshold": 5, "circuit_breaker_cooldown": 300}
+            "arcgis": {"circuit_breaker_threshold": 3, "circuit_breaker_cooldown": 300}
         }
 
+        # Record failures up to threshold
         enricher._record_circuit_failure("arcgis")
+        enricher._record_circuit_failure("arcgis")
+        assert not enricher._is_circuit_open("arcgis")
 
-        # Check circuit was opened
-        calls = mock_redis.set.call_args_list
-        assert any("circuit_breaker:arcgis:state" in str(call) for call in calls)
-        assert any("open" in str(call) for call in calls)
+        enricher._record_circuit_failure("arcgis")
+        assert enricher._is_circuit_open("arcgis")
 
     def test_circuit_breaker_check_when_open(self):
         """Test circuit breaker prevents calls when open."""
-        mock_redis = MagicMock()
-        mock_redis.get.side_effect = lambda key: {
-            "circuit_breaker:arcgis:state": "open",
-            "circuit_breaker:arcgis:cooldown_until": str(time.time() + 100),
-        }.get(key)
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
-        is_open = enricher._is_circuit_open("arcgis")
+        # Manually open the circuit
+        enricher._circuit_state["arcgis"] = {
+            "state": "open",
+            "cooldown_until": time.time() + 100,
+            "failures": 0,
+        }
 
-        assert is_open is True
+        assert enricher._is_circuit_open("arcgis") is True
 
     def test_circuit_breaker_resets_after_cooldown(self):
         """Test circuit breaker resets after cooldown period."""
-        mock_redis = MagicMock()
-        mock_redis.get.side_effect = lambda key: {
-            "circuit_breaker:arcgis:state": "open",
-            "circuit_breaker:arcgis:cooldown_until": str(
-                time.time() - 100
-            ),  # Past time
-        }.get(key)
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
-        is_open = enricher._is_circuit_open("arcgis")
+        # Manually open the circuit with expired cooldown
+        enricher._circuit_state["arcgis"] = {
+            "state": "open",
+            "cooldown_until": time.time() - 100,
+            "failures": 0,
+        }
 
-        assert is_open is False
-        # Check circuit was reset
-        mock_redis.delete.assert_called()
+        assert enricher._is_circuit_open("arcgis") is False
+        assert "arcgis" not in enricher._circuit_state
 
     def test_circuit_breaker_reset_on_success(self):
         """Test circuit breaker resets on successful call."""
-        mock_redis = MagicMock()
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        # Set some state
+        enricher._circuit_state["arcgis"] = {"failures": 3}
+
         enricher._reset_circuit_breaker("arcgis")
 
-        # Check all circuit breaker keys were deleted
-        expected_deletes = [
-            call("circuit_breaker:arcgis:failures"),
-            call("circuit_breaker:arcgis:state"),
-            call("circuit_breaker:arcgis:cooldown_until"),
-        ]
-        mock_redis.delete.assert_has_calls(expected_deletes, any_order=True)
+        assert "arcgis" not in enricher._circuit_state
+
+    def test_circuit_closed_by_default(self):
+        """Test circuit is closed for unknown providers."""
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
+
+        assert enricher._is_circuit_open("unknown_provider") is False
 
 
 class TestMetrics:
-    """Test metrics collection."""
+    """Test in-memory metrics collection."""
 
     def test_cache_metrics_increment(self):
         """Test cache hit/miss metrics are incremented."""
-        mock_redis = MagicMock()
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        enricher._increment_cache_metric("hits")
         enricher._increment_cache_metric("hits")
         enricher._increment_cache_metric("misses")
 
-        expected_calls = [
-            call("metrics:geocoding:cache:hits"),
-            call("metrics:geocoding:cache:misses"),
-        ]
-        mock_redis.incr.assert_has_calls(expected_calls)
+        assert enricher._metrics["cache:hits"] == 2
+        assert enricher._metrics["cache:misses"] == 1
 
     def test_provider_metrics_increment(self):
         """Test provider success/failure metrics are incremented."""
-        mock_redis = MagicMock()
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
 
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        enricher._increment_provider_metric("arcgis", "success")
         enricher._increment_provider_metric("arcgis", "success")
         enricher._increment_provider_metric("nominatim", "failure")
 
-        expected_calls = [
-            call("metrics:geocoding:arcgis:success"),
-            call("metrics:geocoding:nominatim:failure"),
-        ]
-        mock_redis.incr.assert_has_calls(expected_calls)
+        assert enricher._metrics["arcgis:success"] == 2
+        assert enricher._metrics["nominatim:failure"] == 1
 
     def test_enrichment_details_with_metrics(self):
-        """Test enrichment details include metrics from Redis."""
-        mock_redis = MagicMock()
-        mock_redis.get.side_effect = lambda key: {
-            "metrics:geocoding:cache:hits": "10",
-            "metrics:geocoding:cache:misses": "5",
-            "metrics:geocoding:arcgis:success": "8",
-            "metrics:geocoding:arcgis:failure": "2",
-            "metrics:geocoding:nominatim:success": "3",
-            "metrics:geocoding:nominatim:failure": "1",
-        }.get(key, "0")
-
-        enricher = GeocodingEnricher(redis_client=mock_redis)
+        """Test enrichment details include in-memory metrics."""
+        enricher = GeocodingEnricher(cache_backend=MagicMock())
         enricher.providers = ["arcgis", "nominatim"]
         enricher._enrichment_details = {"locations_enriched": 5}
+
+        # Simulate some metrics
+        enricher._metrics["cache:hits"] = 10
+        enricher._metrics["cache:misses"] = 5
+        enricher._metrics["arcgis:success"] = 8
+        enricher._metrics["arcgis:failure"] = 2
+        enricher._metrics["nominatim:success"] = 3
+        enricher._metrics["nominatim:failure"] = 1
 
         details = enricher.get_enrichment_details()
 
@@ -272,6 +270,8 @@ class TestMetrics:
         assert details["cache_metrics"]["misses"] == 5
         assert details["provider_metrics"]["arcgis"]["success"] == 8
         assert details["provider_metrics"]["arcgis"]["failure"] == 2
+        assert details["provider_metrics"]["nominatim"]["success"] == 3
+        assert details["provider_metrics"]["nominatim"]["failure"] == 1
 
 
 class TestProviderConfig:
@@ -279,10 +279,9 @@ class TestProviderConfig:
 
     def test_provider_config_from_settings(self):
         """Test provider config is loaded from settings."""
-        # Pass provider config directly in initialization
         config = {"provider_config": {"arcgis": {"max_retries": 5, "timeout": 15}}}
 
-        enricher = GeocodingEnricher(config=config)
+        enricher = GeocodingEnricher(config=config, cache_backend=MagicMock())
 
         assert enricher.provider_config["arcgis"]["max_retries"] == 5
         assert enricher.provider_config["arcgis"]["timeout"] == 15
@@ -290,27 +289,23 @@ class TestProviderConfig:
     def test_provider_specific_retry_count(self):
         """Test different retry counts per provider."""
         mock_service = MagicMock()
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # No cached values
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None
 
-        # Make geocoding return None to avoid retries on success
         mock_service.geocode_with_provider.return_value = None
         mock_service.geocode.return_value = None
 
         enricher = GeocodingEnricher(
-            geocoding_service=mock_service, redis_client=mock_redis
+            geocoding_service=mock_service, cache_backend=mock_backend
         )
         enricher.provider_config = {
             "arcgis": {"max_retries": 3},
             "nominatim": {"max_retries": 2},
         }
 
-        # Test with arcgis config
         enricher._geocode_with_retry("arcgis", "123 Main St", 3)
-        # Test with nominatim config
         enricher._geocode_with_retry("nominatim", "123 Main St", 2)
 
-        # Verify at least 2 calls were made (one for each provider)
         total_calls = (
             mock_service.geocode_with_provider.call_count
             + mock_service.geocode.call_count
@@ -322,21 +317,19 @@ class TestIntegration:
     """Integration tests for the complete enrichment flow."""
 
     @patch("app.validator.enrichment.GeocodingService")
-    @patch("app.validator.enrichment.redis.from_url")
-    def test_full_enrichment_with_redis(self, mock_redis_from_url, mock_service_class):
-        """Test complete enrichment flow with Redis caching and metrics."""
+    @patch("app.validator.enrichment.get_geocoding_cache_backend")
+    def test_full_enrichment_with_cache(self, mock_factory, mock_service_class):
+        """Test complete enrichment flow with cache backend and metrics."""
         # Setup mocks
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = None  # Cache miss
-        mock_redis_from_url.return_value = mock_redis
+        mock_backend = MagicMock()
+        mock_backend.get.return_value = None  # Cache miss
+        mock_factory.return_value = mock_backend
 
         mock_service = MagicMock()
-        # Mock both methods for backward compatibility
         mock_service.geocode_with_provider.return_value = (40.7128, -74.0060)
         mock_service.geocode.return_value = (40.7128, -74.0060)
         mock_service_class.return_value = mock_service
 
-        # Create enricher and test location
         enricher = GeocodingEnricher()
         location_data = {
             "name": "Test Location",
@@ -352,19 +345,14 @@ class TestIntegration:
             ],
         }
 
-        # Perform enrichment
         enriched, source = enricher.enrich_location(location_data)
 
-        # Verify results
         assert enriched["latitude"] == 40.7128
         assert enriched["longitude"] == -74.0060
-        # Source should be arcgis since it's the first provider that succeeds
         assert source == "arcgis"
 
         # Verify cache was updated
-        mock_redis.setex.assert_called_once()
+        mock_backend.set.assert_called_once()
 
-        # Verify metrics were updated
-        assert (
-            mock_redis.incr.call_count >= 2
-        )  # At least cache miss and provider success
+        # Verify in-memory metrics were updated
+        assert enricher._metrics["cache:misses"] >= 1

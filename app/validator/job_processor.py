@@ -11,9 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.llm.queue.models import JobResult, JobStatus
-from app.llm.queue.queues import reconciler_queue
 from app.validator.base import ValidationService
-from app.validator.queues import setup_validator_queues
 
 
 # Configure logging based on environment variables
@@ -116,31 +114,52 @@ def process_validation_job(job_result: JobResult) -> Dict[str, Any]:
         logger.error(
             f"Failed to process validation job {job_result.job_id}: {e}", exc_info=True
         )
-        # Return error result but don't fail the job completely
-        return {
-            "job_id": job_result.job_id,
-            "status": "validation_error",
-            "data": {},
-            "validation_notes": f"Validation failed: {str(e)}",
-        }
+        raise  # Let PipelineWorker handle retry via SQS visibility timeout
 
 
 def enqueue_to_reconciler(job_result: JobResult) -> str:
     """Enqueue job to reconciler queue.
 
+    Uses SQS when QUEUE_BACKEND=sqs, otherwise falls back to RQ.
+
     Args:
         job_result: Job result to enqueue
 
     Returns:
-        Job ID of the enqueued reconciler job
+        Job ID of the enqueued reconciler job, or SQS message ID
 
     Raises:
         Exception: If enqueueing fails
     """
+    if os.environ.get("QUEUE_BACKEND", "redis").lower() == "sqs":
+        from app.pipeline.sqs_sender import send_to_sqs
+
+        queue_url = os.environ.get("RECONCILER_QUEUE_URL", "")
+        scraper_id = "default"
+        if (
+            job_result.job
+            and hasattr(job_result.job, "metadata")
+            and job_result.job.metadata
+        ):
+            scraper_id = job_result.job.metadata.get("scraper_id", "default")
+
+        msg_id = send_to_sqs(
+            queue_url=queue_url,
+            message_body=job_result.model_dump(mode="json"),
+            message_group_id=scraper_id,
+            deduplication_id=job_result.job_id,
+            source="validator",
+        )
+        logger.debug(
+            f"Successfully sent job {job_result.job_id} to reconciler SQS as {msg_id}"
+        )
+        return msg_id
+
     from app.core.config import settings
 
     try:
-        # Use the imported reconciler_queue directly
+        from app.llm.queue.queues import reconciler_queue
+
         job = reconciler_queue.enqueue_call(
             func="app.reconciler.job_processor.process_job_result",
             args=(job_result,),

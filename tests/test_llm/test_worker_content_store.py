@@ -55,8 +55,8 @@ class TestWorkerContentStore:
         )
 
     @patch("app.content_store.config.get_content_store")
-    @patch("app.llm.queue.processor.reconciler_queue")
-    @patch("app.llm.queue.processor.recorder_queue")
+    @patch("app.llm.queue.queues.reconciler_queue")
+    @patch("app.llm.queue.queues.recorder_queue")
     def test_should_store_result_to_content_store_on_success(
         self,
         mock_recorder_queue,
@@ -109,8 +109,8 @@ class TestWorkerContentStore:
         assert json.loads(stored_result) == {"organization": {"name": "Test Org"}}
 
     @patch("app.content_store.config.get_content_store")
-    @patch("app.llm.queue.processor.reconciler_queue")
-    @patch("app.llm.queue.processor.recorder_queue")
+    @patch("app.llm.queue.queues.reconciler_queue")
+    @patch("app.llm.queue.queues.recorder_queue")
     def test_should_handle_missing_content_hash(
         self,
         mock_recorder_queue,
@@ -156,8 +156,8 @@ class TestWorkerContentStore:
         # This is expected behavior
 
     @patch("app.content_store.config.get_content_store")
-    @patch("app.llm.queue.processor.reconciler_queue")
-    @patch("app.llm.queue.processor.recorder_queue")
+    @patch("app.llm.queue.queues.reconciler_queue")
+    @patch("app.llm.queue.queues.recorder_queue")
     def test_should_work_without_content_store(
         self,
         mock_recorder_queue,
@@ -196,8 +196,8 @@ class TestWorkerContentStore:
         process_llm_job(sample_job, mock_provider)
 
     @patch("app.content_store.config.get_content_store")
-    @patch("app.llm.queue.processor.reconciler_queue")
-    @patch("app.llm.queue.processor.recorder_queue")
+    @patch("app.llm.queue.queues.reconciler_queue")
+    @patch("app.llm.queue.queues.recorder_queue")
     def test_should_not_store_failed_results(
         self,
         mock_recorder_queue,
@@ -232,8 +232,8 @@ class TestWorkerContentStore:
         assert content_store.get_result(content_hash) is None
 
     @patch("app.content_store.config.get_content_store")
-    @patch("app.llm.queue.processor.reconciler_queue")
-    @patch("app.llm.queue.processor.recorder_queue")
+    @patch("app.llm.queue.queues.reconciler_queue")
+    @patch("app.llm.queue.queues.recorder_queue")
     def test_integration_with_job_metadata_flow(
         self,
         mock_recorder_queue,

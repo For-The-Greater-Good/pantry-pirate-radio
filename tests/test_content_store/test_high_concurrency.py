@@ -28,68 +28,81 @@ class TestContentStoreHighConcurrency:
 
     def test_content_store_handles_database_locks_with_retry(self, content_store):
         """Content store should retry on database lock failures."""
-        # Test that retry logic works by using the mock to simulate lock conditions
+        # Test that retry logic works at the backend level
+        # The @with_connection_retry decorator handles retries for database operations
 
         content = '{"test": "data"}'
         metadata = {"scraper_id": "test_scraper"}
 
-        # Patch sqlite3.connect to simulate initial lock, then success
-        with patch("sqlite3.connect") as mock_connect:
-            # Create a real connection for the successful retry
-            real_db_path = content_store.content_store_path / "index.db"
+        # First store content successfully to set up the test
+        result = content_store.store_content(content, metadata)
+        content_hash = result.hash
 
-            # First call fails with lock, then provide enough real connections for all operations
-            real_conn = sqlite3.connect(real_db_path)
-            mock_connect.side_effect = [
-                sqlite3.OperationalError("database is locked"),
-                real_conn,  # For get_job_id retry
-                sqlite3.connect(real_db_path),  # For clear_job_id
-                sqlite3.connect(real_db_path),  # For _store_content_index
-                sqlite3.connect(real_db_path),  # For any additional operations
-            ]
+        # Now test that has_content retries on database lock
+        # We patch sqlite3.connect at the module level where it's used by backend
+        call_count = [0]  # Track calls with a list (mutable in nested scope)
 
-            # Should succeed after retry
-            result = content_store.store_content(content, metadata)
+        original_connect = sqlite3.connect
 
-            assert result.status == "pending"
-            assert result.hash is not None
-            # Verify retry logic was triggered (should be multiple calls due to multiple operations)
-            assert mock_connect.call_count >= 2  # At least initial fail + retry success
+        def mock_connect_with_retry(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call fails with lock
+                raise sqlite3.OperationalError("database is locked")
+            # Subsequent calls succeed
+            return original_connect(*args, **kwargs)
+
+        with patch(
+            "app.content_store.backend.sqlite3.connect",
+            side_effect=mock_connect_with_retry,
+        ):
+            # Should succeed after retry (retry decorator handles it)
+            result = content_store.has_content(content_hash)
+
+            assert result is True
+            # Verify retry logic was triggered (at least 2 calls)
+            assert call_count[0] >= 2
 
     def test_content_store_exponential_backoff(self, content_store):
         """Content store should use exponential backoff on retries."""
-        # Test retry timing behavior by patching sqlite3.connect
+        # Test retry timing behavior at the backend level
+        # The @with_connection_retry decorator uses time.sleep between retries
 
         content = '{"test": "backoff_test"}'
         metadata = {"scraper_id": "test_scraper"}
 
-        with patch("time.sleep") as mock_sleep:
-            with patch("sqlite3.connect") as mock_connect:
-                # Simulate multiple database lock failures then success
-                real_db_path = content_store.content_store_path / "index.db"
-                mock_connect.side_effect = [
-                    sqlite3.OperationalError("database is locked"),
-                    sqlite3.OperationalError("database is locked"),
-                    sqlite3.connect(
-                        real_db_path
-                    ),  # Success on third try for get_job_id
-                    sqlite3.connect(real_db_path),  # For clear_job_id
-                    sqlite3.connect(real_db_path),  # For _store_content_index
-                    sqlite3.connect(real_db_path),  # For any additional operations
-                ]
+        # First store content successfully to set up the test
+        result = content_store.store_content(content, metadata)
+        content_hash = result.hash
 
+        # Track retry attempts and sleep calls
+        call_count = [0]
+        original_connect = sqlite3.connect
+
+        def mock_connect_with_failures(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                # First two calls fail with lock
+                raise sqlite3.OperationalError("database is locked")
+            # Third and subsequent calls succeed
+            return original_connect(*args, **kwargs)
+
+        with patch("app.content_store.retry.time.sleep") as mock_sleep:
+            with patch(
+                "app.content_store.backend.sqlite3.connect",
+                side_effect=mock_connect_with_failures,
+            ):
                 # This should trigger exponential backoff
-                result = content_store.store_content(content, metadata)
+                result = content_store.has_content(content_hash)
 
                 # Should have called sleep with increasing delays
                 assert mock_sleep.call_count >= 2
-                # First retry: ~0.1s, second retry: ~0.2s (exponential backoff)
+                # First retry: 0.1s (base_delay), second retry: 0.2s (exponential backoff)
                 sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
                 assert sleep_calls[0] < sleep_calls[1]  # Exponential increase
 
                 # Verify operation eventually succeeded
-                assert result.status == "pending"
-                assert result.hash is not None
+                assert result is True
 
     def test_content_store_atomic_operations(self, content_store):
         """All content store operations should be atomic."""
@@ -98,19 +111,15 @@ class TestContentStoreHighConcurrency:
         content = '{"test": "atomic_test"}'
         metadata = {"scraper_id": "test_scraper"}
 
-        with patch.object(content_store, "_get_content_path") as mock_path:
-            # Simulate filesystem failure after database write
-            mock_content_path = Mock()
-            mock_content_path.exists.return_value = False
-            mock_content_path.parent.mkdir = Mock()
-            mock_content_path.write_text.side_effect = OSError("Disk full")
-            mock_path.return_value = mock_content_path
-
+        # Patch the backend's write_content to simulate filesystem failure
+        with patch.object(
+            content_store.backend, "write_content", side_effect=OSError("Disk full")
+        ):
             # This should raise exception and not leave partial state
             with pytest.raises(OSError):
                 content_store.store_content(content, metadata)
 
-            # Database should not have the entry (rolled back)
+            # Database should not have the entry (write_content failed before index_insert)
             content_hash = content_store.hash_content(content)
             assert not content_store.has_content(content_hash)
 

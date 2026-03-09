@@ -59,6 +59,8 @@ id_ed25519*
 *api_key*
 *apikey*
 *secret*
+!infra/stacks/secrets_stack.py
+!infra/tests/test_secrets_stack.py
 *.secret
 secrets/
 credentials/
@@ -110,6 +112,10 @@ pantry_pirate_radio.sqlite
 sql_dumps/*.sql
 sql_dumps/*.sql.gz
 sql_dumps/*.sql.bz2
+
+# CDK
+infra/cdk.out/
+infra/cdk.context.json
 
 # Claude
 .claude/settings.local.json

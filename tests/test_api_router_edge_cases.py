@@ -49,7 +49,7 @@ class TestRouterEdgeCases:
     async def test_llm_health_check_provider_failure(self, mock_request):
         """Test LLM health check when provider fails."""
         with patch("app.api.v1.router.settings") as mock_settings, patch(
-            "app.api.v1.router.OpenAIProvider"
+            "app.llm.providers.openai.OpenAIProvider"
         ) as mock_provider_class:
 
             mock_settings.LLM_PROVIDER = "openai"
@@ -76,7 +76,7 @@ class TestRouterEdgeCases:
     @patch.dict(os.environ, {"TESTING": "true"}, clear=False)
     async def test_redis_health_check_connection_failure(self, mock_request):
         """Test Redis health check when connection fails."""
-        with patch("app.api.v1.router.Redis") as mock_redis_class:
+        with patch("redis.asyncio.Redis") as mock_redis_class:
             # Mock Redis instance that fails to ping
             mock_redis = AsyncMock()
             mock_redis.ping.side_effect = Exception("Redis connection failed")
@@ -117,7 +117,7 @@ class TestRouterEdgeCases:
     @patch.dict(os.environ, {"TESTING": "true"}, clear=False)
     async def test_metrics_endpoint(self):
         """Test metrics endpoint returns proper response."""
-        with patch("app.api.v1.router.generate_latest") as mock_generate:
+        with patch("prometheus_client.generate_latest") as mock_generate:
             mock_generate.return_value = b'test_metric{label="value"} 1.0\n'
 
             from app.api.v1.router import metrics

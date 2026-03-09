@@ -54,7 +54,7 @@ class GenerateConfig:
         """Validate configuration parameters and set defaults."""
         # Set max_tokens from environment at instance creation time if not provided
         if self.max_tokens is None:
-            self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+            self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "64768"))
 
         if not 0 <= self.temperature <= 1:
             raise ValueError("Temperature must be between 0 and 1")

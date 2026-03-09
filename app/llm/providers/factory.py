@@ -71,13 +71,28 @@ def create_provider(
 
 
 def _register_defaults() -> None:
-    """Register built-in providers."""
-    from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
-    from app.llm.providers.claude import ClaudeConfig, ClaudeProvider
+    """Register built-in providers.
+
+    Providers with missing optional dependencies (openai, anthropic) are
+    silently skipped so that lightweight environments (e.g. batch Lambdas
+    that only need Bedrock) don't need the full dependency tree.
+    """
+    try:
+        from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
+
+        register_provider("openai", OpenAIConfig, OpenAIProvider)
+    except ImportError:
+        pass
+
+    try:
+        from app.llm.providers.claude import ClaudeConfig, ClaudeProvider
+
+        register_provider("claude", ClaudeConfig, ClaudeProvider)
+    except ImportError:
+        pass
+
     from app.llm.providers.bedrock import BedrockConfig, BedrockProvider
 
-    register_provider("openai", OpenAIConfig, OpenAIProvider)
-    register_provider("claude", ClaudeConfig, ClaudeProvider)
     register_provider("bedrock", BedrockConfig, BedrockProvider)
 
 

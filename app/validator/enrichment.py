@@ -1,15 +1,17 @@
 """Geocoding enrichment for validator service."""
 
-import hashlib
-import json
 import logging
 import random
 import time
+from collections import defaultdict
 from datetime import datetime, UTC
 from typing import Any, Dict, List, Optional, Tuple
 
-import redis
-
+from app.core.geocoding.cache_backend import (
+    GeocodingCacheBackend,
+    get_geocoding_cache_backend,
+    make_geocoding_cache_key,
+)
 from app.core.geocoding.service import GeocodingService
 from app.core.state_mapping import normalize_state_to_code
 from app.core.zip_state_mapping import (
@@ -33,14 +35,14 @@ class GeocodingEnricher:
         self,
         geocoding_service: Optional[GeocodingService] = None,
         config: Optional[Dict[str, Any]] = None,
-        redis_client: Optional[redis.Redis] = None,
+        cache_backend: Optional[GeocodingCacheBackend] = None,
     ):
         """Initialize the geocoding enricher.
 
         Args:
             geocoding_service: Optional geocoding service instance
             config: Optional configuration dictionary
-            redis_client: Optional Redis client for caching
+            cache_backend: Optional cache backend (auto-detected if None)
         """
         from app.core.config import settings
 
@@ -64,22 +66,17 @@ class GeocodingEnricher:
             "provider_config", getattr(settings, "ENRICHMENT_PROVIDER_CONFIG", {})
         )
 
-        # Initialize Redis client for caching
-        self.redis_client: Optional[redis.Redis] = redis_client
-        if not redis_client:
-            try:
-                self.redis_client = redis.from_url(
-                    settings.REDIS_URL,
-                    decode_responses=True,
-                    socket_connect_timeout=5,
-                    socket_timeout=5,
-                )
-                # Test connection
-                self.redis_client.ping()
-                logger.debug("Redis connection established for geocoding cache")
-            except (redis.ConnectionError, redis.TimeoutError) as e:
-                logger.warning(f"Redis not available for caching: {e}")
-                self.redis_client = None
+        # Cache backend (pluggable: Redis local, DynamoDB on AWS)
+        self._cache: Optional[GeocodingCacheBackend] = (
+            cache_backend
+            if cache_backend is not None
+            else get_geocoding_cache_backend()
+        )
+
+        # In-memory circuit breaker state (process-local, fine for single-container)
+        self._circuit_state: Dict[str, Dict[str, Any]] = {}
+        # In-memory metrics counters
+        self._metrics: Dict[str, int] = defaultdict(int)
 
         # Track enrichment details for reporting
         self._enrichment_details: Dict[str, Any] = {}
@@ -404,7 +401,7 @@ class GeocodingEnricher:
         logger.debug(f"Attempting to geocode: {address_str}")
 
         # Ensure we try ALL configured providers including census
-        all_providers = ["arcgis", "nominatim", "census"]
+        all_providers = ["amazon-location", "arcgis", "nominatim", "census"]
 
         # Try each provider in order
         for provider in all_providers:
@@ -651,7 +648,14 @@ class GeocodingEnricher:
         for attempt in range(max_retries):
             try:
                 coords = None
-                if provider == "arcgis" and hasattr(self.geocoding_service, "geocode"):
+                if provider == "amazon-location":
+                    if hasattr(self.geocoding_service, "geocode_with_provider"):
+                        coords = self.geocoding_service.geocode_with_provider(
+                            address_str, provider="amazon-location"
+                        )
+                elif provider == "arcgis" and hasattr(
+                    self.geocoding_service, "geocode"
+                ):
                     # Try regular geocode for arcgis (backward compatibility)
                     coords = self.geocoding_service.geocode(address_str)
                 elif provider == "census":
@@ -693,7 +697,7 @@ class GeocodingEnricher:
         return None
 
     def _is_circuit_open(self, provider: str) -> bool:
-        """Check if circuit breaker is open for a provider.
+        """Check if circuit breaker is open for a provider (in-memory).
 
         Args:
             provider: Provider name
@@ -701,121 +705,52 @@ class GeocodingEnricher:
         Returns:
             True if circuit is open (provider should be skipped)
         """
-        if not self.redis_client:
+        state = self._circuit_state.get(provider)
+        if not state or state.get("state") != "open":
             return False
 
-        try:
-            circuit_key = f"circuit_breaker:{provider}:state"
-            state = self.redis_client.get(circuit_key)
+        cooldown_until = state.get("cooldown_until", 0)
+        if cooldown_until > time.time():
+            return True
 
-            if state == "open":
-                # Check if cooldown period has passed
-                cooldown_key = f"circuit_breaker:{provider}:cooldown_until"
-                cooldown_until = self.redis_client.get(cooldown_key)
-
-                if cooldown_until:
-                    if float(cooldown_until) > time.time():
-                        return True
-                    else:
-                        # Cooldown expired, reset to closed
-                        self.redis_client.delete(circuit_key)
-                        self.redis_client.delete(cooldown_key)
-                        logger.info(
-                            f"Circuit breaker for {provider} reset after cooldown"
-                        )
-                        return False
-
-                return True
-
-        except (redis.RedisError, ValueError) as e:
-            logger.debug(f"Circuit breaker check error: {e}")
-
+        # Cooldown expired, reset
+        self._circuit_state.pop(provider, None)
+        logger.info(f"Circuit breaker for {provider} reset after cooldown")
         return False
 
     def _record_circuit_failure(self, provider: str) -> None:
-        """Record a failure for circuit breaker.
+        """Record a failure for circuit breaker (in-memory).
 
         Args:
             provider: Provider name
         """
-        if not self.redis_client:
-            return
-
-        # Get provider-specific config
         provider_cfg = self.provider_config.get(provider, {})
         threshold = provider_cfg.get("circuit_breaker_threshold", 5)
         cooldown = provider_cfg.get("circuit_breaker_cooldown", 300)
 
-        try:
-            failure_key = f"circuit_breaker:{provider}:failures"
-            failures = self.redis_client.incr(failure_key)
+        state = self._circuit_state.setdefault(provider, {"failures": 0})
+        state["failures"] = state.get("failures", 0) + 1
 
-            # Handle MagicMock objects in tests
-            if hasattr(failures, "_mock_name"):
-                failures = 1  # Default safe value for tests
-            else:
-                failures = int(failures)
-
-            self.redis_client.expire(
-                failure_key, cooldown
-            )  # Reset counter after cooldown period
-
-            if failures >= threshold:
-                # Open the circuit
-                circuit_key = f"circuit_breaker:{provider}:state"
-                cooldown_key = f"circuit_breaker:{provider}:cooldown_until"
-                cooldown_time = time.time() + cooldown
-
-                self.redis_client.set(circuit_key, "open")
-                self.redis_client.set(cooldown_key, str(cooldown_time))
-                self.redis_client.expire(circuit_key, cooldown + 10)
-                self.redis_client.expire(cooldown_key, cooldown + 10)
-
-                logger.warning(
-                    f"Circuit breaker opened for {provider} after {failures} failures"
-                )
-
-                # Reset failure counter
-                self.redis_client.delete(failure_key)
-
-        except (redis.RedisError, TypeError, ValueError) as e:
-            logger.debug(f"Circuit breaker record error: {e}")
+        if state["failures"] >= threshold:
+            state["state"] = "open"
+            state["cooldown_until"] = time.time() + cooldown
+            state["failures"] = 0
+            logger.warning(
+                f"Circuit breaker opened for {provider} after {threshold} failures"
+            )
 
     def _reset_circuit_breaker(self, provider: str) -> None:
-        """Reset circuit breaker state on success.
+        """Reset circuit breaker state on success (in-memory).
 
         Args:
             provider: Provider name
         """
-        if not self.redis_client:
-            return
-
-        try:
-            # Clear failure counter and state
-            self.redis_client.delete(f"circuit_breaker:{provider}:failures")
-            self.redis_client.delete(f"circuit_breaker:{provider}:state")
-            self.redis_client.delete(f"circuit_breaker:{provider}:cooldown_until")
-        except redis.RedisError as e:
-            logger.debug(f"Circuit breaker reset error: {e}")
-
-    def _get_cache_key(self, provider: str, address: str) -> str:
-        """Generate a cache key for geocoding results.
-
-        Args:
-            provider: Geocoding provider name
-            address: Address string
-
-        Returns:
-            Cache key string
-        """
-        # Use SHA256 hash to handle long addresses and special characters
-        address_hash = hashlib.sha256(address.encode()).hexdigest()[:16]
-        return f"geocoding:{provider}:{address_hash}"
+        self._circuit_state.pop(provider, None)
 
     def _get_cached_coordinates(
         self, provider: str, address: str
     ) -> Optional[Tuple[float, float]]:
-        """Get cached coordinates from Redis.
+        """Get cached coordinates from cache backend.
 
         Args:
             provider: Geocoding provider name
@@ -824,70 +759,47 @@ class GeocodingEnricher:
         Returns:
             Cached coordinates or None
         """
-        if not self.redis_client:
+        if not self._cache:
             return None
 
-        try:
-            cache_key = self._get_cache_key(provider, address)
-            cached_value = self.redis_client.get(cache_key)
-            if cached_value:
-                coords = json.loads(cached_value)
-                return (coords["lat"], coords["lon"])
-        except (redis.RedisError, json.JSONDecodeError, KeyError) as e:
-            logger.debug(f"Cache retrieval error: {e}")
-
+        cache_key = make_geocoding_cache_key(provider, address)
+        result = self._cache.get(cache_key)
+        if result and "lat" in result and "lon" in result:
+            return (result["lat"], result["lon"])
         return None
 
     def _cache_coordinates(
         self, provider: str, address: str, coords: Tuple[float, float]
     ) -> None:
-        """Cache coordinates in Redis.
+        """Cache coordinates via cache backend.
 
         Args:
             provider: Geocoding provider name
             address: Address string
             coords: Tuple of (latitude, longitude)
         """
-        if not self.redis_client:
+        if not self._cache:
             return
 
-        try:
-            cache_key = self._get_cache_key(provider, address)
-            cache_value = json.dumps({"lat": coords[0], "lon": coords[1]})
-            self.redis_client.setex(cache_key, self.cache_ttl, cache_value)
-        except redis.RedisError as e:
-            logger.debug(f"Cache storage error: {e}")
+        cache_key = make_geocoding_cache_key(provider, address)
+        self._cache.set(cache_key, {"lat": coords[0], "lon": coords[1]}, self.cache_ttl)
 
     def _increment_cache_metric(self, metric_type: str) -> None:
-        """Increment cache metric counter.
+        """Increment cache metric counter (in-memory).
 
         Args:
             metric_type: Type of metric (hits or misses)
         """
-        if not self.redis_client:
-            return
-
-        try:
-            metric_key = f"metrics:geocoding:cache:{metric_type}"
-            self.redis_client.incr(metric_key)
-        except redis.RedisError as e:
-            logger.debug(f"Metric increment error: {e}")
+        self._metrics[f"cache:{metric_type}"] += 1
 
     def _increment_provider_metric(self, provider: str, result: str) -> None:
-        """Increment provider metric counter.
+        """Increment provider metric counter (in-memory).
 
         Args:
             provider: Provider name
             result: Result type (success or failure)
         """
-        if not self.redis_client:
-            return
-
-        try:
-            metric_key = f"metrics:geocoding:{provider}:{result}"
-            self.redis_client.incr(metric_key)
-        except redis.RedisError as e:
-            logger.debug(f"Metric increment error: {e}")
+        self._metrics[f"{provider}:{result}"] += 1
 
     def get_enrichment_details(self) -> Dict[str, Any]:
         """Get details about the last enrichment operation.
@@ -897,35 +809,18 @@ class GeocodingEnricher:
         """
         details = self._enrichment_details.copy()
 
-        # Add cache metrics if Redis is available
-        if self.redis_client:
-            try:
-                details["cache_metrics"] = {
-                    "hits": int(
-                        self.redis_client.get("metrics:geocoding:cache:hits") or 0
-                    ),
-                    "misses": int(
-                        self.redis_client.get("metrics:geocoding:cache:misses") or 0
-                    ),
-                }
-                # Add provider metrics
-                details["provider_metrics"] = {}
-                for provider in self.providers:
-                    details["provider_metrics"][provider] = {
-                        "success": int(
-                            self.redis_client.get(
-                                f"metrics:geocoding:{provider}:success"
-                            )
-                            or 0
-                        ),
-                        "failure": int(
-                            self.redis_client.get(
-                                f"metrics:geocoding:{provider}:failure"
-                            )
-                            or 0
-                        ),
-                    }
-            except redis.RedisError as e:
-                logger.debug(f"Error retrieving metrics: {e}")
+        # Add in-memory cache metrics
+        details["cache_metrics"] = {
+            "hits": self._metrics.get("cache:hits", 0),
+            "misses": self._metrics.get("cache:misses", 0),
+        }
+
+        # Add in-memory provider metrics
+        details["provider_metrics"] = {}
+        for provider in self.providers:
+            details["provider_metrics"][provider] = {
+                "success": self._metrics.get(f"{provider}:success", 0),
+                "failure": self._metrics.get(f"{provider}:failure", 0),
+            }
 
         return details

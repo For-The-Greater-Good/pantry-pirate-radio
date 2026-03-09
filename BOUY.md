@@ -909,6 +909,59 @@ Bouy includes comprehensive self-tests:
 BOUY_TEST_MODE=1 BOUY_TEST_COMPOSE_CMD="./tests/mock_compose.sh" ./bouy up
 ```
 
+## AWS Deployment
+
+Bouy provides a `deploy` command that wraps CDK operations in Docker — no local Node.js or CDK installation needed.
+
+### Prerequisites
+- AWS CLI configured with appropriate credentials/profile
+- Docker running
+- AWS account bootstrapped for CDK (`./bouy deploy dev` handles this guidance)
+
+### Commands
+
+```bash
+# Full deployment (build Docker image + deploy CDK stacks + push to ECR + redeploy ECS)
+./bouy deploy dev
+
+# Show what would change without deploying
+./bouy deploy dev --diff
+
+# Deploy CDK stacks only (assumes images already in ECR)
+./bouy deploy dev --infra-only
+
+# Build and push Docker images only (assumes ECR repos exist)
+./bouy deploy dev --images-only
+
+# Tear down all stacks
+./bouy deploy dev --destroy
+```
+
+### Deployment Flow
+
+A full `./bouy deploy dev` runs these phases:
+1. **Build** — Builds the unified Docker image locally
+2. **CDK Deploy** — Deploys all CloudFormation stacks (creates ECR repos, VPC, ECS cluster, etc.)
+3. **ECR Push** — Tags and pushes the unified image to all 6 ECR repositories
+4. **ECS Redeploy** — Forces all Fargate services to pull the new image
+
+### Deployed Stacks (10)
+
+| Stack | Description |
+|-------|-------------|
+| SecretsStack | GitHub PAT + LLM API keys |
+| ECRStack | Container image repositories |
+| StorageStack | S3 content store + DynamoDB tables |
+| QueueStack | SQS FIFO queues for pipeline |
+| ComputeStack | VPC + ECS cluster + LLM worker |
+| DatabaseStack | Aurora Serverless v2 + RDS Proxy |
+| ServicesStack | Fargate services (validator, reconciler, publisher, recorder, scraper) |
+| DbInitStack | One-time database initialization |
+| PipelineStack | Step Functions scraper orchestration |
+| MonitoringStack | CloudWatch dashboards + alarms |
+
+> **Note:** The API stack is not currently deployed to AWS. The FastAPI app runs locally and will be refactored for AWS deployment separately.
+
 ## Contributing
 
 When adding new features to bouy:

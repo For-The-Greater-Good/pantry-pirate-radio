@@ -1,6 +1,7 @@
 """Integration tests for data rejection pipeline."""
 
 import os
+import uuid
 import pytest
 from unittest.mock import Mock, patch
 from app.validator.job_processor import ValidationProcessor
@@ -24,11 +25,18 @@ class TestRejectionPipelineIntegration:
     @pytest.fixture
     def mock_reconciler_db(self):
         """Create mock database for reconciler."""
-        db = Mock()
-        db.execute = Mock()
+        from unittest.mock import MagicMock
+
+        db = MagicMock()
+        # DB queries should return empty results by default
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_result.fetchall.return_value = []
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+        db.scalar.return_value = None
         db.commit = Mock()
         db.rollback = Mock()
-        db.scalar = Mock()
         return db
 
     @pytest.fixture
@@ -38,13 +46,14 @@ class TestRejectionPipelineIntegration:
         job.id = "test-pipeline"
         job.type = "scraper"
         job.data = {}
+        job.metadata = {"scraper_id": "test-scraper"}
 
         result = Mock(spec=LLMResponse)
         result.text = """{
             "organization": {
                 "name": "Test Food Bank"
             },
-            "locations": [
+            "location": [
                 {
                     "name": "Good Location",
                     "latitude": 40.7128,
@@ -74,7 +83,7 @@ class TestRejectionPipelineIntegration:
                     "address": [{"street": "123 Main St", "city": "Anytown", "state": "PA", "postal_code": "00000"}]
                 }
             ],
-            "services": []
+            "service": []
         }"""
 
         job_result = Mock(spec=JobResult)
@@ -97,7 +106,7 @@ class TestRejectionPipelineIntegration:
         ):
             result = processor.process_job_result(job_with_mixed_quality_data)
 
-        locations = result["data"]["locations"]
+        locations = result["data"]["location"]
 
         # Check each location's validation status
         good_loc = next(loc for loc in locations if loc["name"] == "Good Location")
@@ -143,19 +152,23 @@ class TestRejectionPipelineIntegration:
         ):
             validated_result = validator.process_job_result(job_with_mixed_quality_data)
 
-        # Update job with validated data
-        job_with_mixed_quality_data.job.data = validated_result["data"]
+        # Update job result with validated data (reconciler reads job_result.data)
+        job_with_mixed_quality_data.data = validated_result["data"]
 
         # Now run through reconciler
         reconciler = JobProcessor(db=mock_reconciler_db)
 
         created_locations = []
+        loc_counter = [0]
 
-        def mock_create_location(**kwargs):
-            created_locations.append(kwargs)
-            return f"loc-{len(created_locations)}"
+        def mock_create_location(name, *args, **kwargs):
+            created_locations.append({"name": name})
+            loc_counter[0] += 1
+            return str(uuid.uuid4())
 
-        with patch("app.reconciler.job_processor.OrganizationCreator"), patch(
+        with patch(
+            "app.reconciler.job_processor.OrganizationCreator"
+        ) as MockOrgCreator, patch(
             "app.reconciler.job_processor.LocationCreator"
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
@@ -163,8 +176,13 @@ class TestRejectionPipelineIntegration:
             "app.reconciler.job_processor.VersionTracker"
         ):
 
+            mock_org_creator = Mock()
+            MockOrgCreator.return_value = mock_org_creator
+            mock_org_creator.process_organization.return_value = ("org-1", True)
+
             mock_loc_creator = Mock()
             MockLocCreator.return_value = mock_loc_creator
+            mock_loc_creator.find_matching_location.return_value = None
             mock_loc_creator.create_location.side_effect = mock_create_location
 
             reconciler.process_job_result(job_with_mixed_quality_data)
@@ -239,8 +257,22 @@ class TestRejectionPipelineIntegration:
         with patch("app.core.config.settings.VALIDATION_REJECTION_THRESHOLD", 20):
             # Create job with borderline location (score 15)
             job = Mock(spec=LLMJob)
+            job.metadata = {"scraper_id": "test-scraper"}
             job.data = {
-                "locations": [
+                "location": [
+                    {
+                        "name": "Borderline Location",
+                        "latitude": 40.0,
+                        "longitude": -75.0,
+                        "address": [
+                            {"street": "456 Oak St", "city": "Somewhere", "state": "PA"}
+                        ],
+                    }
+                ]
+            }
+
+            location_data = {
+                "location": [
                     {
                         "name": "Borderline Location",
                         "latitude": 40.0,
@@ -255,6 +287,7 @@ class TestRejectionPipelineIntegration:
             job_result = Mock(spec=JobResult)
             job_result.job_id = "test-threshold"
             job_result.job = job
+            job_result.data = location_data
             job_result.result = Mock(text="")
             job_result.status = JobStatus.COMPLETED
 
@@ -264,7 +297,7 @@ class TestRejectionPipelineIntegration:
             )
 
             # Mock scorer to return confidence of 15
-            with patch("app.validator.job_processor.ConfidenceScorer") as MockScorer:
+            with patch("app.validator.scoring.ConfidenceScorer") as MockScorer:
                 mock_scorer = Mock()
                 MockScorer.return_value = mock_scorer
                 mock_scorer.calculate_score.return_value = 15
@@ -281,19 +314,21 @@ class TestRejectionPipelineIntegration:
                     result = validator.process_job_result(job_result)
 
             # With threshold of 20, score of 15 should be rejected
-            location = result["data"]["locations"][0]
+            location = result["data"]["location"][0]
             assert location["confidence_score"] == 15
             assert location["validation_status"] == "rejected"
 
-            # Update job with validated data
-            job_result.job.data = result["data"]
+            # Update job result with validated data (reconciler reads job_result.data)
+            job_result.data = result["data"]
 
             # Run through reconciler
             reconciler = JobProcessor(db=mock_reconciler_db)
 
             created_locations = []
 
-            with patch("app.reconciler.job_processor.OrganizationCreator"), patch(
+            with patch(
+                "app.reconciler.job_processor.OrganizationCreator"
+            ) as MockOrgCreator, patch(
                 "app.reconciler.job_processor.LocationCreator"
             ) as MockLocCreator, patch(
                 "app.reconciler.job_processor.ServiceCreator"
@@ -304,10 +339,18 @@ class TestRejectionPipelineIntegration:
                 20,
             ):
 
+                mock_org_creator = Mock()
+                MockOrgCreator.return_value = mock_org_creator
+                mock_org_creator.process_organization.return_value = (
+                    "org-1",
+                    True,
+                )
+
                 mock_loc_creator = Mock()
                 MockLocCreator.return_value = mock_loc_creator
-                mock_loc_creator.create_location.side_effect = (
-                    lambda **k: created_locations.append(k)
+                mock_loc_creator.find_matching_location.return_value = None
+                mock_loc_creator.create_location.side_effect = lambda name, *a, **k: (
+                    created_locations.append({"name": name}) or str(uuid.uuid4())
                 )
 
                 reconciler.process_job_result(job_result)
@@ -336,17 +379,30 @@ class TestRejectionPipelineIntegration:
         assert "rejected" in validator_logs.lower()
         assert "Zero Coordinates" in validator_logs or "confidence=0" in validator_logs
 
-        # Update job with validated data
-        job_with_mixed_quality_data.job.data = validated_result["data"]
+        # Update job result with validated data (reconciler reads job_result.data)
+        job_with_mixed_quality_data.data = validated_result["data"]
 
         # Run through reconciler
         reconciler = JobProcessor(db=mock_reconciler_db)
 
-        with patch("app.reconciler.job_processor.OrganizationCreator"), patch(
+        with patch(
+            "app.reconciler.job_processor.OrganizationCreator"
+        ) as MockOrgCreator, patch(
             "app.reconciler.job_processor.LocationCreator"
-        ), patch("app.reconciler.job_processor.ServiceCreator"), patch(
+        ) as MockLocCreator, patch(
+            "app.reconciler.job_processor.ServiceCreator"
+        ), patch(
             "app.reconciler.job_processor.VersionTracker"
         ):
+
+            mock_org_creator = Mock()
+            MockOrgCreator.return_value = mock_org_creator
+            mock_org_creator.process_organization.return_value = ("org-1", True)
+
+            mock_loc_creator = Mock()
+            MockLocCreator.return_value = mock_loc_creator
+            mock_loc_creator.find_matching_location.return_value = None
+            mock_loc_creator.create_location.return_value = str(uuid.uuid4())
 
             with caplog.at_level(logging.WARNING):
                 reconciler.process_job_result(job_with_mixed_quality_data)

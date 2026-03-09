@@ -1,14 +1,31 @@
-"""Retry mechanisms for content store database operations."""
+"""Retry mechanisms for content store database and AWS operations."""
 
 import functools
 import sqlite3
 import time
-import logging
+import structlog
 from typing import Any, Callable, TypeVar
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
+
+# AWS exception types that should trigger retries (transient errors)
+AWS_RETRYABLE_ERROR_CODES = frozenset(
+    {
+        "Throttling",
+        "ThrottlingException",
+        "ProvisionedThroughputExceededException",
+        "RequestLimitExceeded",
+        "ServiceUnavailable",
+        "InternalError",
+        "InternalServerError",
+        "RequestTimeout",
+        "RequestTimeoutException",
+        "TransactionConflictException",
+        "ItemCollectionSizeLimitExceededException",
+    }
+)
 
 
 def with_db_retry(
@@ -64,6 +81,15 @@ def with_db_retry(
                                 should_retry = False
                             # Otherwise, keep the original should_retry value for other operational errors
 
+                    # Check for AWS ClientError and determine if it's retryable
+                    if _is_aws_client_error(e):
+                        error_code = _get_aws_error_code(e)
+                        if error_code in AWS_RETRYABLE_ERROR_CODES:
+                            should_retry = True
+                        else:
+                            # Non-retryable AWS errors (AccessDenied, ValidationException, etc.)
+                            should_retry = False
+
                     if not should_retry or attempt == max_retries:
                         # Don't retry on this exception type or max retries reached
                         raise e
@@ -115,4 +141,64 @@ def with_connection_retry(func: Callable[..., T]) -> Callable[..., T]:
         max_delay=2.0,
         backoff_factor=2.0,
         retry_on=(sqlite3.OperationalError,),
+    )(func)
+
+
+def _is_aws_client_error(e: Exception) -> bool:
+    """Check if exception is a botocore ClientError.
+
+    Uses duck typing to avoid importing botocore at module level.
+    """
+    return (
+        type(e).__name__ == "ClientError"
+        and hasattr(e, "response")
+        and isinstance(getattr(e, "response", None), dict)
+    )
+
+
+def _get_aws_error_code(e: Exception) -> str:
+    """Extract AWS error code from ClientError.
+
+    Returns empty string if error code cannot be extracted.
+    """
+    try:
+        response = getattr(e, "response", {})
+        return response.get("Error", {}).get("Code", "")
+    except (AttributeError, TypeError):
+        return ""
+
+
+def with_aws_retry(func: Callable[..., T]) -> Callable[..., T]:
+    """Decorator for AWS S3/DynamoDB operations with exponential backoff.
+
+    Uses moderate retry settings for AWS service operations.
+    Retries on transient errors like throttling, timeouts, and service errors.
+    Does not retry on permanent errors like AccessDenied, ValidationException.
+    """
+    # Import at runtime to avoid dependency on botocore when not using AWS
+    try:
+        from botocore.exceptions import ClientError, BotoCoreError
+    except ImportError:
+        # If botocore is not installed, create placeholder exception types
+        # that will never match - retry.py can still be imported.
+        # WARNING: This means AWS-specific retry (ClientError, BotoCoreError)
+        # will be silently disabled. ConnectionError and TimeoutError retries
+        # still work because they are built-in Python exceptions.
+        ClientError = type("ClientError", (Exception,), {})  # type: ignore
+        BotoCoreError = type("BotoCoreError", (Exception,), {})  # type: ignore
+        logger.warning(
+            "botocore_not_installed_aws_retry_degraded",
+            detail=(
+                "botocore is not installed; with_aws_retry will not catch "
+                "ClientError or BotoCoreError. Only ConnectionError and "
+                "TimeoutError will trigger retries."
+            ),
+        )
+
+    return with_db_retry(
+        max_retries=5,
+        base_delay=0.1,
+        max_delay=2.0,
+        backoff_factor=2.0,
+        retry_on=(ClientError, BotoCoreError, ConnectionError, TimeoutError),
     )(func)

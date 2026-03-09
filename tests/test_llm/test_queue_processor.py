@@ -48,8 +48,8 @@ def test_process_job_async_generator_result(
     mock_provider.generate.return_value = mock_coroutine()
 
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
-            with patch("app.llm.queue.processor.recorder_queue"):
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            with patch("app.llm.queue.queues.recorder_queue"):
                 # Process the job
                 result = process_llm_job(sample_job, mock_provider)
 
@@ -70,8 +70,8 @@ def test_process_job_sync_result(sample_job, sample_response, no_content_store):
     mock_provider.generate.return_value = mock_coroutine()
 
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
-            with patch("app.llm.queue.processor.recorder_queue"):
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            with patch("app.llm.queue.queues.recorder_queue"):
                 # Process the job
                 result = process_llm_job(sample_job, mock_provider)
 
@@ -101,8 +101,8 @@ def test_process_job_with_config(sample_job, sample_response, no_content_store):
     mock_provider.generate.return_value = mock_coroutine()
 
     with patch("app.llm.queue.processor.should_use_validator", return_value=False):
-        with patch("app.llm.queue.processor.reconciler_queue"):
-            with patch("app.llm.queue.processor.recorder_queue"):
+        with patch("app.llm.queue.queues.reconciler_queue"):
+            with patch("app.llm.queue.queues.recorder_queue"):
                 # Process the job
                 result = process_llm_job(job_with_config, mock_provider)
 

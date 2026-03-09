@@ -6,7 +6,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
-from app.core.events import REQUESTS_TOTAL, RESPONSES_TOTAL
+from app.core.metrics import REQUESTS_TOTAL, RESPONSES_TOTAL
 from app.core.logging import get_logger
 
 logger = get_logger()

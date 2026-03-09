@@ -101,7 +101,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher()
         enricher.geocoding_service = mock_service
         enricher.providers = ["arcgis", "nominatim", "census"]
-        enricher.redis_client = None  # Skip caching for test
+        enricher._cache = None  # Skip caching for test
 
         # Mock geocoding to return (None, None) for first provider, valid for second
         def geocode_side_effect(address):
@@ -142,7 +142,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher()
         enricher.geocoding_service = mock_service
         enricher.providers = ["arcgis", "nominatim"]  # Census not in config
-        enricher.redis_client = None
+        enricher._cache = None
 
         # All providers fail
         mock_service.geocode.return_value = None
@@ -182,7 +182,7 @@ class TestGeocodingEnricher:
         enricher = GeocodingEnricher()
         enricher.geocoding_service = mock_service
         enricher.providers = ["arcgis"]
-        enricher.redis_client = None
+        enricher._cache = None
 
         # Geocoding succeeds with enhanced address
         mock_service.geocode.return_value = (40.7580, -73.9855)  # Times Square

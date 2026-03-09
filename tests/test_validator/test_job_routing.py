@@ -39,7 +39,7 @@ class TestValidatorJobRouting:
                 )
                 mock_get_val_queue.return_value = mock_val_queue
 
-                with patch("app.llm.queue.processor.recorder_queue") as mock_recorder:
+                with patch("app.llm.queue.queues.recorder_queue") as mock_recorder:
                     mock_recorder.enqueue_call.return_value = MagicMock(
                         id="recorder-123"
                     )
@@ -58,9 +58,7 @@ class TestValidatorJobRouting:
     ):
         """Test that LLM worker bypasses validator when disabled."""
         with patch("app.core.config.settings.VALIDATOR_ENABLED", False):
-            with patch(
-                "app.llm.queue.processor.reconciler_queue", mock_reconciler_queue
-            ):
+            with patch("app.llm.queue.queues.reconciler_queue", mock_reconciler_queue):
                 from app.llm.queue.processor import process_llm_job
 
                 # Mock LLM provider
@@ -86,9 +84,7 @@ class TestValidatorJobRouting:
         """Test that validator forwards jobs to reconciler after processing."""
         from app.validator.job_processor import process_validation_job
 
-        with patch(
-            "app.validator.job_processor.reconciler_queue", mock_reconciler_queue
-        ):
+        with patch("app.llm.queue.queues.reconciler_queue", mock_reconciler_queue):
             # Process validation job
             result = process_validation_job(sample_hsds_job)
 
@@ -114,28 +110,33 @@ class TestValidatorJobRouting:
         from app.validator.job_processor import process_validation_job
 
         original_data = sample_hsds_job.result.text
-        original_metadata = sample_hsds_job.job.metadata.copy()
 
-        # Process through validator
-        result = process_validation_job(sample_hsds_job)
+        # Mock the reconciler queue to avoid real Redis interaction
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            mock_queue.enqueue_call.return_value = MagicMock(id="mock-reconciler-job")
 
-        # Data should be unchanged (result is dict from process_validation_job)
-        assert result["job_id"] == sample_hsds_job.job_id
-        assert result["data"] == json.loads(original_data)
-
-    def test_validator_queue_error_handling(self, sample_hsds_job):
-        """Test error handling when validator queue fails."""
-        from app.validator.job_processor import process_validation_job
-
-        with patch("app.validator.job_processor.reconciler_queue") as mock_queue:
-            mock_queue.enqueue_call.side_effect = Exception("Queue error")
-
-            # Process should handle error and still return result
+            # Process through validator
             result = process_validation_job(sample_hsds_job)
 
-            # Should still return a result even if enqueueing fails
-            assert result is not None
+            # Data should be unchanged (result is dict from process_validation_job)
             assert result["job_id"] == sample_hsds_job.job_id
+            assert result["data"] == json.loads(original_data)
+
+    def test_validator_queue_error_handling(self, sample_hsds_job):
+        """Test that queue errors are re-raised for retry handling.
+
+        After C5 remediation, process_validation_job re-raises exceptions
+        so that PipelineWorker / SQS can handle retry logic. Swallowing
+        errors would cause the SQS message to be deleted, losing the job.
+        """
+        from app.validator.job_processor import process_validation_job
+
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            mock_queue.enqueue_call.side_effect = Exception("Queue error")
+
+            # Process should re-raise the queue error
+            with pytest.raises(Exception, match="Queue error"):
+                process_validation_job(sample_hsds_job)
 
     def test_routing_with_failed_llm_job(self):
         """Test routing when LLM job fails."""
@@ -158,41 +159,47 @@ class TestValidatorJobRouting:
 
         from app.validator.job_processor import process_validation_job
 
-        # Failed jobs should still pass through
-        result = process_validation_job(failed_job)
-        # Failed jobs should still pass through with status info
-        assert result["job_id"] == "failed-job"
-        assert "status" in result
+        # Mock the reconciler queue to avoid real Redis interaction
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            mock_queue.enqueue_call.return_value = MagicMock(id="mock-reconciler-job")
+
+            # Failed jobs should still pass through
+            result = process_validation_job(failed_job)
+            # Failed jobs should still pass through with status info
+            assert result["job_id"] == "failed-job"
+            assert "status" in result
 
     def test_validator_logging_data_flow(self, sample_hsds_job):
         """Test that validator logs data flow when configured."""
         from app.validator.job_processor import process_validation_job
 
-        with patch("app.validator.job_processor.logger") as mock_logger:
-            with patch("app.validator.config.get_validator_config") as mock_config:
-                # Mock config to have log_data_flow = True
-                mock_config.return_value.log_data_flow = True
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            mock_queue.enqueue_call.return_value = MagicMock(id="mock-reconciler-job")
+            with patch("app.validator.job_processor.logger") as mock_logger:
+                with patch("app.validator.config.get_validator_config") as mock_config:
+                    # Mock config to have log_data_flow = True
+                    mock_config.return_value.log_data_flow = True
 
-                process_validation_job(sample_hsds_job)
+                    process_validation_job(sample_hsds_job)
 
-                # Should log data flow
-                mock_logger.info.assert_called()
-                log_messages = [str(c) for c in mock_logger.info.call_args_list]
-                # Check that some logging occurred
-                assert mock_logger.info.call_count > 0
+                    # Should log data flow
+                    mock_logger.info.assert_called()
+                    log_messages = [str(c) for c in mock_logger.info.call_args_list]
+                    # Check that some logging occurred
+                    assert mock_logger.info.call_count > 0
 
     def test_validator_preserves_job_timing(self, sample_hsds_job):
         """Test that validator preserves job timing information."""
         from app.validator.job_processor import process_validation_job
 
-        original_created = sample_hsds_job.job.created_at
-        original_completed = sample_hsds_job.completed_at
-        original_processing_time = sample_hsds_job.processing_time
+        # Mock the reconciler queue to avoid real Redis interaction
+        with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+            mock_queue.enqueue_call.return_value = MagicMock(id="mock-reconciler-job")
 
-        result = process_validation_job(sample_hsds_job)
+            result = process_validation_job(sample_hsds_job)
 
-        # Timing should be preserved in the result
-        assert result["job_id"] == sample_hsds_job.job_id
+            # Timing should be preserved in the result
+            assert result["job_id"] == sample_hsds_job.job_id
 
     def test_routing_configuration_check(self):
         """Test that routing configuration can be checked."""

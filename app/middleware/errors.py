@@ -34,7 +34,6 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         # Initialize error mapping
         self.error_mapping: ErrorMapping = {
-            KeyError: HTTP_404_NOT_FOUND,
             ValueError: HTTP_422_UNPROCESSABLE_ENTITY,
             RequestValidationError: HTTP_422_UNPROCESSABLE_ENTITY,
             HTTPException: None,  # Use its own status_code
@@ -106,13 +105,13 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         else:
             status_code = getattr(exc, "status_code", HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Get error detail
+        # Get error detail - generic messages for non-HTTP exceptions
         if isinstance(exc, HTTPException):
             detail = str(exc.detail)
-        elif isinstance(exc, KeyError):
-            detail = f"'{exc.args[0]}'" if exc.args else str(exc)
+        elif isinstance(exc, RequestValidationError):
+            detail = "Validation error"
         else:
-            detail = str(exc.args[0] if exc.args else str(exc))
+            detail = "Internal server error"
 
         # Log error with context
         correlation_id = getattr(request.state, "correlation_id", None)
@@ -148,8 +147,6 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         """Get error detail and status code from exception."""
         if isinstance(exc, HTTPException):
             return str(exc.detail), exc.status_code
-        elif isinstance(exc, KeyError):
-            return f"'{exc.args[0]}'" if exc.args else str(exc), HTTP_404_NOT_FOUND
 
         mapped_status = self.error_mapping.get(type(exc))
         status_code = (
@@ -157,8 +154,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             if mapped_status is not None
             else HTTP_500_INTERNAL_SERVER_ERROR
         )
-        detail = str(exc.args[0] if exc.args else str(exc))
-        return detail, status_code
+        return "Internal server error", status_code
 
     def _get_error_message(self, status_code: int) -> str:
         """Get error message based on status code."""

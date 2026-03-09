@@ -60,7 +60,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy test --pip-audit      # Pip audit for vulnerabilities
 ./bouy test --xenon          # Code complexity analysis
 
-# Scraper Commands
+# Scraper Commands (Local)
 ./bouy scraper --list         # List all available scrapers
 ./bouy scraper --all          # Run all scrapers sequentially
 ./bouy scraper NAME           # Run specific scraper by name
@@ -69,6 +69,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy scraper full-broadside # Run all scrapers in parallel (max firepower!)
 ./bouy scraper-test NAME      # Test specific scraper (dry run)
 ./bouy scraper-test --all     # Test all scrapers (dry run)
+
+# Scraper Commands (AWS)
+./bouy scraper --aws NAME              # Run scraper on AWS via Step Functions
+./bouy scraper --aws NAME1 NAME2       # Run multiple scrapers on AWS
+./bouy scraper --aws --all             # Run all default scrapers on AWS
+./bouy scraper --aws scouting-party    # Run all scrapers on AWS (parallel)
+./bouy scraper --aws --status          # List recent pipeline executions
+./bouy scraper --aws --status EXEC_ARN # Check specific execution status
+./bouy scraper --aws --logs            # Tail AWS scraper CloudWatch logs
 
 # Service Management
 ./bouy build                # Build all services
@@ -115,6 +124,19 @@ The setup wizard will:
 
 ## Environment Configuration
 
+### Shared Pipeline Config (`config/defaults.yml`)
+
+`config/defaults.yml` is the **single source of truth** for values that must be identical across local Docker and AWS deployments. Both `app/core/config.py` (runtime) and `infra/shared_config.py` (CDK) read from it.
+
+**Variable categories:**
+1. **Shared Pipeline Config** → `config/defaults.yml` (LLM params, validation, geocoding, enrichment)
+2. **Environment-Specific** → `.env` (local) / CDK hardcoded (AWS) — legitimately different per env
+3. **Secrets** → `.env` locally, Secrets Manager on AWS. CDK reads `.env` at deploy time via `infra/shared_config.py`
+4. **Local-Only** → `.env` only (backup settings, rate limits, etc.)
+5. **AWS-Only** → CDK only (SQS URLs, DB host, S3 buckets, etc.)
+
+Environment variables **always override** shared defaults. Never put secrets in `config/defaults.yml`.
+
 ### Required Environment Variables
 
 The setup wizard configures these automatically, but you can also set them manually:
@@ -144,6 +166,11 @@ DATA_REPO_TOKEN=github_pat_xxx  # GitHub PAT with repo access
 
 # Content Store
 CONTENT_STORE_PATH=/path/to/content-store
+CONTENT_STORE_BACKEND=file  # Backend type: "file" (default) or "s3" (AWS deployment)
+
+# Lambda API (set automatically in AWS, not needed locally)
+AWS_LAMBDA_FUNCTION_NAME=  # Auto-set by Lambda runtime; triggers Lambda-optimized behavior
+DATABASE_SECRET_ARN=       # Secrets Manager ARN for DB password (Lambda uses this instead of DATABASE_PASSWORD)
 ```
 
 ### Test Environment
@@ -478,6 +505,42 @@ open htmlcov/index.html                  # View HTML report
 ./bouy claude-auth config    # Show Claude configuration
 ```
 
+### AWS Deployment
+```bash
+./bouy deploy dev                    # Full deploy (build + CDK + push + redeploy)
+./bouy deploy dev --diff             # Show CDK diff without deploying
+./bouy deploy dev --infra-only       # CDK deploy only (assumes images exist)
+./bouy deploy dev --images-only      # Build and push Docker images only
+./bouy deploy dev --destroy          # Tear down all stacks
+./bouy deploy dev --infra-only --stack BatchStack  # Deploy single stack
+./bouy deploy dev --diff --stack ComputeStack      # Diff single stack
+```
+
+**Daily SQLite Publisher (AWS)**:
+- Publisher runs daily at 4 AM UTC via EventBridge schedule (enabled in prod)
+- Exports Aurora data to SQLite, uploads to S3 exports bucket
+- Public SQLite URL: `https://pantry-pirate-radio-exports-{env}.s3.amazonaws.com/sqlite-exports/latest/pantry_pirate_radio.sqlite`
+- Daily archives kept for 30 days at `sqlite-exports/{date}/pantry_pirate_radio.sqlite`
+
+**Metabase Cloud Access (dev only)**:
+- NLB in public subnets forwards TCP 5432 to RDS Proxy (MetabaseAccessStack)
+- Access restricted to Metabase Cloud static IPs via security group
+- Lambda resolves RDS Proxy DNS every minute and syncs NLB target IPs
+- Metabase Cloud DB config: Host = NLB DNS (from stack output `MetabaseAccessStack-dev.NlbDnsName`), Port = 5432, DB = `pantry_pirate_radio`, User = `pantry_pirate`, Password = from Secrets Manager, SSL = required
+
+**Bastion / Ad-hoc DB Access (dev only)**:
+```bash
+# Connect to Aurora via SSM port forwarding (requires AWS CLI + Session Manager plugin)
+INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=BastionStack-dev" --query 'Reservations[0].Instances[0].InstanceId' --output text)
+PROXY_ENDPOINT=$(aws rds describe-db-proxies --query 'DBProxies[?DBProxyName==`pantry-pirate-radio-proxy-dev`].Endpoint' --output text)
+
+aws ssm start-session --target $INSTANCE_ID \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters "{\"host\":[\"$PROXY_ENDPOINT\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"5432\"]}"
+
+# Then connect locally to: localhost:5432, user: pantry_pirate, SSL: required
+```
+
 ### Data Reconciliation
 ```bash
 ./bouy reconciler            # Run reconciler service
@@ -564,10 +627,23 @@ Web Sources → Scrapers → Content Store → Redis Queue → LLM Workers
                                                            ↓
 PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
     ↓                          ↓
-FastAPI → Clients         JSON Archives → HAARRRvest Repository
-                                              ↓
-                                        GitHub Pages → Public Access
+    ├→ FastAPI → Clients  JSON Archives → HAARRRvest Repository
+    │                                         ↓
+    │                                   GitHub Pages → Public Access
+    │
+    └→ Publisher (daily) → SQLite → S3 Exports Bucket → Public Access
 ```
+
+#### AWS Batch Inference Path (Bedrock)
+
+On AWS, scrapers enqueue to a **staging SQS queue** instead of the LLM queue.
+After all scrapers complete, Step Functions invokes a **Batcher Lambda** that:
+- **>= 100 records**: Builds JSONL, submits Bedrock Batch Inference job (50% cost savings)
+- **< 100 records**: Re-enqueues to LLM queue for on-demand Fargate processing
+
+Batch results are routed by a **Result Processor Lambda** (triggered by EventBridge)
+through the same validator/reconciler pipeline. No scraper code is changed — the
+routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 
 ### Key Components
 
@@ -576,10 +652,15 @@ FastAPI → Clients         JSON Archives → HAARRRvest Repository
   - **Private Scrapers Submodule**: 30+ production scrapers in `app/scraper/scrapers/` (requires access)
   - **Sample Scraper**: Example implementation available for all contributors
 - **Content Store**: SHA-256 deduplication preventing duplicate processing
+  - **Backend Abstraction**: Pluggable `ContentStoreBackend` protocol supports local filesystem (`file`) or AWS S3+DynamoDB (`s3`)
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
 - **API**: Read-only HSDS v3.1.1 compliant REST endpoints
+  - **AWS Deployment**: Lambda + API Gateway HTTP API (serverless, zero idle cost)
+  - **Local Development**: Docker via `./bouy up` (unchanged, uses `app/main.py`)
+  - **Lambda Entry Point**: `app/api/lambda_app.py` (no Redis/LLM deps), handler via Mangum
+  - **ECR Repository**: `api-lambda` (slim ~300MB image vs 10GB full image)
 - **HAARRRvest Publisher**: Syncs processed data to public repository
 
 #### Data Validation Pipeline
@@ -738,3 +819,5 @@ See [constitution.md](constitution.md) for full details. Key principles:
 2. **Selective services** - Start only needed services: `./bouy up app worker`
 3. **Cached builds** - Reuse Docker cache unless changes require `--no-cache`
 4. **JSON output** - Use `--json` flag for machine-readable output in scripts
+- run all single test files using ./bouy exec app pytest \
+./bouy test does not properly handle selecting test files.

@@ -21,7 +21,7 @@ class TestBackwardCompatibility:
             mock_provider = MagicMock()
             mock_provider.generate.return_value = sample_hsds_job.result
 
-            with patch("app.llm.queue.processor.reconciler_queue") as mock_reconciler:
+            with patch("app.llm.queue.queues.reconciler_queue") as mock_reconciler:
                 with patch(
                     "app.llm.queue.processor.should_use_validator", return_value=False
                 ):
@@ -57,8 +57,8 @@ class TestBackwardCompatibility:
         mock_provider.generate.return_value = response
 
         with patch("app.core.config.settings.VALIDATOR_ENABLED", False):
-            with patch("app.llm.queue.processor.reconciler_queue") as mock_queue:
-                with patch("app.llm.queue.processor.recorder_queue"):
+            with patch("app.llm.queue.queues.reconciler_queue") as mock_queue:
+                with patch("app.llm.queue.queues.recorder_queue"):
                     result = process_llm_job(job, mock_provider)
 
                     # Should work as before

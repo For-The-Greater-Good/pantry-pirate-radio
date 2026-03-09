@@ -1,14 +1,24 @@
-"""Integration test to verify pattern constraints are enforced in structured output."""
+"""Integration test to verify pattern constraints are enforced in structured output.
+
+These tests require a valid OPENROUTER_API_KEY to run against the real API.
+They are automatically skipped when the key is missing or when authentication
+fails (expired/revoked key).
+"""
 
 import os
 import pytest
+from openai._exceptions import AuthenticationError
 from app.llm.providers.openai import OpenAIConfig, OpenAIProvider
 from app.llm.providers.types import GenerateConfig
 
 
-@pytest.mark.skipif(
-    not os.getenv("OPENROUTER_API_KEY"), reason="OpenRouter API key not available"
-)
+def _has_api_key() -> bool:
+    """Check if an OpenRouter API key is configured (may or may not be valid)."""
+    key = os.getenv("OPENROUTER_API_KEY", "")
+    return bool(key)
+
+
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_pattern_enforcement_in_structured_output():
     """Test that pattern constraints are enforced when generating with real API."""
@@ -116,7 +126,12 @@ async def test_pattern_enforcement_in_structured_output():
     - Date must be YYYY-MM-DD format
     """
 
-    response = await provider.generate(prompt, config=config)
+    try:
+        response = await provider.generate(prompt, config=config)
+    except (AuthenticationError, ValueError) as e:
+        if "401" in str(e) or "Authentication" in str(e) or "Unauthorized" in str(e):
+            pytest.skip(f"OpenRouter API key is invalid or expired: {e}")
+        raise
 
     # Verify we got a valid response
     assert response is not None
@@ -175,9 +190,7 @@ async def test_pattern_enforcement_in_structured_output():
     print(f"Date: {schedule['date']} (YYYY-MM-DD)")
 
 
-@pytest.mark.skipif(
-    not os.getenv("OPENROUTER_API_KEY"), reason="OpenRouter API key not available"
-)
+@pytest.mark.skipif(not _has_api_key(), reason="OpenRouter API key not available")
 @pytest.mark.asyncio
 async def test_pattern_rejection_of_invalid_formats():
     """Test that the LLM correctly formats data to match patterns, not that it rejects."""
@@ -215,7 +228,12 @@ async def test_pattern_rejection_of_invalid_formats():
 
     Remember: State codes must be exactly 2 uppercase letters (e.g., CA for California)"""
 
-    response = await provider.generate(prompt, config=config)
+    try:
+        response = await provider.generate(prompt, config=config)
+    except (AuthenticationError, ValueError) as e:
+        if "401" in str(e) or "Authentication" in str(e) or "Unauthorized" in str(e):
+            pytest.skip(f"OpenRouter API key is invalid or expired: {e}")
+        raise
 
     # The LLM should convert "California" to "CA" to match the pattern
     assert response is not None
