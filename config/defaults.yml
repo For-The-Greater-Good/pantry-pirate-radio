@@ -40,3 +40,6 @@ content_store:
 
 reconciler:
   location_tolerance: 0.0001
+
+tightbeam:
+  enabled: true

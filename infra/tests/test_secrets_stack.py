@@ -39,9 +39,9 @@ class TestSecretsStackResources:
         return assertions.Template.from_stack(prod_stack)
 
     def test_creates_secrets(self, dev_template):
-        """SecretsStack should create 2 secrets: GitHub PAT and LLM keys."""
+        """SecretsStack should create 3 secrets: GitHub PAT, LLM keys, Tightbeam keys."""
         # DB credentials are in DatabaseStack to avoid cross-stack dependency issues
-        dev_template.resource_count_is("AWS::SecretsManager::Secret", 2)
+        dev_template.resource_count_is("AWS::SecretsManager::Secret", 3)
 
     def test_github_pat_secret_exists(self, dev_template):
         """GitHub PAT secret should exist."""
@@ -55,6 +55,17 @@ class TestSecretsStackResources:
         dev_template.has_resource_properties(
             "AWS::SecretsManager::Secret",
             {"Description": assertions.Match.string_like_regexp(".*LLM.*API.*keys.*")},
+        )
+
+    def test_tightbeam_api_keys_secret_exists(self, dev_template):
+        """Tightbeam API keys secret should exist."""
+        dev_template.has_resource_properties(
+            "AWS::SecretsManager::Secret",
+            {
+                "Description": assertions.Match.string_like_regexp(
+                    ".*Tightbeam.*API.*keys.*"
+                )
+            },
         )
 
 
@@ -117,6 +128,11 @@ class TestSecretsStackAttributes:
         """Stack should expose llm_api_keys_secret attribute."""
         assert stack.llm_api_keys_secret is not None
         assert hasattr(stack.llm_api_keys_secret, "secret_arn")
+
+    def test_exposes_tightbeam_api_keys_secret(self, stack):
+        """Stack should expose tightbeam_api_keys_secret attribute."""
+        assert stack.tightbeam_api_keys_secret is not None
+        assert hasattr(stack.tightbeam_api_keys_secret, "secret_arn")
 
     def test_environment_name_stored(self, stack):
         """Stack should store environment name."""
@@ -208,8 +224,8 @@ class TestSecretsPopulation:
         stack = SecretsStack(app, "EmptyStack", environment_name="dev")
         template = assertions.Template.from_stack(stack)
 
-        # Both secrets should exist
-        template.resource_count_is("AWS::SecretsManager::Secret", 2)
+        # All 3 secrets should exist
+        template.resource_count_is("AWS::SecretsManager::Secret", 3)
 
     @patch(
         "stacks.secrets_stack.SECRETS",
@@ -234,5 +250,24 @@ class TestSecretsPopulation:
             {
                 "Name": "pantry-pirate-radio/llm-api-keys-dev",
                 "SecretString": expected_json,
+            },
+        )
+
+    @patch(
+        "stacks.secrets_stack.SECRETS",
+        {
+            "TIGHTBEAM_API_KEYS": "slackbot:sk-test-key-123",
+        },
+    )
+    def test_tightbeam_secret_populated_from_env(self, app):
+        """Tightbeam API keys secret should contain value from .env."""
+        stack = SecretsStack(app, "TightbeamStack", environment_name="dev")
+        template = assertions.Template.from_stack(stack)
+
+        template.has_resource_properties(
+            "AWS::SecretsManager::Secret",
+            {
+                "Name": "pantry-pirate-radio/tightbeam-api-keys-dev",
+                "SecretString": "slackbot:sk-test-key-123",
             },
         )
