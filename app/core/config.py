@@ -200,6 +200,10 @@ class Settings(BaseSettings):
         description="Per-provider configuration for timeouts, retries, and circuit breaker settings",
     )
 
+    # Tightbeam Settings
+    TIGHTBEAM_ENABLED: bool = True
+    TIGHTBEAM_API_KEYS: str = ""  # Comma-separated list of valid API keys
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

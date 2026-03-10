@@ -228,6 +228,7 @@ lambda_api_stack = LambdaApiStack(
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
+    tightbeam_api_keys_secret=secrets_stack.tightbeam_api_keys_secret,
     memory_size=1024,
     timeout_seconds=30,
     provisioned_concurrent=None,
@@ -470,5 +471,44 @@ monitoring_stack.add_dependency(services_stack)
 monitoring_stack.add_dependency(pipeline_stack)
 monitoring_stack.add_dependency(db_init_stack)
 monitoring_stack.add_dependency(lambda_api_stack)
+
+# Plugin CDK stack discovery — scan ../plugins/*/infra/ for declared stacks
+import importlib.util
+import pathlib
+import yaml
+
+_plugins_dir = pathlib.Path(__file__).parent.parent / "plugins"
+for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
+    try:
+        _plugin_conf = yaml.safe_load(_manifest.read_text())
+    except Exception:
+        continue
+    _infra_stacks = _plugin_conf.get("cdk_stacks", [])
+    _plugin_infra_dir = _manifest.parent / "infra"
+    for _stack_entry in _infra_stacks:
+        _module_name = _stack_entry.get("module")
+        _class_name = _stack_entry.get("class")
+        if not _module_name or not _class_name:
+            continue
+        _module_path = _plugin_infra_dir / f"{_module_name}.py"
+        if not _module_path.exists():
+            warnings.warn(
+                f"Plugin CDK module not found: {_module_path}", stacklevel=1
+            )
+            continue
+        _spec = importlib.util.spec_from_file_location(_module_name, _module_path)
+        if _spec and _spec.loader:
+            _mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            _stack_cls = getattr(_mod, _class_name, None)
+            if _stack_cls:
+                _plugin_name = _plugin_conf.get("name", _manifest.parent.name)
+                _stack_cls(
+                    app,
+                    f"{_class_name}-{environment_name}",
+                    environment_name=environment_name,
+                    env=env,
+                    description=f"{_plugin_name} plugin stack ({environment_name})",
+                )
 
 app.synth()

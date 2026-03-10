@@ -35,6 +35,7 @@ class TestDefaultsYaml:
             "geocoding",
             "content_store",
             "reconciler",
+            "tightbeam",
         }
         assert set(yaml_data.keys()) == expected
 
@@ -81,6 +82,10 @@ class TestDefaultsYaml:
         """Reconciler section has correct keys."""
         assert yaml_data["reconciler"]["location_tolerance"] == 0.0001
 
+    def test_tightbeam_section(self, yaml_data):
+        """Tightbeam section has correct keys."""
+        assert yaml_data["tightbeam"]["enabled"] is True
+
     def test_no_secrets_in_yaml(self, yaml_data):
         """YAML keys must NOT contain secret-like names."""
         secret_patterns = ["api_key", "password", "secret_arn", "credential"]
@@ -124,6 +129,7 @@ class TestLoadDefaults:
             "GEOCODING_TIMEOUT",
             "CONTENT_STORE_ENABLED",
             "RECONCILER_LOCATION_TOLERANCE",
+            "TIGHTBEAM_ENABLED",
         }
         assert set(defaults.keys()) == expected_keys
 
@@ -148,6 +154,7 @@ class TestLoadDefaults:
         assert isinstance(defaults["GEOCODING_TIMEOUT"], int)
         assert isinstance(defaults["CONTENT_STORE_ENABLED"], bool)
         assert isinstance(defaults["RECONCILER_LOCATION_TOLERANCE"], float)
+        assert isinstance(defaults["TIGHTBEAM_ENABLED"], bool)
 
     def test_hardcoded_fallback_matches_yaml(self):
         """Hardcoded fallback must match YAML exactly."""

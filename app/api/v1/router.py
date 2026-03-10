@@ -28,6 +28,7 @@ from app.api.v1.taxonomy_terms import router as taxonomy_terms_router
 from app.api.v1.map import router as map_router
 from app.api.v1.consumer.router import router as consumer_router
 from app.api.v1.partners.ptf.router import router as ptf_router
+from app.api.v1.tightbeam.router import router as tightbeam_router
 
 
 # Define locations/export-simple BEFORE including locations router to avoid conflicts
@@ -332,6 +333,7 @@ router.include_router(taxonomy_terms_router)
 router.include_router(map_router)
 router.include_router(consumer_router)
 router.include_router(ptf_router)
+router.include_router(tightbeam_router)
 
 
 @router.get("/")
