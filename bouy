@@ -2209,6 +2209,10 @@ print(json.dumps(l))
             if [ -f "$(pwd)/.env" ]; then
                 mount_args+=(-v "$(pwd)/.env:/app/.env:ro")
             fi
+            # Mount plugins so CDK synth can discover plugin stacks
+            if [ -d "$(pwd)/plugins" ]; then
+                mount_args+=(-v "$(pwd)/plugins:/plugins:ro")
+            fi
             docker run --rm \
                 "${mount_args[@]}" \
                 -e CDK_DEPLOY_ENVIRONMENT="$DEPLOY_ENV" \
@@ -2338,6 +2342,98 @@ print(json.dumps(l))
             output success "All images pushed to ECR"
         }
 
+        # Helper: build and push plugin Docker images
+        # Scans plugins/*/plugin.yml for docker.build.ecr_name entries
+        build_and_push_plugin_images() {
+            IMAGE_TAG="latest"
+            local found_plugin=false
+
+            for manifest in "$(pwd)"/plugins/*/plugin.yml; do
+                [ -f "$manifest" ] || continue
+                plugin_dir=$(dirname "$manifest")
+                plugin_name=$(basename "$plugin_dir")
+
+                # Extract ecr_name from plugin.yml (docker.build.ecr_name)
+                ecr_name=$(python3 -c "
+import yaml, sys
+try:
+    conf = yaml.safe_load(open('$manifest'))
+    print(conf.get('docker', {}).get('build', {}).get('ecr_name', ''))
+except Exception:
+    pass
+" 2>/dev/null)
+                [ -n "$ecr_name" ] || continue
+                found_plugin=true
+
+                # Extract build context and dockerfile
+                build_context=$(python3 -c "
+import yaml
+conf = yaml.safe_load(open('$manifest'))
+b = conf.get('docker', {}).get('build', {})
+print(b.get('context', '.'))
+" 2>/dev/null)
+                dockerfile=$(python3 -c "
+import yaml
+conf = yaml.safe_load(open('$manifest'))
+b = conf.get('docker', {}).get('build', {})
+print(b.get('dockerfile', 'Dockerfile'))
+" 2>/dev/null)
+
+                ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ecr_name}-${DEPLOY_ENV}"
+                LOCAL_IMAGE="${ecr_name}:${IMAGE_TAG}"
+
+                output info "Building plugin image: ${plugin_name}..."
+                if ! docker build -t "$LOCAL_IMAGE" \
+                    --platform linux/amd64 \
+                    -f "${plugin_dir}/${dockerfile}" \
+                    "${plugin_dir}/${build_context}"; then
+                    output error "Failed to build plugin image: ${plugin_name}"
+                    exit 1
+                fi
+                output success "Built plugin image: ${plugin_name}"
+
+                output info "Pushing plugin image: ${plugin_name}..."
+                docker tag "$LOCAL_IMAGE" "${ECR_REPO}:${IMAGE_TAG}"
+                if ! docker push "${ECR_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                    output error "Failed to push plugin image: ${plugin_name}"
+                    exit 1
+                fi
+                output success "Pushed plugin image: ${plugin_name}"
+            done
+
+            if [ "$found_plugin" = true ]; then
+                output success "All plugin images pushed to ECR"
+            fi
+        }
+
+        # Helper: force redeploy plugin ECS services
+        redeploy_plugin_services() {
+            CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
+
+            for manifest in "$(pwd)"/plugins/*/plugin.yml; do
+                [ -f "$manifest" ] || continue
+                plugin_dir=$(dirname "$manifest")
+                plugin_name=$(basename "$plugin_dir")
+
+                ecr_name=$(python3 -c "
+import yaml
+try:
+    conf = yaml.safe_load(open('$manifest'))
+    print(conf.get('docker', {}).get('build', {}).get('ecr_name', ''))
+except Exception:
+    pass
+" 2>/dev/null)
+                [ -n "$ecr_name" ] || continue
+
+                SERVICE_NAME="${ecr_name}-${DEPLOY_ENV}"
+                if aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE_NAME" --force-new-deployment --no-cli-pager > /dev/null 2>&1; then
+                    output success "Redeployed plugin: ${plugin_name}"
+                else
+                    output warning "Could not redeploy plugin: ${plugin_name} (service may not exist yet)"
+                fi
+            done
+        }
+
         case "$DEPLOY_MODE" in
             diff)
                 output info "Running CDK diff..."
@@ -2399,6 +2495,10 @@ print(json.dumps(l))
                     output warning "Could not update Lambda API (may not exist yet)"
                 fi
 
+                # Build, push, and redeploy plugin images
+                build_and_push_plugin_images
+                redeploy_plugin_services
+
                 output success "Image build, push, and redeploy complete."
                 ;;
             infra)
@@ -2432,6 +2532,10 @@ print(json.dumps(l))
                 fi
                 output success "CDK deployment complete"
 
+                # Phase 3.5: Build and push plugin images (plugin ECR repos now exist)
+                output info "Phase 3.5: Building and pushing plugin images..."
+                build_and_push_plugin_images
+
                 # Phase 4: Force ECS services and Lambda to pull new images
                 output info "Phase 4: Forcing service redeployment..."
                 ECS_SERVICES="worker validator reconciler recorder"
@@ -2453,6 +2557,9 @@ print(json.dumps(l))
                 else
                     output warning "Could not update Lambda API (may not exist yet)"
                 fi
+
+                # Redeploy plugin services
+                redeploy_plugin_services
                 ;;
         esac
 

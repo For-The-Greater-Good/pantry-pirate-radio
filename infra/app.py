@@ -485,6 +485,18 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         continue
     _infra_stacks = _plugin_conf.get("cdk_stacks", [])
     _plugin_infra_dir = _manifest.parent / "infra"
+
+    # Shared context for plugin CDK stacks — generic platform resources
+    _plugin_context = {
+        "vpc": compute_stack.vpc,
+        "cluster": compute_stack.cluster,
+        "core_secrets": {
+            "tightbeam_api_keys": secrets_stack.tightbeam_api_keys_secret,
+            "database_credentials": database_stack.database_credentials_secret,
+        },
+        "api_url": lambda_api_stack.api_url,
+    }
+
     for _stack_entry in _infra_stacks:
         _module_name = _stack_entry.get("module")
         _class_name = _stack_entry.get("class")
@@ -503,12 +515,15 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
             _stack_cls = getattr(_mod, _class_name, None)
             if _stack_cls:
                 _plugin_name = _plugin_conf.get("name", _manifest.parent.name)
-                _stack_cls(
+                _instance = _stack_cls(
                     app,
                     f"{_class_name}-{environment_name}",
                     environment_name=environment_name,
                     env=env,
+                    plugin_context=_plugin_context,
                     description=f"{_plugin_name} plugin stack ({environment_name})",
                 )
+                _instance.add_dependency(compute_stack)
+                _instance.add_dependency(secrets_stack)
 
 app.synth()
