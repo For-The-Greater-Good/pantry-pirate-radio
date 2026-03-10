@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.3.0 — 2026-03-09
+- **Amended Principle XIV**: Added plugin monitoring exception clause
+
 ### v1.2.0 — 2026-03-07
 - **Added Principle XIV**: AWS Observability (Alarms & Dashboards)
 - **Added Principle XV**: Dual Environment Compatibility (Docker & AWS)
@@ -272,9 +275,11 @@ All new AWS infrastructure MUST include CloudWatch alarms and dashboard widgets 
 - Dashboard widgets MUST include at minimum: throughput/invocation metrics, error/failure metrics, and latency or utilization metrics where applicable
 - New stacks MUST expose metric-relevant constructs (functions, queues, tables) so `MonitoringStack` can reference them
 
+**Plugin Exception**: Plugin CDK stacks (discovered via `plugins/*/plugin.yml`) MAY contain their own CloudWatch alarms and dashboard widgets within the plugin stack, provided that all alarms route to the centralized SNS topic (`pantry-pirate-radio-alerts-{environment}`). Plugin stacks MUST reference the SNS topic by ARN convention, not cross-stack reference.
+
 **PR Checklist for AWS Changes**:
 - [ ] CloudWatch alarms added for all new resources
-- [ ] Dashboard widgets added to `MonitoringStack`
+- [ ] Dashboard widgets added to `MonitoringStack` (or plugin stack per Plugin Exception)
 - [ ] Alarms route to the centralized SNS topic
 - [ ] `infra/tests/` updated to assert alarm and dashboard widget existence
 
@@ -378,4 +383,4 @@ Changes to principles MUST propagate to:
 - `.pre-commit-config.yaml` (quality gate enforcement)
 - `.github/workflows/ci.yml` (CI pipeline alignment)
 
-**Version**: 1.2.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-07
+**Version**: 1.3.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-09
