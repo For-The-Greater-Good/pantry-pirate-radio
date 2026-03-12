@@ -43,7 +43,7 @@ class TestDefaultsYaml:
         """LLM section has correct keys and types."""
         llm = yaml_data["llm"]
         assert llm["temperature"] == 0.7
-        assert llm["max_tokens"] == 64768
+        assert llm["max_tokens"] == 16384
         assert llm["timeout"] == 30
         assert llm["retries"] == 3
 
@@ -176,11 +176,11 @@ class TestLoadDefaults:
             defaults = load_defaults()
         assert defaults == _hardcoded_defaults()
 
-    def test_max_tokens_is_64768(self):
-        """LLM_MAX_TOKENS canonical value must be 64768."""
+    def test_max_tokens_is_16384(self):
+        """LLM_MAX_TOKENS canonical value must be 16384."""
         from config import load_defaults
 
-        assert load_defaults()["LLM_MAX_TOKENS"] == 64768
+        assert load_defaults()["LLM_MAX_TOKENS"] == 16384
 
 
 class TestMalformedYamlHandling:
@@ -193,7 +193,7 @@ class TestMalformedYamlHandling:
         raw = {
             "llm": {
                 "temperature": 0.7,
-                "max_tokens": 64768,
+                "max_tokens": 16384,
                 "timeout": 30,
                 "retries": 3,
             },
@@ -274,7 +274,7 @@ class TestSettingsUsesSharedDefaults:
     """Tests that app/core/config.py Settings uses shared defaults."""
 
     def test_settings_llm_max_tokens_default(self):
-        """Settings.LLM_MAX_TOKENS should default to shared value (64768)."""
+        """Settings.LLM_MAX_TOKENS should default to shared value (16384)."""
         # Clear any env override to test the default
         env = os.environ.copy()
         env.pop("LLM_MAX_TOKENS", None)
@@ -283,7 +283,7 @@ class TestSettingsUsesSharedDefaults:
             from app.core.config import Settings
 
             s = Settings()
-            assert s.LLM_MAX_TOKENS == 64768
+            assert s.LLM_MAX_TOKENS == 16384
 
     def test_env_var_overrides_shared_default(self):
         """Environment variables must override shared defaults."""

@@ -297,7 +297,8 @@ class LocationCreator(BaseReconciler):
                 description,
                 latitude,
                 longitude,
-                location_type
+                location_type,
+                source_type
             ) VALUES (
                 :id,
                 :location_id,
@@ -306,9 +307,12 @@ class LocationCreator(BaseReconciler):
                 :description,
                 :latitude,
                 :longitude,
-                'physical'
+                'physical',
+                'scraper'
             )
-            ON CONFLICT (location_id, scraper_id) DO UPDATE SET
+            ON CONFLICT (location_id, scraper_id)
+                WHERE source_type = 'scraper' OR source_type IS NULL
+            DO UPDATE SET
                 name = :name,
                 description = :description,
                 latitude = :latitude,

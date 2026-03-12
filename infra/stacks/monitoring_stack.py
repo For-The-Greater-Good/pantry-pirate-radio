@@ -576,27 +576,39 @@ class MonitoringStack(Stack):
     # --- Section 8: Geocoding (Amazon Location Service) ---
 
     def _add_geocoding_section(self, db: cloudwatch.Dashboard) -> None:
-        dims = {"IndexName": self.place_index_name}
         ns = "AWS/Location"
         p5 = Duration.minutes(5)
+        fwd = {
+            "ResourceName": self.place_index_name,
+            "OperationName": "SearchPlaceIndexForText",
+        }
+        rev = {
+            "ResourceName": self.place_index_name,
+            "OperationName": "SearchPlaceIndexForPosition",
+        }
 
         db.add_widgets(self._section("Geocoding (Amazon Location Service)"))
         db.add_widgets(
             self._graph(
-                "Geocoding Requests", [self._m(ns, "CallCount", dims, "Sum", p5)]
+                "Geocoding Requests",
+                [
+                    self._m(ns, "CallCount", fwd, "Sum", p5),
+                    self._m(ns, "CallCount", rev, "Sum", p5),
+                ],
             ),
             self._graph(
                 "Geocoding Latency",
                 [
-                    self._m(ns, "CallLatency", dims, "Average", p5),
-                    self._m(ns, "CallLatency", dims, "p99", p5),
+                    self._m(ns, "CallLatency", fwd, "Average", p5),
+                    self._m(ns, "CallLatency", fwd, "p99", p5),
+                    self._m(ns, "CallLatency", rev, "Average", p5),
                 ],
             ),
             self._graph(
                 "Geocoding Errors",
                 [
-                    self._m(ns, "ClientErrorCount", dims, "Sum", p5),
-                    self._m(ns, "ServerErrorCount", dims, "Sum", p5),
+                    self._m(ns, "ErrorCount", fwd, "Sum", p5),
+                    self._m(ns, "ErrorCount", rev, "Sum", p5),
                 ],
             ),
         )
@@ -813,7 +825,12 @@ class MonitoringStack(Stack):
             "LocationServiceErrorAlarm",
             f"{ppr}-location-service-errors-{env}",
             self._m(
-                "AWS/Location", "ClientErrorCount", {"IndexName": self.place_index_name}
+                "AWS/Location",
+                "ErrorCount",
+                {
+                    "ResourceName": self.place_index_name,
+                    "OperationName": "SearchPlaceIndexForText",
+                },
             ),
             10,
             2,

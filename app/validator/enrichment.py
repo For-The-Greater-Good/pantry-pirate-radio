@@ -79,7 +79,16 @@ class GeocodingEnricher:
         self._metrics: Dict[str, int] = defaultdict(int)
 
         # Track enrichment details for reporting
-        self._enrichment_details: Dict[str, Any] = {}
+        self._enrichment_details: Dict[str, Any] = {
+            "locations_enriched": 0,
+            "coordinates_added": 0,
+            "addresses_added": 0,
+            "postal_codes_added": 0,
+            "sources": {},
+            "geocoding_calls": 0,
+            "cache_hits": 0,
+            "provider_failures": {},
+        }
 
     def enrich_location(
         self, location_data: Dict[str, Any], scraper_id: Optional[str] = None
@@ -191,6 +200,52 @@ class GeocodingEnricher:
                             )
                             enriched["latitude"], enriched["longitude"] = coords
                             enriched["geocoding_source"] = source  # Track the source
+                            self._enrichment_details["coordinates_added"] += 1
+
+                            # Backfill missing address fields via reverse geocoding
+                            if enriched.get("addresses"):
+                                addr = enriched["addresses"][0]
+                                if not addr.get("city") or not addr.get(
+                                    "state_province"
+                                ):
+                                    logger.info(
+                                        f"🔍 ENRICHER: Reverse geocoding to fill missing address fields for '{location_name}'"
+                                    )
+                                    reverse_result = (
+                                        self._reverse_geocode_missing_address(enriched)
+                                    )
+                                    if reverse_result:
+                                        reverse_addr, reverse_source = reverse_result
+                                        if reverse_addr:
+                                            if not addr.get(
+                                                "city"
+                                            ) and reverse_addr.get("city"):
+                                                addr["city"] = reverse_addr["city"]
+                                            if not addr.get(
+                                                "state_province"
+                                            ) and reverse_addr.get("state"):
+                                                state_value = reverse_addr["state"]
+                                                normalized = normalize_state_to_code(
+                                                    state_value
+                                                )
+                                                if normalized:
+                                                    addr["state_province"] = normalized
+                                                elif (
+                                                    len(state_value) == 2
+                                                    and state_value.isalpha()
+                                                ):
+                                                    addr["state_province"] = (
+                                                        state_value.upper()
+                                                    )
+                                            if not addr.get(
+                                                "postal_code"
+                                            ) and reverse_addr.get("postal_code"):
+                                                addr["postal_code"] = reverse_addr[
+                                                    "postal_code"
+                                                ]
+                                            self._enrichment_details[
+                                                "addresses_added"
+                                            ] += 1
                         else:
                             logger.warning(
                                 f"❌ ENRICHER: Geocoding returned invalid coordinates for '{location_name}': {coords}"
@@ -413,6 +468,7 @@ class GeocodingEnricher:
             cached_coords = self._get_cached_coordinates(provider, address_str)
             if cached_coords:
                 self._increment_cache_metric("hits")
+                self._enrichment_details["cache_hits"] += 1
                 # Validate cached coordinates are not None
                 if cached_coords[0] is not None and cached_coords[1] is not None:
                     return cached_coords, provider
@@ -433,6 +489,7 @@ class GeocodingEnricher:
             # Only retry on specific network/timeout errors, not general failures
             logger.info(f"Trying {provider} for: {address_str[:50]}...")
             coords = self._geocode_with_retry(provider, address_str, max_retries=2)
+            self._enrichment_details["geocoding_calls"] += 1
 
             if coords and coords[0] is not None and coords[1] is not None:
                 # Cache the result in Redis

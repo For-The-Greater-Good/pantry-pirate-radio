@@ -20,7 +20,7 @@ except Exception as _exc:
 if _SHARED is None:
     _SHARED = {
         "LLM_TEMPERATURE": 0.7,
-        "LLM_MAX_TOKENS": 64768,
+        "LLM_MAX_TOKENS": 16384,
         "LLM_TIMEOUT": 30,
         "LLM_RETRIES": 3,
         "VALIDATOR_ENABLED": True,
@@ -264,6 +264,24 @@ class Settings(BaseSettings):
 
             encoded_password = urllib.parse.quote_plus(db_password)
             self.DATABASE_URL = f"postgresql://{db_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
+        return self
+
+    @model_validator(mode="after")
+    def resolve_tightbeam_keys_from_secret(self) -> "Settings":
+        """Resolve TIGHTBEAM_API_KEYS from Secrets Manager on Lambda."""
+        import os
+
+        secret_arn = os.environ.get("TIGHTBEAM_API_KEYS_SECRET_ARN")
+        if secret_arn and not self.TIGHTBEAM_API_KEYS:
+            try:
+                import boto3
+                import botocore.exceptions
+
+                client = boto3.client("secretsmanager")
+                response = client.get_secret_value(SecretId=secret_arn)
+                self.TIGHTBEAM_API_KEYS = response["SecretString"]
+            except Exception:
+                pass  # Fall through to empty keys — auth will reject requests
         return self
 
     @model_validator(mode="after")

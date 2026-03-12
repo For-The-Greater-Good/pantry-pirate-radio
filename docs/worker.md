@@ -340,7 +340,7 @@ async def prepare_hsds_alignment_job(
     # Configure structured output
     config = GenerateConfig(
         temperature=0.7,
-        max_tokens=64768,
+        max_tokens=16384,
         format={
             "type": "json_schema",
             "schema": hsds_schema["json_schema"],
@@ -393,7 +393,7 @@ The structured output uses JSON Schema Draft 7 format with specific constraints 
             }
         },
         "strict": true,
-        "max_tokens": 64768,
+        "max_tokens": 16384,
         "temperature": 0.4
     }
 }

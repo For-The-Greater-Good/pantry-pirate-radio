@@ -557,6 +557,9 @@ class ServiceCreator(BaseReconciler):
             commit=not transaction,
         )
 
+        if not transaction:
+            self.db.commit()
+
         return phone_id
 
     def create_language(

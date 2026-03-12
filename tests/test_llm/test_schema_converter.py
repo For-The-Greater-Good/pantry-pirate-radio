@@ -144,7 +144,7 @@ def test_convert_to_llm_schema(test_schema_path: Path) -> None:
     json_schema = cast(Dict[str, Any], llm_schema["json_schema"])
     assert json_schema["name"] == "hsds_organization"
     assert json_schema["strict"] is True
-    assert json_schema["max_tokens"] == 64768
+    assert json_schema["max_tokens"] == 16384
     assert json_schema["temperature"] == 0.4
 
     # Check schema content

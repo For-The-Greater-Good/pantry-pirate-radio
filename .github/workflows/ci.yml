@@ -21,7 +21,7 @@ env:
   LLM_PROVIDER: openai
   LLM_MODEL_NAME: google/gemini-2.0-flash-001
   LLM_TEMPERATURE: 0.7
-  LLM_MAX_TOKENS: 64768
+  LLM_MAX_TOKENS: 16384
   LLM_RESPONSE_FORMAT: json_object
   LLM_TIMEOUT: 30
   CI: true  # Skip heavy database initialization

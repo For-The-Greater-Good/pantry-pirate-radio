@@ -2,7 +2,7 @@
 
 Triggered by EventBridge when a Bedrock batch job completes (Completed,
 PartiallyCompleted, or Failed). Reads output JSONL from S3, parses each
-result using parse_converse_response(), and routes downstream:
+result using parse_messages_api_response(), and routes downstream:
 
   - Successful records -> validator queue (if enabled) or reconciler queue
   - Error records -> LLM queue for on-demand retry
@@ -21,6 +21,7 @@ Environment variables:
 
 import json
 import os
+import tempfile
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -28,7 +29,7 @@ from uuid import uuid4
 import structlog
 
 from app.core.config import settings
-from app.llm.providers.bedrock import parse_converse_response
+from app.llm.providers.bedrock import parse_messages_api_response
 from app.llm.queue.types import JobResult, JobStatus
 from app.pipeline.sqs_sender import send_to_sqs
 
@@ -46,20 +47,16 @@ def _get_clients() -> tuple:
     return s3, dynamodb
 
 
-def _get_batch_metadata(
-    dynamodb: Any, s3: Any, jobs_table: str, batch_bucket: str, job_arn: str
-) -> dict[str, Any]:
-    """Retrieve batch job metadata from DynamoDB + original jobs from S3.
+def _get_batch_metadata(dynamodb: Any, jobs_table: str, job_arn: str) -> dict[str, Any]:
+    """Retrieve batch job metadata from DynamoDB.
 
     Args:
         dynamodb: boto3 DynamoDB client
-        s3: boto3 S3 client
         jobs_table: DynamoDB table name
-        batch_bucket: S3 bucket for batch I/O
         job_arn: Bedrock batch job ARN
 
     Returns:
-        Dict with output_key_prefix and original_jobs
+        Dict with output_key_prefix and original_jobs_key
     """
     response = dynamodb.get_item(
         TableName=jobs_table,
@@ -73,22 +70,94 @@ def _get_batch_metadata(
         raise ValueError("output_key_prefix must not be empty")
     original_jobs_key = item.get("original_jobs_key", {}).get("S", "")
 
-    # Read original jobs from S3
-    original_jobs = {}
-    if original_jobs_key:
-        obj = s3.get_object(Bucket=batch_bucket, Key=original_jobs_key)
-        original_jobs = json.loads(obj["Body"].read().decode("utf-8"))
-
     return {
         "output_key_prefix": output_key_prefix,
-        "original_jobs": original_jobs,
+        "original_jobs_key": original_jobs_key,
     }
 
 
-def _read_output_jsonl(
+def _build_original_jobs_index(
+    s3: Any, bucket: str, key: str
+) -> tuple[dict[str, tuple[int, int]], str]:
+    """Download original_jobs.jsonl and build byte-offset index.
+
+    Each line is a JSON object with "k" (record ID) and "v" (original job).
+    The index maps record_id -> (byte_offset, byte_length) for O(1) lookups.
+
+    Memory: O(N * 40 bytes) for index ~ 4 MB for 100k records.
+
+    Args:
+        s3: boto3 S3 client
+        bucket: S3 bucket name
+        key: S3 key for original_jobs.jsonl
+
+    Returns:
+        (index, temp_file_path) where index maps record_id to (offset, length)
+    """
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl")
+    tmp.close()
+    s3.download_file(bucket, key, tmp.name)
+
+    index: dict[str, tuple[int, int]] = {}
+    with open(tmp.name, "rb") as f:
+        while True:
+            offset = f.tell()
+            line = f.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            index[record["k"]] = (offset, len(line) + 1)
+
+    return index, tmp.name
+
+
+def _lookup_original_job(
+    filepath: str, index: dict[str, tuple[int, int]], record_id: str
+) -> dict[str, Any] | None:
+    """Look up a single original job by record_id using byte-offset index.
+
+    Args:
+        filepath: Path to the original_jobs.jsonl temp file
+        index: Byte-offset index from _build_original_jobs_index
+        record_id: Record ID to look up
+
+    Returns:
+        Original job dict, or None if not found
+    """
+    entry = index.get(record_id)
+    if not entry:
+        return None
+    offset, length = entry
+    with open(filepath, "rb") as f:
+        f.seek(offset)
+        line = f.read(length)
+    return json.loads(line)["v"]
+
+
+def _load_original_jobs_legacy(s3: Any, bucket: str, key: str) -> dict[str, Any]:
+    """Load original_jobs.json (legacy JSON dict format) into memory.
+
+    Backward compatibility for batch jobs created before the JSONL change.
+
+    Args:
+        s3: boto3 S3 client
+        bucket: S3 bucket name
+        key: S3 key for original_jobs.json
+
+    Returns:
+        Dict mapping record_id to original job
+    """
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    return json.loads(obj["Body"].read().decode("utf-8"))
+
+
+def _download_output_jsonl(
     s3: Any, bucket: str, output_key_prefix: str
-) -> tuple[list[dict[str, Any]], int]:
-    """Read all output JSONL files from S3.
+) -> tuple[str, int, int]:
+    """Download all output JSONL files to a single temp file.
 
     Args:
         s3: boto3 S3 client
@@ -96,9 +165,10 @@ def _read_output_jsonl(
         output_key_prefix: S3 key prefix for output files
 
     Returns:
-        Tuple of (parsed output records, unparseable record count)
+        (temp_file_path, record_count, unparseable_count)
     """
-    records: list[dict[str, Any]] = []
+    tmp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".jsonl")
+    record_count = 0
     unparseable_count = 0
 
     continuation_token = None
@@ -115,32 +185,38 @@ def _read_output_jsonl(
                 continue
 
             response = s3.get_object(Bucket=bucket, Key=key)
-            body = response["Body"].read().decode("utf-8")
+            body = response["Body"].read()
 
-            for line in body.strip().split("\n"):
-                if line.strip():
-                    try:
-                        records.append(json.loads(line))
-                    except json.JSONDecodeError as e:
-                        unparseable_count += 1
-                        logger.error(
-                            "failed_to_parse_output_record",
-                            key=key,
-                            error=str(e),
-                        )
+            for raw_line in body.split(b"\n"):
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    json.loads(line)  # Validate JSON
+                    tmp.write(line + b"\n")
+                    record_count += 1
+                except json.JSONDecodeError as e:
+                    unparseable_count += 1
+                    logger.error(
+                        "failed_to_parse_output_record",
+                        key=key,
+                        error=str(e),
+                    )
 
         if not list_response.get("IsTruncated"):
             break
         continuation_token = list_response.get("NextContinuationToken")
 
+    tmp.close()
+
     if unparseable_count > 0:
         logger.warning(
             "batch_output_unparseable_records_summary",
             unparseable_count=unparseable_count,
-            total_parsed=len(records),
+            total_parsed=record_count,
         )
 
-    return records, unparseable_count
+    return tmp.name, record_count, unparseable_count
 
 
 def _route_success(
@@ -169,8 +245,8 @@ def _route_success(
     scraper_id = job_data.get("metadata", {}).get("scraper_id", "default")
     format_schema = job_data.get("format") or None
 
-    # Parse the Converse response
-    llm_response = parse_converse_response(
+    # Parse the Messages API response (InvokeModel format, not Converse)
+    llm_response = parse_messages_api_response(
         response=output,
         model_id=model_id,
         format_schema=format_schema,
@@ -343,218 +419,282 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 error=str(e),
             )
 
-    # Get batch metadata from DynamoDB
-    metadata = _get_batch_metadata(dynamodb, s3, jobs_table, batch_bucket, job_arn)
-    original_jobs = metadata["original_jobs"]
+    # Get batch metadata from DynamoDB (no S3 reads here — streaming later)
+    metadata = _get_batch_metadata(dynamodb, jobs_table, job_arn)
+    original_jobs_key = metadata["original_jobs_key"]
     output_key_prefix = metadata["output_key_prefix"]
 
-    # Handle full failure: re-enqueue all original jobs
-    if status == "Failed":
-        requeued = 0
-        failed_requeue_count = 0
-        for _job_id, original_job in original_jobs.items():
-            try:
-                _requeue_to_llm(original_job, llm_queue_url)
-                requeued += 1
-            except Exception as e:
-                failed_requeue_count += 1
+    # Temp file paths to clean up at the end
+    temp_files: list[str] = []
+
+    try:
+        # Determine streaming vs legacy mode based on S3 key extension
+        use_streaming = original_jobs_key.endswith(".jsonl")
+
+        if use_streaming:
+            # Streaming mode: build byte-offset index (only keys + offsets in memory)
+            orig_index, orig_jobs_path = _build_original_jobs_index(
+                s3, batch_bucket, original_jobs_key
+            )
+            temp_files.append(orig_jobs_path)
+            original_jobs_keys_set = set(orig_index.keys())
+        else:
+            # Legacy mode: load full JSON dict into memory (old batch jobs)
+            original_jobs = _load_original_jobs_legacy(
+                s3, batch_bucket, original_jobs_key
+            )
+            original_jobs_keys_set = set(original_jobs.keys())
+
+        def _get_original_job(record_id: str) -> dict[str, Any] | None:
+            if use_streaming:
+                return _lookup_original_job(orig_jobs_path, orig_index, record_id)
+            return original_jobs.get(record_id)
+
+        # Handle full failure: re-enqueue all original jobs
+        if status == "Failed":
+            requeued = 0
+            failed_requeue_count = 0
+
+            if use_streaming:
+                # Stream original_jobs.jsonl line-by-line, requeue each
+                with open(orig_jobs_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        record = json.loads(line)
+                        _job_id = record["k"]
+                        try:
+                            _requeue_to_llm(record["v"], llm_queue_url)
+                            requeued += 1
+                        except Exception as e:
+                            failed_requeue_count += 1
+                            logger.error(
+                                "batch_requeue_failed",
+                                batch_job_arn=job_arn,
+                                job_id=_job_id,
+                                error=str(e),
+                            )
+            else:
+                for _job_id, original_job in original_jobs.items():
+                    try:
+                        _requeue_to_llm(original_job, llm_queue_url)
+                        requeued += 1
+                    except Exception as e:
+                        failed_requeue_count += 1
+                        logger.error(
+                            "batch_requeue_failed",
+                            batch_job_arn=job_arn,
+                            job_id=_job_id,
+                            error=str(e),
+                        )
+
+            if failed_requeue_count > 0:
                 logger.error(
-                    "batch_requeue_failed",
+                    "batch_requeue_failures_summary",
                     batch_job_arn=job_arn,
-                    job_id=_job_id,
-                    error=str(e),
+                    failed_requeue_count=failed_requeue_count,
+                    successful_requeue_count=requeued,
                 )
+
+            logger.info(
+                "batch_failed_all_requeued",
+                batch_job_arn=job_arn,
+                requeued=requeued,
+            )
+            return {"status": "Failed", "requeued": requeued}
+
+        # Download output JSONL to temp file (streaming)
+        output_path, output_count, unparseable_count = _download_output_jsonl(
+            s3, batch_bucket, output_key_prefix
+        )
+        temp_files.append(output_path)
+
+        processed = 0
+        errors = 0
+        failed_requeue_count = 0
+        output_record_ids: set[str] = set()
+
+        # Stream output temp file line-by-line
+        with open(output_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                record_id = record.get("recordId", "")
+                output_record_ids.add(record_id)
+
+                if "error" in record:
+                    # Per-record error: re-enqueue for on-demand retry
+                    errors += 1
+                    original_job = _get_original_job(record_id)
+                    if original_job:
+                        logger.warning(
+                            "batch_record_error",
+                            batch_job_arn=job_arn,
+                            record_id=record_id,
+                            error_code=record["error"].get("errorCode"),
+                            error_message=record["error"].get("errorMessage"),
+                        )
+                        try:
+                            _requeue_to_llm(original_job, llm_queue_url)
+                        except Exception as e:
+                            failed_requeue_count += 1
+                            logger.error(
+                                "batch_requeue_failed",
+                                batch_job_arn=job_arn,
+                                record_id=record_id,
+                                error=str(e),
+                            )
+                    else:
+                        logger.error(
+                            "batch_error_record_missing_original_job",
+                            record_id=record_id,
+                        )
+                    continue
+
+                # Successful record: route downstream
+                model_output = record.get("modelOutput", {})
+                original_job = _get_original_job(record_id)
+
+                if not original_job:
+                    logger.error(
+                        "batch_record_missing_original_job",
+                        batch_job_arn=job_arn,
+                        record_id=record_id,
+                    )
+                    errors += 1
+                    continue
+
+                try:
+                    _route_success(
+                        record_id=record_id,
+                        output=model_output,
+                        original_job=original_job,
+                        model_id=model_id,
+                        validator_queue_url=validator_queue_url,
+                        reconciler_queue_url=reconciler_queue_url,
+                        recorder_queue_url=recorder_queue_url,
+                    )
+                    processed += 1
+                except Exception as e:
+                    errors += 1
+                    logger.error(
+                        "batch_record_routing_failed",
+                        batch_job_arn=job_arn,
+                        record_id=record_id,
+                        error=str(e),
+                    )
+                    if original_job:
+                        try:
+                            _requeue_to_llm(original_job, llm_queue_url)
+                        except Exception as requeue_err:
+                            failed_requeue_count += 1
+                            logger.error(
+                                "batch_requeue_failed",
+                                batch_job_arn=job_arn,
+                                record_id=record_id,
+                                error=str(requeue_err),
+                            )
 
         if failed_requeue_count > 0:
             logger.error(
                 "batch_requeue_failures_summary",
                 batch_job_arn=job_arn,
                 failed_requeue_count=failed_requeue_count,
-                successful_requeue_count=requeued,
             )
 
-        logger.info(
-            "batch_failed_all_requeued",
-            batch_job_arn=job_arn,
-            requeued=requeued,
-        )
-        return {"status": "Failed", "requeued": requeued}
-
-    # Read output JSONL from S3
-    output_records, unparseable_count = _read_output_jsonl(
-        s3, batch_bucket, output_key_prefix
-    )
-
-    processed = 0
-    errors = 0
-    failed_requeue_count = 0
-
-    for record in output_records:
-        record_id = record.get("recordId", "")
-
-        if "error" in record:
-            # Per-record error: re-enqueue for on-demand retry
-            errors += 1
-            original_job = original_jobs.get(record_id)
-            if original_job:
-                logger.warning(
-                    "batch_record_error",
-                    batch_job_arn=job_arn,
-                    record_id=record_id,
-                    error_code=record["error"].get("errorCode"),
-                    error_message=record["error"].get("errorMessage"),
-                )
-                try:
-                    _requeue_to_llm(original_job, llm_queue_url)
-                except Exception as e:
-                    failed_requeue_count += 1
-                    logger.error(
-                        "batch_requeue_failed",
-                        batch_job_arn=job_arn,
-                        record_id=record_id,
-                        error=str(e),
-                    )
-            else:
+        # For PartiallyCompleted batches, re-enqueue any original jobs that did
+        # not appear in the output (i.e., they were never processed by Bedrock).
+        requeued = 0
+        if status == "PartiallyCompleted":
+            missing_ids = original_jobs_keys_set - output_record_ids
+            partial_failed_requeue_count = 0
+            for missing_id in missing_ids:
+                original_job = _get_original_job(missing_id)
+                if original_job:
+                    try:
+                        _requeue_to_llm(original_job, llm_queue_url)
+                        requeued += 1
+                    except Exception as e:
+                        partial_failed_requeue_count += 1
+                        logger.error(
+                            "batch_requeue_failed",
+                            batch_job_arn=job_arn,
+                            record_id=missing_id,
+                            error=str(e),
+                        )
+            if partial_failed_requeue_count > 0:
                 logger.error(
-                    "batch_error_record_missing_original_job",
-                    record_id=record_id,
+                    "batch_partial_requeue_failures_summary",
+                    batch_job_arn=job_arn,
+                    failed_requeue_count=partial_failed_requeue_count,
+                    successful_requeue_count=requeued,
                 )
-            continue
+            if missing_ids:
+                logger.warning(
+                    "batch_partially_completed_requeued_missing",
+                    batch_job_arn=job_arn,
+                    missing_count=len(missing_ids),
+                    missing_record_ids=sorted(missing_ids),
+                )
 
-        # Successful record: route downstream
-        model_output = record.get("modelOutput", {})
-        original_job = original_jobs.get(record_id)
-
-        if not original_job:
-            logger.error(
-                "batch_record_missing_original_job",
-                batch_job_arn=job_arn,
-                record_id=record_id,
-            )
-            errors += 1
-            continue
-
+        # Update DynamoDB job status to reflect processing outcome
+        final_status = "completed" if errors == 0 else "failed"
+        metadata_update_failed = False
         try:
-            _route_success(
-                record_id=record_id,
-                output=model_output,
-                original_job=original_job,
-                model_id=model_id,
-                validator_queue_url=validator_queue_url,
-                reconciler_queue_url=reconciler_queue_url,
-                recorder_queue_url=recorder_queue_url,
+            dynamodb.update_item(
+                TableName=jobs_table,
+                Key={"job_id": {"S": f"batch:{job_arn}"}},
+                UpdateExpression="SET #s = :status, processed_at = :ts, processed_count = :pc, error_count = :ec",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":status": {"S": final_status},
+                    ":ts": {"S": datetime.now(UTC).isoformat()},
+                    ":pc": {"N": str(processed)},
+                    ":ec": {"N": str(errors)},
+                },
             )
-            processed += 1
-        except Exception as e:
-            errors += 1
-            logger.error(
-                "batch_record_routing_failed",
+            logger.info(
+                "batch_job_dynamodb_status_updated",
                 batch_job_arn=job_arn,
-                record_id=record_id,
+                final_status=final_status,
+                processed=processed,
+                errors=errors,
+            )
+        except Exception as e:
+            metadata_update_failed = True
+            logger.critical(
+                "batch_job_dynamodb_status_update_failed",
+                batch_job_arn=job_arn,
+                final_status=final_status,
                 error=str(e),
             )
-            if original_job:
-                try:
-                    _requeue_to_llm(original_job, llm_queue_url)
-                except Exception as requeue_err:
-                    failed_requeue_count += 1
-                    logger.error(
-                        "batch_requeue_failed",
-                        batch_job_arn=job_arn,
-                        record_id=record_id,
-                        error=str(requeue_err),
-                    )
 
-    if failed_requeue_count > 0:
-        logger.error(
-            "batch_requeue_failures_summary",
-            batch_job_arn=job_arn,
-            failed_requeue_count=failed_requeue_count,
-        )
-
-    # For PartiallyCompleted batches, re-enqueue any original jobs that did
-    # not appear in the output (i.e., they were never processed by Bedrock).
-    requeued = 0
-    if status == "PartiallyCompleted":
-        output_record_ids = {r.get("recordId", "") for r in output_records}
-        missing_ids = set(original_jobs.keys()) - output_record_ids
-        partial_failed_requeue_count = 0
-        for missing_id in missing_ids:
-            original_job = original_jobs[missing_id]
-            try:
-                _requeue_to_llm(original_job, llm_queue_url)
-                requeued += 1
-            except Exception as e:
-                partial_failed_requeue_count += 1
-                logger.error(
-                    "batch_requeue_failed",
-                    batch_job_arn=job_arn,
-                    record_id=missing_id,
-                    error=str(e),
-                )
-        if partial_failed_requeue_count > 0:
-            logger.error(
-                "batch_partial_requeue_failures_summary",
-                batch_job_arn=job_arn,
-                failed_requeue_count=partial_failed_requeue_count,
-                successful_requeue_count=requeued,
-            )
-        if missing_ids:
-            logger.warning(
-                "batch_partially_completed_requeued_missing",
-                batch_job_arn=job_arn,
-                missing_count=len(missing_ids),
-                missing_record_ids=sorted(missing_ids),
-            )
-
-    # Update DynamoDB job status to reflect processing outcome
-    final_status = "completed" if errors == 0 else "failed"
-    metadata_update_failed = False
-    try:
-        dynamodb.update_item(
-            TableName=jobs_table,
-            Key={"job_id": {"S": f"batch:{job_arn}"}},
-            UpdateExpression="SET #s = :status, processed_at = :ts, processed_count = :pc, error_count = :ec",
-            ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={
-                ":status": {"S": final_status},
-                ":ts": {"S": datetime.now(UTC).isoformat()},
-                ":pc": {"N": str(processed)},
-                ":ec": {"N": str(errors)},
-            },
-        )
         logger.info(
-            "batch_job_dynamodb_status_updated",
+            "batch_result_processing_complete",
             batch_job_arn=job_arn,
-            final_status=final_status,
+            status=status,
             processed=processed,
             errors=errors,
-        )
-    except Exception as e:
-        metadata_update_failed = True
-        logger.critical(
-            "batch_job_dynamodb_status_update_failed",
-            batch_job_arn=job_arn,
-            final_status=final_status,
-            error=str(e),
+            requeued=requeued,
         )
 
-    logger.info(
-        "batch_result_processing_complete",
-        batch_job_arn=job_arn,
-        status=status,
-        processed=processed,
-        errors=errors,
-        requeued=requeued,
-    )
+        result: dict[str, Any] = {
+            "status": status,
+            "processed": processed,
+            "errors": errors,
+            "requeued": requeued,
+            "unparseable_count": unparseable_count,
+        }
+        if metadata_update_failed:
+            result["metadata_update_failed"] = True
+        return result
 
-    result: dict[str, Any] = {
-        "status": status,
-        "processed": processed,
-        "errors": errors,
-        "requeued": requeued,
-        "unparseable_count": unparseable_count,
-    }
-    if metadata_update_failed:
-        result["metadata_update_failed"] = True
-    return result
+    finally:
+        for path in temp_files:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass

@@ -9,12 +9,40 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 
+from app.content_store.retry import with_aws_retry
+
 logger = structlog.get_logger()
 
 # Prometheus metrics
 RECORDER_JOBS = Counter(
     "recorder_jobs_total", "Total number of jobs recorded", ["scraper_id", "status"]
 )
+
+
+@with_aws_retry
+def _write_to_s3(bucket: str, key: str, data: str) -> str:
+    """Write JSON data to S3.
+
+    Args:
+        bucket: S3 bucket name
+        key: S3 object key
+        data: JSON string to write
+
+    Returns:
+        S3 URI of the written object
+    """
+    import boto3
+
+    s3 = boto3.client("s3")
+    s3.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=data.encode("utf-8"),
+        ContentType="application/json",
+    )
+    uri = f"s3://{bucket}/{key}"
+    logger.info("recorder_s3_write", bucket=bucket, key=key, size=len(data))
+    return uri
 
 
 def record_result(data: dict[str, Any]) -> dict[str, Any]:
@@ -79,13 +107,35 @@ def record_result(data: dict[str, Any]) -> dict[str, Any]:
             # This is a processed result (from LLM or other processing)
             output_path = Path(output_dir) / "daily" / date_str / "processed"
 
-        # Create directory if it doesn't exist
+        # Build the relative path for this result
+        relative_path_parts = output_path.relative_to(output_dir)
+        result_filename = f"{data['job_id']}.json"
+        json_data = json.dumps(data, indent=2, default=str)
+
+        # Check for S3 persistence
+        s3_bucket = os.getenv("RECORDER_S3_BUCKET")
+        if s3_bucket:
+            s3_key = f"recorder/{relative_path_parts}/{result_filename}"
+            s3_uri = _write_to_s3(s3_bucket, s3_key, json_data)
+
+            logger.info(
+                "Job result recorded to S3",
+                job_id=data["job_id"],
+                scraper_id=scraper_id,
+                date=date_str,
+                s3_uri=s3_uri,
+            )
+
+            RECORDER_JOBS.labels(scraper_id=scraper_id, status="success").inc()
+
+            return {"status": "completed", "error": None, "output_file": s3_uri}
+
+        # Local filesystem fallback
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Save result to file
-        output_file = output_path / f"{data['job_id']}.json"
+        output_file = output_path / result_filename
         with open(output_file, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+            f.write(json_data)
 
         # Create/update latest symlink to point to the date directory
         latest_link = Path(output_dir) / "latest"

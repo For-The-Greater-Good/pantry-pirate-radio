@@ -222,7 +222,10 @@ class ScraperUtils:
                 return content_entry.job_id
 
         # Prepare input with system prompt
-        full_prompt = f"{self.system_prompt}\n\nInput Data:\n{content}"
+        full_prompt: list[dict[str, str]] = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": f"Input Data:\n{content}"},
+        ]
 
         # Add content hash to metadata if using content store
         if content_store and content_entry:

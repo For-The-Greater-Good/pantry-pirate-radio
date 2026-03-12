@@ -209,7 +209,7 @@ class TestMonitoringStackAlarms:
             "AWS::CloudWatch::Alarm",
             {
                 "AlarmName": "pantry-pirate-radio-location-service-errors-dev",
-                "MetricName": "ClientErrorCount",
+                "MetricName": "ErrorCount",
                 "Namespace": "AWS/Location",
             },
         )

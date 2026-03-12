@@ -49,7 +49,7 @@ class LLMConfig(BaseModelConfig):
             raise ValueError("Input should be greater than or equal to 0")
 
         super().__init__(
-            context_length=64768,  # Large enough for most models
+            context_length=64000,  # Large enough for most models
             max_tokens=max_tokens,
             default_temp=temperature,
             supports_json=True,

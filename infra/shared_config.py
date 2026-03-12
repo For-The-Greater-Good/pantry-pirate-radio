@@ -59,7 +59,7 @@ def _hardcoded_string_defaults() -> dict[str, str]:
     """Hardcoded string fallback for CDK when config module is unavailable."""
     return {
         "LLM_TEMPERATURE": "0.7",
-        "LLM_MAX_TOKENS": "64768",
+        "LLM_MAX_TOKENS": "16384",
         "LLM_TIMEOUT": "30",
         "LLM_RETRIES": "3",
         "VALIDATOR_ENABLED": "true",
