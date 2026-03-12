@@ -9,7 +9,7 @@ Creates infrastructure for Bedrock Batch Inference:
 - EventBridge rule for batch job completion detection
 """
 
-from aws_cdk import Duration, RemovalPolicy, Stack
+from aws_cdk import Duration, RemovalPolicy, Size, Stack
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecr as ecr
@@ -196,14 +196,23 @@ class BatchInferenceStack(Stack):
         # S3 read/write for batch I/O
         self.batch_bucket.grant_read_write(role)
 
-        # Bedrock InvokeModel scoped to specific model families
+        # Bedrock InvokeModel scoped to specific model families.
+        # Cross-region inference profiles (us.*) route to foundation models
+        # in us-east-1, us-east-2, and us-west-2 — all three regions must
+        # be permitted or batch inference fails with "no permissions".
+        us_regions = ["us-east-1", "us-east-2", "us-west-2"]
+        foundation_model_arns = [
+            f"arn:aws:bedrock:{r}::foundation-model/anthropic.claude-*"
+            for r in us_regions
+        ] + [
+            f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
+        ]
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=["bedrock:InvokeModel"],
-                resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-*",
-                    f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-*",
+                resources=foundation_model_arns
+                + [
                     f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/us.anthropic.*",
                 ],
             )
@@ -259,8 +268,9 @@ class BatchInferenceStack(Stack):
             code=self._create_docker_image_code(
                 cmd=["app.llm.queue.batcher.handler"],
             ),
-            timeout=Duration.seconds(300),
-            memory_size=512,
+            timeout=Duration.seconds(900),
+            memory_size=1024,
+            ephemeral_storage_size=Size.gibibytes(4),
             tracing=_lambda.Tracing.ACTIVE,
             environment={
                 "STAGING_QUEUE_URL": self.staging_queue.queue_url,
@@ -338,7 +348,8 @@ class BatchInferenceStack(Stack):
                 cmd=["app.llm.queue.batch_result_processor.handler"],
             ),
             timeout=Duration.seconds(900),
-            memory_size=1024,
+            memory_size=1769,
+            ephemeral_storage_size=Size.gibibytes(4),
             tracing=_lambda.Tracing.ACTIVE,
             dead_letter_queue_enabled=True,
             dead_letter_queue=result_processor_dlq,
@@ -372,7 +383,7 @@ class BatchInferenceStack(Stack):
                 detail_type=["Batch Inference Job State Change"],
                 detail={
                     "status": ["Completed", "PartiallyCompleted", "Failed"],
-                    "jobName": [{"prefix": "ppr-batch-"}],
+                    "batchJobName": [{"prefix": "ppr-batch-"}],
                 },
             ),
         )
@@ -412,4 +423,4 @@ class BatchInferenceStack(Stack):
         reconciler_queue.grant_send_messages(self.result_processor_lambda)
         recorder_queue.grant_send_messages(self.result_processor_lambda)
         llm_queue.grant_send_messages(self.result_processor_lambda)
-        jobs_table.grant_read_data(self.result_processor_lambda)
+        jobs_table.grant_read_write_data(self.result_processor_lambda)

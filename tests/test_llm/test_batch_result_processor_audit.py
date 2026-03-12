@@ -55,7 +55,8 @@ class TestH4IdempotencyCheck:
 
     @patch("app.llm.queue.batch_result_processor._get_clients")
     @patch("app.llm.queue.batch_result_processor._get_batch_metadata")
-    @patch("app.llm.queue.batch_result_processor._read_output_jsonl")
+    @patch("app.llm.queue.batch_result_processor._build_original_jobs_index")
+    @patch("app.llm.queue.batch_result_processor._download_output_jsonl")
     @patch.dict(
         "os.environ",
         {
@@ -68,7 +69,9 @@ class TestH4IdempotencyCheck:
         },
         clear=False,
     )
-    def test_processes_new_batch(self, mock_read, mock_metadata, mock_clients):
+    def test_processes_new_batch(
+        self, mock_download, mock_index, mock_metadata, mock_clients
+    ):
         """Handler should process batch if not already processed."""
         mock_s3 = MagicMock()
         mock_dynamodb = MagicMock()
@@ -79,9 +82,21 @@ class TestH4IdempotencyCheck:
 
         mock_metadata.return_value = {
             "output_key_prefix": "output/test/",
-            "original_jobs": {},
+            "original_jobs_key": "input/test/original_jobs.jsonl",
         }
-        mock_read.return_value = ([], 0)  # No output records
+        # Empty index = no original jobs
+        import tempfile
+
+        empty_tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+        empty_tmp.close()
+        mock_index.return_value = ({}, empty_tmp.name)
+
+        # Empty output = no records
+        output_tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        )
+        output_tmp.close()
+        mock_download.return_value = (output_tmp.name, 0, 0)
 
         from app.llm.queue.batch_result_processor import handler
 

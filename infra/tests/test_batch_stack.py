@@ -114,41 +114,52 @@ class TestBatchInferenceStackResources:
         )
 
     def test_creates_batcher_lambda(self, template):
-        """Should create Batcher Lambda as Docker image function."""
-        template.has_resource_properties(
-            "AWS::Lambda::Function",
-            {
-                "PackageType": "Image",
-                "Timeout": 300,
-                "MemorySize": 512,
-            },
-        )
-
-    def test_creates_result_processor_lambda(self, template):
-        """Should create Result Processor Lambda as Docker image function."""
+        """Should create Batcher Lambda with 4 GB ephemeral storage for streaming."""
         template.has_resource_properties(
             "AWS::Lambda::Function",
             {
                 "PackageType": "Image",
                 "Timeout": 900,
                 "MemorySize": 1024,
+                "EphemeralStorage": {"Size": 4096},
+            },
+        )
+
+    def test_creates_result_processor_lambda(self, template):
+        """Should create Result Processor Lambda with 4 GB ephemeral storage for streaming."""
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "PackageType": "Image",
+                "Timeout": 900,
+                "MemorySize": 1769,
+                "EphemeralStorage": {"Size": 4096},
+                "DeadLetterConfig": assertions.Match.any_value(),
             },
         )
 
     def test_creates_lambdas(self, template):
         """Should create 2 app Lambdas + CDK auto-delete Custom Resource Lambdas."""
-        # Verify our 2 app lambdas exist by properties
-        template.has_resource_properties(
-            "AWS::Lambda::Function",
-            {"PackageType": "Image", "Timeout": 300, "MemorySize": 512},  # Batcher
-        )
+        # Batcher: 4 GB ephemeral storage for streaming temp files
         template.has_resource_properties(
             "AWS::Lambda::Function",
             {
                 "PackageType": "Image",
                 "Timeout": 900,
                 "MemorySize": 1024,
-            },  # Result Processor
+                "EphemeralStorage": {"Size": 4096},
+            },
+        )
+        # Result Processor: 4 GB ephemeral storage + DLQ config
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "PackageType": "Image",
+                "Timeout": 900,
+                "MemorySize": 1769,
+                "EphemeralStorage": {"Size": 4096},
+                "DeadLetterConfig": assertions.Match.any_value(),
+            },
         )
 
     def test_creates_eventbridge_rule(self, template):
@@ -269,8 +280,9 @@ class TestBatchInferenceStackTracing:
             "AWS::Lambda::Function",
             {
                 "PackageType": "Image",
-                "Timeout": 300,
-                "MemorySize": 512,
+                "Timeout": 900,
+                "MemorySize": 1024,
+                "EphemeralStorage": {"Size": 4096},
                 "TracingConfig": {"Mode": "Active"},
             },
         )
@@ -282,7 +294,8 @@ class TestBatchInferenceStackTracing:
             {
                 "PackageType": "Image",
                 "Timeout": 900,
-                "MemorySize": 1024,
+                "MemorySize": 1769,
+                "EphemeralStorage": {"Size": 4096},
                 "TracingConfig": {"Mode": "Active"},
             },
         )

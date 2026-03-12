@@ -22,7 +22,7 @@ TEST_CONTEXT_LENGTH_ERROR: Final[str] = "context_length_exceeded"
 
 # Test model configurations
 TEST_CONTEXT_LENGTH: Final[int] = 8192
-TEST_MAX_TOKENS: Final[int] = 64768
+TEST_MAX_TOKENS: Final[int] = 16384
 TEST_DEFAULT_TEMP: Final[float] = 0.7
 TEST_RETRIES: Final[int] = 3
 TEST_RETRY_DELAY: Final[float] = 1.0

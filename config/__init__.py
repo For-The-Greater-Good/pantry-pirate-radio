@@ -7,7 +7,7 @@ Usage:
     from config import load_defaults
 
     defaults = load_defaults()
-    # {"LLM_TEMPERATURE": 0.7, "LLM_MAX_TOKENS": 64768, ...}
+    # {"LLM_TEMPERATURE": 0.7, "LLM_MAX_TOKENS": 16384, ...}
 """
 
 from pathlib import Path
@@ -22,7 +22,7 @@ def _hardcoded_defaults() -> dict[str, Any]:
     """
     return {
         "LLM_TEMPERATURE": 0.7,
-        "LLM_MAX_TOKENS": 64768,
+        "LLM_MAX_TOKENS": 16384,
         "LLM_TIMEOUT": 30,
         "LLM_RETRIES": 3,
         "VALIDATOR_ENABLED": True,
