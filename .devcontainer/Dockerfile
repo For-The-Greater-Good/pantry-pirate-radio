@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     # GitHub CLI for PR operations
     curl \
     gnupg \
+    # Required for AWS CLI v2 install
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -34,10 +36,16 @@ RUN curl -sSL https://install.python-poetry.org | python3 - \
 # Install pre-commit
 RUN pip3 install --no-cache-dir pre-commit
 
-# Install Node.js via the official NodeSource repository for claude-code
+# Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip
+
+# Install Node.js via the official NodeSource repository for claude-code and CDK
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
-    && npm install -g @anthropic-ai/claude-code \
+    && npm install -g @anthropic-ai/claude-code aws-cdk \
     && rm -rf /var/lib/apt/lists/*
 
 # Create workspace directory
