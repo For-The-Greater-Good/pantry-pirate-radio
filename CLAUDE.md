@@ -745,6 +745,48 @@ See [constitution.md](constitution.md) for full details. Key principles:
 12. **Structured Logging** - structlog only. Structured context fields. Prometheus metrics.
 13. **Documentation Maintenance** - CLAUDE.md updated with code changes. Docs not deferred.
 
+## Tightbeam (Authenticated Write API)
+
+Tightbeam is the authenticated write API for field staff and plugins to correct location data.
+
+### Endpoints (prefix: `/api/v1/tightbeam`)
+- `GET /search` — Multi-field search across locations
+- `GET /locations/{id}` — Location detail with source records
+- `GET /locations/{id}/history` — Audit trail
+- `PUT /locations/{id}` — Human correction (creates location_source row + audit)
+- `DELETE /locations/{id}` — Soft-delete (sets validation_status='rejected')
+- `POST /locations/{id}/restore` — Restore a soft-deleted location
+
+### Environment Variables
+```bash
+TIGHTBEAM_ENABLED=true                     # Enable/disable Tightbeam endpoints
+TIGHTBEAM_API_KEYS=name1:key1,name2:key2   # Comma-separated API keys (local mode)
+TIGHTBEAM_API_KEYS_SECRET_ARN=arn:...      # Secrets Manager ARN (Lambda mode)
+```
+
+### Authentication
+- **Local mode**: Validates against `TIGHTBEAM_API_KEYS` env var
+- **Lambda mode**: API Gateway pre-validates the key; middleware extracts key ID from headers
+
+## Plugin System
+
+Plugins extend Pantry Pirate Radio with additional commands, compose overlays, and CDK stacks.
+
+### Convention
+- Plugins live in `plugins/<name>/`
+- Each plugin has a `plugin.yml` manifest
+- Optional compose overlay: `plugins/<name>/.docker/compose.yml`
+- Optional commands: `plugins/<name>/commands/<subcmd>.sh`
+- Optional CDK stacks: `plugins/<name>/infra/<module>.py`
+
+### Bouy Integration
+```bash
+./bouy <plugin-name> <command>    # Run a plugin command
+```
+
+### CDK Discovery
+Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stacks[]` entries and added to the CDK app with dependencies on compute and secrets stacks.
+
 ## Recent Updates and Features
 
 ### Data Validation Pipeline (Latest - Issues #362-#369)
