@@ -1,6 +1,7 @@
 """Lambda API Stack for Pantry Pirate Radio.
 
-Deploys the read-only HSDS API as a Lambda function behind API Gateway HTTP API.
+Deploys the HSDS API as a Lambda function behind API Gateway HTTP API.
+Public endpoints are read-only; Tightbeam write endpoints require API key auth.
 Zero idle compute cost — pays only per request.
 """
 
@@ -159,7 +160,7 @@ class LambdaApiStack(Stack):
             name=f"pantry-pirate-radio-api-{environment_name}",
             protocol_type="HTTP",
             cors_configuration=apigwv2.CfnApi.CorsProperty(
-                allow_methods=["GET", "HEAD", "OPTIONS", "PUT", "DELETE", "POST"],
+                allow_methods=["GET", "HEAD", "OPTIONS"],
                 allow_origins=["*"],
                 allow_headers=["Content-Type", "X-Request-ID", "X-Api-Key"],
                 expose_headers=["X-Request-ID"],

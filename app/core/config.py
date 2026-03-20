@@ -275,13 +275,18 @@ class Settings(BaseSettings):
         if secret_arn and not self.TIGHTBEAM_API_KEYS:
             try:
                 import boto3
-                import botocore.exceptions
 
                 client = boto3.client("secretsmanager")
                 response = client.get_secret_value(SecretId=secret_arn)
                 self.TIGHTBEAM_API_KEYS = response["SecretString"]
-            except Exception:
-                pass  # Fall through to empty keys — auth will reject requests
+            except Exception as exc:
+                import structlog
+
+                structlog.get_logger().warning(
+                    "tightbeam_secret_resolution_failed",
+                    secret_arn=secret_arn,
+                    error=str(exc),
+                )
         return self
 
     @model_validator(mode="after")

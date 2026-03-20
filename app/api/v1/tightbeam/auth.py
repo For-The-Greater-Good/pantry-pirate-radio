@@ -67,6 +67,10 @@ async def require_api_key(
                 source_ip=request.headers.get(_APIGW_SOURCE_IP_HEADER),
                 user_agent=request.headers.get("user-agent"),
             )
+        logger.error("tightbeam_auth_missing_apigw_context", path=str(request.url.path))
+        raise HTTPException(
+            status_code=401, detail="API Gateway key validation required"
+        )
 
     # Local mode: validate key ourselves
     if not api_key:

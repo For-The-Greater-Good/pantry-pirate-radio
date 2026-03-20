@@ -15,15 +15,15 @@ from app.scraper.scrapers.food_oasis_la_scraper import (
 
 SAMPLE_ORG_ACTIVE: dict[str, Any] = {
     "id": 101,
-    "name": "LA Regional Food Bank",
+    "name": "Sunshine Community Pantry",
     "address1": "1734 E 41st Street",
     "address2": "",
     "city": "Los Angeles",
     "state": "CA",
     "zip": "90058",
-    "phone": "(323) 234-3030",
-    "email": "info@lafoodbank.org",
-    "website": "https://www.lafoodbank.org",
+    "phone": "(323) 555-3030",
+    "email": "info@example.com",
+    "website": "https://www.example.com",
     "description": "Distributes food to pantries throughout LA County",
     "latitude": 34.0012,
     "longitude": -118.2098,
@@ -41,12 +41,12 @@ SAMPLE_ORG_ACTIVE: dict[str, Any] = {
 
 SAMPLE_ORG_ACTIVE_2: dict[str, Any] = {
     "id": 201,
-    "name": "Aloha Harvest",
+    "name": "Island Harvest Kitchen",
     "address1": "3599 Waialae Ave",
     "city": "Honolulu",
     "state": "HI",
     "zip": "96816",
-    "phone": "(808) 208-1581",
+    "phone": "(808) 555-1581",
     "latitude": 21.2816,
     "longitude": -157.7991,
     "categories": [{"id": 9, "name": "Meal Program"}],
@@ -197,10 +197,10 @@ async def test_scrape_submits_active_orgs_only(
 
     # Verify submitted data is valid JSON with correct org data
     job_1 = json.loads(submitted_jobs[0])
-    assert job_1["name"] == "LA Regional Food Bank"
+    assert job_1["name"] == "Sunshine Community Pantry"
 
     job_2 = json.loads(submitted_jobs[1])
-    assert job_2["name"] == "Aloha Harvest"
+    assert job_2["name"] == "Island Harvest Kitchen"
 
     # Verify summary returned
     assert "2" in result
@@ -236,7 +236,7 @@ async def test_scrape_continues_on_tenant_failure(
     # Hawaii org should still be submitted despite LA failure
     assert len(submitted_jobs) == 1
     job = json.loads(submitted_jobs[0])
-    assert job["name"] == "Aloha Harvest"
+    assert job["name"] == "Island Harvest Kitchen"
 
 
 async def test_scrape_empty_response(monkeypatch: pytest.MonkeyPatch) -> None:

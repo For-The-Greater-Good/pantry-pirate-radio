@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
+from app.middleware.tightbeam_cors import TightbeamCORSMiddleware
 
 _logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ except Exception as exc:
 
 app = FastAPI(
     title=settings.app_name,
-    description="Read-only food security data API using HSDS specification",
+    description="Food security data API using HSDS specification (authenticated write endpoints available via Tightbeam)",
     version=settings.version,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -45,14 +46,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=settings.cors_allow_credentials,
-    allow_methods=["GET", "HEAD", "OPTIONS", "PUT", "DELETE", "POST"],
-    allow_headers=["*", "Content-Type", "X-Request-ID"],
+    allow_methods=["GET", "HEAD", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
     max_age=600,
 )
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
+# Outermost: scoped write-method CORS for Tightbeam (must wrap global CORSMiddleware)
+app.add_middleware(TightbeamCORSMiddleware)
 
 
 @app.get("/", include_in_schema=False)
