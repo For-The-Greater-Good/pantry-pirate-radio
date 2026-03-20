@@ -119,7 +119,11 @@ class ValidationRules:
             lat = float(lat)
             lon = float(lon)
         except (ValueError, TypeError):
-            return (True, 0, "Valid coordinates")
+            return (
+                True,
+                0,
+                "Coordinates not parseable as float, deferred to other checks",
+            )
 
         # Check for exact 0,0
         if lat == 0.0 and lon == 0.0:
