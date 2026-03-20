@@ -1305,7 +1305,9 @@ class JobProcessor:
                                     sal_key = f"{service['name']} at {loc['name']}"
                                     service_at_location_id_map[sal_key] = sal_id
                                     if sal_description:
-                                        service_at_location_id_map[sal_description] = sal_id
+                                        service_at_location_id_map[sal_description] = (
+                                            sal_id
+                                        )
 
                                     # Collect all schedules from service and location
                                     schedules_to_create: list[ScheduleDict] = []
@@ -1437,6 +1439,7 @@ class JobProcessor:
                                                 opens_at=schedule["opens_at"],
                                                 closes_at=schedule["closes_at"],
                                                 service_at_location_id=sal_id,
+                                                location_id=location_ids[loc_key],
                                                 metadata=job_result.job.metadata,
                                                 byday=byday,
                                                 description=description,
@@ -1501,9 +1504,16 @@ class JobProcessor:
                         [org_id_for_phone, service_id_for_phone, location_id_for_phone]
                     ):
                         org_id_for_phone = org_id if org_id else None
-                        logger.debug(
-                            f"Phone {phone.get('number')} has no entity reference, attaching to organization"
-                        )
+                        # Attach to location when org has exactly one
+                        if len(location_ids) == 1:
+                            location_id_for_phone = next(iter(location_ids.values()))
+                            logger.debug(
+                                f"Phone {phone.get('number')} has no entity reference, attaching to organization and single location"
+                            )
+                        else:
+                            logger.debug(
+                                f"Phone {phone.get('number')} has no entity reference, attaching to organization only ({len(location_ids)} locations)"
+                            )
 
                     # Create phone record
                     if phone.get("number"):
@@ -1578,9 +1588,7 @@ class JobProcessor:
                                 "Schedule has no entity reference, attaching to first service_at_location"
                             )
                         elif location_ids:
-                            location_id_for_schedule = next(
-                                iter(location_ids.values())
-                            )
+                            location_id_for_schedule = next(iter(location_ids.values()))
                             logger.debug(
                                 "Schedule has no entity reference, attaching to first location"
                             )
