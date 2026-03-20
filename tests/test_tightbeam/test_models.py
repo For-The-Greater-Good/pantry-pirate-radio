@@ -107,6 +107,34 @@ class TestLocationUpdateRequest:
         )
         assert req.caller_context["slack_user_id"] == "U123"
 
+    def test_rejects_empty_update(self):
+        """Empty update (all data fields None) should fail."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="At least one data field"):
+            LocationUpdateRequest()
+
+    def test_rejects_only_caller_context(self):
+        """Update with only caller_context and no data fields should fail."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="At least one data field"):
+            LocationUpdateRequest(caller_context={"slack_user_id": "U123"})
+
+    def test_rejects_out_of_bounds_latitude(self):
+        """Latitude outside -90..90 should fail."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            LocationUpdateRequest(latitude=91.0)
+
+    def test_rejects_out_of_bounds_longitude(self):
+        """Longitude outside -180..180 should fail."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            LocationUpdateRequest(longitude=-181.0)
+
 
 class TestLocationUpdateResponse:
     """Test LocationUpdateResponse model."""
@@ -156,7 +184,10 @@ class TestAuditEntry:
     """Test AuditEntry model."""
 
     def test_minimal(self):
-        entry = AuditEntry(id="audit-001", location_id="loc-001", action="update")
+        now = datetime.now(UTC)
+        entry = AuditEntry(
+            id="audit-001", location_id="loc-001", action="update", created_at=now
+        )
         assert entry.action == "update"
         assert entry.changed_fields is None
 
@@ -188,7 +219,12 @@ class TestHistoryResponse:
         assert resp.total == 0
 
     def test_with_entries(self):
-        entry = AuditEntry(id="a1", location_id="loc-001", action="update")
+        entry = AuditEntry(
+            id="a1",
+            location_id="loc-001",
+            action="update",
+            created_at=datetime.now(UTC),
+        )
         resp = HistoryResponse(location_id="loc-001", entries=[entry], total=1)
         assert len(resp.entries) == 1
 

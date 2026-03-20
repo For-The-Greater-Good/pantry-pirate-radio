@@ -136,3 +136,37 @@ class TestTightbeamSearch:
         assert "city" in sql_text.lower()
         assert "state_province" in sql_text.lower()
         assert "postal_code" in sql_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_search_sql_injection_safe(self, service, mock_session):
+        """SQL injection attempt should be safely parameterized."""
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        data_result = MagicMock()
+        data_result.fetchall.return_value = []
+
+        mock_session.execute = AsyncMock(side_effect=[count_result, data_result])
+
+        # This should NOT cause an error — it's parameterized
+        await service.search(q="'; DROP TABLE location; --")
+
+        # Verify the injection string went as a parameter, not in the SQL
+        call_args = mock_session.execute.call_args_list[0]
+        params = call_args[0][1]
+        assert "'; DROP TABLE location; --" in params["q"]
+
+    @pytest.mark.asyncio
+    async def test_search_ilike_special_chars(self, service, mock_session):
+        """ILIKE special characters are passed as parameters."""
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        data_result = MagicMock()
+        data_result.fetchall.return_value = []
+
+        mock_session.execute = AsyncMock(side_effect=[count_result, data_result])
+
+        await service.search(q="100% free_food")
+
+        call_args = mock_session.execute.call_args_list[0]
+        params = call_args[0][1]
+        assert "100% free_food" in params["q"]

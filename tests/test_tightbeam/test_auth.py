@@ -144,3 +144,35 @@ class TestRequireApiKey:
 
                 assert identity.api_key_id == "my-super..."
                 assert "secret" not in identity.api_key_id
+
+    @pytest.mark.asyncio
+    async def test_lambda_no_apigw_header_returns_401(self, mock_request):
+        """Lambda mode with no x-api-key-id header should return 401."""
+        mock_request.headers = {
+            "user-agent": "TestAgent/1.0",
+        }
+
+        with patch("app.api.v1.tightbeam.auth.settings") as mock_settings:
+            mock_settings.TIGHTBEAM_ENABLED = True
+
+            with patch.dict(os.environ, {"AWS_LAMBDA_FUNCTION_NAME": "my-lambda"}):
+                with pytest.raises(HTTPException) as exc_info:
+                    await require_api_key(mock_request, api_key=None)
+                assert exc_info.value.status_code == 401
+                assert "API Gateway" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_lambda_empty_apigw_header_returns_401(self, mock_request):
+        """Lambda mode with empty x-api-key-id header should return 401."""
+        mock_request.headers = {
+            "x-api-key-id": "",
+            "user-agent": "TestAgent/1.0",
+        }
+
+        with patch("app.api.v1.tightbeam.auth.settings") as mock_settings:
+            mock_settings.TIGHTBEAM_ENABLED = True
+
+            with patch.dict(os.environ, {"AWS_LAMBDA_FUNCTION_NAME": "my-lambda"}):
+                with pytest.raises(HTTPException) as exc_info:
+                    await require_api_key(mock_request, api_key=None)
+                assert exc_info.value.status_code == 401

@@ -359,3 +359,17 @@ class TestValidationRules:
         # Second location should fail (test data)
         assert results["location_validations"][1]["validation_passed"] is False
         assert results["location_validations"][1]["is_test_data"] is True
+
+    def test_check_zero_coordinates_empty_strings(self):
+        """Empty string coordinates should not crash check_zero_coordinates."""
+        location = {**self.valid_location, "latitude": "", "longitude": ""}
+        is_valid, impact, reason = self.validator.check_zero_coordinates(location)
+        # Empty strings are deferred to check_coordinates_present
+        assert is_valid is True
+        assert impact == 0
+
+    def test_check_zero_coordinates_unparseable(self):
+        """Unparseable coordinates should not crash."""
+        location = {**self.valid_location, "latitude": "abc", "longitude": "def"}
+        is_valid, impact, reason = self.validator.check_zero_coordinates(location)
+        assert is_valid is True
