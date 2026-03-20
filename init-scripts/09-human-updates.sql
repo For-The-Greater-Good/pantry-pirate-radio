@@ -1,9 +1,10 @@
--- Migration script to add human update tracking and append-only audit trail
+-- Migration script to add human update tracking and audit trail
 -- Part of the Tightbeam integration for field staff location management
 --
--- Design: Append-only. Never DELETE. Human corrections create new location_source
--- rows with scraper_id='human_update'. Soft-deletes create validation_status='rejected'
--- records. Every mutation recorded in change_audit with full provenance.
+-- Design: Human corrections create new location_source rows for provenance
+-- (scraper_id='human_update'). The canonical location, address, and phone tables
+-- are updated in place. Soft-deletes set validation_status='rejected'.
+-- Every mutation is recorded in the change_audit table with full provenance.
 
 -- 1. Extend location_source for human update tracking
 ALTER TABLE location_source ADD COLUMN IF NOT EXISTS confidence_score INTEGER DEFAULT 50;

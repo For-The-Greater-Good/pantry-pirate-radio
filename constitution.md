@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.4.0 — 2026-03-20
+- **Amended Principle VII**: Clarified that authenticated write endpoints (Tightbeam) are permitted with API key auth and full provenance
+
 ### v1.3.0 — 2026-03-09
 - **Amended Principle XIV**: Added plugin monitoring exception clause
 
@@ -135,7 +138,8 @@ All location data MUST pass through the confidence scoring system before persist
 The system MUST NOT collect, store, or process Personally Identifiable Information (PII).
 
 - All data collected MUST be publicly available information about organizations, not individuals
-- API endpoints MUST be read-only for public consumers; write operations MUST be internal-only
+- Public API endpoints MUST be read-only for unauthenticated consumers
+- Authenticated write endpoints (e.g., Tightbeam) are permitted for authorized plugins and field staff, provided they require API key authentication and record full provenance in the change_audit table. These are distinct from the public consumer endpoints
 - Environment secrets (API keys, database credentials) MUST use environment variables via `.env` files
 - `.env` files MUST NEVER be committed to version control
 - Test data MUST use fictional information only: `555-xxx-xxxx` phones, `example.com` domains, clearly fake addresses
