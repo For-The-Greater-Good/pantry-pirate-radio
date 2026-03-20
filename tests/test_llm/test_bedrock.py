@@ -12,6 +12,10 @@ from app.llm.providers.bedrock import (
     build_converse_request,
     parse_converse_response,
 )
+from app.llm.providers.bedrock_batch import (
+    build_messages_api_request,
+    parse_messages_api_response,
+)
 
 
 class TestBedrockConfig:
@@ -535,3 +539,104 @@ class TestBedrockFactoryRegistration:
         provider = create_provider("bedrock", "anthropic.claude-sonnet-4-6", 0.7, None)
         assert isinstance(provider, BedrockProvider)
         assert provider.config.model_name == "anthropic.claude-sonnet-4-6"
+
+
+class TestBuildMessagesApiRequest:
+    """Tests for build_messages_api_request (batch inference)."""
+
+    def test_string_prompt(self):
+        """String prompt produces a user message."""
+        result = build_messages_api_request("Hello")
+        assert result["anthropic_version"] == "bedrock-2023-05-31"
+        assert result["messages"] == [{"role": "user", "content": "Hello"}]
+        assert result["max_tokens"] == 8192
+        assert "system" not in result
+        assert "tools" not in result
+
+    def test_chat_messages_with_system(self):
+        """Chat messages extract system prompt."""
+        msgs = [
+            {"role": "system", "content": "Be helpful"},
+            {"role": "user", "content": "Hi"},
+        ]
+        result = build_messages_api_request(msgs)
+        assert result["system"] == "Be helpful"
+        assert len(result["messages"]) == 1
+        assert result["messages"][0]["role"] == "user"
+
+    def test_schema_unwrapping(self):
+        """Pipeline json_schema wrapper is unwrapped."""
+        schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "output",
+                "schema": {"type": "object", "properties": {"x": {"type": "string"}}},
+            },
+        }
+        result = build_messages_api_request("test", format_schema=schema)
+        assert "tools" in result
+        assert result["tools"][0]["input_schema"]["type"] == "object"
+        assert result["tool_choice"]["type"] == "tool"
+
+    def test_tool_choice(self):
+        """Forced tool use is configured correctly."""
+        schema = {"type": "object", "properties": {}}
+        result = build_messages_api_request("test", format_schema=schema)
+        assert result["tool_choice"] == {"type": "tool", "name": "structured_output"}
+
+
+class TestParseMessagesApiResponse:
+    """Tests for parse_messages_api_response (batch inference)."""
+
+    def test_tool_use_response(self):
+        """Tool use response returns parsed data."""
+        resp = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "structured_output",
+                    "input": {"x": "y"},
+                }
+            ],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        schema = {"type": "object"}
+        result = parse_messages_api_response(resp, "test-model", format_schema=schema)
+        assert result.parsed == {"x": "y"}
+        assert result.usage["total_tokens"] == 15
+
+    def test_text_response(self):
+        """Text response is returned directly."""
+        resp = {
+            "content": [{"type": "text", "text": "Hello world"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 3},
+        }
+        result = parse_messages_api_response(resp, "test-model")
+        assert result.text == "Hello world"
+        assert result.model == "test-model"
+
+    def test_empty_content_raises(self):
+        """Empty content blocks should raise ValueError."""
+        resp = {
+            "content": [],
+            "stop_reason": "end_turn",
+            "usage": {},
+        }
+        with pytest.raises(ValueError, match="Empty response"):
+            parse_messages_api_response(resp, "test-model")
+
+    def test_json_parse_failure_returns_raw_text(self):
+        """Non-JSON text with format_schema returns text but no parsed."""
+        resp = {
+            "content": [{"type": "text", "text": "not valid json"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 3},
+        }
+        result = parse_messages_api_response(
+            resp, "test-model", format_schema={"type": "object"}
+        )
+        assert result.text == "not valid json"
+        assert result.parsed is None

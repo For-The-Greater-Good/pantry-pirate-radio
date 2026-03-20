@@ -20,7 +20,7 @@ def test_app_configuration() -> None:
 
     # Test app metadata
     assert app.title == "Pantry Pirate Radio"
-    assert "Read-only food security data API" in app.description
+    assert "Food security data API" in app.description
     assert app.version == "0.1.0"
     assert app.docs_url == "/docs"
     assert app.redoc_url == "/redoc"
