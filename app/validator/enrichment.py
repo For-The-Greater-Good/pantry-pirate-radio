@@ -326,14 +326,14 @@ class GeocodingEnricher:
                             f"✅ ENRICHER: Successfully enriched postal code for '{location_name}' using {postal_source}"
                         )
 
+            # Auto-correct state mismatches before returning
+            enriched = self._correct_state_mismatches(enriched, source)
+
         except Exception as e:
             logger.error(
                 f"❌ ENRICHER: Failed to enrich location '{location_name}': {e}",
                 exc_info=True,
             )
-
-        # Auto-correct state mismatches before returning
-        enriched = self._correct_state_mismatches(enriched, source)
 
         logger.info(
             f"🎯 ENRICHER: Finished enriching '{location_name}', source: {source}"
@@ -528,7 +528,7 @@ class GeocodingEnricher:
             if address_data:
                 return address_data, "arcgis"
         except Exception as e:
-            logger.debug(f"Reverse geocoding failed: {e}")
+            logger.warning(f"Reverse geocoding failed: {e}")
 
         return None, None
 
@@ -733,8 +733,8 @@ class GeocodingEnricher:
                 # Only retry on actual errors (timeouts, network issues, etc.)
                 return None
 
-            except (TimeoutError, Exception) as e:
-                logger.debug(
+            except Exception as e:
+                logger.warning(
                     f"Provider {provider} attempt {attempt + 1}/{max_retries} failed: {e}"
                 )
 
