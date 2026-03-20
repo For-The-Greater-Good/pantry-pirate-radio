@@ -96,6 +96,11 @@ def _drain_staging_queue(
 ) -> tuple[int, str]:
     """Drain all messages from the staging queue to a temp file.
 
+    **DATA LOSS RISK**: Messages are deleted from SQS during drain to unlock
+    the FIFO message group. If this Lambda crashes after drain but before the
+    batch is submitted to Bedrock, the drained records are unrecoverable.
+    A future improvement could checkpoint records to S3 before deleting from SQS.
+
     Receives messages in batches of 10. Each batch is deleted immediately
     after parsing to unlock the FIFO message group for subsequent receives.
     Without immediate deletion, in-flight messages block the entire group
@@ -115,6 +120,12 @@ def _drain_staging_queue(
     Returns:
         (record_count, temp_file_path) — caller must delete the temp file.
     """
+    logger.warning(
+        "staging_queue_drain_starting",
+        queue_url=queue_url,
+        note="Messages deleted during drain are unrecoverable if Lambda crashes before batch submission",
+    )
+
     tmp = tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".jsonl",
@@ -177,10 +188,18 @@ def _drain_staging_queue(
 
             # Batch-delete valid messages to unlock the FIFO message group
             if batch_delete_entries:
-                sqs_client.delete_message_batch(
+                batch_resp = sqs_client.delete_message_batch(
                     QueueUrl=queue_url,
                     Entries=batch_delete_entries,
                 )
+                failed = batch_resp.get("Failed", [])
+                if failed:
+                    logger.warning(
+                        "delete_message_batch_partial_failure",
+                        failed_count=len(failed),
+                        failed_ids=[f["Id"] for f in failed],
+                        error_codes=[f.get("Code", "") for f in failed],
+                    )
 
         tmp.close()
     except Exception:
@@ -199,48 +218,6 @@ def _drain_staging_queue(
 
     logger.info("staging_queue_drained", total_messages=record_count)
     return record_count, tmp.name
-
-
-def _delete_messages(
-    sqs_client: Any,
-    queue_url: str,
-    receipt_handles: list[str],
-) -> int:
-    """Delete messages from SQS by receipt handle.
-
-    Called only after successful downstream processing to ensure
-    no data loss on failure.
-
-    Args:
-        sqs_client: boto3 SQS client
-        queue_url: SQS queue URL
-        receipt_handles: List of SQS receipt handles to delete
-
-    Returns:
-        Number of messages that failed to delete.
-    """
-    failed_deletes = 0
-    for handle in receipt_handles:
-        try:
-            sqs_client.delete_message(
-                QueueUrl=queue_url,
-                ReceiptHandle=handle,
-            )
-        except Exception as e:
-            failed_deletes += 1
-            logger.error(
-                "delete_message_failed",
-                receipt_handle=handle[:40],
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-
-    logger.info(
-        "staging_messages_deleted",
-        count=len(receipt_handles),
-        failed=failed_deletes,
-    )
-    return failed_deletes
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

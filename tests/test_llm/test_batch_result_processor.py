@@ -8,12 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.llm.queue.batch_result_processor import (
-    _build_original_jobs_index,
-    _download_output_jsonl,
-    _lookup_original_job,
-    handler,
+from app.llm.queue.batch_io import (
+    build_original_jobs_index,
+    download_output_jsonl,
+    lookup_original_job,
 )
+from app.llm.queue.batch_result_processor import handler
 
 
 def _make_batch_output_record(
@@ -128,7 +128,7 @@ def _mock_s3_for_streaming(
 
 
 class TestStreamingHelpers:
-    """Tests for _build_original_jobs_index and _lookup_original_job."""
+    """Tests for build_original_jobs_index and lookup_original_job."""
 
     def test_build_index_creates_correct_offsets(self):
         """Index should map record IDs to byte offsets for O(1) lookup."""
@@ -149,7 +149,7 @@ class TestStreamingHelpers:
 
             mock_s3.download_file.side_effect = download_file
 
-            index, tmp_path = _build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
+            index, tmp_path = build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
 
             assert len(index) == 3
             assert "job-1" in index
@@ -185,13 +185,13 @@ class TestStreamingHelpers:
 
             mock_s3.download_file.side_effect = download_file
 
-            index, tmp_path = _build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
+            index, tmp_path = build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
 
-            result = _lookup_original_job(tmp_path, index, "job-1")
+            result = lookup_original_job(tmp_path, index, "job-1")
             assert result is not None
             assert result["job_id"] == "job-1"
 
-            result2 = _lookup_original_job(tmp_path, index, "job-2")
+            result2 = lookup_original_job(tmp_path, index, "job-2")
             assert result2 is not None
             assert result2["job_id"] == "job-2"
 
@@ -214,17 +214,17 @@ class TestStreamingHelpers:
 
             mock_s3.download_file.side_effect = download_file
 
-            index, tmp_path = _build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
+            index, tmp_path = build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
 
-            result = _lookup_original_job(tmp_path, index, "nonexistent")
+            result = lookup_original_job(tmp_path, index, "nonexistent")
             assert result is None
 
             os.unlink(tmp_path)
         finally:
             os.unlink(filepath)
 
-    def test_download_output_jsonl_writes_to_temp(self):
-        """_download_output_jsonl should write records to a temp file."""
+    def testdownload_output_jsonl_writes_to_temp(self):
+        """download_output_jsonl should write records to a temp file."""
         mock_s3 = MagicMock()
         record1 = _make_batch_output_record("job-1")
         record2 = _make_batch_output_record("job-2")
@@ -235,7 +235,7 @@ class TestStreamingHelpers:
         }
         mock_s3.get_object.return_value = {"Body": MagicMock(read=lambda: output_bytes)}
 
-        path, count, unparseable = _download_output_jsonl(
+        path, count, unparseable = download_output_jsonl(
             mock_s3, "bucket", "output/exec-123/"
         )
 
@@ -571,7 +571,7 @@ class TestMissingOriginalJob:
 
 
 class TestS3Pagination:
-    """Tests for S3 list_objects_v2 pagination in _download_output_jsonl."""
+    """Tests for S3 list_objects_v2 pagination in download_output_jsonl."""
 
     def test_download_output_paginates_s3(self):
         """Verify pagination works when S3 returns IsTruncated=True."""
@@ -604,7 +604,7 @@ class TestS3Pagination:
 
         mock_s3.get_object.side_effect = s3_get_object
 
-        path, count, unparseable = _download_output_jsonl(
+        path, count, unparseable = download_output_jsonl(
             mock_s3, "batch-bucket", "output/exec-123/"
         )
 

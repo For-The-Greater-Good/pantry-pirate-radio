@@ -373,30 +373,6 @@ class TestHandlerMessageDeletion:
 
     @patch("app.llm.queue.batcher._get_clients")
     @patch("app.llm.queue.batcher.send_to_sqs")
-    def test_handler_does_not_call_delete_messages(self, mock_send, mock_get_clients):
-        """Handler should not call _delete_messages — drain handles deletion."""
-        mock_sqs = MagicMock()
-        mock_s3 = MagicMock()
-        mock_bedrock = MagicMock()
-        mock_dynamodb = MagicMock()
-        mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
-        mock_send.return_value = "msg-123"
-
-        with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_file(3)
-
-            with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
-                    handler(
-                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                        None,
-                    )
-
-                # _delete_messages should NOT be called — drain handles it
-                mock_delete.assert_not_called()
-
-    @patch("app.llm.queue.batcher._get_clients")
-    @patch("app.llm.queue.batcher.send_to_sqs")
     def test_handler_all_failures_reports_correctly(self, mock_send, mock_get_clients):
         """When ALL re-enqueue attempts fail, should report 0 count and N failures."""
         mock_sqs = MagicMock()

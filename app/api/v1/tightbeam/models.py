@@ -1,9 +1,9 @@
 """Pydantic models for the Tightbeam API."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # --- Auth ---
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 class CallerIdentity(BaseModel):
     """Identity extracted from the authenticated request."""
 
-    api_key_id: str = Field(description="API key identifier")
+    api_key_id: str = Field(min_length=1, description="API key identifier")
     api_key_name: Optional[str] = Field(
         default=None, description="Human-readable API key name"
     )
@@ -27,25 +27,6 @@ class CallerIdentity(BaseModel):
 # --- Search ---
 
 
-class SearchRequest(BaseModel):
-    """Search query parameters."""
-
-    q: Optional[str] = Field(default=None, description="Free-text search query")
-    name: Optional[str] = Field(default=None, description="Filter by location name")
-    address: Optional[str] = Field(default=None, description="Filter by address")
-    city: Optional[str] = Field(default=None, description="Filter by city")
-    state: Optional[str] = Field(default=None, description="Filter by state")
-    zip_code: Optional[str] = Field(default=None, description="Filter by ZIP code")
-    phone: Optional[str] = Field(default=None, description="Filter by phone number")
-    email: Optional[str] = Field(default=None, description="Filter by email")
-    website: Optional[str] = Field(default=None, description="Filter by website")
-    include_rejected: bool = Field(
-        default=False, description="Include soft-deleted locations"
-    )
-    limit: int = Field(default=20, ge=1, le=100, description="Max results to return")
-    offset: int = Field(default=0, ge=0, description="Pagination offset")
-
-
 class LocationResult(BaseModel):
     """A location in search results."""
 
@@ -56,13 +37,13 @@ class LocationResult(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     postal_code: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     phone: Optional[str] = None
     email: Optional[str] = None
     website: Optional[str] = None
     description: Optional[str] = None
-    confidence_score: Optional[int] = None
+    confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
     validation_status: Optional[str] = None
 
 
@@ -70,7 +51,7 @@ class SearchResponse(BaseModel):
     """Search results response."""
 
     results: List[LocationResult]
-    total: int
+    total: int = Field(ge=0)
     limit: int
     offset: int
 
@@ -87,9 +68,9 @@ class SourceRecord(BaseModel):
     description: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    source_type: Optional[str] = None
-    confidence_score: Optional[int] = None
-    validation_status: Optional[str] = None
+    source_type: Optional[Literal["scraper", "human_update"]] = None
+    confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
+    validation_status: Optional[Literal["verified", "needs_review", "rejected"]] = None
     updated_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -113,8 +94,12 @@ class LocationUpdateRequest(BaseModel):
     city: Optional[str] = Field(default=None, description="Updated city")
     state: Optional[str] = Field(default=None, description="Updated state")
     postal_code: Optional[str] = Field(default=None, description="Updated ZIP code")
-    latitude: Optional[float] = Field(default=None, description="Updated latitude")
-    longitude: Optional[float] = Field(default=None, description="Updated longitude")
+    latitude: Optional[float] = Field(
+        default=None, ge=-90, le=90, description="Updated latitude"
+    )
+    longitude: Optional[float] = Field(
+        default=None, ge=-180, le=180, description="Updated longitude"
+    )
     phone: Optional[str] = Field(default=None, description="Updated phone")
     email: Optional[str] = Field(default=None, description="Updated email")
     website: Optional[str] = Field(default=None, description="Updated website URL")
@@ -123,6 +108,26 @@ class LocationUpdateRequest(BaseModel):
         default=None,
         description="Plugin identity context (e.g. slack_user_id, channel_id)",
     )
+
+    @model_validator(mode="after")
+    def require_at_least_one_data_field(self) -> "LocationUpdateRequest":
+        """Reject empty updates (all data fields are None)."""
+        data_fields = [
+            self.name,
+            self.address_1,
+            self.city,
+            self.state,
+            self.postal_code,
+            self.latitude,
+            self.longitude,
+            self.phone,
+            self.email,
+            self.website,
+            self.description,
+        ]
+        if all(f is None for f in data_fields):
+            raise ValueError("At least one data field must be provided")
+        return self
 
 
 class LocationUpdateResponse(BaseModel):
@@ -140,7 +145,9 @@ class LocationUpdateResponse(BaseModel):
 class SoftDeleteRequest(BaseModel):
     """Request body for soft-deleting a location."""
 
-    reason: Optional[str] = Field(default=None, description="Reason for soft-deleting")
+    reason: Optional[str] = Field(
+        default=None, min_length=1, description="Reason for soft-deleting"
+    )
     caller_context: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Plugin identity context",
@@ -150,7 +157,9 @@ class SoftDeleteRequest(BaseModel):
 class RestoreRequest(BaseModel):
     """Request body for restoring a soft-deleted location."""
 
-    reason: Optional[str] = Field(default=None, description="Reason for restoring")
+    reason: Optional[str] = Field(
+        default=None, min_length=1, description="Reason for restoring"
+    )
     caller_context: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Plugin identity context",
@@ -173,7 +182,7 @@ class AuditEntry(BaseModel):
 
     id: str
     location_id: str
-    action: str
+    action: Literal["update", "soft_delete", "restore", "create"]
     changed_fields: Optional[List[str]] = None
     previous_values: Optional[Dict[str, Any]] = None
     new_values: Optional[Dict[str, Any]] = None
@@ -182,7 +191,7 @@ class AuditEntry(BaseModel):
     source_ip: Optional[str] = None
     user_agent: Optional[str] = None
     caller_context: Optional[Dict[str, Any]] = None
-    created_at: Optional[datetime] = None
+    created_at: datetime
 
 
 class HistoryResponse(BaseModel):
@@ -190,4 +199,4 @@ class HistoryResponse(BaseModel):
 
     location_id: str
     entries: List[AuditEntry]
-    total: int
+    total: int = Field(ge=0)
