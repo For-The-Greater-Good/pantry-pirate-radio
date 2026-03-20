@@ -1524,6 +1524,7 @@ class JobProcessor:
                             service_id=service_id_for_phone,
                             location_id=location_id_for_phone,
                             metadata=job_result.job.metadata,
+                            transaction=self.db,
                         )
                         logger.debug(f"Created phone {phone_id} from top-level array")
 
@@ -1572,7 +1573,9 @@ class JobProcessor:
                             )
                             continue
 
-                    # Fall back to first service_at_location or location if no entity reference
+                    # Fall back to first service_at_location or location if no entity reference.
+                    # Many LLM outputs omit explicit entity refs for schedules; without this
+                    # fallback, valid schedule data would be silently dropped.
                     if not any(
                         [
                             service_id_for_schedule,
@@ -1581,17 +1584,35 @@ class JobProcessor:
                         ]
                     ):
                         if service_at_location_id_map:
-                            service_at_location_id_for_schedule = next(
-                                iter(service_at_location_id_map.values())
+                            sal_key = next(iter(service_at_location_id_map))
+                            service_at_location_id_for_schedule = (
+                                service_at_location_id_map[sal_key]
                             )
-                            logger.debug(
-                                "Schedule has no entity reference, attaching to first service_at_location"
-                            )
+                            if len(service_at_location_id_map) > 1:
+                                logger.warning(
+                                    "Schedule has no entity reference, attaching to first service_at_location (multiple SALs exist)",
+                                    attached_sal=str(
+                                        service_at_location_id_for_schedule
+                                    ),
+                                    sal_count=len(service_at_location_id_map),
+                                )
+                            else:
+                                logger.debug(
+                                    "Schedule has no entity reference, attaching to first service_at_location"
+                                )
                         elif location_ids:
-                            location_id_for_schedule = next(iter(location_ids.values()))
-                            logger.debug(
-                                "Schedule has no entity reference, attaching to first location"
-                            )
+                            loc_key = next(iter(location_ids))
+                            location_id_for_schedule = location_ids[loc_key]
+                            if len(location_ids) > 1:
+                                logger.warning(
+                                    "Schedule has no entity reference, attaching to first location (multiple locations exist)",
+                                    attached_location=str(location_id_for_schedule),
+                                    location_count=len(location_ids),
+                                )
+                            else:
+                                logger.debug(
+                                    "Schedule has no entity reference, attaching to first location"
+                                )
                         else:
                             logger.warning(
                                 "Schedule has no valid entity references and no fallback available, skipping"

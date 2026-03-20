@@ -68,6 +68,17 @@ run_plugin_command() {
     shift
     local subcmd="${1:-help}"
     shift 2>/dev/null || true
+
+    # Validate: no path traversal in plugin_name or subcmd
+    if [[ "$plugin_name" == */* ]] || [[ "$plugin_name" == *..* ]]; then
+        echo "ERROR: Invalid plugin name: $plugin_name"
+        exit 1
+    fi
+    if [[ "$subcmd" == */* ]] || [[ "$subcmd" == *..* ]]; then
+        echo "ERROR: Invalid command name: $subcmd"
+        exit 1
+    fi
+
     local cmd_file="$SCRIPT_DIR/plugins/$plugin_name/commands/$subcmd.sh"
     if [ -f "$cmd_file" ]; then
         bash "$cmd_file" "$@"

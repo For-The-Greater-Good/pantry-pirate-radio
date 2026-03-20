@@ -503,6 +503,12 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         if not _module_name or not _class_name:
             continue
         _module_path = _plugin_infra_dir / f"{_module_name}.py"
+        if not _module_path.resolve().is_relative_to(_plugin_infra_dir.resolve()):
+            warnings.warn(
+                f"Plugin module path escapes plugin dir: {_module_path}",
+                stacklevel=1,
+            )
+            continue
         if not _module_path.exists():
             warnings.warn(
                 f"Plugin CDK module not found: {_module_path}", stacklevel=1
