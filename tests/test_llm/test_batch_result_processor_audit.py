@@ -55,8 +55,8 @@ class TestH4IdempotencyCheck:
 
     @patch("app.llm.queue.batch_result_processor._get_clients")
     @patch("app.llm.queue.batch_result_processor._get_batch_metadata")
-    @patch("app.llm.queue.batch_result_processor._build_original_jobs_index")
-    @patch("app.llm.queue.batch_result_processor._download_output_jsonl")
+    @patch("app.llm.queue.batch_result_processor.build_original_jobs_index")
+    @patch("app.llm.queue.batch_result_processor.download_output_jsonl")
     @patch.dict(
         "os.environ",
         {

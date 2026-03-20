@@ -21,7 +21,6 @@ Environment variables:
 
 import json
 import os
-import tempfile
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -30,6 +29,12 @@ import structlog
 
 from app.core.config import settings
 from app.llm.providers.bedrock import parse_messages_api_response
+from app.llm.queue.batch_io import (
+    build_original_jobs_index,
+    download_output_jsonl,
+    load_original_jobs_legacy,
+    lookup_original_job,
+)
 from app.llm.queue.types import JobResult, JobStatus
 from app.pipeline.sqs_sender import send_to_sqs
 
@@ -69,154 +74,13 @@ def _get_batch_metadata(dynamodb: Any, jobs_table: str, job_arn: str) -> dict[st
     if not output_key_prefix:
         raise ValueError("output_key_prefix must not be empty")
     original_jobs_key = item.get("original_jobs_key", {}).get("S", "")
+    if not original_jobs_key:
+        raise ValueError("original_jobs_key must not be empty")
 
     return {
         "output_key_prefix": output_key_prefix,
         "original_jobs_key": original_jobs_key,
     }
-
-
-def _build_original_jobs_index(
-    s3: Any, bucket: str, key: str
-) -> tuple[dict[str, tuple[int, int]], str]:
-    """Download original_jobs.jsonl and build byte-offset index.
-
-    Each line is a JSON object with "k" (record ID) and "v" (original job).
-    The index maps record_id -> (byte_offset, byte_length) for O(1) lookups.
-
-    Memory: O(N * 40 bytes) for index ~ 4 MB for 100k records.
-
-    Args:
-        s3: boto3 S3 client
-        bucket: S3 bucket name
-        key: S3 key for original_jobs.jsonl
-
-    Returns:
-        (index, temp_file_path) where index maps record_id to (offset, length)
-    """
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl")
-    tmp.close()
-    s3.download_file(bucket, key, tmp.name)
-
-    index: dict[str, tuple[int, int]] = {}
-    with open(tmp.name, "rb") as f:
-        while True:
-            offset = f.tell()
-            line = f.readline()
-            if not line:
-                break
-            line = line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            index[record["k"]] = (offset, len(line) + 1)
-
-    return index, tmp.name
-
-
-def _lookup_original_job(
-    filepath: str, index: dict[str, tuple[int, int]], record_id: str
-) -> dict[str, Any] | None:
-    """Look up a single original job by record_id using byte-offset index.
-
-    Args:
-        filepath: Path to the original_jobs.jsonl temp file
-        index: Byte-offset index from _build_original_jobs_index
-        record_id: Record ID to look up
-
-    Returns:
-        Original job dict, or None if not found
-    """
-    entry = index.get(record_id)
-    if not entry:
-        return None
-    offset, length = entry
-    with open(filepath, "rb") as f:
-        f.seek(offset)
-        line = f.read(length)
-    return json.loads(line)["v"]
-
-
-def _load_original_jobs_legacy(s3: Any, bucket: str, key: str) -> dict[str, Any]:
-    """Load original_jobs.json (legacy JSON dict format) into memory.
-
-    Backward compatibility for batch jobs created before the JSONL change.
-
-    Args:
-        s3: boto3 S3 client
-        bucket: S3 bucket name
-        key: S3 key for original_jobs.json
-
-    Returns:
-        Dict mapping record_id to original job
-    """
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    return json.loads(obj["Body"].read().decode("utf-8"))
-
-
-def _download_output_jsonl(
-    s3: Any, bucket: str, output_key_prefix: str
-) -> tuple[str, int, int]:
-    """Download all output JSONL files to a single temp file.
-
-    Args:
-        s3: boto3 S3 client
-        bucket: S3 bucket name
-        output_key_prefix: S3 key prefix for output files
-
-    Returns:
-        (temp_file_path, record_count, unparseable_count)
-    """
-    tmp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".jsonl")
-    record_count = 0
-    unparseable_count = 0
-
-    continuation_token = None
-    while True:
-        kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": output_key_prefix}
-        if continuation_token:
-            kwargs["ContinuationToken"] = continuation_token
-
-        list_response = s3.list_objects_v2(**kwargs)
-
-        for obj in list_response.get("Contents", []):
-            key = obj["Key"]
-            if not key.endswith(".jsonl.out") and not key.endswith(".jsonl"):
-                continue
-
-            response = s3.get_object(Bucket=bucket, Key=key)
-            body = response["Body"].read()
-
-            for raw_line in body.split(b"\n"):
-                line = raw_line.strip()
-                if not line:
-                    continue
-                try:
-                    json.loads(line)  # Validate JSON
-                    tmp.write(line + b"\n")
-                    record_count += 1
-                except json.JSONDecodeError as e:
-                    unparseable_count += 1
-                    logger.error(
-                        "failed_to_parse_output_record",
-                        key=key,
-                        error=str(e),
-                    )
-
-        if not list_response.get("IsTruncated"):
-            break
-        continuation_token = list_response.get("NextContinuationToken")
-
-    tmp.close()
-
-    if unparseable_count > 0:
-        logger.warning(
-            "batch_output_unparseable_records_summary",
-            unparseable_count=unparseable_count,
-            total_parsed=record_count,
-        )
-
-    return tmp.name, record_count, unparseable_count
 
 
 def _route_success(
@@ -386,9 +250,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         event_detail_keys=list(detail.keys()),
     )
 
-    # H4 FIX: Idempotency check — skip if already processed.
+    # Idempotency check — skip if already processed.
     # EventBridge may invoke this Lambda multiple times for the same event.
-    # Use a conditional write to atomically claim processing.
     if jobs_table:
         try:
             dynamodb.update_item(
@@ -401,7 +264,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 },
             )
         except Exception as e:
-            # Check if it's a ConditionalCheckFailedException (already processing)
             error_code = ""
             if hasattr(e, "response"):
                 error_code = e.response.get("Error", {}).get("Code", "")  # type: ignore[union-attr]
@@ -412,42 +274,36 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     status=status,
                 )
                 return {"status": "already_processed", "batch_job_arn": job_arn}
-            # Other errors should not block processing
             logger.warning(
                 "batch_idempotency_check_failed",
                 batch_job_arn=job_arn,
                 error=str(e),
             )
 
-    # Get batch metadata from DynamoDB (no S3 reads here — streaming later)
     metadata = _get_batch_metadata(dynamodb, jobs_table, job_arn)
     original_jobs_key = metadata["original_jobs_key"]
     output_key_prefix = metadata["output_key_prefix"]
 
-    # Temp file paths to clean up at the end
     temp_files: list[str] = []
 
     try:
-        # Determine streaming vs legacy mode based on S3 key extension
         use_streaming = original_jobs_key.endswith(".jsonl")
 
         if use_streaming:
-            # Streaming mode: build byte-offset index (only keys + offsets in memory)
-            orig_index, orig_jobs_path = _build_original_jobs_index(
+            orig_index, orig_jobs_path = build_original_jobs_index(
                 s3, batch_bucket, original_jobs_key
             )
             temp_files.append(orig_jobs_path)
             original_jobs_keys_set = set(orig_index.keys())
         else:
-            # Legacy mode: load full JSON dict into memory (old batch jobs)
-            original_jobs = _load_original_jobs_legacy(
+            original_jobs = load_original_jobs_legacy(
                 s3, batch_bucket, original_jobs_key
             )
             original_jobs_keys_set = set(original_jobs.keys())
 
         def _get_original_job(record_id: str) -> dict[str, Any] | None:
             if use_streaming:
-                return _lookup_original_job(orig_jobs_path, orig_index, record_id)
+                return lookup_original_job(orig_jobs_path, orig_index, record_id)
             return original_jobs.get(record_id)
 
         # Handle full failure: re-enqueue all original jobs
@@ -456,7 +312,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             failed_requeue_count = 0
 
             if use_streaming:
-                # Stream original_jobs.jsonl line-by-line, requeue each
                 with open(orig_jobs_path) as f:
                     for line in f:
                         line = line.strip()
@@ -504,8 +359,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             )
             return {"status": "Failed", "requeued": requeued}
 
-        # Download output JSONL to temp file (streaming)
-        output_path, output_count, unparseable_count = _download_output_jsonl(
+        output_path, output_count, unparseable_count = download_output_jsonl(
             s3, batch_bucket, output_key_prefix
         )
         temp_files.append(output_path)
@@ -515,7 +369,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         failed_requeue_count = 0
         output_record_ids: set[str] = set()
 
-        # Stream output temp file line-by-line
         with open(output_path) as f:
             for line in f:
                 line = line.strip()
@@ -526,7 +379,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 output_record_ids.add(record_id)
 
                 if "error" in record:
-                    # Per-record error: re-enqueue for on-demand retry
                     errors += 1
                     original_job = _get_original_job(record_id)
                     if original_job:
@@ -554,7 +406,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                         )
                     continue
 
-                # Successful record: route downstream
                 model_output = record.get("modelOutput", {})
                 original_job = _get_original_job(record_id)
 
@@ -605,8 +456,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 failed_requeue_count=failed_requeue_count,
             )
 
-        # For PartiallyCompleted batches, re-enqueue any original jobs that did
-        # not appear in the output (i.e., they were never processed by Bedrock).
+        # For PartiallyCompleted, re-enqueue missing jobs
         requeued = 0
         if status == "PartiallyCompleted":
             missing_ids = original_jobs_keys_set - output_record_ids
@@ -640,7 +490,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     missing_record_ids=sorted(missing_ids),
                 )
 
-        # Update DynamoDB job status to reflect processing outcome
+        # Update DynamoDB job status
         final_status = "completed" if errors == 0 else "failed"
         metadata_update_failed = False
         try:
@@ -655,13 +505,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     ":pc": {"N": str(processed)},
                     ":ec": {"N": str(errors)},
                 },
-            )
-            logger.info(
-                "batch_job_dynamodb_status_updated",
-                batch_job_arn=job_arn,
-                final_status=final_status,
-                processed=processed,
-                errors=errors,
             )
         except Exception as e:
             metadata_update_failed = True
