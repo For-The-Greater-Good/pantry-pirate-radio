@@ -977,7 +977,7 @@ class JobProcessor:
                         location_id = uuid.UUID(location_id_str)
 
                         # Create location addresses for both new and existing locations
-                        if "address" in location and location_id:
+                        if location.get("address") and location_id:
                             location_id_str = str(location_id)
 
                             # Check if addresses already exist for this location
@@ -1066,7 +1066,7 @@ class JobProcessor:
                                     )
 
                         # Create location phones with languages (for both new and existing locations)
-                        if "phones" in location and location_id:
+                        if location.get("phones") and location_id:
                             for phone in location["phones"]:
                                 # Use empty strings for missing fields
                                 phone_id = service_creator.create_phone(
@@ -1077,7 +1077,7 @@ class JobProcessor:
                                     transaction=self.db,
                                 )
                                 # Add phone languages (only if phone was created)
-                                if phone_id and "languages" in phone:
+                                if phone_id and phone.get("languages"):
                                     for language in phone["languages"]:
                                         service_creator.create_language(
                                             name=language.get("name", ""),
@@ -1218,7 +1218,7 @@ class JobProcessor:
                     service_id_map[service["id"]] = service_id
 
                 # Create service phones with languages
-                if "phones" in service:
+                if service.get("phones"):
                     for phone in service["phones"]:
                         # Use empty strings for missing fields
                         phone_id = service_creator.create_phone(
@@ -1229,7 +1229,7 @@ class JobProcessor:
                             transaction=self.db,
                         )
                         # Add phone languages (only if phone was created)
-                        if phone_id and "languages" in phone:
+                        if phone_id and phone.get("languages"):
                             for language in phone["languages"]:
                                 service_creator.create_language(
                                     name=language.get("name", ""),
@@ -1239,7 +1239,7 @@ class JobProcessor:
                                 )
 
                 # Create service languages
-                if "languages" in service:
+                if service.get("languages"):
                     for language in service["languages"]:
                         service_creator.create_language(
                             name=language.get("name", ""),
@@ -1301,12 +1301,19 @@ class JobProcessor:
                                     SERVICE_LOCATION_LINKS.labels(
                                         location_match_type="exact"
                                     ).inc()
+                                    # Populate SAL map for top-level schedule lookups
+                                    sal_key = f"{service['name']} at {loc['name']}"
+                                    service_at_location_id_map[sal_key] = sal_id
+                                    if sal_description:
+                                        service_at_location_id_map[sal_description] = (
+                                            sal_id
+                                        )
 
                                     # Collect all schedules from service and location
                                     schedules_to_create: list[ScheduleDict] = []
 
                                     # Add service schedules (transform format if needed)
-                                    if "schedules" in service:
+                                    if service.get("schedules"):
                                         for sched in service["schedules"]:
                                             transformed_sched = (
                                                 self._transform_schedule(sched)
@@ -1317,7 +1324,7 @@ class JobProcessor:
                                                 )
 
                                     # Add location schedules if they don't overlap with service schedules
-                                    if "schedules" in loc:
+                                    if loc.get("schedules"):
                                         loc_schedules = loc["schedules"]
                                         for loc_schedule in loc_schedules:
                                             transformed_sched = (
@@ -1350,7 +1357,7 @@ class JobProcessor:
                                     # The LLM often nests schedules inside service_at_location objects
                                     if "service_at_location" in data:
                                         for sal_entry in data["service_at_location"]:
-                                            if "schedules" not in sal_entry:
+                                            if not sal_entry.get("schedules"):
                                                 continue
                                             for sal_schedule in sal_entry["schedules"]:
                                                 transformed_sched = (
@@ -1432,6 +1439,7 @@ class JobProcessor:
                                                 opens_at=schedule["opens_at"],
                                                 closes_at=schedule["closes_at"],
                                                 service_at_location_id=sal_id,
+                                                location_id=location_ids[loc_key],
                                                 metadata=job_result.job.metadata,
                                                 byday=byday,
                                                 description=description,
@@ -1496,9 +1504,16 @@ class JobProcessor:
                         [org_id_for_phone, service_id_for_phone, location_id_for_phone]
                     ):
                         org_id_for_phone = org_id if org_id else None
-                        logger.debug(
-                            f"Phone {phone.get('number')} has no entity reference, attaching to organization"
-                        )
+                        # Attach to location when org has exactly one
+                        if len(location_ids) == 1:
+                            location_id_for_phone = next(iter(location_ids.values()))
+                            logger.debug(
+                                f"Phone {phone.get('number')} has no entity reference, attaching to organization and single location"
+                            )
+                        else:
+                            logger.debug(
+                                f"Phone {phone.get('number')} has no entity reference, attaching to organization only ({len(location_ids)} locations)"
+                            )
 
                     # Create phone record
                     if phone.get("number"):
@@ -1558,7 +1573,9 @@ class JobProcessor:
                             )
                             continue
 
-                    # Skip if no valid entity reference exists
+                    # Fall back to first service_at_location or location if no entity reference.
+                    # Many LLM outputs omit explicit entity refs for schedules; without this
+                    # fallback, valid schedule data would be silently dropped.
                     if not any(
                         [
                             service_id_for_schedule,
@@ -1566,10 +1583,41 @@ class JobProcessor:
                             service_at_location_id_for_schedule,
                         ]
                     ):
-                        logger.warning(
-                            "Schedule has no valid entity references, skipping"
-                        )
-                        continue
+                        if service_at_location_id_map:
+                            sal_key = next(iter(service_at_location_id_map))
+                            service_at_location_id_for_schedule = (
+                                service_at_location_id_map[sal_key]
+                            )
+                            if len(service_at_location_id_map) > 1:
+                                logger.warning(
+                                    "Schedule has no entity reference, attaching to first service_at_location (multiple SALs exist)",
+                                    attached_sal=str(
+                                        service_at_location_id_for_schedule
+                                    ),
+                                    sal_count=len(service_at_location_id_map),
+                                )
+                            else:
+                                logger.debug(
+                                    "Schedule has no entity reference, attaching to first service_at_location"
+                                )
+                        elif location_ids:
+                            loc_key = next(iter(location_ids))
+                            location_id_for_schedule = location_ids[loc_key]
+                            if len(location_ids) > 1:
+                                logger.warning(
+                                    "Schedule has no entity reference, attaching to first location (multiple locations exist)",
+                                    attached_location=str(location_id_for_schedule),
+                                    location_count=len(location_ids),
+                                )
+                            else:
+                                logger.debug(
+                                    "Schedule has no entity reference, attaching to first location"
+                                )
+                        else:
+                            logger.warning(
+                                "Schedule has no valid entity references and no fallback available, skipping"
+                            )
+                            continue
 
                     # Parse schedule fields with validation
                     if schedule and isinstance(schedule, dict):

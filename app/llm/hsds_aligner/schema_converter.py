@@ -42,28 +42,28 @@ FORMAT_HANDLERS = {
 TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
     # Geographic coordinates - US bounds including Alaska and Hawaii
     "latitude": {
-        "type": "number",
+        "type": ["number", "null"],
         "minimum": 18.91,  # Hawaii southern bound
         "maximum": 71.54,  # Alaska northern bound
-        "description": "US latitude including all states (18.91-71.54°N for Hawaii to Alaska)",
+        "description": "US latitude (18.91-71.54°N). ONLY provide if explicitly present in input data. Set to null if not provided.",
     },
     "longitude": {
-        "type": "number",
+        "type": ["number", "null"],
         "minimum": -179.15,  # Alaska/Aleutian western bound
         "maximum": -67,  # Eastern US bound
-        "description": "US longitude including all states (-179.15 to -67°W for Alaska to Eastern US)",
+        "description": "US longitude (-179.15 to -67°W). ONLY provide if explicitly present in input data. Set to null if not provided.",
     },
     "location.latitude": {
-        "type": "number",
+        "type": ["number", "null"],
         "minimum": 18.91,  # Hawaii southern bound
         "maximum": 71.54,  # Alaska northern bound
-        "description": "Location latitude in decimal degrees (US bounds: 18.91-71.54°N)",
+        "description": "Location latitude in decimal degrees (US bounds: 18.91-71.54°N). ONLY provide if explicitly present in input data. Set to null if not provided.",
     },
     "location.longitude": {
-        "type": "number",
+        "type": ["number", "null"],
         "minimum": -179.15,  # Alaska/Aleutian western bound
         "maximum": -67,  # Eastern US bound
-        "description": "Location longitude in decimal degrees (US bounds: -179.15 to -67°W)",
+        "description": "Location longitude in decimal degrees (US bounds: -179.15 to -67°W). ONLY provide if explicitly present in input data. Set to null if not provided.",
     },
     # Address constraints
     "address.state_province": {
@@ -1027,7 +1027,7 @@ class SchemaConverter:
                 "schema": schema,
                 "strict": True,
                 "temperature": 0.4,  # Ensure deterministic outputs
-                "max_tokens": 64768,  # Maximum tokens for structured output
+                "max_tokens": 16384,  # Maximum tokens for structured output
             },
         }
 
@@ -1127,12 +1127,12 @@ class SchemaConverter:
                             ]
                         elif name == "location":
                             # Critical fields for locations
+                            # latitude/longitude are NOT required from the LLM —
+                            # the validator/enricher geocodes them before reconciliation
                             required_fields = [
                                 "id",
                                 "name",
                                 "description",
-                                "latitude",
-                                "longitude",
                                 "location_type",
                             ]
                         elif name == "address":
@@ -1259,11 +1259,6 @@ class SchemaConverter:
             "FOOD PANTRY SPECIFIC GUIDANCE: "
             "CRITICAL STRUCTURE: Output must have these top-level arrays: organization[], service[], location[], "
             "and optionally: service_at_location[], phone[], schedule[]. "
-            "LOCATION CREATION RULES: "
-            "1. ALWAYS create separate locations for different addresses - never combine them. "
-            "2. Mobile pantries: Create a location for each regular stop (e.g., 'Walmart Parking Lot - Main St'). "
-            "3. Multi-site distributions: If one organization distributes at multiple sites, create a location for each. "
-            "4. Church partnerships: Each church/community center needs its own location entity. "
             "SERVICE TYPES TO RECOGNIZE: "
             "- 'Food Pantry' or 'Food Distribution': Standard grocery distribution "
             "- 'Mobile Pantry' or 'Mobile Food Distribution': Truck/van that travels to sites "
@@ -1271,10 +1266,6 @@ class SchemaConverter:
             "- 'Hot Meals', 'Community Meals', 'Soup Kitchen': Prepared food to eat on-site "
             "- 'Food Box', 'Commodity Box', 'Senior Box': Pre-packed food boxes "
             "- 'Weekend Backpack', 'Kids Pack': Food for children to take home "
-            "SCHEDULE PATTERNS: "
-            "- Use RRULE format: freq=WEEKLY for weekly distributions, freq=MONTHLY for monthly "
-            "- Common patterns: '1st and 3rd Tuesday' = freq=MONTHLY;byday=TU;bysetpos=1,3 "
-            "- Time format: HH:MM in 24-hour format (e.g., '09:00' for 9 AM, '13:30' for 1:30 PM) "
             "REQUIRED DOCUMENTS (if mentioned): "
             "- 'Photo ID' or 'ID': Government-issued identification "
             "- 'Proof of Address': Utility bill, lease, or mail showing address "
@@ -1283,11 +1274,7 @@ class SchemaConverter:
             "SERVICE AREAS: "
             "- ZIP codes served: List as comma-separated (e.g., '44101, 44102, 44103') "
             "- County restrictions: Name the county (e.g., 'Cuyahoga County residents only') "
-            "- No restrictions: Indicate 'Open to all' or 'No geographic restrictions' "
-            "DATA QUALITY: "
-            "- Never invent phone numbers, addresses, or specific details not in the source "
-            "- If schedule is unclear, use description field to capture text as-is "
-            "- Maintain original names - don't standardize 'St.' to 'Saint' or vice versa"
+            "- No restrictions: Indicate 'Open to all' or 'No geographic restrictions'"
         )
 
         return {
@@ -1298,7 +1285,7 @@ class SchemaConverter:
                 "schema": hsds_core_schema,
                 "strict": True,
                 "temperature": 0.4,
-                "max_tokens": 64768,  # Maximum tokens for structured output
+                "max_tokens": 16384,  # Maximum tokens for structured output
             },
         }
 
@@ -1493,6 +1480,6 @@ class SchemaConverter:
                 "schema": hsds_full_schema,
                 "strict": True,
                 "temperature": 0.4,  # Ensure deterministic outputs
-                "max_tokens": 64768,  # Maximum tokens for structured output
+                "max_tokens": 16384,  # Maximum tokens for structured output
             },
         }

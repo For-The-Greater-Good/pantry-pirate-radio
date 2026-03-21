@@ -1,5 +1,11 @@
 ## Amendment Log
 
+### v1.4.0 — 2026-03-20
+- **Amended Principle VII**: Clarified that authenticated write endpoints (Tightbeam) are permitted with API key auth and full provenance
+
+### v1.3.0 — 2026-03-09
+- **Amended Principle XIV**: Added plugin monitoring exception clause
+
 ### v1.2.0 — 2026-03-07
 - **Added Principle XIV**: AWS Observability (Alarms & Dashboards)
 - **Added Principle XV**: Dual Environment Compatibility (Docker & AWS)
@@ -132,7 +138,8 @@ All location data MUST pass through the confidence scoring system before persist
 The system MUST NOT collect, store, or process Personally Identifiable Information (PII).
 
 - All data collected MUST be publicly available information about organizations, not individuals
-- API endpoints MUST be read-only for public consumers; write operations MUST be internal-only
+- Public API endpoints MUST be read-only for unauthenticated consumers
+- Authenticated write endpoints (e.g., Tightbeam) are permitted for authorized plugins and field staff, provided they require API key authentication and record full provenance in the change_audit table. These are distinct from the public consumer endpoints
 - Environment secrets (API keys, database credentials) MUST use environment variables via `.env` files
 - `.env` files MUST NEVER be committed to version control
 - Test data MUST use fictional information only: `555-xxx-xxxx` phones, `example.com` domains, clearly fake addresses
@@ -272,9 +279,11 @@ All new AWS infrastructure MUST include CloudWatch alarms and dashboard widgets 
 - Dashboard widgets MUST include at minimum: throughput/invocation metrics, error/failure metrics, and latency or utilization metrics where applicable
 - New stacks MUST expose metric-relevant constructs (functions, queues, tables) so `MonitoringStack` can reference them
 
+**Plugin Exception**: Plugin CDK stacks (discovered via `plugins/*/plugin.yml`) MAY contain their own CloudWatch alarms and dashboard widgets within the plugin stack, provided that all alarms route to the centralized SNS topic (`pantry-pirate-radio-alerts-{environment}`). Plugin stacks MUST reference the SNS topic by ARN convention, not cross-stack reference.
+
 **PR Checklist for AWS Changes**:
 - [ ] CloudWatch alarms added for all new resources
-- [ ] Dashboard widgets added to `MonitoringStack`
+- [ ] Dashboard widgets added to `MonitoringStack` (or plugin stack per Plugin Exception)
 - [ ] Alarms route to the centralized SNS topic
 - [ ] `infra/tests/` updated to assert alarm and dashboard widget existence
 
@@ -378,4 +387,4 @@ Changes to principles MUST propagate to:
 - `.pre-commit-config.yaml` (quality gate enforcement)
 - `.github/workflows/ci.yml` (CI pipeline alignment)
 
-**Version**: 1.2.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-07
+**Version**: 1.3.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-09

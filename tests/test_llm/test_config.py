@@ -8,8 +8,8 @@ from app.llm.config import LLMConfig
 @pytest.mark.parametrize(
     "model_name,temperature,timeout,max_tokens",
     [
-        ("mistral-small", 0.7, 30, 64768),  # Default values
-        ("mistral", 0.5, 60, 64768),  # Custom values
+        ("mistral-small", 0.7, 30, 64000),  # Default values
+        ("mistral", 0.5, 60, 64000),  # Custom values
         ("codellama", 0.9, 120, 8192),  # Large values
     ],
 )
@@ -99,6 +99,6 @@ async def test_llm_config_inheritance() -> None:
     config = LLMConfig()
 
     # Test inherited properties
-    assert config.context_length == 64768
+    assert config.context_length == 64000
     assert config.default_temp == 0.7
     assert config.supports_json is True

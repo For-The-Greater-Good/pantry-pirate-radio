@@ -11,7 +11,7 @@
 
 llm:
   temperature: 0.7
-  max_tokens: 64768
+  max_tokens: 16384
   timeout: 30
   retries: 3
 
@@ -40,3 +40,6 @@ content_store:
 
 reconciler:
   location_tolerance: 0.0001
+
+tightbeam:
+  enabled: true

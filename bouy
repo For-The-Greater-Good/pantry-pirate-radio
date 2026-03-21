@@ -45,6 +45,54 @@ VERSION="1.0.0"
 # Set consistent project name to avoid network naming issues
 export COMPOSE_PROJECT_NAME="pantry-pirate-radio"
 
+# Plugin discovery — scan plugins/*/plugin.yml for compose overlays
+discover_plugins() {
+    local plugin_dir="$SCRIPT_DIR/plugins"
+    if [ ! -d "$plugin_dir" ]; then
+        return
+    fi
+    for manifest in "$plugin_dir"/*/plugin.yml; do
+        [ -f "$manifest" ] || continue
+        local pdir
+        pdir="$(dirname "$manifest")"
+        local compose_file="$pdir/.docker/compose.yml"
+        if [ -f "$compose_file" ]; then
+            COMPOSE_FILES="$COMPOSE_FILES -f $compose_file"
+        fi
+    done
+}
+
+# Run a plugin command: plugins/<name>/commands/<subcmd>.sh
+run_plugin_command() {
+    local plugin_name="$1"
+    shift
+    local subcmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    # Validate: no path traversal in plugin_name or subcmd
+    if [[ "$plugin_name" == */* ]] || [[ "$plugin_name" == *..* ]]; then
+        echo "ERROR: Invalid plugin name: $plugin_name"
+        exit 1
+    fi
+    if [[ "$subcmd" == */* ]] || [[ "$subcmd" == *..* ]]; then
+        echo "ERROR: Invalid command name: $subcmd"
+        exit 1
+    fi
+
+    local cmd_file="$SCRIPT_DIR/plugins/$plugin_name/commands/$subcmd.sh"
+    if [ -f "$cmd_file" ]; then
+        bash "$cmd_file" "$@"
+    else
+        echo "ERROR: Unknown plugin command: $plugin_name $subcmd"
+        echo "Available commands in plugins/$plugin_name/commands/:"
+        ls "$SCRIPT_DIR/plugins/$plugin_name/commands/" 2>/dev/null | sed 's/\.sh$//' || echo "  (none)"
+        exit 1
+    fi
+}
+
+# Discover plugin compose overlays
+discover_plugins
+
 # Export .env variables if the file exists
 if [ -f .env ]; then
     # Use a safer method that handles special characters properly
@@ -1379,6 +1427,41 @@ print(json.dumps(l))
                                     ;;
                             esac
                         done
+
+                        # Validate scraper names against available scrapers
+                        SCRAPER_DIR="$SCRIPT_DIR/app/scraper/scrapers"
+                        if [ -d "$SCRAPER_DIR" ]; then
+                            VALID_NAMES=$(ls "$SCRAPER_DIR"/*_scraper.py 2>/dev/null | xargs -I{} basename {} _scraper.py)
+                            INVALID=""
+                            for name in $(echo "$SCRAPERS" | python3 -c "import sys,json; [print(n) for n in json.load(sys.stdin)]"); do
+                                # Strip scrapers. prefix if present
+                                bare_name="${name#scrapers.}"
+                                if ! echo "$VALID_NAMES" | grep -qx "$bare_name"; then
+                                    INVALID="$INVALID $name"
+                                    # Find similar names
+                                    SIMILAR=$(echo "$VALID_NAMES" | grep "$bare_name" || true)
+                                    if [ -z "$SIMILAR" ]; then
+                                        # Try each word fragment
+                                        for frag in $(echo "$bare_name" | tr '_' '\n'); do
+                                            [ ${#frag} -lt 3 ] && continue
+                                            SIMILAR=$(echo "$VALID_NAMES" | grep "$frag" || true)
+                                            [ -n "$SIMILAR" ] && break
+                                        done
+                                    fi
+                                    output error "Unknown scraper: '$name'"
+                                    if [ -n "$SIMILAR" ]; then
+                                        echo "  Did you mean one of these?"
+                                        echo "$SIMILAR" | while read -r s; do echo "    - scrapers.$s"; done
+                                    fi
+                                fi
+                            done
+                            if [ -n "$INVALID" ]; then
+                                echo ""
+                                echo "Use './bouy scraper --list' to see all available scrapers."
+                                exit 1
+                            fi
+                        fi
+
                         SCRAPERS_JSON="{\"scrapers\": $SCRAPERS}"
                         ;;
                 esac
@@ -2172,6 +2255,10 @@ print(json.dumps(l))
             if [ -f "$(pwd)/.env" ]; then
                 mount_args+=(-v "$(pwd)/.env:/app/.env:ro")
             fi
+            # Mount plugins so CDK synth can discover plugin stacks
+            if [ -d "$(pwd)/plugins" ]; then
+                mount_args+=(-v "$(pwd)/plugins:/plugins:ro")
+            fi
             docker run --rm \
                 "${mount_args[@]}" \
                 -e CDK_DEPLOY_ENVIRONMENT="$DEPLOY_ENV" \
@@ -2301,6 +2388,102 @@ print(json.dumps(l))
             output success "All images pushed to ECR"
         }
 
+        # Helper: extract a value from plugin.yml using shell-native parsing
+        # Usage: _plugin_yml_get <manifest> <key>
+        # Supported keys: ecr_name, context, dockerfile
+        # Returns the value or empty string if not found
+        _plugin_yml_get() {
+            local file="$1" key="$2"
+            # Read lines under docker.build section and extract the key
+            awk -v key="$key" '
+                /^docker:/ { in_docker=1; next }
+                in_docker && /^  build:/ { in_build=1; next }
+                in_docker && in_build && /^    '"'"'?'"'"'?/ {
+                    # Match "    key: value" (with optional quotes on value)
+                    if ($0 ~ "^    " key ":") {
+                        sub(/^[^:]+:[[:space:]]*/, "")
+                        gsub(/["'"'"']/, "")  # strip quotes
+                        print
+                        exit
+                    }
+                }
+                # Exit nested section on un-indented line
+                in_build && /^[^ ]/ { exit }
+                in_docker && /^[^ ]/ { exit }
+            ' "$file"
+        }
+
+        # Helper: build and push plugin Docker images
+        # Scans plugins/*/plugin.yml for docker.build.ecr_name entries
+        build_and_push_plugin_images() {
+            IMAGE_TAG="latest"
+            local found_plugin=false
+
+            for manifest in "$(pwd)"/plugins/*/plugin.yml; do
+                [ -f "$manifest" ] || continue
+                plugin_dir=$(dirname "$manifest")
+                plugin_name=$(basename "$plugin_dir")
+
+                # Extract docker.build values from plugin.yml (shell-native, no PyYAML needed)
+                ecr_name=$(_plugin_yml_get "$manifest" ecr_name)
+                [ -n "$ecr_name" ] || continue
+                found_plugin=true
+
+                build_context=$(_plugin_yml_get "$manifest" context)
+                build_context="${build_context:-.}"
+                dockerfile=$(_plugin_yml_get "$manifest" dockerfile)
+                dockerfile="${dockerfile:-Dockerfile}"
+
+                ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ecr_name}-${DEPLOY_ENV}"
+                LOCAL_IMAGE="${ecr_name}:${IMAGE_TAG}"
+
+                output info "Building plugin image: ${plugin_name}..."
+                if ! docker build -t "$LOCAL_IMAGE" \
+                    --platform linux/amd64 \
+                    -f "${plugin_dir}/${dockerfile}" \
+                    "${plugin_dir}/${build_context}"; then
+                    output error "Failed to build plugin image: ${plugin_name}"
+                    exit 1
+                fi
+                output success "Built plugin image: ${plugin_name}"
+
+                output info "Pushing plugin image: ${plugin_name}..."
+                docker tag "$LOCAL_IMAGE" "${ECR_REPO}:${IMAGE_TAG}"
+                if ! docker push "${ECR_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                    output error "Failed to push plugin image: ${plugin_name}"
+                    exit 1
+                fi
+                output success "Pushed plugin image: ${plugin_name}"
+            done
+
+            if [ "$found_plugin" = true ]; then
+                output success "All plugin images pushed to ECR"
+            fi
+        }
+
+        # Helper: force redeploy plugin ECS services
+        redeploy_plugin_services() {
+            CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
+
+            for manifest in "$(pwd)"/plugins/*/plugin.yml; do
+                [ -f "$manifest" ] || continue
+                plugin_dir=$(dirname "$manifest")
+                plugin_name=$(basename "$plugin_dir")
+
+                ecr_name=$(_plugin_yml_get "$manifest" ecr_name)
+                [ -n "$ecr_name" ] || continue
+
+                SERVICE_NAME="${ecr_name}-${DEPLOY_ENV}"
+                # Set desired-count=1 in case the CDK stack created the service with count=0
+                # (first deploy — no image in ECR yet, so service starts paused)
+                if aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE_NAME" --desired-count 1 --force-new-deployment --no-cli-pager > /dev/null 2>&1; then
+                    output success "Redeployed plugin: ${plugin_name}"
+                else
+                    output warning "Could not redeploy plugin: ${plugin_name} (service may not exist yet)"
+                fi
+            done
+        }
+
         case "$DEPLOY_MODE" in
             diff)
                 output info "Running CDK diff..."
@@ -2362,6 +2545,10 @@ print(json.dumps(l))
                     output warning "Could not update Lambda API (may not exist yet)"
                 fi
 
+                # Build, push, and redeploy plugin images
+                build_and_push_plugin_images
+                redeploy_plugin_services
+
                 output success "Image build, push, and redeploy complete."
                 ;;
             infra)
@@ -2395,6 +2582,10 @@ print(json.dumps(l))
                 fi
                 output success "CDK deployment complete"
 
+                # Phase 3.5: Build and push plugin images (plugin ECR repos now exist)
+                output info "Phase 3.5: Building and pushing plugin images..."
+                build_and_push_plugin_images
+
                 # Phase 4: Force ECS services and Lambda to pull new images
                 output info "Phase 4: Forcing service redeployment..."
                 ECS_SERVICES="worker validator reconciler recorder"
@@ -2416,6 +2607,9 @@ print(json.dumps(l))
                 else
                     output warning "Could not update Lambda API (may not exist yet)"
                 fi
+
+                # Redeploy plugin services
+                redeploy_plugin_services
                 ;;
         esac
 
@@ -2435,7 +2629,14 @@ print(json.dumps(l))
         ;;
 
     *)
-        usage
-        exit 1
+        # Check if this is a plugin command
+        PLUGIN_CMD="$1"
+        shift
+        if [ -d "$SCRIPT_DIR/plugins/$PLUGIN_CMD" ] && [ -f "$SCRIPT_DIR/plugins/$PLUGIN_CMD/plugin.yml" ]; then
+            run_plugin_command "$PLUGIN_CMD" "$@"
+        else
+            usage
+            exit 1
+        fi
         ;;
 esac

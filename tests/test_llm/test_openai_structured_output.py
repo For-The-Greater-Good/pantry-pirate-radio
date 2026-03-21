@@ -154,7 +154,7 @@ def test_full_flow_with_wrapped_schema():
                 "required": ["organization"],
             },
             "strict": True,
-            "max_tokens": 64768,
+            "max_tokens": 16384,
             "temperature": 0.4,
         },
     }

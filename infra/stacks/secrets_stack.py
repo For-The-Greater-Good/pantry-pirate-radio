@@ -3,6 +3,7 @@
 Creates AWS Secrets Manager secrets for centralized secrets management:
 - GitHub PAT for HAARRRvest publishing
 - LLM API keys (Anthropic/OpenRouter/ArcGIS)
+- Tightbeam API keys for location management endpoints
 
 Secret values are seeded from .env at deploy time. CloudFormation only updates
 the value if it changes in the template (i.e., if .env changes between deploys).
@@ -36,6 +37,7 @@ class SecretsStack(Stack):
     Attributes:
         github_pat_secret: Secret for GitHub PAT
         llm_api_keys_secret: Secret for LLM provider API keys
+        tightbeam_api_keys_secret: Secret for Tightbeam API keys
     """
 
     def __init__(
@@ -68,6 +70,9 @@ class SecretsStack(Stack):
         # Create secrets
         self.github_pat_secret = self._create_github_pat_secret(removal_policy)
         self.llm_api_keys_secret = self._create_llm_api_keys_secret(removal_policy)
+        self.tightbeam_api_keys_secret = self._create_tightbeam_api_keys_secret(
+            removal_policy
+        )
 
     def _create_github_pat_secret(
         self, removal_policy: RemovalPolicy
@@ -121,6 +126,34 @@ class SecretsStack(Stack):
                 SecretValue.unsafe_plain_text(json.dumps(api_keys))
                 if has_any_key
                 else None
+            ),
+            removal_policy=removal_policy,
+        )
+
+        return secret
+
+    def _create_tightbeam_api_keys_secret(
+        self, removal_policy: RemovalPolicy
+    ) -> secretsmanager.Secret:
+        """Create secret for Tightbeam API keys.
+
+        Stores API keys used by tightbeam endpoints for authentication.
+        Format: ``name:key,name2:key2`` (matches TIGHTBEAM_API_KEYS env var).
+
+        Seeds value from TIGHTBEAM_API_KEYS in .env if available.
+
+        Returns:
+            Secrets Manager secret for Tightbeam API keys
+        """
+        value = SECRETS.get("TIGHTBEAM_API_KEYS", "")
+
+        secret = secretsmanager.Secret(
+            self,
+            "TightbeamApiKeysSecret",
+            secret_name=f"pantry-pirate-radio/tightbeam-api-keys-{self.environment_name}",
+            description=f"Tightbeam API keys for location management - {self.environment_name}",
+            secret_string_value=(
+                SecretValue.unsafe_plain_text(value) if value else None
             ),
             removal_policy=removal_policy,
         )

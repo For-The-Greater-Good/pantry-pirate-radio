@@ -17,6 +17,12 @@ fi
 # Wait for Docker to be ready
 if ! wait_for_docker 30 2; then
     echo "⚠️  Continuing without Docker - you'll need to start it manually"
+else
+    # Register QEMU emulators for multi-arch builds (ARM64 Lambda images on x86 hosts)
+    echo "🏗️ Registering QEMU emulators for multi-arch builds..."
+    docker run --rm --privileged multiarch/qemu-user-static --reset -p yes 2>/dev/null \
+        && echo "✅ QEMU emulators registered" \
+        || echo "⚠️  QEMU registration failed (non-critical, only needed for cross-arch builds)"
 fi
 
 # Check if .env exists, if not create it

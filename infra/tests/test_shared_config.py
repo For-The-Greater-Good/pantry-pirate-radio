@@ -37,6 +37,7 @@ class TestSharedConfig:
             "GEOCODING_TIMEOUT",
             "CONTENT_STORE_ENABLED",
             "RECONCILER_LOCATION_TOLERANCE",
+            "TIGHTBEAM_ENABLED",
         }
         assert set(SHARED.keys()) == expected_keys
 
@@ -48,8 +49,8 @@ class TestSharedConfig:
             ), f"SHARED[{key!r}] = {value!r} is not a string"
 
     def test_shared_llm_max_tokens(self):
-        """LLM_MAX_TOKENS must be '64768' (not '8192' or 'None')."""
-        assert SHARED["LLM_MAX_TOKENS"] == "64768"
+        """LLM_MAX_TOKENS must be '16384'."""
+        assert SHARED["LLM_MAX_TOKENS"] == "16384"
 
     def test_shared_boolean_values_are_lowercase(self):
         """Boolean values must be lowercase 'true'/'false'."""
@@ -114,7 +115,7 @@ class TestBatchStackUsesSharedConfig:
         return assertions.Template.from_stack(app.node.find_child("BatchStack"))
 
     def test_batcher_lambda_has_shared_llm_max_tokens(self, template):
-        """Batcher Lambda must use shared LLM_MAX_TOKENS (64768)."""
+        """Batcher Lambda must use shared LLM_MAX_TOKENS (16384)."""
         template.has_resource_properties(
             "AWS::Lambda::Function",
             assertions.Match.object_like(

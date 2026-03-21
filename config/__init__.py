@@ -7,7 +7,7 @@ Usage:
     from config import load_defaults
 
     defaults = load_defaults()
-    # {"LLM_TEMPERATURE": 0.7, "LLM_MAX_TOKENS": 64768, ...}
+    # {"LLM_TEMPERATURE": 0.7, "LLM_MAX_TOKENS": 16384, ...}
 """
 
 from pathlib import Path
@@ -22,7 +22,7 @@ def _hardcoded_defaults() -> dict[str, Any]:
     """
     return {
         "LLM_TEMPERATURE": 0.7,
-        "LLM_MAX_TOKENS": 64768,
+        "LLM_MAX_TOKENS": 16384,
         "LLM_TIMEOUT": 30,
         "LLM_RETRIES": 3,
         "VALIDATOR_ENABLED": True,
@@ -37,6 +37,7 @@ def _hardcoded_defaults() -> dict[str, Any]:
         "GEOCODING_TIMEOUT": 10,
         "CONTENT_STORE_ENABLED": True,
         "RECONCILER_LOCATION_TOLERANCE": 0.0001,
+        "TIGHTBEAM_ENABLED": True,
     }
 
 
@@ -58,6 +59,7 @@ _KEY_MAP: dict[str, str] = {
     "geocoding.timeout": "GEOCODING_TIMEOUT",
     "content_store.enabled": "CONTENT_STORE_ENABLED",
     "reconciler.location_tolerance": "RECONCILER_LOCATION_TOLERANCE",
+    "tightbeam.enabled": "TIGHTBEAM_ENABLED",
 }
 
 

@@ -1,12 +1,21 @@
+# ruff: noqa: N803
+# (boto3 API uses PascalCase keyword arguments: Bucket, Key, Filename)
 """Tests for the Batch Result Processor Lambda handler."""
 
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.llm.queue.batch_result_processor import _read_output_jsonl, handler
+from app.llm.queue.batch_io import (
+    build_original_jobs_index,
+    download_output_jsonl,
+    lookup_original_job,
+)
+from app.llm.queue.batch_result_processor import handler
 
 
 def _make_batch_output_record(
@@ -14,26 +23,21 @@ def _make_batch_output_record(
     success: bool = True,
     text: str = '{"name": "Food Bank"}',
 ) -> dict:
-    """Create a mock Bedrock batch output record."""
+    """Create a mock Bedrock batch output record (Messages API / InvokeModel format)."""
     if success:
         return {
             "recordId": record_id,
             "modelOutput": {
-                "output": {
-                    "message": {
-                        "content": [
-                            {
-                                "toolUse": {
-                                    "name": "structured_output",
-                                    "input": json.loads(text),
-                                    "toolUseId": "tool-123",
-                                }
-                            }
-                        ]
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool-123",
+                        "name": "structured_output",
+                        "input": json.loads(text),
                     }
-                },
-                "stopReason": "tool_use",
-                "usage": {"inputTokens": 100, "outputTokens": 50},
+                ],
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 100, "output_tokens": 50},
             },
         }
     else:
@@ -52,7 +56,10 @@ def _make_original_job(job_id: str) -> dict:
         "job_id": job_id,
         "job": {
             "id": job_id,
-            "prompt": "Align this data",
+            "prompt": [
+                {"role": "system", "content": "Align this data"},
+                {"role": "user", "content": "Input Data:\ntest"},
+            ],
             "format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -89,6 +96,162 @@ def _make_event(
     }
 
 
+def _write_original_jobs_jsonl(jobs: dict[str, dict]) -> str:
+    """Write original jobs as JSONL to a temp file and return the path."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+    for k, v in jobs.items():
+        tmp.write(json.dumps({"k": k, "v": v}) + "\n")
+    tmp.close()
+    return tmp.name
+
+
+def _mock_s3_for_streaming(
+    mock_s3: MagicMock,
+    original_jobs: dict[str, dict],
+    output_records: list[dict],
+    original_jobs_key: str = "input/exec-123/original_jobs.jsonl",
+) -> None:
+    """Configure mock S3 for streaming mode (JSONL original_jobs + output download)."""
+
+    def download_file(Bucket, Key, Filename):
+        """Mock s3.download_file by writing JSONL to the target file."""
+        with open(Filename, "w") as f:
+            for k, v in original_jobs.items():
+                f.write(json.dumps({"k": k, "v": v}) + "\n")
+
+    mock_s3.download_file.side_effect = download_file
+
+    # Output JSONL: return all records as bytes from get_object
+    output_bytes = "\n".join(json.dumps(r) for r in output_records).encode()
+    mock_s3.get_object.return_value = {"Body": MagicMock(read=lambda: output_bytes)}
+    mock_s3.list_objects_v2.return_value = {
+        "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
+    }
+
+
+class TestStreamingHelpers:
+    """Tests for build_original_jobs_index and lookup_original_job."""
+
+    def test_build_index_creates_correct_offsets(self):
+        """Index should map record IDs to byte offsets for O(1) lookup."""
+        original_jobs = {
+            "job-1": _make_original_job("job-1"),
+            "job-2": _make_original_job("job-2"),
+            "job-3": _make_original_job("job-3"),
+        }
+        filepath = _write_original_jobs_jsonl(original_jobs)
+
+        try:
+            mock_s3 = MagicMock()
+
+            def download_file(Bucket, Key, Filename):
+                import shutil
+
+                shutil.copy(filepath, Filename)
+
+            mock_s3.download_file.side_effect = download_file
+
+            index, tmp_path = build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
+
+            assert len(index) == 3
+            assert "job-1" in index
+            assert "job-2" in index
+            assert "job-3" in index
+
+            # Each entry is (offset, length)
+            for _key, (offset, length) in index.items():
+                assert isinstance(offset, int)
+                assert isinstance(length, int)
+                assert offset >= 0
+                assert length > 0
+
+            os.unlink(tmp_path)
+        finally:
+            os.unlink(filepath)
+
+    def test_lookup_returns_correct_record(self):
+        """Lookup should return the exact original job for a given record ID."""
+        original_jobs = {
+            "job-1": _make_original_job("job-1"),
+            "job-2": _make_original_job("job-2"),
+        }
+        filepath = _write_original_jobs_jsonl(original_jobs)
+
+        try:
+            mock_s3 = MagicMock()
+
+            def download_file(Bucket, Key, Filename):
+                import shutil
+
+                shutil.copy(filepath, Filename)
+
+            mock_s3.download_file.side_effect = download_file
+
+            index, tmp_path = build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
+
+            result = lookup_original_job(tmp_path, index, "job-1")
+            assert result is not None
+            assert result["job_id"] == "job-1"
+
+            result2 = lookup_original_job(tmp_path, index, "job-2")
+            assert result2 is not None
+            assert result2["job_id"] == "job-2"
+
+            os.unlink(tmp_path)
+        finally:
+            os.unlink(filepath)
+
+    def test_lookup_returns_none_for_missing(self):
+        """Lookup should return None for nonexistent record IDs."""
+        original_jobs = {"job-1": _make_original_job("job-1")}
+        filepath = _write_original_jobs_jsonl(original_jobs)
+
+        try:
+            mock_s3 = MagicMock()
+
+            def download_file(Bucket, Key, Filename):
+                import shutil
+
+                shutil.copy(filepath, Filename)
+
+            mock_s3.download_file.side_effect = download_file
+
+            index, tmp_path = build_original_jobs_index(mock_s3, "bucket", "key.jsonl")
+
+            result = lookup_original_job(tmp_path, index, "nonexistent")
+            assert result is None
+
+            os.unlink(tmp_path)
+        finally:
+            os.unlink(filepath)
+
+    def testdownload_output_jsonl_writes_to_temp(self):
+        """download_output_jsonl should write records to a temp file."""
+        mock_s3 = MagicMock()
+        record1 = _make_batch_output_record("job-1")
+        record2 = _make_batch_output_record("job-2")
+        output_bytes = (json.dumps(record1) + "\n" + json.dumps(record2)).encode()
+
+        mock_s3.list_objects_v2.return_value = {
+            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
+        }
+        mock_s3.get_object.return_value = {"Body": MagicMock(read=lambda: output_bytes)}
+
+        path, count, unparseable = download_output_jsonl(
+            mock_s3, "bucket", "output/exec-123/"
+        )
+
+        try:
+            assert count == 2
+            assert unparseable == 0
+            # Verify temp file contains the records
+            with open(path) as f:
+                lines = [line.strip() for line in f if line.strip()]
+            assert len(lines) == 2
+        finally:
+            os.unlink(path)
+
+
 class TestCompletedRouting:
     """Tests for successful batch job completion routing."""
 
@@ -107,29 +270,15 @@ class TestCompletedRouting:
         job_arn = "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
         original_jobs = {"job-1": _make_original_job("job-1")}
 
-        # DynamoDB returns batch metadata with original_jobs_key
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
 
-        # S3 returns original_jobs and output JSONL
         output_record = _make_batch_output_record("job-1")
-
-        def s3_get_object(**kwargs):
-            key = kwargs.get("Key", "")
-            if "original_jobs" in key:
-                return {
-                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-                }
-            return {"Body": MagicMock(read=lambda: json.dumps(output_record).encode())}
-
-        mock_s3.get_object.side_effect = s3_get_object
-        mock_s3.list_objects_v2.return_value = {
-            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
-        }
+        _mock_s3_for_streaming(mock_s3, original_jobs, [output_record])
 
         event = _make_event("Completed", job_arn)
         with patch.dict(
@@ -173,24 +322,12 @@ class TestCompletedRouting:
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
 
         output_record = _make_batch_output_record("job-1")
-
-        def s3_get_object(**kwargs):
-            key = kwargs.get("Key", "")
-            if "original_jobs" in key:
-                return {
-                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-                }
-            return {"Body": MagicMock(read=lambda: json.dumps(output_record).encode())}
-
-        mock_s3.get_object.side_effect = s3_get_object
-        mock_s3.list_objects_v2.return_value = {
-            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
-        }
+        _mock_s3_for_streaming(mock_s3, original_jobs, [output_record])
 
         event = _make_event("Completed", job_arn)
         with patch.dict(
@@ -231,24 +368,12 @@ class TestCompletedRouting:
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
 
         output_record = _make_batch_output_record("job-1")
-
-        def s3_get_object(**kwargs):
-            key = kwargs.get("Key", "")
-            if "original_jobs" in key:
-                return {
-                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-                }
-            return {"Body": MagicMock(read=lambda: json.dumps(output_record).encode())}
-
-        mock_s3.get_object.side_effect = s3_get_object
-        mock_s3.list_objects_v2.return_value = {
-            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
-        }
+        _mock_s3_for_streaming(mock_s3, original_jobs, [output_record])
 
         event = _make_event("Completed")
         with patch.dict(
@@ -292,12 +417,17 @@ class TestFailureHandling:
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
-        mock_s3.get_object.return_value = {
-            "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-        }
+
+        # Mock download_file for streaming original_jobs
+        def download_file(Bucket, Key, Filename):
+            with open(Filename, "w") as f:
+                for k, v in original_jobs.items():
+                    f.write(json.dumps({"k": k, "v": v}) + "\n")
+
+        mock_s3.download_file.side_effect = download_file
 
         event = _make_event("Failed")
         with patch.dict(
@@ -342,29 +472,14 @@ class TestFailureHandling:
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
 
         # One success, one error
         success_record = _make_batch_output_record("job-1", success=True)
         error_record = _make_batch_output_record("job-2", success=False)
-        jsonl_output = json.dumps(success_record) + "\n" + json.dumps(error_record)
-
-        call_count = [0]
-
-        def s3_get_object(**kwargs):
-            key = kwargs.get("Key", "")
-            if "original_jobs" in key:
-                return {
-                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-                }
-            return {"Body": MagicMock(read=lambda: jsonl_output.encode())}
-
-        mock_s3.get_object.side_effect = s3_get_object
-        mock_s3.list_objects_v2.return_value = {
-            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
-        }
+        _mock_s3_for_streaming(mock_s3, original_jobs, [success_record, error_record])
 
         event = _make_event("PartiallyCompleted")
         with patch.dict(
@@ -415,27 +530,14 @@ class TestMissingOriginalJob:
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
 
         # Batch output contains job-1 (known) and job-unknown (missing)
         known_record = _make_batch_output_record("job-1")
         unknown_record = _make_batch_output_record("job-unknown")
-        jsonl_output = json.dumps(known_record) + "\n" + json.dumps(unknown_record)
-
-        def s3_get_object(**kwargs):
-            key = kwargs.get("Key", "")
-            if "original_jobs" in key:
-                return {
-                    "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-                }
-            return {"Body": MagicMock(read=lambda: jsonl_output.encode())}
-
-        mock_s3.get_object.side_effect = s3_get_object
-        mock_s3.list_objects_v2.return_value = {
-            "Contents": [{"Key": "output/exec-123/output.jsonl.out"}]
-        }
+        _mock_s3_for_streaming(mock_s3, original_jobs, [known_record, unknown_record])
 
         event = _make_event("Completed")
         with patch.dict(
@@ -471,9 +573,9 @@ class TestMissingOriginalJob:
 
 
 class TestS3Pagination:
-    """Tests for S3 list_objects_v2 pagination."""
+    """Tests for S3 list_objects_v2 pagination in download_output_jsonl."""
 
-    def test_read_output_paginates_s3(self):
+    def test_download_output_paginates_s3(self):
         """Verify pagination works when S3 returns IsTruncated=True."""
         mock_s3 = MagicMock()
 
@@ -504,22 +606,81 @@ class TestS3Pagination:
 
         mock_s3.get_object.side_effect = s3_get_object
 
-        records, unparseable_count = _read_output_jsonl(
+        path, count, unparseable = download_output_jsonl(
             mock_s3, "batch-bucket", "output/exec-123/"
         )
 
-        # Should have records from both pages
-        assert len(records) == 2
-        assert records[0]["recordId"] == "job-1"
-        assert records[1]["recordId"] == "job-2"
-        assert unparseable_count == 0
+        try:
+            # Should have records from both pages
+            assert count == 2
+            assert unparseable == 0
 
-        # Verify pagination: first call without token, second with token
-        assert mock_s3.list_objects_v2.call_count == 2
-        first_call_kwargs = mock_s3.list_objects_v2.call_args_list[0][1]
-        second_call_kwargs = mock_s3.list_objects_v2.call_args_list[1][1]
-        assert "ContinuationToken" not in first_call_kwargs
-        assert second_call_kwargs["ContinuationToken"] == "token-abc"
+            # Verify temp file has both records
+            with open(path) as f:
+                lines = [line.strip() for line in f if line.strip()]
+            assert len(lines) == 2
+            assert json.loads(lines[0])["recordId"] == "job-1"
+            assert json.loads(lines[1])["recordId"] == "job-2"
+
+            # Verify pagination: first call without token, second with token
+            assert mock_s3.list_objects_v2.call_count == 2
+            first_call_kwargs = mock_s3.list_objects_v2.call_args_list[0][1]
+            second_call_kwargs = mock_s3.list_objects_v2.call_args_list[1][1]
+            assert "ContinuationToken" not in first_call_kwargs
+            assert second_call_kwargs["ContinuationToken"] == "token-abc"
+        finally:
+            os.unlink(path)
+
+
+class TestLegacyJsonBackwardCompat:
+    """Tests for backward compatibility with .json format original_jobs."""
+
+    @patch("app.llm.queue.batch_result_processor._get_clients")
+    @patch("app.llm.queue.batch_result_processor.send_to_sqs")
+    def test_legacy_json_triggers_in_memory_load(self, mock_send, mock_get_clients):
+        """When original_jobs_key ends with .json, should use legacy in-memory path."""
+        mock_s3 = MagicMock()
+        mock_dynamodb = MagicMock()
+        mock_get_clients.return_value = (mock_s3, mock_dynamodb)
+        mock_send.return_value = "msg-id"
+
+        original_jobs = {
+            "job-1": _make_original_job("job-1"),
+            "job-2": _make_original_job("job-2"),
+        }
+
+        # Legacy .json key
+        mock_dynamodb.get_item.return_value = {
+            "Item": {
+                "output_key_prefix": {"S": "output/exec-123/"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+            }
+        }
+
+        # Legacy: s3.get_object returns full JSON dict
+        mock_s3.get_object.return_value = {
+            "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
+        }
+
+        event = _make_event("Failed")
+        with patch.dict(
+            "os.environ",
+            {
+                "VALIDATOR_QUEUE_URL": "https://sqs/validator.fifo",
+                "RECONCILER_QUEUE_URL": "https://sqs/reconciler.fifo",
+                "RECORDER_QUEUE_URL": "https://sqs/recorder.fifo",
+                "LLM_QUEUE_URL": "https://sqs/llm.fifo",
+                "BATCH_BUCKET": "batch-bucket",
+                "SQS_JOBS_TABLE": "jobs-table",
+            },
+        ):
+            result = handler(event, None)
+
+        assert result["requeued"] == 2
+        # Should NOT have called download_file (streaming mode)
+        mock_s3.download_file.assert_not_called()
+        # Should have called get_object (legacy mode)
+        mock_s3.get_object.assert_called_once()
 
 
 class TestLogging:
@@ -539,12 +700,17 @@ class TestLogging:
         mock_dynamodb.get_item.return_value = {
             "Item": {
                 "output_key_prefix": {"S": "output/exec-123/"},
-                "original_jobs_key": {"S": "input/exec-123/original_jobs.json"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
             }
         }
-        mock_s3.get_object.return_value = {
-            "Body": MagicMock(read=lambda: json.dumps(original_jobs).encode())
-        }
+
+        # Mock download_file for streaming
+        def download_file(Bucket, Key, Filename):
+            with open(Filename, "w") as f:
+                for k, v in original_jobs.items():
+                    f.write(json.dumps({"k": k, "v": v}) + "\n")
+
+        mock_s3.download_file.side_effect = download_file
 
         event = _make_event("Failed")
         with patch.dict(

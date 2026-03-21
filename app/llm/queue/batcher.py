@@ -6,6 +6,9 @@ SQS queue, counts records, and decides:
   - < BATCH_THRESHOLD records: Re-enqueue each job to the LLM queue for
     on-demand Fargate processing
 
+All record data is streamed through temp files on disk so memory usage stays
+constant regardless of queue depth (designed for 100k+ records).
+
 Environment variables:
     STAGING_QUEUE_URL: SQS staging queue URL
     LLM_QUEUE_URL: SQS LLM queue URL (for on-demand fallback)
@@ -20,13 +23,14 @@ Environment variables:
 
 import json
 import os
+import tempfile
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 import structlog
 
-from app.llm.providers.bedrock import build_converse_request
+from app.llm.providers.bedrock import build_messages_api_request
 from app.pipeline.sqs_sender import send_to_sqs
 
 logger = structlog.get_logger(__name__)
@@ -89,13 +93,23 @@ def _drain_staging_queue(
     queue_url: str,
     dlq_url: str = "",
     max_iterations: int = 1000,
-) -> list[tuple[dict[str, Any], str]]:
-    """Drain all messages from the staging queue.
+) -> tuple[int, str]:
+    """Drain all messages from the staging queue to a temp file.
 
-    Receives messages in batches of 10. Valid messages are collected with
-    their receipt handles but NOT deleted — the caller is responsible for
-    deleting them after successful downstream processing. Malformed
-    (unparseable) messages are forwarded to the DLQ for inspection.
+    **DATA LOSS RISK**: Messages are deleted from SQS during drain to unlock
+    the FIFO message group. If this Lambda crashes after drain but before the
+    batch is submitted to Bedrock, the drained records are unrecoverable.
+    A future improvement could checkpoint records to S3 before deleting from SQS.
+
+    Receives messages in batches of 10. Each batch is deleted immediately
+    after parsing to unlock the FIFO message group for subsequent receives.
+    Without immediate deletion, in-flight messages block the entire group
+    and the drain stalls after the first batch.
+
+    Records are written one-per-line as JSONL to a temp file so memory stays
+    constant regardless of queue depth.
+
+    Malformed (unparseable) messages are forwarded to the DLQ for inspection.
 
     Args:
         sqs_client: boto3 SQS client
@@ -104,56 +118,97 @@ def _drain_staging_queue(
         max_iterations: Safety limit on receive_message calls
 
     Returns:
-        List of (parsed_body, receipt_handle) tuples
+        (record_count, temp_file_path) — caller must delete the temp file.
     """
-    all_messages: list[tuple[dict[str, Any], str]] = []
+    logger.warning(
+        "staging_queue_drain_starting",
+        queue_url=queue_url,
+        note="Messages deleted during drain are unrecoverable if Lambda crashes before batch submission",
+    )
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".jsonl",
+        delete=False,
+    )
+    record_count = 0
     poison_pill_count = 0
 
-    for _ in range(max_iterations):
-        response = sqs_client.receive_message(
-            QueueUrl=queue_url,
-            MaxNumberOfMessages=10,
-            WaitTimeSeconds=1,
-            VisibilityTimeout=300,
-        )
+    try:
+        for _ in range(max_iterations):
+            response = sqs_client.receive_message(
+                QueueUrl=queue_url,
+                MaxNumberOfMessages=10,
+                WaitTimeSeconds=1,
+                VisibilityTimeout=300,
+            )
 
-        messages = response.get("Messages", [])
-        if not messages:
-            break
+            messages = response.get("Messages", [])
+            if not messages:
+                break
 
-        for msg in messages:
-            try:
-                body = json.loads(msg["Body"])
-                all_messages.append((body, msg["ReceiptHandle"]))
-            except (json.JSONDecodeError, KeyError) as e:
-                poison_pill_count += 1
-                logger.error(
-                    "failed_to_parse_staging_message",
-                    message_id=msg.get("MessageId"),
-                    error=str(e),
-                )
-                # C2 FIX: Forward poison pills to DLQ for inspection
-                # instead of silently deleting them.
-                if dlq_url:
-                    try:
-                        _forward_to_dlq(
-                            sqs_client,
-                            dlq_url,
-                            msg.get("Body", ""),
-                            msg.get("MessageId", "unknown"),
-                            str(e),
-                        )
-                    except Exception as dlq_error:
-                        logger.error(
-                            "failed_to_forward_poison_pill_to_dlq",
-                            message_id=msg.get("MessageId"),
-                            error=str(dlq_error),
-                        )
-                # Delete from source queue after forwarding (or if no DLQ)
-                sqs_client.delete_message(
+            batch_delete_entries: list[dict[str, str]] = []
+
+            for idx, msg in enumerate(messages):
+                try:
+                    body = json.loads(msg["Body"])
+                    tmp.write(json.dumps(body) + "\n")
+                    record_count += 1
+                    batch_delete_entries.append(
+                        {"Id": str(idx), "ReceiptHandle": msg["ReceiptHandle"]}
+                    )
+                except (json.JSONDecodeError, KeyError) as e:
+                    poison_pill_count += 1
+                    logger.error(
+                        "failed_to_parse_staging_message",
+                        message_id=msg.get("MessageId"),
+                        error=str(e),
+                    )
+                    # C2 FIX: Forward poison pills to DLQ for inspection
+                    if dlq_url:
+                        try:
+                            _forward_to_dlq(
+                                sqs_client,
+                                dlq_url,
+                                msg.get("Body", ""),
+                                msg.get("MessageId", "unknown"),
+                                str(e),
+                            )
+                        except Exception as dlq_error:
+                            logger.error(
+                                "failed_to_forward_poison_pill_to_dlq",
+                                message_id=msg.get("MessageId"),
+                                error=str(dlq_error),
+                            )
+                    # Delete poison pill individually
+                    sqs_client.delete_message(
+                        QueueUrl=queue_url,
+                        ReceiptHandle=msg["ReceiptHandle"],
+                    )
+
+            # Batch-delete valid messages to unlock the FIFO message group
+            if batch_delete_entries:
+                batch_resp = sqs_client.delete_message_batch(
                     QueueUrl=queue_url,
-                    ReceiptHandle=msg["ReceiptHandle"],
+                    Entries=batch_delete_entries,
                 )
+                failed = batch_resp.get("Failed", [])
+                if failed:
+                    logger.warning(
+                        "delete_message_batch_partial_failure",
+                        failed_count=len(failed),
+                        failed_ids=[f["Id"] for f in failed],
+                        error_codes=[f.get("Code", "") for f in failed],
+                    )
+
+        tmp.close()
+    except Exception:
+        tmp.close()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
 
     if poison_pill_count > 0:
         logger.warning(
@@ -161,50 +216,8 @@ def _drain_staging_queue(
             count=poison_pill_count,
         )
 
-    logger.info("staging_queue_drained", total_messages=len(all_messages))
-    return all_messages
-
-
-def _delete_messages(
-    sqs_client: Any,
-    queue_url: str,
-    receipt_handles: list[str],
-) -> int:
-    """Delete messages from SQS by receipt handle.
-
-    Called only after successful downstream processing to ensure
-    no data loss on failure.
-
-    Args:
-        sqs_client: boto3 SQS client
-        queue_url: SQS queue URL
-        receipt_handles: List of SQS receipt handles to delete
-
-    Returns:
-        Number of messages that failed to delete.
-    """
-    failed_deletes = 0
-    for handle in receipt_handles:
-        try:
-            sqs_client.delete_message(
-                QueueUrl=queue_url,
-                ReceiptHandle=handle,
-            )
-        except Exception as e:
-            failed_deletes += 1
-            logger.error(
-                "delete_message_failed",
-                receipt_handle=handle[:40],
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-
-    logger.info(
-        "staging_messages_deleted",
-        count=len(receipt_handles),
-        failed=failed_deletes,
-    )
-    return failed_deletes
+    logger.info("staging_queue_drained", total_messages=record_count)
+    return record_count, tmp.name
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -255,200 +268,215 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     sqs, s3, bedrock, dynamodb = _get_clients()
 
-    # 1. Drain staging queue — messages are NOT deleted yet
-    drained = _drain_staging_queue(sqs, staging_queue_url, dlq_url=staging_dlq_url)
-
-    # Separate bodies from receipt handles
-    records = [body for body, _handle in drained]
-    receipt_handles = [handle for _body, handle in drained]
-    record_count = len(records)
-
-    # 2. Decide batch vs on-demand
-    decision = "batch" if record_count >= batch_threshold else "on-demand"
-
-    logger.info(
-        "batch_decision",
-        record_count=record_count,
-        decision=decision,
-        execution_id=execution_id,
-        threshold=batch_threshold,
+    # 1. Drain staging queue to a temp file — messages are deleted immediately
+    #    per batch to unlock FIFO message groups for subsequent receives
+    record_count, staging_file = _drain_staging_queue(
+        sqs, staging_queue_url, dlq_url=staging_dlq_url
     )
 
-    if record_count == 0:
-        return {"mode": "on-demand", "count": 0}
-
     try:
+        # 2. Decide batch vs on-demand
+        decision = "batch" if record_count >= batch_threshold else "on-demand"
+
+        logger.info(
+            "batch_decision",
+            record_count=record_count,
+            decision=decision,
+            execution_id=execution_id,
+            threshold=batch_threshold,
+        )
+
+        if record_count == 0:
+            return {"mode": "on-demand", "count": 0}
+
         if decision == "on-demand":
-            # Re-enqueue each job to LLM queue for Fargate processing
-            # Track per-record success/failure so we only delete staging
-            # messages for records that were successfully re-enqueued.
-            successful_handles: list[str] = []
+            # Re-enqueue each job to LLM queue for Fargate processing.
+            # Staging messages were already deleted during drain.
+            succeeded = 0
             failed_count = 0
 
-            for record, handle in zip(records, receipt_handles, strict=True):
-                try:
-                    job_data = record.get("job", {})
-                    scraper_id = job_data.get("metadata", {}).get(
-                        "scraper_id", "default"
-                    )
-                    send_to_sqs(
-                        queue_url=llm_queue_url,
-                        message_body=record,
-                        message_group_id=scraper_id,
-                        deduplication_id=record.get("job_id", ""),
-                        source="batcher-lambda",
-                    )
-                    successful_handles.append(handle)
-                except Exception as e:
-                    failed_count += 1
-                    logger.error(
-                        "on_demand_reenqueue_failed",
-                        job_id=record.get("job_id", "unknown"),
-                        error=str(e),
-                        error_type=type(e).__name__,
-                    )
-
-            # Delete staging messages only for successfully re-enqueued records
-            if successful_handles:
-                _delete_messages(sqs, staging_queue_url, successful_handles)
+            with open(staging_file) as f:
+                for line in f:
+                    record = json.loads(line)
+                    try:
+                        job_data = record.get("job", {})
+                        scraper_id = job_data.get("metadata", {}).get(
+                            "scraper_id", "default"
+                        )
+                        send_to_sqs(
+                            queue_url=llm_queue_url,
+                            message_body=record,
+                            message_group_id=scraper_id,
+                            deduplication_id=record.get("job_id", ""),
+                            source="batcher-lambda",
+                        )
+                        succeeded += 1
+                    except Exception as e:
+                        failed_count += 1
+                        logger.error(
+                            "on_demand_reenqueue_failed",
+                            job_id=record.get("job_id", "unknown"),
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
 
             if failed_count > 0:
                 logger.warning(
                     "on_demand_partial_failure",
                     total=record_count,
-                    succeeded=len(successful_handles),
+                    succeeded=succeeded,
                     failed=failed_count,
                     execution_id=execution_id,
                 )
 
             return {
                 "mode": "on-demand",
-                "count": len(successful_handles),
+                "count": succeeded,
                 "failed": failed_count,
             }
 
-        # 3. Build JSONL for batch job
-        jsonl_lines = []
-        original_jobs = {}  # Map recordId -> original SQS message for recovery
-        for record in records:
-            job_data = record.get("job", {})
-            job_id = job_data.get("id", record.get("job_id", ""))
-
-            if not job_id:
-                job_id = f"unknown-{uuid4()}"
-                logger.warning(
-                    "empty_job_id_fallback",
-                    generated_id=job_id,
-                    record_keys=list(record.keys()),
-                )
-
-            converse_body = build_converse_request(
-                prompt=job_data.get("prompt", ""),
-                format_schema=job_data.get("format") or None,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-
-            jsonl_record = {
-                "recordId": job_id,
-                "modelInput": converse_body,
-            }
-            jsonl_lines.append(json.dumps(jsonl_record))
-            original_jobs[job_id] = record
-
-        jsonl_content = "\n".join(jsonl_lines)
-
-        # 4. Upload JSONL to S3
+        # 3. Build JSONL + original_jobs to temp files (constant memory)
         input_key = f"input/{s3_safe_id}/input.jsonl"
         output_key_prefix = f"output/{s3_safe_id}/"
+        original_jobs_key = f"input/{s3_safe_id}/original_jobs.jsonl"
 
-        s3.put_object(
-            Bucket=batch_bucket,
-            Key=input_key,
-            Body=jsonl_content,
-            ContentType="application/jsonl",
+        input_jsonl = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".jsonl",
+            delete=False,
         )
-
-        logger.info(
-            "batch_jsonl_uploaded",
-            bucket=batch_bucket,
-            key=input_key,
-            record_count=record_count,
+        original_jobs_f = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".jsonl",
+            delete=False,
         )
+        input_jsonl_path = input_jsonl.name
+        original_jobs_path = original_jobs_f.name
 
-        # 5. Submit Bedrock batch job
-        now = datetime.now(UTC)
-        job_name = f"ppr-batch-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
-        # Job names must be <= 63 chars and match [a-zA-Z0-9][-a-zA-Z0-9]*
-        job_name = job_name[:63]
+        try:
+            # Stream records: read staging file line by line, write JSONL and
+            # original_jobs simultaneously. Only one record in memory at a time.
+            with open(staging_file) as sf:
+                for line in sf:
+                    record = json.loads(line)
+                    job_data = record.get("job", {})
+                    job_id = job_data.get("id", record.get("job_id", ""))
 
-        response = bedrock.create_model_invocation_job(
-            jobName=job_name,
-            modelId=model_id,
-            roleArn=service_role_arn,
-            modelInvocationType="Converse",
-            inputDataConfig={
-                "s3InputDataConfig": {
-                    "s3Uri": f"s3://{batch_bucket}/{input_key}",
-                    "s3InputFormat": "JSONL",
-                }
-            },
-            outputDataConfig={
-                "s3OutputDataConfig": {
-                    "s3Uri": f"s3://{batch_bucket}/{output_key_prefix}",
-                }
-            },
-        )
+                    if not job_id:
+                        job_id = f"unknown-{uuid4()}"
+                        logger.warning(
+                            "empty_job_id_fallback",
+                            generated_id=job_id,
+                            record_keys=list(record.keys()),
+                        )
 
-        job_arn = response["jobArn"]
+                    messages_body = build_messages_api_request(
+                        prompt=job_data.get("prompt", ""),
+                        format_schema=job_data.get("format") or None,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
 
-        logger.info(
-            "batch_job_submitted",
-            job_arn=job_arn,
-            job_name=job_name,
-            model_id=model_id,
-            record_count=record_count,
-            execution_id=execution_id,
-        )
+                    jsonl_record = {
+                        "recordId": job_id,
+                        "modelInput": messages_body,
+                    }
+                    input_jsonl.write(json.dumps(jsonl_record) + "\n")
 
-        # 6. Store recovery data BEFORE deleting staging messages.
-        #    This ensures original jobs and metadata exist for recovery
-        #    even if message deletion partially fails.
+                    # Write original job as JSONL (one record per line, streamable)
+                    original_jobs_f.write(json.dumps({"k": job_id, "v": record}) + "\n")
+            input_jsonl.close()
+            original_jobs_f.close()
 
-        # 6a. Store original jobs in S3 (too large for DynamoDB 400KB limit)
-        original_jobs_key = f"input/{s3_safe_id}/original_jobs.json"
-        s3.put_object(
-            Bucket=batch_bucket,
-            Key=original_jobs_key,
-            Body=json.dumps(original_jobs),
-            ContentType="application/json",
-        )
+            # 4. Upload to S3 — streams from disk, no memory spike
+            s3.upload_file(
+                Filename=input_jsonl_path,
+                Bucket=batch_bucket,
+                Key=input_key,
+                ExtraArgs={"ContentType": "application/jsonl"},
+            )
 
-        # 6b. Store batch job metadata in DynamoDB for result processor
-        dynamodb.put_item(
-            TableName=jobs_table,
-            Item={
-                "job_id": {"S": f"batch:{job_arn}"},
-                "batch_job_arn": {"S": job_arn},
-                "execution_id": {"S": execution_id},
-                "status": {"S": "submitted"},
-                "record_count": {"N": str(record_count)},
-                "input_key": {"S": input_key},
-                "output_key_prefix": {"S": output_key_prefix},
-                "original_jobs_key": {"S": original_jobs_key},
-                "created_at": {"S": now.isoformat()},
-            },
-        )
+            logger.info(
+                "batch_jsonl_uploaded",
+                bucket=batch_bucket,
+                key=input_key,
+                record_count=record_count,
+            )
 
-        # 7. Delete staging messages only after recovery data is persisted
-        delete_failures = _delete_messages(sqs, staging_queue_url, receipt_handles)
+            # 5. Submit Bedrock batch job
+            now = datetime.now(UTC)
+            job_name = f"ppr-batch-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
+            # Job names must be <= 63 chars and match [a-zA-Z0-9][-a-zA-Z0-9]*
+            job_name = job_name[:63]
 
-        return {
-            "mode": "batch",
-            "job_arn": job_arn,
-            "record_count": record_count,
-            "delete_failures": delete_failures,
-        }
+            response = bedrock.create_model_invocation_job(
+                jobName=job_name,
+                modelId=model_id,
+                roleArn=service_role_arn,
+                inputDataConfig={
+                    "s3InputDataConfig": {
+                        "s3Uri": f"s3://{batch_bucket}/{input_key}",
+                        "s3InputFormat": "JSONL",
+                    }
+                },
+                outputDataConfig={
+                    "s3OutputDataConfig": {
+                        "s3Uri": f"s3://{batch_bucket}/{output_key_prefix}",
+                    }
+                },
+            )
+
+            job_arn = response["jobArn"]
+
+            logger.info(
+                "batch_job_submitted",
+                job_arn=job_arn,
+                job_name=job_name,
+                model_id=model_id,
+                record_count=record_count,
+                execution_id=execution_id,
+            )
+
+            # 6. Store recovery data BEFORE returning.
+            #    Original jobs for the result processor to map outputs back.
+
+            # 6a. Upload original jobs to S3 (streams from disk)
+            s3.upload_file(
+                Filename=original_jobs_path,
+                Bucket=batch_bucket,
+                Key=original_jobs_key,
+                ExtraArgs={"ContentType": "application/jsonl"},
+            )
+
+            # 6b. Store batch job metadata in DynamoDB for result processor
+            dynamodb.put_item(
+                TableName=jobs_table,
+                Item={
+                    "job_id": {"S": f"batch:{job_arn}"},
+                    "batch_job_arn": {"S": job_arn},
+                    "execution_id": {"S": execution_id},
+                    "status": {"S": "submitted"},
+                    "record_count": {"N": str(record_count)},
+                    "input_key": {"S": input_key},
+                    "output_key_prefix": {"S": output_key_prefix},
+                    "original_jobs_key": {"S": original_jobs_key},
+                    "created_at": {"S": now.isoformat()},
+                },
+            )
+
+            # 7. Staging messages were already deleted during drain
+            return {
+                "mode": "batch",
+                "job_arn": job_arn,
+                "record_count": record_count,
+            }
+
+        finally:
+            for path in (input_jsonl_path, original_jobs_path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
     except Exception:
         logger.error(
@@ -459,3 +487,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             exc_info=True,
         )
         raise
+
+    finally:
+        try:
+            os.unlink(staging_file)
+        except OSError:
+            pass

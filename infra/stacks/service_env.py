@@ -168,6 +168,7 @@ def get_recorder_environment(config: ServiceConfig) -> dict[str, str]:
         env["RECORDER_QUEUE_URL"] = config.queue_urls["recorder"]
     if config.content_bucket_name:
         env["CONTENT_STORE_S3_BUCKET"] = config.content_bucket_name
+        env["RECORDER_S3_BUCKET"] = config.content_bucket_name
     if config.content_index_table_name:
         env["CONTENT_STORE_DYNAMODB_TABLE"] = config.content_index_table_name
     _warn_missing_required(

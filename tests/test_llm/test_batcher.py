@@ -1,6 +1,10 @@
+# ruff: noqa: N803
+# (boto3 API uses PascalCase keyword arguments: Bucket, Key, Filename)
 """Tests for the Batcher Lambda handler."""
 
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +12,6 @@ import pytest
 
 from app.llm.queue.batcher import (
     _DEFAULT_BATCH_THRESHOLD,
-    _delete_messages,
     _drain_staging_queue,
     handler,
 )
@@ -24,8 +27,13 @@ _HANDLER_ENV = {
 }
 
 
-def _make_sqs_message(job_id: str, prompt: str = "Align this data") -> dict:
+def _make_sqs_message(job_id: str, prompt: object = None) -> dict:
     """Create a mock SQS message matching SQSQueueBackend.enqueue() format."""
+    if prompt is None:
+        prompt = [
+            {"role": "system", "content": "Align this data"},
+            {"role": "user", "content": "Input Data:\ntest"},
+        ]
     return {
         "MessageId": f"msg-{job_id}",
         "ReceiptHandle": f"receipt-{job_id}",
@@ -58,37 +66,52 @@ def _make_sqs_message(job_id: str, prompt: str = "Align this data") -> dict:
     }
 
 
+def _read_drain_file(filepath: str) -> list[dict]:
+    """Read records from a drain temp file."""
+    records = []
+    with open(filepath) as f:
+        for line in f:
+            records.append(json.loads(line))
+    return records
+
+
 class TestDrainStagingQueue:
     """Tests for _drain_staging_queue helper."""
 
     def test_drains_all_messages(self):
-        """Should drain all messages and return (body, receipt_handle) tuples."""
+        """Should drain all messages, delete per batch, and write to file."""
         mock_sqs = MagicMock()
         messages = [_make_sqs_message(f"job-{i}") for i in range(3)]
-        # First call returns messages, second returns empty (queue drained)
         mock_sqs.receive_message.side_effect = [
             {"Messages": messages},
             {"Messages": []},
         ]
 
-        result = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
-        assert len(result) == 3
-        # Each element should be a (body_dict, receipt_handle) tuple
-        for body, receipt_handle in result:
-            assert isinstance(body, dict)
-            assert isinstance(receipt_handle, str)
-            assert receipt_handle.startswith("receipt-")
+        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        try:
+            assert count == 3
+            records = _read_drain_file(filepath)
+            assert len(records) == 3
+            for body in records:
+                assert isinstance(body, dict)
+            mock_sqs.delete_message_batch.assert_called_once()
+        finally:
+            os.unlink(filepath)
 
     def test_handles_empty_queue(self):
-        """Should return empty list for empty queue."""
+        """Should return 0 count for empty queue."""
         mock_sqs = MagicMock()
         mock_sqs.receive_message.return_value = {"Messages": []}
 
-        result = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
-        assert result == []
+        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        try:
+            assert count == 0
+            assert _read_drain_file(filepath) == []
+        finally:
+            os.unlink(filepath)
 
-    def test_drain_does_not_delete_valid_messages(self):
-        """Valid messages should NOT be deleted during drain."""
+    def test_drain_batch_deletes_valid_messages(self):
+        """Valid messages should be batch-deleted during drain to unlock FIFO groups."""
         mock_sqs = MagicMock()
         messages = [_make_sqs_message(f"job-{i}") for i in range(3)]
         mock_sqs.receive_message.side_effect = [
@@ -96,12 +119,17 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
-        # delete_message should NOT be called for valid messages
-        mock_sqs.delete_message.assert_not_called()
+        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        try:
+            mock_sqs.delete_message_batch.assert_called_once()
+            entries = mock_sqs.delete_message_batch.call_args[1]["Entries"]
+            assert len(entries) == 3
+            mock_sqs.delete_message.assert_not_called()
+        finally:
+            os.unlink(filepath)
 
     def test_drain_deletes_malformed_messages(self):
-        """Malformed (unparseable) messages should be deleted immediately."""
+        """Malformed (unparseable) messages should be deleted individually."""
         mock_sqs = MagicMock()
         valid_msg = _make_sqs_message("job-valid")
         malformed_msg = {
@@ -114,25 +142,29 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        result = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
-        # Only valid message should be returned
-        assert len(result) == 1
-        body, handle = result[0]
-        assert body["job_id"] == "job-valid"
-        assert handle == "receipt-job-valid"
-        # Malformed message should be deleted immediately
-        mock_sqs.delete_message.assert_called_once_with(
-            QueueUrl="https://sqs/staging.fifo",
-            ReceiptHandle="receipt-bad",
-        )
+        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        try:
+            assert count == 1
+            records = _read_drain_file(filepath)
+            assert len(records) == 1
+            assert records[0]["job_id"] == "job-valid"
+            mock_sqs.delete_message.assert_called_once_with(
+                QueueUrl="https://sqs/staging.fifo",
+                ReceiptHandle="receipt-bad",
+            )
+            mock_sqs.delete_message_batch.assert_called_once()
+        finally:
+            os.unlink(filepath)
 
 
-def _make_drain_return(count: int) -> list[tuple[dict, str]]:
-    """Build _drain_staging_queue return value: list of (body, receipt_handle)."""
-    return [
-        (json.loads(_make_sqs_message(f"job-{i}")["Body"]), f"receipt-job-{i}")
-        for i in range(count)
-    ]
+def _make_drain_file(count: int) -> tuple[int, str]:
+    """Build a temp staging file simulating _drain_staging_queue output."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+    for i in range(count):
+        body = json.loads(_make_sqs_message(f"job-{i}")["Body"])
+        tmp.write(json.dumps(body) + "\n")
+    tmp.close()
+    return count, tmp.name
 
 
 class TestHandlerBatchPath:
@@ -148,7 +180,7 @@ class TestHandlerBatchPath:
         mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(BATCH_THRESHOLD)
+            mock_drain.return_value = _make_drain_file(BATCH_THRESHOLD)
             mock_bedrock.create_model_invocation_job.return_value = {
                 "jobArn": "arn:aws:bedrock:us-east-1:123:model-invocation-job/test-job"
             }
@@ -163,15 +195,24 @@ class TestHandlerBatchPath:
 
     @patch("app.llm.queue.batcher._get_clients")
     def test_handler_builds_valid_jsonl(self, mock_get_clients):
-        """Each JSONL line should have recordId and modelInput with Converse format."""
+        """Each JSONL line should have recordId and modelInput with Messages API format."""
         mock_sqs = MagicMock()
         mock_s3 = MagicMock()
         mock_bedrock = MagicMock()
         mock_dynamodb = MagicMock()
         mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
 
+        # Capture uploaded file contents before cleanup
+        captured = {}
+
+        def capture_upload(Filename, Bucket, Key, **kwargs):
+            with open(Filename) as f:
+                captured[Key] = f.read()
+
+        mock_s3.upload_file.side_effect = capture_upload
+
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(BATCH_THRESHOLD)
+            mock_drain.return_value = _make_drain_file(BATCH_THRESHOLD)
             mock_bedrock.create_model_invocation_job.return_value = {
                 "jobArn": "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
             }
@@ -179,20 +220,19 @@ class TestHandlerBatchPath:
             with patch.dict("os.environ", _HANDLER_ENV, clear=False):
                 handler({"execution_id": "exec-123", "scrapers": []}, None)
 
-        # Verify S3 put_object was called with JSONL content (first call)
-        put_call = mock_s3.put_object.call_args_list[0]
-        body = put_call[1]["Body"] if "Body" in put_call[1] else put_call[0][0]
-        lines = body.strip().split("\n")
+        # Find the JSONL upload (key ends with input.jsonl)
+        jsonl_key = next(k for k in captured if k.endswith("input.jsonl"))
+        lines = captured[jsonl_key].strip().split("\n")
         assert len(lines) == BATCH_THRESHOLD
 
-        # Verify each line is valid JSONL with correct structure
         for line in lines:
             record = json.loads(line)
             assert "recordId" in record
             assert "modelInput" in record
             model_input = record["modelInput"]
             assert "messages" in model_input
-            assert "inferenceConfig" in model_input
+            assert "anthropic_version" in model_input
+            assert "max_tokens" in model_input
 
     @patch("app.llm.queue.batcher._get_clients")
     def test_handler_stores_batch_job_arn_in_dynamodb(self, mock_get_clients):
@@ -205,16 +245,52 @@ class TestHandlerBatchPath:
 
         job_arn = "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(BATCH_THRESHOLD)
+            mock_drain.return_value = _make_drain_file(BATCH_THRESHOLD)
             mock_bedrock.create_model_invocation_job.return_value = {"jobArn": job_arn}
 
             with patch.dict("os.environ", _HANDLER_ENV, clear=False):
                 handler({"execution_id": "exec-123", "scrapers": []}, None)
 
-        # Verify DynamoDB put_item was called
         mock_dynamodb.put_item.assert_called_once()
         put_args = mock_dynamodb.put_item.call_args[1]
         assert put_args["Item"]["batch_job_arn"]["S"] == job_arn
+
+    @patch("app.llm.queue.batcher._get_clients")
+    def test_handler_uploads_valid_original_jobs_jsonl(self, mock_get_clients):
+        """original_jobs.jsonl should be valid JSONL with k/v pairs."""
+        mock_sqs = MagicMock()
+        mock_s3 = MagicMock()
+        mock_bedrock = MagicMock()
+        mock_dynamodb = MagicMock()
+        mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
+
+        captured = {}
+
+        def capture_upload(Filename, Bucket, Key, **kwargs):
+            with open(Filename) as f:
+                captured[Key] = f.read()
+
+        mock_s3.upload_file.side_effect = capture_upload
+
+        with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
+            mock_drain.return_value = _make_drain_file(3)
+            mock_bedrock.create_model_invocation_job.return_value = {
+                "jobArn": "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
+            }
+
+            env = {**_HANDLER_ENV, "BATCH_THRESHOLD": "2"}
+            with patch.dict("os.environ", env, clear=False):
+                handler({"execution_id": "exec-123", "scrapers": []}, None)
+
+        oj_key = next(k for k in captured if k.endswith("original_jobs.jsonl"))
+        lines = [line for line in captured[oj_key].strip().split("\n") if line]
+        assert len(lines) == 3
+        for line in lines:
+            record = json.loads(line)
+            assert "k" in record
+            assert "v" in record
+            assert "job" in record["v"]
+            assert "job_id" in record["v"]
 
 
 class TestHandlerOnDemandPath:
@@ -232,7 +308,7 @@ class TestHandlerOnDemandPath:
         mock_send.return_value = "msg-123"
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(5)
+            mock_drain.return_value = _make_drain_file(5)
 
             event = {"execution_id": "exec-123", "scrapers": ["vivery_api"]}
             with patch.dict("os.environ", _HANDLER_ENV, clear=False):
@@ -257,7 +333,7 @@ class TestHandlerEmptyQueue:
         mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = []
+            mock_drain.return_value = _make_drain_file(0)
 
             with patch.dict("os.environ", _HANDLER_ENV, clear=False):
                 result = handler({"execution_id": "exec-123", "scrapers": []}, None)
@@ -280,12 +356,11 @@ class TestHandlerLogging:
         mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(1)
+            mock_drain.return_value = _make_drain_file(1)
             with patch("app.llm.queue.batcher.send_to_sqs", return_value="msg-id"):
                 with patch.dict("os.environ", _HANDLER_ENV, clear=False):
                     handler({"execution_id": "exec-123", "scrapers": []}, None)
 
-        # Verify structlog info was called with expected fields
         mock_logger.info.assert_any_call(
             "batch_decision",
             record_count=1,
@@ -296,65 +371,28 @@ class TestHandlerLogging:
 
 
 class TestHandlerMessageDeletion:
-    """Tests for deferred message deletion (C1 fix)."""
+    """Tests for message deletion (drain deletes immediately)."""
 
     @patch("app.llm.queue.batcher._get_clients")
     @patch("app.llm.queue.batcher.send_to_sqs")
-    def test_handler_deletes_messages_only_after_success(
-        self, mock_send, mock_get_clients
-    ):
-        """Messages should only be deleted after successful processing."""
+    def test_handler_all_failures_reports_correctly(self, mock_send, mock_get_clients):
+        """When ALL re-enqueue attempts fail, should report 0 count and N failures."""
         mock_sqs = MagicMock()
         mock_s3 = MagicMock()
         mock_bedrock = MagicMock()
         mock_dynamodb = MagicMock()
         mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
-        mock_send.return_value = "msg-123"
-
-        with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(3)
-
-            with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
-                    handler(
-                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                        None,
-                    )
-
-                # _delete_messages should have been called exactly once
-                mock_delete.assert_called_once()
-                call_args = mock_delete.call_args
-                # Should pass all 3 receipt handles
-                assert len(call_args[0][2]) == 3
-
-    @patch("app.llm.queue.batcher._get_clients")
-    @patch("app.llm.queue.batcher.send_to_sqs")
-    def test_handler_all_failures_does_not_delete_messages(
-        self, mock_send, mock_get_clients
-    ):
-        """When ALL re-enqueue attempts fail, no staging messages should be deleted."""
-        mock_sqs = MagicMock()
-        mock_s3 = MagicMock()
-        mock_bedrock = MagicMock()
-        mock_dynamodb = MagicMock()
-        mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
-        # All send_to_sqs calls fail
         mock_send.side_effect = RuntimeError("SQS send failed")
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(3)
+            mock_drain.return_value = _make_drain_file(3)
 
-            with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
-                    result = handler(
-                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                        None,
-                    )
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler(
+                    {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
+                    None,
+                )
 
-                # _delete_messages should NOT have been called (no successes)
-                mock_delete.assert_not_called()
-
-        # Should report 0 successes and 3 failures
         assert result["mode"] == "on-demand"
         assert result["count"] == 0
         assert result["failed"] == 3
@@ -365,10 +403,10 @@ class TestHandlerOnDemandPartialFailure:
 
     @patch("app.llm.queue.batcher._get_clients")
     @patch("app.llm.queue.batcher.send_to_sqs")
-    def test_partial_failure_only_deletes_successful_handles(
+    def test_partial_failure_reports_counts_correctly(
         self, mock_send, mock_get_clients
     ):
-        """Only staging messages for successfully re-enqueued records should be deleted."""
+        """Partial re-enqueue failure should report correct success/failure counts."""
         mock_sqs = MagicMock()
         mock_s3 = MagicMock()
         mock_bedrock = MagicMock()
@@ -383,23 +421,13 @@ class TestHandlerOnDemandPartialFailure:
         ]
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(3)
+            mock_drain.return_value = _make_drain_file(3)
 
-            with patch("app.llm.queue.batcher._delete_messages") as mock_delete:
-                with patch.dict("os.environ", _HANDLER_ENV, clear=False):
-                    result = handler(
-                        {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
-                        None,
-                    )
-
-                # Only 2 successful handles should be deleted
-                mock_delete.assert_called_once()
-                deleted_handles = mock_delete.call_args[0][2]
-                assert len(deleted_handles) == 2
-                assert "receipt-job-0" in deleted_handles
-                assert "receipt-job-2" in deleted_handles
-                # The failed record's handle should NOT be deleted
-                assert "receipt-job-1" not in deleted_handles
+            with patch.dict("os.environ", _HANDLER_ENV, clear=False):
+                result = handler(
+                    {"execution_id": "exec-123", "scrapers": ["vivery_api"]},
+                    None,
+                )
 
         assert result["mode"] == "on-demand"
         assert result["count"] == 2
@@ -417,7 +445,7 @@ class TestHandlerOnDemandPartialFailure:
         mock_send.return_value = "msg-ok"
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(5)
+            mock_drain.return_value = _make_drain_file(5)
 
             with patch.dict("os.environ", _HANDLER_ENV, clear=False):
                 result = handler(
@@ -451,7 +479,7 @@ class TestHandlerOnDemandPartialFailure:
         ]
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
-            mock_drain.return_value = _make_drain_return(5)
+            mock_drain.return_value = _make_drain_file(5)
 
             with patch.dict("os.environ", _HANDLER_ENV, clear=False):
                 result = handler(

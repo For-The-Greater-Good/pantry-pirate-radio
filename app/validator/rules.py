@@ -91,7 +91,7 @@ class ValidationRules:
         lat = location.get("latitude")
         lon = location.get("longitude")
 
-        if lat is None or lon is None:
+        if lat is None or lon is None or lat == "" or lon == "":
             return (False, -100, "Missing coordinates after enrichment")
 
         return (True, 0, "Coordinates present")
@@ -108,12 +108,22 @@ class ValidationRules:
         lat = location.get("latitude")
         lon = location.get("longitude")
 
-        if lat is None or lon is None:
+        if lat is None or lon is None or lat == "" or lon == "":
             return (
                 True,
                 0,
                 "Valid coordinates",
             )  # Will be caught by check_coordinates_present
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (ValueError, TypeError):
+            return (
+                True,
+                0,
+                "Coordinates not parseable as float, deferred to other checks",
+            )
 
         # Check for exact 0,0
         if lat == 0.0 and lon == 0.0:
@@ -137,8 +147,14 @@ class ValidationRules:
         lat = location.get("latitude")
         lon = location.get("longitude")
 
-        if lat is None or lon is None:
+        if lat is None or lon is None or lat == "" or lon == "":
             return (False, -95, "Missing coordinates")
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (ValueError, TypeError):
+            return (False, -95, "Invalid coordinates")
 
         # State might be in the address array in HSDS format
         state = ""
@@ -188,7 +204,13 @@ class ValidationRules:
             if len(location["address"]) > 0:
                 state = location["address"][0].get("state_province", "").upper()
 
-        if lat is None or lon is None:
+        if lat is None or lon is None or lat == "" or lon == "":
+            return (True, 0, "Coordinates not available for verification")
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (ValueError, TypeError):
             return (True, 0, "Coordinates not available for verification")
 
         if not state:
@@ -226,7 +248,7 @@ class ValidationRules:
             city = location.get("city", "").lower()
         elif location.get("address") and isinstance(location["address"], list):
             if len(location["address"]) > 0:
-                city = location["address"][0].get("city", "").lower()
+                city = (location["address"][0].get("city") or "").lower()
 
         for pattern in self.test_patterns:
             if pattern in city:
@@ -241,11 +263,11 @@ class ValidationRules:
                 if len(location["address"]) > 0:
                     first_addr = location["address"][0]
                     address_text = (
-                        first_addr.get("address_1", "")
+                        (first_addr.get("address_1") or "")
                         + " "
-                        + first_addr.get("city", "")
+                        + (first_addr.get("city") or "")
                         + " "
-                        + first_addr.get("state_province", "")
+                        + (first_addr.get("state_province") or "")
                     ).lower()
             else:
                 # Flat format - address is a string
@@ -262,7 +284,7 @@ class ValidationRules:
             postal = location.get("postal_code", "")
         elif location.get("address") and isinstance(location["address"], list):
             if len(location["address"]) > 0:
-                postal = location["address"][0].get("postal_code", "")
+                postal = location["address"][0].get("postal_code") or ""
 
         if postal in self.test_postal_codes:
             return (False, -95, f"Test postal code: {postal}")

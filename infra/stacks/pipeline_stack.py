@@ -335,6 +335,7 @@ class PipelineStack(Stack):
                 actions=["iam:PassRole"],
                 resources=[
                     f"arn:aws:iam::{Stack.of(self).account}:role/pantry-pirate-radio-*",
+                    f"arn:aws:iam::{Stack.of(self).account}:role/ServicesStack-{self.environment_name}-*",
                 ],
             )
         )

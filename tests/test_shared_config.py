@@ -35,6 +35,7 @@ class TestDefaultsYaml:
             "geocoding",
             "content_store",
             "reconciler",
+            "tightbeam",
         }
         assert set(yaml_data.keys()) == expected
 
@@ -42,7 +43,7 @@ class TestDefaultsYaml:
         """LLM section has correct keys and types."""
         llm = yaml_data["llm"]
         assert llm["temperature"] == 0.7
-        assert llm["max_tokens"] == 64768
+        assert llm["max_tokens"] == 16384
         assert llm["timeout"] == 30
         assert llm["retries"] == 3
 
@@ -80,6 +81,10 @@ class TestDefaultsYaml:
     def test_reconciler_section(self, yaml_data):
         """Reconciler section has correct keys."""
         assert yaml_data["reconciler"]["location_tolerance"] == 0.0001
+
+    def test_tightbeam_section(self, yaml_data):
+        """Tightbeam section has correct keys."""
+        assert yaml_data["tightbeam"]["enabled"] is True
 
     def test_no_secrets_in_yaml(self, yaml_data):
         """YAML keys must NOT contain secret-like names."""
@@ -124,6 +129,7 @@ class TestLoadDefaults:
             "GEOCODING_TIMEOUT",
             "CONTENT_STORE_ENABLED",
             "RECONCILER_LOCATION_TOLERANCE",
+            "TIGHTBEAM_ENABLED",
         }
         assert set(defaults.keys()) == expected_keys
 
@@ -148,6 +154,7 @@ class TestLoadDefaults:
         assert isinstance(defaults["GEOCODING_TIMEOUT"], int)
         assert isinstance(defaults["CONTENT_STORE_ENABLED"], bool)
         assert isinstance(defaults["RECONCILER_LOCATION_TOLERANCE"], float)
+        assert isinstance(defaults["TIGHTBEAM_ENABLED"], bool)
 
     def test_hardcoded_fallback_matches_yaml(self):
         """Hardcoded fallback must match YAML exactly."""
@@ -169,11 +176,11 @@ class TestLoadDefaults:
             defaults = load_defaults()
         assert defaults == _hardcoded_defaults()
 
-    def test_max_tokens_is_64768(self):
-        """LLM_MAX_TOKENS canonical value must be 64768."""
+    def test_max_tokens_is_16384(self):
+        """LLM_MAX_TOKENS canonical value must be 16384."""
         from config import load_defaults
 
-        assert load_defaults()["LLM_MAX_TOKENS"] == 64768
+        assert load_defaults()["LLM_MAX_TOKENS"] == 16384
 
 
 class TestMalformedYamlHandling:
@@ -186,7 +193,7 @@ class TestMalformedYamlHandling:
         raw = {
             "llm": {
                 "temperature": 0.7,
-                "max_tokens": 64768,
+                "max_tokens": 16384,
                 "timeout": 30,
                 "retries": 3,
             },
@@ -267,7 +274,7 @@ class TestSettingsUsesSharedDefaults:
     """Tests that app/core/config.py Settings uses shared defaults."""
 
     def test_settings_llm_max_tokens_default(self):
-        """Settings.LLM_MAX_TOKENS should default to shared value (64768)."""
+        """Settings.LLM_MAX_TOKENS should default to shared value (16384)."""
         # Clear any env override to test the default
         env = os.environ.copy()
         env.pop("LLM_MAX_TOKENS", None)
@@ -276,7 +283,7 @@ class TestSettingsUsesSharedDefaults:
             from app.core.config import Settings
 
             s = Settings()
-            assert s.LLM_MAX_TOKENS == 64768
+            assert s.LLM_MAX_TOKENS == 16384
 
     def test_env_var_overrides_shared_default(self):
         """Environment variables must override shared defaults."""

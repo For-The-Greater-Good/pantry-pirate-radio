@@ -4,6 +4,10 @@ Provides both a provider class (BedrockProvider) and reusable module-level
 functions (build_converse_request, parse_converse_response) for constructing
 and parsing Bedrock Converse API requests/responses. The module-level functions
 are used by both the provider and the batch inference Lambdas.
+
+Messages API functions for batch inference (build_messages_api_request,
+parse_messages_api_response) live in ``bedrock_batch.py`` and are re-exported
+here for backward compatibility.
 """
 
 import asyncio
@@ -13,6 +17,10 @@ from typing import Any
 from app.core.logging import get_logger
 from app.llm.config import LLMConfig
 from app.llm.providers.base import BaseLLMProvider
+from app.llm.providers.bedrock_batch import (  # noqa: F401 — re-export
+    build_messages_api_request,
+    parse_messages_api_response,
+)
 from app.llm.providers.types import GenerateConfig, LLMInput, LLMResponse
 
 logger = get_logger().bind(module="bedrock_provider")
@@ -49,7 +57,7 @@ def _build_messages(prompt: LLMInput) -> list[dict[str, Any]]:
     return messages
 
 
-def _extract_system_prompt(prompt: LLMInput) -> list[dict[str, str]] | None:
+def _extract_system_prompt(prompt: LLMInput) -> list[dict[str, Any]] | None:
     """Extract system messages into Bedrock's separate system parameter.
 
     Args:
@@ -61,10 +69,15 @@ def _extract_system_prompt(prompt: LLMInput) -> list[dict[str, str]] | None:
     if isinstance(prompt, str):
         return None
 
-    system_parts: list[dict[str, str]] = []
+    system_parts: list[dict[str, Any]] = []
     for msg in prompt:
         if msg.get("role") == "system":
-            system_parts.append({"text": msg.get("content", "")})
+            system_parts.append(
+                {
+                    "text": msg.get("content", ""),
+                    "cacheControl": {"type": "ephemeral"},
+                }
+            )
 
     return system_parts if system_parts else None
 
@@ -357,7 +370,7 @@ class BedrockProvider(BaseLLMProvider[Any, BedrockConfig]):
         """Convert LLMInput into Bedrock message format."""
         return _build_messages(prompt)
 
-    def _extract_system_prompt(self, prompt: LLMInput) -> list[dict[str, str]] | None:
+    def _extract_system_prompt(self, prompt: LLMInput) -> list[dict[str, Any]] | None:
         """Extract system messages into Bedrock's separate system parameter."""
         return _extract_system_prompt(prompt)
 

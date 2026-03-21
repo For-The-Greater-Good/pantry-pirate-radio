@@ -557,6 +557,9 @@ class ServiceCreator(BaseReconciler):
             commit=not transaction,
         )
 
+        if not transaction:
+            self.db.commit()
+
         return phone_id
 
     def create_language(
@@ -850,7 +853,7 @@ class ServiceCreator(BaseReconciler):
         existing_query = text(
             """
             SELECT id, freq, wkst, opens_at, closes_at, byday, description,
-                   valid_from, valid_to, dtstart, until, count, interval
+                   valid_from, valid_to, dtstart, until, count, interval, location_id
             FROM schedule
             WHERE (
                 (service_at_location_id = :service_at_location_id AND :service_at_location_id IS NOT NULL) OR
@@ -891,6 +894,7 @@ class ServiceCreator(BaseReconciler):
                 or existing.until != until
                 or existing.count != count
                 or existing.interval != interval
+                or (existing.location_id is None and location_id is not None)
             ):
                 needs_update = True
 
@@ -910,7 +914,8 @@ class ServiceCreator(BaseReconciler):
                         dtstart = :dtstart,
                         until = :until,
                         count = :count,
-                        interval = :interval
+                        interval = :interval,
+                        location_id = :location_id
                     WHERE id = :id
                     """
                 )
@@ -931,6 +936,7 @@ class ServiceCreator(BaseReconciler):
                         "until": until,
                         "count": count,
                         "interval": interval,
+                        "location_id": str(location_id) if location_id else None,
                     },
                 )
 
