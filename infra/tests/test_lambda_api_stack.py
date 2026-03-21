@@ -234,16 +234,18 @@ class TestLambdaApiStackTightbeam:
             },
         )
 
-    def test_cors_includes_write_methods(self, template):
-        """CORS should include PUT, DELETE, POST for tightbeam write operations."""
+    def test_cors_is_read_only_at_gateway_level(self, template):
+        """API Gateway CORS allows only read methods.
+
+        Write-method CORS for Tightbeam is handled by TightbeamCORSMiddleware
+        at the FastAPI application layer, not at the API Gateway level.
+        """
         template.has_resource_properties(
             "AWS::ApiGatewayV2::Api",
             {
                 "CorsConfiguration": assertions.Match.object_like(
                     {
-                        "AllowMethods": assertions.Match.array_with(
-                            ["PUT", "DELETE", "POST"]
-                        ),
+                        "AllowMethods": ["GET", "HEAD", "OPTIONS"],
                     }
                 ),
             },
