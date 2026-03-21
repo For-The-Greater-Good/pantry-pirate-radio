@@ -37,6 +37,7 @@ class TestSharedConfig:
             "GEOCODING_TIMEOUT",
             "CONTENT_STORE_ENABLED",
             "RECONCILER_LOCATION_TOLERANCE",
+            "TIGHTBEAM_ENABLED",
         }
         assert set(SHARED.keys()) == expected_keys
 

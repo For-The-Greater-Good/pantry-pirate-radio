@@ -34,7 +34,17 @@ VALID_ROW_7COL = [
     "10001",
 ]
 
-HEADER_ROW = ["ID", "TYPE", "PROGRAM", "ORG PHONE", "DISTADD DIS", "TBO", "DRIOSTZIP", "DAYS", "HOURS"]
+HEADER_ROW = [
+    "ID",
+    "TYPE",
+    "PROGRAM",
+    "ORG PHONE",
+    "DISTADD DIS",
+    "TBO",
+    "DRIOSTZIP",
+    "DAYS",
+    "HOURS",
+]
 
 
 class TestParseRow:
