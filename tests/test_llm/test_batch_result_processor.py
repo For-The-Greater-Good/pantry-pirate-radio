@@ -1,3 +1,5 @@
+# ruff: noqa: N803
+# (boto3 API uses PascalCase keyword arguments: Bucket, Key, Filename)
 """Tests for the Batch Result Processor Lambda handler."""
 
 import json
@@ -157,7 +159,7 @@ class TestStreamingHelpers:
             assert "job-3" in index
 
             # Each entry is (offset, length)
-            for key, (offset, length) in index.items():
+            for _key, (offset, length) in index.items():
                 assert isinstance(offset, int)
                 assert isinstance(length, int)
                 assert offset >= 0
