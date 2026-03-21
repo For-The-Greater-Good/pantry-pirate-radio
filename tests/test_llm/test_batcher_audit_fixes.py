@@ -1,3 +1,5 @@
+# ruff: noqa: N803
+# (boto3 API uses PascalCase keyword arguments: Bucket, Key, Filename)
 """Tests for batcher audit fixes (C2 poison pill DLQ, M4 threshold per-invocation, JSONL format)."""
 
 import json
@@ -286,8 +288,8 @@ class TestOriginalJobsJsonlFormat:
 
         try:
             handler({"execution_id": "test-exec-uuid"}, None)
-        except Exception:
-            pass  # May fail on DynamoDB put, that's ok
+        except Exception:  # noqa: S110 — DynamoDB put may fail in test; expected
+            pass
 
         # Find the original_jobs upload
         orig_jobs_uploads = {
@@ -295,7 +297,7 @@ class TestOriginalJobsJsonlFormat:
         }
         assert len(orig_jobs_uploads) == 1
 
-        key = list(orig_jobs_uploads.keys())[0]
+        key = next(iter(orig_jobs_uploads.keys()))
         content = orig_jobs_uploads[key]
 
         # Verify key uses .jsonl extension

@@ -1,3 +1,5 @@
+# ruff: noqa: N803
+# (boto3 API uses PascalCase keyword arguments: Bucket, Key, Filename)
 """Tests for the Batcher Lambda handler."""
 
 import json
@@ -219,7 +221,7 @@ class TestHandlerBatchPath:
                 handler({"execution_id": "exec-123", "scrapers": []}, None)
 
         # Find the JSONL upload (key ends with input.jsonl)
-        jsonl_key = [k for k in captured if k.endswith("input.jsonl")][0]
+        jsonl_key = next(k for k in captured if k.endswith("input.jsonl"))
         lines = captured[jsonl_key].strip().split("\n")
         assert len(lines) == BATCH_THRESHOLD
 
@@ -280,7 +282,7 @@ class TestHandlerBatchPath:
             with patch.dict("os.environ", env, clear=False):
                 handler({"execution_id": "exec-123", "scrapers": []}, None)
 
-        oj_key = [k for k in captured if k.endswith("original_jobs.jsonl")][0]
+        oj_key = next(k for k in captured if k.endswith("original_jobs.jsonl"))
         lines = [line for line in captured[oj_key].strip().split("\n") if line]
         assert len(lines) == 3
         for line in lines:
