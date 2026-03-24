@@ -208,8 +208,8 @@ pipeline_stack = PipelineStack(
     publisher_task_family=f"pantry-pirate-radio-publisher-{environment_name}",
     publisher_task_role_arn=services_stack.publisher_task_role.role_arn,
     environment_name=environment_name,
-    schedule_enabled=(environment_name == "prod"),  # Only enable schedule in prod
-    publisher_schedule_enabled=(environment_name == "prod"),
+    schedule_enabled=False,  # Manual-only for now; enable via EventBridge console when ready
+    publisher_schedule_enabled=False,
     staging_queue_url=batch_stack.staging_queue.queue_url,
     batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
     env=env,

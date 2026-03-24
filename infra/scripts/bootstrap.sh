@@ -48,7 +48,7 @@ cdk bootstrap "aws://$AWS_ACCOUNT/$AWS_REGION" \
 echo ""
 echo "Creating ECR repositories..."
 
-for repo_suffix in "app" "worker" "validator" "reconciler" "recorder" "api-lambda" "publisher"; do
+for repo_suffix in "app" "worker" "validator" "reconciler" "recorder" "api-lambda" "publisher" "batch-lambda" "scraper"; do
     REPO_NAME="pantry-pirate-radio-${repo_suffix}-${ENVIRONMENT}"
 
     if aws ecr describe-repositories --repository-names "$REPO_NAME" &>/dev/null; then

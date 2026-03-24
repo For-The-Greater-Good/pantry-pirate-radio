@@ -257,7 +257,11 @@ class BatchInferenceStack(Stack):
             "BatcherLambdaLogs",
             log_group_name=f"/aws/lambda/pantry-pirate-radio-batcher-{self.environment_name}",
             retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
         )
 
         fn = _lambda.DockerImageFunction(
@@ -337,7 +341,11 @@ class BatchInferenceStack(Stack):
             "ResultProcessorLambdaLogs",
             log_group_name=f"/aws/lambda/pantry-pirate-radio-result-processor-{self.environment_name}",
             retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
         )
 
         fn = _lambda.DockerImageFunction(

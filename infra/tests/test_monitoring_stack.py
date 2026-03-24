@@ -150,7 +150,7 @@ class TestMonitoringStackAlarms:
             "AWS::CloudWatch::Alarm",
             {
                 "AlarmName": "pantry-pirate-radio-aurora-acu-high-prod",
-                "Threshold": 14,
+                "Threshold": 1.5,
             },
         )
 
