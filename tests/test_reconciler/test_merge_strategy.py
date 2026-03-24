@@ -419,3 +419,96 @@ def test_merge_organization_conversion_error(mock_db: MagicMock) -> None:
     # Should call execute twice (original query + fallback query) and handle error gracefully
     assert mock_db.execute.call_count == 2
     mock_db.commit.assert_not_called()
+
+
+# ========================================
+# Source Corroboration Tests
+# ========================================
+
+
+def test_merge_location_with_multi_source_confidence_bonus(
+    mock_db: MagicMock, test_location_sources: List[Dict[str, str]]
+) -> None:
+    """Test that merge_location applies source corroboration bonus for multi-source locations."""
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    # Mock the database query to return 3 sources (3 distinct scrapers)
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = test_location_sources
+    mock_db.execute.return_value = mock_result
+
+    # Call merge with a confidence score
+    updated_score = merge_strategy.merge_location(
+        location_id, current_confidence_score=73
+    )
+
+    # 3 distinct scrapers should give +10 bonus: 73 + 10 = 83
+    assert updated_score == 83
+
+
+def test_merge_location_confidence_caps_at_90(
+    mock_db: MagicMock, test_location_sources: List[Dict[str, str]]
+) -> None:
+    """Test that source corroboration bonus doesn't exceed scraped data cap of 90."""
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = test_location_sources
+    mock_db.execute.return_value = mock_result
+
+    # High base score + bonus should still cap at 90
+    updated_score = merge_strategy.merge_location(
+        location_id, current_confidence_score=85
+    )
+
+    assert updated_score == 90
+
+
+def test_merge_location_single_source_no_bonus(mock_db: MagicMock) -> None:
+    """Test that single-source locations get no corroboration bonus."""
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    # Single source record
+    single_source = [
+        {
+            "id": "source1",
+            "scraper_id": "scraper1",
+            "name": "Location 1",
+            "description": "Description",
+            "latitude": 37.7749,
+            "longitude": -122.4194,
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z",
+        },
+    ]
+
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = single_source
+    mock_db.execute.return_value = mock_result
+
+    updated_score = merge_strategy.merge_location(
+        location_id, current_confidence_score=73
+    )
+
+    # Single source: no bonus
+    assert updated_score is None
+
+
+def test_merge_location_no_confidence_score_returns_none(
+    mock_db: MagicMock, test_location_sources: List[Dict[str, str]]
+) -> None:
+    """Test that merge_location without confidence score returns None."""
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = test_location_sources
+    mock_db.execute.return_value = mock_result
+
+    # No confidence score passed (backward compat)
+    updated_score = merge_strategy.merge_location(location_id)
+
+    assert updated_score is None

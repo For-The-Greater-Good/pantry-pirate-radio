@@ -573,6 +573,12 @@ class ValidationProcessor:
             location_scores = []
             total_locations = len(data[locations_key])
 
+            # Collect service-level signals for scoring annotations
+            # These are transient metadata (underscore-prefixed), NOT HSDS fields
+            services = data.get("service", data.get("services", []))
+            phones = data.get("phone", data.get("phones", []))
+            schedules = data.get("schedule", data.get("schedules", []))
+
             for location in data[locations_key]:
                 # Handle locations that couldn't be enriched due to service failure
                 if location.get("enrichment_failed"):
@@ -592,6 +598,17 @@ class ValidationProcessor:
                         f"confidence={confidence_score}, status=needs_review (enrichment failed)"
                     )
                     continue
+
+                # Annotate location with service-level richness signals
+                location["_has_phone"] = bool(phones) or any(
+                    s.get("phones") or s.get("phone") for s in services
+                )
+                location["_has_schedule"] = bool(schedules) or any(
+                    s.get("schedules") or s.get("schedule") for s in services
+                )
+                location["_has_website"] = any(s.get("url") for s in services) or bool(
+                    location.get("url")
+                )
 
                 # Run validation rules
                 validation_results = validator.validate_location(location)

@@ -664,7 +664,8 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **HAARRRvest Publisher**: Syncs processed data to public repository
 
 #### Data Validation Pipeline
-- **Confidence Scoring**: Evaluates data quality on 0-100 scale
+- **Confidence Scoring**: Build-up model — scraped data starts at base 60, earns bonuses for completeness. Capped at 90 for scraped data; only human corrections (Tightbeam) reach 91-100.
+- **Source Corroboration**: Locations confirmed by multiple scrapers receive +5 (2 sources) or +10 (3+ sources) bonus, applied during reconciliation.
 - **Enrichment**: Enhances incomplete data using geocoding services
 - **Rejection**: Filters out test data and low-quality records
 - **Caching**: Redis-based caching for performance optimization
@@ -790,11 +791,12 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 ## Recent Updates and Features
 
 ### Data Validation Pipeline (Latest - Issues #362-#369)
-- **Confidence Scoring System**: All locations scored 0-100 for quality assessment
+- **Confidence Scoring System**: Build-up model — base score of 60, bonuses for data completeness (address +5, description +3, geocoder quality +5, phone/hours/website +3 each). Hard cap at 90 for scraped data; 100 reserved for human corrections via Tightbeam.
+- **Source Corroboration**: Multi-scraper confirmation boosts scores (+5 for 2 sources, +10 for 3+), applied during reconciliation merge.
 - **Automated Data Enrichment**: Enhances incomplete data using geocoding services
 - **Quality Rejection**: Automatically rejects test addresses and placeholder data
 - **Redis-Based Service**: Distributed validation with caching for performance
-- **Configurable Thresholds**: Customizable rejection threshold (default: 30)
+- **Configurable Thresholds**: Customizable rejection threshold (default: 10)
 
 ### Geocoding Improvements
 - **0,0 Coordinate Detection**: Automatic detection and correction of invalid (0,0) coordinates
