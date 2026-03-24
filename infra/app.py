@@ -475,6 +475,7 @@ monitoring_stack.add_dependency(lambda_api_stack)
 # Plugin CDK stack discovery — scan ../plugins/*/infra/ for declared stacks
 import importlib.util
 import pathlib
+import sys
 import yaml
 
 _plugins_dir = pathlib.Path(__file__).parent.parent / "plugins"
@@ -514,6 +515,10 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                 f"Plugin CDK module not found: {_module_path}", stacklevel=1
             )
             continue
+        # Add plugin infra dir to sys.path so intra-plugin imports work
+        _plugin_infra_str = str(_plugin_infra_dir.resolve())
+        if _plugin_infra_str not in sys.path:
+            sys.path.insert(0, _plugin_infra_str)
         _spec = importlib.util.spec_from_file_location(_module_name, _module_path)
         if _spec and _spec.loader:
             _mod = importlib.util.module_from_spec(_spec)
