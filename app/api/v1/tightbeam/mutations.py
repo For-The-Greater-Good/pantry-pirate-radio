@@ -103,7 +103,7 @@ class TightbeamMutationService:
         """
         # Verify location exists
         check_sql = text(
-            "SELECT id, name, latitude, longitude, description, url "
+            "SELECT id, name, latitude, longitude, description "
             "FROM location WHERE id = :id"
         )
         result = await self.session.execute(check_sql, {"id": location_id})
@@ -116,13 +116,27 @@ class TightbeamMutationService:
         new_values: dict = {}
         changed_fields: list[str] = []
 
-        field_map = {
+        field_map: dict = {
             "name": (name, existing.name),
-            "latitude": (latitude, existing.latitude),
-            "longitude": (longitude, existing.longitude),
+            "latitude": (
+                float(latitude) if latitude is not None else None,
+                float(existing.latitude) if existing.latitude is not None else None,
+            ),
+            "longitude": (
+                float(longitude) if longitude is not None else None,
+                float(existing.longitude) if existing.longitude is not None else None,
+            ),
             "description": (description, existing.description),
-            "website": (website, existing.url),
         }
+
+        # Website stored in url table, not location
+        if website is not None:
+            url_sql = text(
+                "SELECT url FROM url WHERE location_id = :id LIMIT 1"
+            )
+            url_result = await self.session.execute(url_sql, {"id": location_id})
+            url_row = url_result.fetchone()
+            field_map["website"] = (website, url_row.url if url_row else None)
 
         for field, (new_val, old_val) in field_map.items():
             if new_val is not None:
@@ -221,14 +235,20 @@ class TightbeamMutationService:
         if description is not None:
             update_parts.append("description = :description")
             update_params["description"] = description
-        if website is not None:
-            update_parts.append("url = :website")
-            update_params["website"] = website
-
         if update_parts:
             # update_parts contains hardcoded column names; values are parameterized
             loc_update = f"UPDATE location SET {', '.join(update_parts)} WHERE id = :id"  # nosec B608
             await self.session.execute(text(loc_update), update_params)
+
+        # Update url table if website changed
+        if website is not None:
+            await self.session.execute(
+                text(
+                    "INSERT INTO url (id, location_id, url) VALUES (:url_id, :loc_id, :url) "
+                    "ON CONFLICT (id) DO UPDATE SET url = :url"
+                ),
+                {"url_id": str(uuid4()), "loc_id": location_id, "url": website},
+            )
 
         # Update address if any address fields changed
         addr_update_parts: list[str] = []
