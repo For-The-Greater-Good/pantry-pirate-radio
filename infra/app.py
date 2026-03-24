@@ -208,8 +208,8 @@ pipeline_stack = PipelineStack(
     publisher_task_family=f"pantry-pirate-radio-publisher-{environment_name}",
     publisher_task_role_arn=services_stack.publisher_task_role.role_arn,
     environment_name=environment_name,
-    schedule_enabled=(environment_name == "prod"),  # Only enable schedule in prod
-    publisher_schedule_enabled=(environment_name == "prod"),
+    schedule_enabled=False,  # Manual-only for now; enable via EventBridge console when ready
+    publisher_schedule_enabled=False,
     staging_queue_url=batch_stack.staging_queue.queue_url,
     batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
     env=env,
@@ -475,6 +475,7 @@ monitoring_stack.add_dependency(lambda_api_stack)
 # Plugin CDK stack discovery — scan ../plugins/*/infra/ for declared stacks
 import importlib.util
 import pathlib
+import sys
 import yaml
 
 _plugins_dir = pathlib.Path(__file__).parent.parent / "plugins"
@@ -495,6 +496,8 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
             "database_credentials": database_stack.database_credentials_secret,
         },
         "api_url": lambda_api_stack.api_url,
+        "place_index_name": database_stack.place_index.index_name,
+        "place_index_arn": database_stack.place_index.attr_index_arn,
     }
 
     for _stack_entry in _infra_stacks:
@@ -514,6 +517,10 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                 f"Plugin CDK module not found: {_module_path}", stacklevel=1
             )
             continue
+        # Add plugin infra dir to sys.path so intra-plugin imports work
+        _plugin_infra_str = str(_plugin_infra_dir.resolve())
+        if _plugin_infra_str not in sys.path:
+            sys.path.insert(0, _plugin_infra_str)
         _spec = importlib.util.spec_from_file_location(_module_name, _module_path)
         if _spec and _spec.loader:
             _mod = importlib.util.module_from_spec(_spec)
@@ -531,5 +538,6 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                 )
                 _instance.add_dependency(compute_stack)
                 _instance.add_dependency(secrets_stack)
+                _instance.add_dependency(database_stack)
 
 app.synth()

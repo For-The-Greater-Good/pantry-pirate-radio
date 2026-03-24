@@ -107,15 +107,16 @@ infra/
 - **RDS Proxy**: Connection pooling with IAM authentication
 - **Geocoding Cache Table**: DynamoDB table for geocoding results
 - **Database Credentials**: Auto-generated, stored in Secrets Manager
-- **Environment Config**:
+- **Environment Config** (unified sizing for cost parity):
   | Config | Dev | Prod |
   |--------|-----|------|
-  | Min ACU | 0.5 | 2 |
-  | Max ACU | 2 | 16 |
-  | Multi-AZ | No | Yes |
-  | PITR | No | Yes |
+  | Min ACU | 0.5 | 0.5 |
+  | Max ACU | 2 | 2 |
+  | Multi-AZ | No | No |
+  | DynamoDB PITR | No | Yes |
   | Deletion Protection | No | Yes |
-  | Backup Retention | 1 day | 30 days |
+  | Backup Retention | 30 days | 30 days |
+  | Removal Policy | DESTROY | RETAIN |
 
 ### ServicesStack
 Fargate services for pipeline stages:
@@ -138,7 +139,6 @@ Fargate services for pipeline stages:
 - **API Gateway HTTP API (v2)**: `$default` catch-all route → Lambda, CORS preflight
 - **Security Group**: Lambda → RDS Proxy access
 - **IAM**: Secrets Manager read for DB credentials
-- **Provisioned Concurrency**: 2 instances in prod for warm starts
 - **ECR Repository**: `api-lambda` (slim ~300MB image)
 - **Cost**: ~$2/mo dev (vs ~$55/mo Fargate ALB)
 

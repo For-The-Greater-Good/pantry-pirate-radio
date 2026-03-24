@@ -219,7 +219,11 @@ class DbInitStack(Stack):
             self,
             "CheckDbLambdaLogs",
             retention=retention,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
         )
 
         # Lambda function — checks SSM parameter only (no DB connectivity needed)
@@ -491,7 +495,11 @@ class DbInitStack(Stack):
             self,
             "DbInitTriggerLambdaLogs",
             retention=logs.RetentionDays.ONE_WEEK,
-            removal_policy=RemovalPolicy.DESTROY,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
         )
 
         # Custom resource provider

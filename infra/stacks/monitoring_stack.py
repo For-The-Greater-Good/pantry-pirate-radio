@@ -791,8 +791,8 @@ class MonitoringStack(Stack):
             "Bedrock LLM invocations are being throttled",
         )
 
-        # 8. Aurora ACU high — 75% of max
-        acu_threshold = 1.5 if env == "dev" else 14
+        # 8. Aurora ACU high — 75% of 2 ACU max (unified across environments)
+        acu_threshold = 1.5
         self._alarm(
             "AuroraACUAlarm",
             f"{ppr}-aurora-acu-high-{env}",
@@ -805,7 +805,7 @@ class MonitoringStack(Stack):
             acu_threshold,
             3,
             GT,
-            f"Aurora ACU usage above {acu_threshold} (75% of max)",
+            f"Aurora ACU usage above {acu_threshold} (75% of 2 ACU max)",
         )
 
         # 9. Pipeline failure
