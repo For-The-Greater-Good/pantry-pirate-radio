@@ -131,9 +131,7 @@ class TightbeamMutationService:
 
         # Website stored in url table, not location
         if website is not None:
-            url_sql = text(
-                "SELECT url FROM url WHERE location_id = :id LIMIT 1"
-            )
+            url_sql = text("SELECT url FROM url WHERE location_id = :id LIMIT 1")
             url_result = await self.session.execute(url_sql, {"id": location_id})
             url_row = url_result.fetchone()
             field_map["website"] = (website, url_row.url if url_row else None)
