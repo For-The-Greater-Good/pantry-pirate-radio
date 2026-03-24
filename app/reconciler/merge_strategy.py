@@ -133,11 +133,17 @@ class MergeStrategy(BaseReconciler):
                 )
                 return {}
 
-    def merge_location(self, location_id: str) -> None:
+    def merge_location(
+        self, location_id: str, current_confidence_score: int | None = None
+    ) -> int | None:
         """Merge source-specific location records into a canonical record.
 
         Args:
             location_id: ID of the canonical location
+            current_confidence_score: Current confidence score for source corroboration
+
+        Returns:
+            Updated confidence score if source bonus applied, None otherwise
         """
         # Get all source records for this location
         query = text(
@@ -162,7 +168,7 @@ class MergeStrategy(BaseReconciler):
 
         if not rows:
             self.logger.warning(f"No source records found for location {location_id}")
-            return
+            return None
 
         # Debug logging to understand what we're getting
         self.logger.debug(f"Query returned {len(rows)} rows for location {location_id}")
@@ -218,16 +224,34 @@ class MergeStrategy(BaseReconciler):
 
             if not fallback_row:
                 self.logger.error(f"Could not find location with ID {location_id}")
-                return
+                return None
 
             # Use the location record as is - no merging needed
             self.logger.info(
                 f"Using existing location record for {location_id} without merging"
             )
-            return
+            return None
 
         # Apply merging strategy to create canonical record
         merged_data = self._merge_location_data(valid_records)
+
+        # Source corroboration: count distinct scrapers and apply bonus
+        updated_score = None
+        if current_confidence_score is not None:
+            distinct_scrapers = len(
+                set(r.get("scraper_id") for r in valid_records if r.get("scraper_id"))
+            )
+            if distinct_scrapers > 1:
+                from app.validator.scoring import ConfidenceScorer
+
+                scorer = ConfidenceScorer()
+                updated_score = scorer.apply_source_corroboration(
+                    current_confidence_score, distinct_scrapers
+                )
+                self.logger.info(
+                    f"Source corroboration: {distinct_scrapers} scrapers, "
+                    f"score {current_confidence_score} -> {updated_score}"
+                )
 
         # Update canonical record
         update_query = text(
@@ -238,7 +262,14 @@ class MergeStrategy(BaseReconciler):
             description = :description,
             latitude = :latitude,
             longitude = :longitude,
-            is_canonical = TRUE
+            is_canonical = TRUE,
+            confidence_score = COALESCE(:confidence_score, confidence_score),
+            validation_status = CASE
+                WHEN :confidence_score IS NOT NULL AND :confidence_score >= 80 THEN 'verified'
+                WHEN :confidence_score IS NOT NULL AND :confidence_score >= 10 THEN 'needs_review'
+                WHEN :confidence_score IS NOT NULL THEN 'rejected'
+                ELSE validation_status
+            END
         WHERE id = :id
         """
         )
@@ -251,6 +282,7 @@ class MergeStrategy(BaseReconciler):
                 "description": merged_data["description"],
                 "latitude": merged_data["latitude"],
                 "longitude": merged_data["longitude"],
+                "confidence_score": updated_score,
             },
         )
         self.db.commit()
@@ -258,6 +290,8 @@ class MergeStrategy(BaseReconciler):
         self.logger.info(
             f"Merged {len(valid_records)} source records for location {location_id}"
         )
+
+        return updated_score
 
     def _merge_location_data(
         self, source_records: list[dict[str, Any]]
