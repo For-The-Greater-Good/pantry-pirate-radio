@@ -1,0 +1,159 @@
+<h2>Locations Search Page — Plentiful Colors</h2>
+<p class="subtitle">Aligned with Plentiful brand: green primary (#008763/#00CD96), orange accent (#FF8F00), purple (#7B53C8)</p>
+
+<div class="mockup">
+  <div class="mockup-header">ppr-helm — Locations</div>
+  <div class="mockup-body" style="padding: 0; background: #F7F7F7; color: #0F0F0F;">
+    <!-- Header Bar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #FFFFFF; border-bottom: 2px solid #00CD96; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-weight: bold; font-size: 16px; color: #008763;">&#9781; ppr-helm</span>
+        <span style="color: #EFEFEF; font-size: 13px;">|</span>
+        <a style="color: #008763; font-size: 13px; text-decoration: none; border-bottom: 2px solid #008763; padding-bottom: 2px; font-weight: 600;">Locations</a>
+        <a style="color: #696969; font-size: 13px; text-decoration: none;">Admin</a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="background: #00CD96; color: #FFFFFF; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">admin</span>
+        <span style="color: #696969; font-size: 13px;">jane@ftgg.org</span>
+        <button style="background: transparent; border: 1px solid #767676; color: #696969; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;">Logout</button>
+      </div>
+    </div>
+
+    <!-- Content Area -->
+    <div style="padding: 20px;">
+      <!-- Search Bar -->
+      <div style="background: #FFFFFF; border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid #EFEFEF; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+          <input class="mock-input" placeholder="Search all fields..." style="flex: 2; background: #FFFFFF; border: 1px solid #767676; color: #0F0F0F; padding: 8px 12px; border-radius: 6px;">
+          <button style="padding: 8px 20px; background: #008763; border: none; color: white; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;">Search</button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <input class="mock-input" placeholder="Name" style="flex: 1; min-width: 120px; background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+          <input class="mock-input" placeholder="City" style="flex: 1; min-width: 100px; background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+          <select style="flex: 1; min-width: 80px; background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+            <option>State</option><option>NJ</option><option>NY</option><option>PA</option>
+          </select>
+          <input class="mock-input" placeholder="ZIP" style="width: 80px; background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+          <select style="min-width: 100px; background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+            <option>Status: All</option><option>Verified</option><option>Needs Review</option><option>Rejected</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Results Info -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="color: #696969; font-size: 13px;">Showing 1-20 of 1,247 locations</span>
+        <select style="background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 4px 8px; font-size: 12px; border-radius: 4px;">
+          <option>20 per page</option><option>50 per page</option><option>100 per page</option>
+        </select>
+      </div>
+
+      <!-- Results Table -->
+      <div style="background: #FFFFFF; border-radius: 8px; overflow: hidden; border: 1px solid #EFEFEF; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background: #F7F7F7; color: #696969; text-align: left; border-bottom: 1px solid #EFEFEF;">
+              <th style="padding: 10px 14px; font-weight: 600;">Name</th>
+              <th style="padding: 10px 14px; font-weight: 600;">Address</th>
+              <th style="padding: 10px 14px; font-weight: 600;">City</th>
+              <th style="padding: 10px 14px; font-weight: 600;">State</th>
+              <th style="padding: 10px 14px; font-weight: 600; text-align: center;">Confidence</th>
+              <th style="padding: 10px 14px; font-weight: 600;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #EFEFEF; cursor: pointer;" onmouseover="this.style.background='#F7F7F7'" onmouseout="this.style.background='#FFFFFF'">
+              <td style="padding: 10px 14px; color: #0F0F0F; font-weight: 500;">Newark Food Bank</td>
+              <td style="padding: 10px 14px; color: #696969;">123 Main St</td>
+              <td style="padding: 10px 14px; color: #696969;">Newark</td>
+              <td style="padding: 10px 14px; color: #696969;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #E8F8F0; color: #008763; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">92</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #E8F8F0; color: #008763; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">Verified</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #EFEFEF; cursor: pointer;" onmouseover="this.style.background='#F7F7F7'" onmouseout="this.style.background='#FFFFFF'">
+              <td style="padding: 10px 14px; color: #0F0F0F; font-weight: 500;">Trenton Community Pantry</td>
+              <td style="padding: 10px 14px; color: #696969;">456 Broad St</td>
+              <td style="padding: 10px 14px; color: #696969;">Trenton</td>
+              <td style="padding: 10px 14px; color: #696969;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #FFF3E0; color: #B16300; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">67</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #FFF3E0; color: #B16300; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">Needs Review</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #EFEFEF; cursor: pointer;" onmouseover="this.style.background='#F7F7F7'" onmouseout="this.style.background='#FFFFFF'">
+              <td style="padding: 10px 14px; color: #0F0F0F; font-weight: 500;">Camden Food Distribution</td>
+              <td style="padding: 10px 14px; color: #696969;">789 Federal St</td>
+              <td style="padding: 10px 14px; color: #696969;">Camden</td>
+              <td style="padding: 10px 14px; color: #696969;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #E8F8F0; color: #008763; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">85</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #E8F8F0; color: #008763; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">Verified</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #EFEFEF; cursor: pointer;" onmouseover="this.style.background='#F7F7F7'" onmouseout="this.style.background='#FFFFFF'">
+              <td style="padding: 10px 14px; color: #0F0F0F; font-weight: 500;">Philadelphia Hope Pantry</td>
+              <td style="padding: 10px 14px; color: #696969;">321 Spring Garden</td>
+              <td style="padding: 10px 14px; color: #696969;">Philadelphia</td>
+              <td style="padding: 10px 14px; color: #696969;">PA</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #F3EDF9; color: #7B53C8; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">45</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #FFF3E0; color: #B16300; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">Needs Review</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #EFEFEF; cursor: pointer; opacity: 0.55;" onmouseover="this.style.background='#F7F7F7'" onmouseout="this.style.background='#FFFFFF'">
+              <td style="padding: 10px 14px; color: #0F0F0F; text-decoration: line-through;">Test Food Pantry</td>
+              <td style="padding: 10px 14px; color: #696969;">999 Fake Ave</td>
+              <td style="padding: 10px 14px; color: #696969;">Nowhere</td>
+              <td style="padding: 10px 14px; color: #696969;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #FDEAEA; color: #D32F2F; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;">5</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #FDEAEA; color: #D32F2F; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">Rejected</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px;">
+        <button style="background: #FFFFFF; border: 1px solid #EFEFEF; color: #767676; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">&laquo; Prev</button>
+        <button style="background: #008763; border: none; color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">1</button>
+        <button style="background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">2</button>
+        <button style="background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">3</button>
+        <span style="color: #767676;">...</span>
+        <button style="background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">63</button>
+        <button style="background: #FFFFFF; border: 1px solid #EFEFEF; color: #696969; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">Next &raquo;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 24px;">
+  <h3>Plentiful Color Mapping</h3>
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #008763;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Primary</strong> — #008763 (green.200)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #00CD96;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Accent</strong> — #00CD96 (green.100)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #FF8F00;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Warning</strong> — #FF8F00 (orange.100)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #D32F2F;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Error</strong> — #D32F2F (red.100)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #7B53C8;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Info</strong> — #7B53C8 (purple.300)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #0F0F0F;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Text</strong> — #0F0F0F (black.100)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #696969;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Secondary</strong> — #696969 (black.200)</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 24px; height: 24px; border-radius: 4px; background: #F7F7F7; border: 1px solid #ccc;"></div>
+      <span style="font-size: 13px; color: #aaa;"><strong>Background</strong> — #F7F7F7 (white.200)</span>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,126 @@
+<h2>Locations Search Page</h2>
+<p class="subtitle">Main view at /locations — search, filter, and browse food bank locations</p>
+
+<div class="mockup">
+  <div class="mockup-header">ppr-helm — Locations</div>
+  <div class="mockup-body" style="padding: 0; background: #1a1a2e;">
+    <!-- Header Bar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #16213e; border-bottom: 1px solid #333;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-weight: bold; font-size: 16px; color: #e94560;">&#9781; ppr-helm</span>
+        <span style="color: #888; font-size: 13px;">|</span>
+        <a style="color: #ccc; font-size: 13px; text-decoration: none; border-bottom: 2px solid #e94560; padding-bottom: 2px;">Locations</a>
+        <a style="color: #666; font-size: 13px; text-decoration: none;">Admin</a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="background: #2a4a2a; color: #6f6; padding: 2px 8px; border-radius: 4px; font-size: 11px;">admin</span>
+        <span style="color: #aaa; font-size: 13px;">jane@ftgg.org</span>
+        <button class="mock-button" style="font-size: 11px; padding: 4px 10px;">Logout</button>
+      </div>
+    </div>
+
+    <!-- Content Area -->
+    <div style="padding: 20px;">
+      <!-- Search Bar -->
+      <div style="background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+          <input class="mock-input" placeholder="Search all fields..." style="flex: 2; background: #0f3460; border: 1px solid #444; color: #ccc; padding: 8px 12px;">
+          <button class="mock-button" style="padding: 8px 20px; background: #e94560; border: none; color: white;">Search</button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <input class="mock-input" placeholder="Name" style="flex: 1; min-width: 120px; background: #0f3460; border: 1px solid #333; color: #999; padding: 6px 10px; font-size: 12px;">
+          <input class="mock-input" placeholder="City" style="flex: 1; min-width: 100px; background: #0f3460; border: 1px solid #333; color: #999; padding: 6px 10px; font-size: 12px;">
+          <select style="flex: 1; min-width: 80px; background: #0f3460; border: 1px solid #333; color: #999; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+            <option>State</option><option>NJ</option><option>NY</option><option>PA</option>
+          </select>
+          <input class="mock-input" placeholder="ZIP" style="width: 80px; background: #0f3460; border: 1px solid #333; color: #999; padding: 6px 10px; font-size: 12px;">
+          <select style="min-width: 100px; background: #0f3460; border: 1px solid #333; color: #999; padding: 6px 10px; font-size: 12px; border-radius: 4px;">
+            <option>Status: All</option><option>Verified</option><option>Needs Review</option><option>Rejected</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Results Info -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span style="color: #888; font-size: 13px;">Showing 1-20 of 1,247 locations</span>
+        <select style="background: #16213e; border: 1px solid #333; color: #999; padding: 4px 8px; font-size: 12px; border-radius: 4px;">
+          <option>20 per page</option><option>50 per page</option><option>100 per page</option>
+        </select>
+      </div>
+
+      <!-- Results Table -->
+      <div style="background: #16213e; border-radius: 8px; overflow: hidden;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background: #0f3460; color: #aaa; text-align: left;">
+              <th style="padding: 10px 14px; font-weight: 500;">Name</th>
+              <th style="padding: 10px 14px; font-weight: 500;">Address</th>
+              <th style="padding: 10px 14px; font-weight: 500;">City</th>
+              <th style="padding: 10px 14px; font-weight: 500;">State</th>
+              <th style="padding: 10px 14px; font-weight: 500; text-align: center;">Confidence</th>
+              <th style="padding: 10px 14px; font-weight: 500;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #222; cursor: pointer;" onmouseover="this.style.background='#1a2a4a'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 10px 14px; color: #ddd;">Newark Food Bank</td>
+              <td style="padding: 10px 14px; color: #999;">123 Main St</td>
+              <td style="padding: 10px 14px; color: #999;">Newark</td>
+              <td style="padding: 10px 14px; color: #999;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #2a4a2a; color: #6f6; padding: 2px 8px; border-radius: 10px; font-size: 11px;">92</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #2a4a2a; color: #6f6; padding: 2px 8px; border-radius: 4px; font-size: 11px;">Verified</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #222; cursor: pointer;" onmouseover="this.style.background='#1a2a4a'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 10px 14px; color: #ddd;">Trenton Community Pantry</td>
+              <td style="padding: 10px 14px; color: #999;">456 Broad St</td>
+              <td style="padding: 10px 14px; color: #999;">Trenton</td>
+              <td style="padding: 10px 14px; color: #999;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #4a4a2a; color: #ff6; padding: 2px 8px; border-radius: 10px; font-size: 11px;">67</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #4a4a2a; color: #ff6; padding: 2px 8px; border-radius: 4px; font-size: 11px;">Needs Review</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #222; cursor: pointer;" onmouseover="this.style.background='#1a2a4a'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 10px 14px; color: #ddd;">Camden Food Distribution</td>
+              <td style="padding: 10px 14px; color: #999;">789 Federal St</td>
+              <td style="padding: 10px 14px; color: #999;">Camden</td>
+              <td style="padding: 10px 14px; color: #999;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #2a4a2a; color: #6f6; padding: 2px 8px; border-radius: 10px; font-size: 11px;">85</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #2a4a2a; color: #6f6; padding: 2px 8px; border-radius: 4px; font-size: 11px;">Verified</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #222; cursor: pointer; opacity: 0.5;" onmouseover="this.style.background='#1a2a4a'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 10px 14px; color: #ddd; text-decoration: line-through;">Test Food Pantry</td>
+              <td style="padding: 10px 14px; color: #999;">999 Fake Ave</td>
+              <td style="padding: 10px 14px; color: #999;">Nowhere</td>
+              <td style="padding: 10px 14px; color: #999;">NJ</td>
+              <td style="padding: 10px 14px; text-align: center;"><span style="background: #4a2a2a; color: #f66; padding: 2px 8px; border-radius: 10px; font-size: 11px;">5</span></td>
+              <td style="padding: 10px 14px;"><span style="background: #4a2a2a; color: #f66; padding: 2px 8px; border-radius: 4px; font-size: 11px;">Rejected</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div style="display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px;">
+        <button style="background: #16213e; border: 1px solid #333; color: #666; padding: 6px 12px; border-radius: 4px; font-size: 12px;">&laquo; Prev</button>
+        <button style="background: #e94560; border: none; color: white; padding: 6px 12px; border-radius: 4px; font-size: 12px;">1</button>
+        <button style="background: #16213e; border: 1px solid #333; color: #999; padding: 6px 12px; border-radius: 4px; font-size: 12px;">2</button>
+        <button style="background: #16213e; border: 1px solid #333; color: #999; padding: 6px 12px; border-radius: 4px; font-size: 12px;">3</button>
+        <span style="color: #666;">...</span>
+        <button style="background: #16213e; border: 1px solid #333; color: #999; padding: 6px 12px; border-radius: 4px; font-size: 12px;">63</button>
+        <button style="background: #16213e; border: 1px solid #333; color: #999; padding: 6px 12px; border-radius: 4px; font-size: 12px;">Next &raquo;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 20px;">
+  <h3>Key Features</h3>
+  <ul style="color: #aaa; font-size: 14px; line-height: 1.8;">
+    <li><strong>Free text search</strong> across all fields + individual field filters</li>
+    <li><strong>Status filter</strong> (Verified, Needs Review, Rejected)</li>
+    <li><strong>Confidence score</strong> color-coded: green (70+), yellow (30-69), red (&lt;30)</li>
+    <li><strong>Pagination</strong> with configurable page size (20/50/100)</li>
+    <li><strong>URL-based state</strong> — search params in URL for shareability</li>
+    <li><strong>Rejected items</strong> shown dimmed with strikethrough (toggle via filter)</li>
+    <li>Click any row to navigate to <code>/locations/[id]</code></li>
+  </ul>
+</div>

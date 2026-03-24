@@ -1590,11 +1590,10 @@ class JobProcessor:
                             )
                             if len(service_at_location_id_map) > 1:
                                 logger.warning(
-                                    "Schedule has no entity reference, attaching to first service_at_location (multiple SALs exist)",
-                                    attached_sal=str(
-                                        service_at_location_id_for_schedule
-                                    ),
-                                    sal_count=len(service_at_location_id_map),
+                                    "Schedule has no entity reference, attaching to first service_at_location"
+                                    " (multiple SALs exist)"
+                                    f" attached_sal={service_at_location_id_for_schedule}"
+                                    f" sal_count={len(service_at_location_id_map)}"
                                 )
                             else:
                                 logger.debug(

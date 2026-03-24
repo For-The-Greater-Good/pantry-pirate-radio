@@ -677,17 +677,6 @@ class LocationCreator(BaseReconciler):
         )
         self.db.commit()
 
-        # Update location name to match city
-        query = text(
-            """
-            UPDATE location
-            SET name=:name
-            WHERE id=:id
-            """
-        )
-        self.db.execute(query, {"id": location_id, "name": city})
-        self.db.commit()
-
         # Create version
         version_tracker = VersionTracker(self.db)
         version_tracker.create_version(

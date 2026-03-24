@@ -190,19 +190,13 @@ def test_create_address(mock_db: MagicMock, test_address_data: Dict[str, str]) -
             location_id,
         )
 
-        # Verify address SQL execution
-        assert mock_db.execute.call_count == 2  # Address insert + location update
+        # Verify address SQL execution (no longer overwrites location name)
+        assert mock_db.execute.call_count == 1  # Address insert only
         address_call = mock_db.execute.call_args_list[0]
         assert isinstance(address_call[0][0], TextClause)
         assert address_call[0][1]["address_1"] == test_address_data["address_1"]
         assert address_call[0][1]["city"] == test_address_data["city"]
         assert address_call[0][1]["location_id"] == location_id
-
-        # Verify location name update
-        location_call = mock_db.execute.call_args_list[1]
-        assert isinstance(location_call[0][0], TextClause)
-        assert location_call[0][1]["name"] == test_address_data["city"]
-        assert location_call[0][1]["id"] == location_id
 
         # Verify version was created
         mock_tracker_instance.create_version.assert_called_once()

@@ -1,3 +1,7 @@
+# Legal / sensitive documents
+FTGG-SLG-*
+.~lock.FTGG-SLG-*
+
 # Python
 **/__pycache__/
 __pycache__/
