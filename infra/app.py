@@ -496,6 +496,8 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
             "database_credentials": database_stack.database_credentials_secret,
         },
         "api_url": lambda_api_stack.api_url,
+        "place_index_name": database_stack.place_index.index_name,
+        "place_index_arn": database_stack.place_index.attr_index_arn,
     }
 
     for _stack_entry in _infra_stacks:
@@ -536,5 +538,6 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                 )
                 _instance.add_dependency(compute_stack)
                 _instance.add_dependency(secrets_stack)
+                _instance.add_dependency(database_stack)
 
 app.synth()
