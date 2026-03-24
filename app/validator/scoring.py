@@ -1,13 +1,26 @@
-"""Confidence scoring for validated location data."""
+"""Confidence scoring for validated location data — build-up model.
+
+Scraped data starts at a base score and earns points for quality signals.
+Hard cap of 90 for scraped data; only human corrections (Tightbeam) reach 91-100.
+"""
 
 import logging
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
+# Scoring constants
+BASE_SCORE = 60
+SCRAPED_DATA_CAP = 90
+
 
 class ConfidenceScorer:
-    """Calculate confidence scores for location data after validation."""
+    """Calculate confidence scores for location data after validation.
+
+    Uses a build-up model: scraped data starts at BASE_SCORE (60) and earns
+    points for completeness, geocoding quality, and service-level richness.
+    Penalties still apply for quality issues. Score capped at SCRAPED_DATA_CAP (90).
+    """
 
     def __init__(self, config: Dict[str, Any] = None):
         """Initialize the confidence scorer.
@@ -28,107 +41,115 @@ class ConfidenceScorer:
     ) -> int:
         """Calculate confidence score based on validation results.
 
-        This method assumes geocoding enrichment has already been performed.
-        Missing coordinates after enrichment results in immediate rejection (score 0).
+        Uses a build-up model: start at base score (60) and add bonuses
+        for data quality signals. Penalize for issues. Cap at 90.
 
         Args:
             location: Location data dictionary
             validation_results: Results from validation rules
 
         Returns:
-            Confidence score from 0-100
+            Confidence score from 0-90 (scraped data cap)
         """
         # CRITICAL FAILURES - Return immediately
 
         # No coordinates after enrichment = automatic rejection
         if not validation_results.get("has_coordinates", False):
             logger.debug(
-                f"Location {location.get('name', 'unknown')}: No coordinates after enrichment, score=0"
+                f"Location {location.get('name', 'unknown')}: "
+                "No coordinates after enrichment, score=0"
             )
             return 0
 
         # 0,0 or near-zero coordinates = automatic rejection
         if validation_results.get("is_zero_coordinates", False):
             logger.debug(
-                f"Location {location.get('name', 'unknown')}: Zero/near-zero coordinates, score=0"
+                f"Location {location.get('name', 'unknown')}: "
+                "Zero/near-zero coordinates, score=0"
             )
             return 0
 
         # Outside US bounds = almost reject (score 5)
         if not validation_results.get("within_us_bounds", False):
             logger.debug(
-                f"Location {location.get('name', 'unknown')}: Outside US bounds, score=5"
+                f"Location {location.get('name', 'unknown')}: "
+                "Outside US bounds, score=5"
             )
             return 5
 
         # Test data detected = almost reject (score 5)
         if validation_results.get("is_test_data", False):
             logger.debug(
-                f"Location {location.get('name', 'unknown')}: Test data detected, score=5"
+                f"Location {location.get('name', 'unknown')}: "
+                "Test data detected, score=5"
             )
             return 5
 
-        # Start with perfect score and deduct for issues
-        score = 100
+        # BUILD-UP MODEL: Start at base and earn points
+        score = BASE_SCORE
 
-        # MAJOR DEDUCTIONS
+        # COMPLETENESS BONUSES
 
-        # Placeholder address (-75 points)
-        if validation_results.get("has_placeholder_address", False):
-            score -= 75
-            logger.debug(
-                f"Location {location.get('name', 'unknown')}: Placeholder address detected, -75 points"
-            )
+        # Full address: street + city + state + postal code (+5)
+        if self._has_full_address(location):
+            score += 5
 
-        # Wrong state (-20 points)
-        if not validation_results.get("within_state_bounds", True):
-            score -= 20
-            logger.debug(
-                f"Location {location.get('name', 'unknown')}: Outside claimed state bounds, -20 points"
-            )
+        # Meaningful description (+3)
+        if self._has_meaningful_description(location):
+            score += 3
 
-        # GEOCODING QUALITY DEDUCTIONS
+        # GEOCODING QUALITY
 
         geocoding_source = location.get("geocoding_source", "").lower()
         geocoding_confidence = validation_results.get("geocoding_confidence", "unknown")
 
-        # Census geocoder is less reliable (-10 points)
-        if geocoding_source == "census":
-            score -= 10
-            logger.debug(
-                f"Location {location.get('name', 'unknown')}: Census geocoder used, -10 points"
-            )
-
-        # Fallback geocoding (state centroid, etc.) (-15 points)
-        if (
-            geocoding_source in ["state_centroid", "fallback"]
+        # High-quality geocoder bonus (+5)
+        if geocoding_source in (
+            "arcgis",
+            "google",
+            "amazon-location",
+            "amazon_location",
+        ):
+            score += 5
+        # Census geocoder penalty (-5)
+        elif geocoding_source == "census":
+            score -= 5
+        # Fallback geocoding penalty (-10)
+        elif (
+            geocoding_source in ("state_centroid", "fallback")
             or geocoding_confidence == "fallback"
         ):
-            score -= 15
-            logger.debug(
-                f"Location {location.get('name', 'unknown')}: Fallback geocoding used, -15 points"
-            )
-
-        # MINOR DEDUCTIONS
-
-        # Missing postal code after enrichment (-5 points)
-        if validation_results.get("missing_postal", False) or not location.get(
-            "postal_code"
-        ):
-            score -= 5
-            logger.debug(
-                f"Location {location.get('name', 'unknown')}: Missing postal code, -5 points"
-            )
-
-        # Missing city after enrichment (-10 points)
-        if validation_results.get("missing_city", False) or not location.get("city"):
             score -= 10
+
+        # SERVICE-LEVEL RICHNESS (transient scoring annotations, NOT HSDS fields)
+
+        if location.get("_has_phone"):
+            score += 3
+        if location.get("_has_schedule"):
+            score += 3
+        if location.get("_has_website"):
+            score += 3
+
+        # QUALITY PENALTIES
+
+        # Placeholder address (-75)
+        if validation_results.get("has_placeholder_address", False):
+            score -= 75
             logger.debug(
-                f"Location {location.get('name', 'unknown')}: Missing city, -10 points"
+                f"Location {location.get('name', 'unknown')}: "
+                "Placeholder address detected, -75 points"
             )
 
-        # Clamp score to 0-100 range
-        final_score = max(0, min(100, score))
+        # Wrong state (-20)
+        if not validation_results.get("within_state_bounds", True):
+            score -= 20
+            logger.debug(
+                f"Location {location.get('name', 'unknown')}: "
+                "Outside claimed state bounds, -20 points"
+            )
+
+        # Clamp to [0, SCRAPED_DATA_CAP]
+        final_score = max(0, min(SCRAPED_DATA_CAP, score))
 
         logger.info(
             f"Location {location.get('name', 'unknown')}: "
@@ -137,6 +158,40 @@ class ConfidenceScorer:
         )
 
         return final_score
+
+    def _has_full_address(self, location: Dict[str, Any]) -> bool:
+        """Check if location has a complete address (all 4 components)."""
+        address = location.get("address_1") or location.get("address") or ""
+        city = location.get("city") or ""
+        state = location.get("state_province") or location.get("state") or ""
+        postal = location.get("postal_code") or ""
+        return bool(address and city and state and postal)
+
+    def _has_meaningful_description(self, location: Dict[str, Any]) -> bool:
+        """Check if location has a meaningful description (>10 chars)."""
+        description = location.get("description") or ""
+        return len(description.strip()) > 10
+
+    def apply_source_corroboration(self, base_score: int, source_count: int) -> int:
+        """Apply source corroboration bonus based on number of distinct scrapers.
+
+        Args:
+            base_score: Current confidence score
+            source_count: Number of distinct scrapers confirming this location
+
+        Returns:
+            Updated score with corroboration bonus, capped at SCRAPED_DATA_CAP
+        """
+        if source_count <= 1:
+            return base_score
+
+        # +5 for 2 sources, +10 for 3+ (capped)
+        if source_count == 2:
+            bonus = 5
+        else:
+            bonus = 10
+
+        return min(base_score + bonus, SCRAPED_DATA_CAP)
 
     def get_validation_status(self, confidence_score: int) -> str:
         """Determine validation status based on confidence score.
@@ -169,17 +224,14 @@ class ConfidenceScorer:
             Organization confidence score from 0-100
         """
         if not location_scores:
-            # No locations means we can't validate the organization
             return 0
 
-        # Calculate average, weighted towards lower scores
-        # (one bad location affects the whole organization)
         avg_score = sum(location_scores) / len(location_scores)
         min_score = min(location_scores)
 
         # If any location is rejected, heavily penalize the organization
         if min_score < self.rejection_threshold:
-            org_score = min(avg_score, 50)  # Cap at 50 if any location is rejected
+            org_score = min(avg_score, 50)
         else:
             org_score = avg_score
 
@@ -197,11 +249,8 @@ class ConfidenceScorer:
         Returns:
             Service confidence score from 0-100
         """
-        # Services inherit their location's confidence
-        # with a small penalty if service data is incomplete
         score = location_score
 
-        # Deduct for missing service details
         if not service_data.get("name"):
             score -= 5
         if not service_data.get("description"):

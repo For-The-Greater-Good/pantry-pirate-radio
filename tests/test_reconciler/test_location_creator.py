@@ -426,8 +426,10 @@ def test_process_location_existing(
         # Verify version was NOT created for existing location
         mock_tracker_instance.create_version.assert_not_called()
 
-        # Verify merge was called
-        mock_merge_instance.merge_location.assert_called_once_with(test_uuid)
+        # Verify merge was called with location_id and confidence score
+        mock_merge_instance.merge_location.assert_called_once()
+        merge_call_args = mock_merge_instance.merge_location.call_args
+        assert merge_call_args[0][0] == test_uuid
 
         # Verify result
         assert location_id == test_uuid
@@ -473,15 +475,18 @@ def test_process_location_with_organization_id(
         # Verify source was created
         mock_create_source.assert_called_once()
 
-        # Verify organization ID update was called
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args
-        assert isinstance(call_args[0][0], TextClause)
-        assert call_args[0][1]["id"] == test_uuid
-        assert call_args[0][1]["organization_id"] == org_id
+        # Verify db.execute called for org_id update + confidence score query
+        assert mock_db.execute.call_count == 2
+        # First call: organization ID update
+        org_call_args = mock_db.execute.call_args_list[0]
+        assert isinstance(org_call_args[0][0], TextClause)
+        assert org_call_args[0][1]["id"] == test_uuid
+        assert org_call_args[0][1]["organization_id"] == org_id
 
-        # Verify merge was called
-        mock_merge_instance.merge_location.assert_called_once_with(test_uuid)
+        # Verify merge was called with location_id and confidence score
+        mock_merge_instance.merge_location.assert_called_once()
+        merge_call_args = mock_merge_instance.merge_location.call_args
+        assert merge_call_args[0][0] == test_uuid
 
         # Verify result
         assert location_id == test_uuid

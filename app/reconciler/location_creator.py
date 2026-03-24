@@ -507,9 +507,26 @@ class LocationCreator(BaseReconciler):
                 )
                 self.db.commit()
 
+            # Fetch current confidence score for source corroboration
+            current_score_query = text(
+                "SELECT confidence_score FROM location WHERE id = :id"
+            )
+            current_score_result = self.db.execute(
+                current_score_query, {"id": location_id}
+            )
+            current_score_row = current_score_result.first()
+            current_confidence = current_score_row[0] if current_score_row else None
+
             # Merge source records to update canonical record
             merge_strategy = MergeStrategy(self.db)
-            merge_strategy.merge_location(location_id)
+            updated_score = merge_strategy.merge_location(
+                location_id, current_confidence
+            )
+            if updated_score is not None:
+                self.logger.info(
+                    f"Source corroboration bonus applied: "
+                    f"score={updated_score} for location {location_id}"
+                )
 
         return location_id, is_new
 
