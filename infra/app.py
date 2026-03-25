@@ -556,7 +556,7 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                         to_port=5432,
                         group_id=database_stack.proxy_security_group.security_group_id,
                         source_security_group_id=_instance.lambda_sg.security_group_id,
-                        description=f"{_plugin_name} Lambda -> RDS Proxy",
+                        description=f"{_plugin_name} Lambda to RDS Proxy",
                     )
 
 app.synth()
