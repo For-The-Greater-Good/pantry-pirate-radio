@@ -544,4 +544,19 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                 _instance.add_dependency(secrets_stack)
                 _instance.add_dependency(database_stack)
 
+                # Wire RDS Proxy SG ingress for plugins with lambda_sg
+                # Uses L1 CfnSecurityGroupIngress on the PLUGIN stack
+                # (not database stack) to avoid cyclic cross-stack refs.
+                if hasattr(_instance, "lambda_sg") and _instance.lambda_sg:
+                    ec2.CfnSecurityGroupIngress(
+                        _instance,
+                        "PluginLambdaToProxyIngress",
+                        ip_protocol="tcp",
+                        from_port=5432,
+                        to_port=5432,
+                        group_id=database_stack.proxy_security_group.security_group_id,
+                        source_security_group_id=_instance.lambda_sg.security_group_id,
+                        description=f"{_plugin_name} Lambda -> RDS Proxy",
+                    )
+
 app.synth()
