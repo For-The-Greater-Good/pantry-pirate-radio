@@ -498,6 +498,10 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         "api_url": lambda_api_stack.api_url,
         "place_index_name": database_stack.place_index.index_name,
         "place_index_arn": database_stack.place_index.attr_index_arn,
+        # Database access for write API plugins
+        "proxy_endpoint": database_stack.proxy_endpoint,
+        "proxy_security_group": database_stack.proxy_security_group,
+        "database_credentials_secret": database_stack.database_credentials_secret,
     }
 
     for _stack_entry in _infra_stacks:
