@@ -228,7 +228,9 @@ lambda_api_stack = LambdaApiStack(
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
-    tightbeam_api_keys_secret=None,  # Tightbeam removed — write API in ppr-write-api
+    # Secret kept to avoid CloudFormation export deletion issues.
+    # Can be cleaned up in a future deploy after removing the cross-stack ref.
+    tightbeam_api_keys_secret=secrets_stack.tightbeam_api_keys_secret,
     memory_size=1024,
     timeout_seconds=30,
     provisioned_concurrent=None,
