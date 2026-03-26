@@ -13,7 +13,7 @@ from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-from app.middleware.tightbeam_cors import TightbeamCORSMiddleware
+# TightbeamCORSMiddleware removed — write API now in ppr-write-api plugin
 
 # Load settings
 settings = Settings()
@@ -21,7 +21,7 @@ settings = Settings()
 # Initialize FastAPI app with no default routes or exception handlers
 app = FastAPI(
     title=settings.app_name,
-    description="Food security data API using HSDS specification (authenticated write endpoints available via Tightbeam)",
+    description="Food security data API using HSDS specification",
     version=settings.version,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -49,8 +49,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationMiddleware)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
-# Outermost: scoped write-method CORS for Tightbeam (must wrap global CORSMiddleware)
-app.add_middleware(TightbeamCORSMiddleware)
+# Tightbeam CORS middleware removed — write API now in ppr-write-api plugin
 
 # Metrics endpoint
 

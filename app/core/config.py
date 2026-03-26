@@ -200,9 +200,7 @@ class Settings(BaseSettings):
         description="Per-provider configuration for timeouts, retries, and circuit breaker settings",
     )
 
-    # Tightbeam Settings
-    TIGHTBEAM_ENABLED: bool = True
-    TIGHTBEAM_API_KEYS: str = ""  # Comma-separated list of valid API keys
+    # Tightbeam removed — write API now in ppr-write-api plugin
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -266,28 +264,7 @@ class Settings(BaseSettings):
             self.DATABASE_URL = f"postgresql://{db_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
         return self
 
-    @model_validator(mode="after")
-    def resolve_tightbeam_keys_from_secret(self) -> "Settings":
-        """Resolve TIGHTBEAM_API_KEYS from Secrets Manager on Lambda."""
-        import os
-
-        secret_arn = os.environ.get("TIGHTBEAM_API_KEYS_SECRET_ARN")
-        if secret_arn and not self.TIGHTBEAM_API_KEYS:
-            try:
-                import boto3
-
-                client = boto3.client("secretsmanager")
-                response = client.get_secret_value(SecretId=secret_arn)
-                self.TIGHTBEAM_API_KEYS = response["SecretString"]
-            except Exception as exc:
-                import structlog
-
-                structlog.get_logger().warning(
-                    "tightbeam_secret_resolution_failed",
-                    secret_arn=secret_arn,
-                    error=str(exc),
-                )
-        return self
+    # Tightbeam secret resolver removed — write API now in ppr-write-api plugin
 
     @model_validator(mode="after")
     def validate_origins(self) -> "Settings":
