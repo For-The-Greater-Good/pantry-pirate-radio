@@ -7,10 +7,6 @@
 [submodule "app/scraper/scrapers"]
 	path = app/scraper/scrapers
 	url = https://github.com/For-The-Greater-Good/scrapers.git
-[submodule "plugins/ppr-tightbeam"]
-	path = plugins/ppr-tightbeam
-	url = https://github.com/For-The-Greater-Good/ppr-tightbeam.git
-	branch = ppr-plugin
 [submodule "plugins/ppr-write-api"]
 	path = plugins/ppr-write-api
 	url = https://github.com/For-The-Greater-Good/ppr-write-api.git

@@ -228,7 +228,7 @@ lambda_api_stack = LambdaApiStack(
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
-    tightbeam_api_keys_secret=secrets_stack.tightbeam_api_keys_secret,
+    tightbeam_api_keys_secret=None,  # Tightbeam removed — write API in ppr-write-api
     memory_size=1024,
     timeout_seconds=30,
     provisioned_concurrent=None,
@@ -495,7 +495,6 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         "vpc": compute_stack.vpc,
         "cluster": compute_stack.cluster,
         "core_secrets": {
-            "tightbeam_api_keys": secrets_stack.tightbeam_api_keys_secret,
             "database_credentials": database_stack.database_credentials_secret,
         },
         "api_url": lambda_api_stack.api_url,
