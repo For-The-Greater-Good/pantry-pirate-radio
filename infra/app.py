@@ -479,6 +479,9 @@ import sys
 import yaml
 
 _plugins_dir = pathlib.Path(__file__).parent.parent / "plugins"
+_plugin_stacks: dict[str, list] = {}  # plugin_name -> [stack_instances]
+_plugin_deps: dict[str, list[str]] = {}  # plugin_name -> [depends_on names]
+
 for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
     try:
         _plugin_conf = yaml.safe_load(_manifest.read_text())
@@ -503,6 +506,8 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         "proxy_security_group": database_stack.proxy_security_group,
         "database_credentials_secret": database_stack.database_credentials_secret,
     }
+
+    _plugin_depends_on = _plugin_conf.get("depends_on", [])
 
     for _stack_entry in _infra_stacks:
         _module_name = _stack_entry.get("module")
@@ -544,6 +549,10 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                 _instance.add_dependency(secrets_stack)
                 _instance.add_dependency(database_stack)
 
+                # Track for inter-plugin dependency resolution
+                _plugin_stacks.setdefault(_plugin_name, []).append(_instance)
+                _plugin_deps[_plugin_name] = _plugin_depends_on
+
                 # Wire RDS Proxy SG ingress for plugins with lambda_sg
                 # Uses L1 CfnSecurityGroupIngress on the PLUGIN stack
                 # (not database stack) to avoid cyclic cross-stack refs.
@@ -558,5 +567,14 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
                         source_security_group_id=_instance.lambda_sg.security_group_id,
                         description=f"{_plugin_name} Lambda to RDS Proxy",
                     )
+
+# Resolve inter-plugin dependencies (depends_on in plugin.yml)
+for _dep_plugin, _dep_names in _plugin_deps.items():
+    for _dep_name in _dep_names:
+        _dep_stacks = _plugin_stacks.get(_dep_name, [])
+        _my_stacks = _plugin_stacks.get(_dep_plugin, [])
+        for _my_stack in _my_stacks:
+            for _dep_stack in _dep_stacks:
+                _my_stack.add_dependency(_dep_stack)
 
 app.synth()
