@@ -11,6 +11,7 @@ reconciler's update path handles merge logic. See constitution.md v1.5.0.
 """
 
 import asyncio
+import os
 import structlog
 from datetime import UTC, datetime
 from typing import Any
@@ -43,7 +44,7 @@ def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
         Serialized JobResult dict for the Reconciler queue, or None.
     """
     try:
-        return _process_job(job_data)
+        result = _process_job(job_data)
     except Exception as e:
         logger.error(
             "submarine_job_failed",
@@ -56,6 +57,24 @@ def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
             },
         )
         raise
+
+    # Forward to reconciler queue (local/Redis only).
+    # On AWS, the PipelineWorker in fargate_worker.py handles forwarding automatically.
+    if result and os.environ.get("QUEUE_BACKEND", "redis").lower() != "sqs":
+        from app.llm.queue.queues import reconciler_queue
+
+        reconciler_queue.enqueue_call(
+            func="app.reconciler.job_processor.process_job_result",
+            args=(result,),
+            result_ttl=settings.REDIS_TTL_SECONDS,
+            failure_ttl=settings.REDIS_TTL_SECONDS,
+        )
+        logger.info(
+            "submarine_result_forwarded_to_reconciler",
+            job_id=result.get("job_id", "unknown"),
+        )
+
+    return result
 
 
 def _process_job(job_data: dict[str, Any]) -> dict[str, Any] | None:

@@ -5,6 +5,7 @@ has a website URL and missing target fields, then enqueues a SubmarineJob
 for the submarine worker to crawl and extract data.
 """
 
+import os
 import structlog
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -208,22 +209,46 @@ class SubmarineDispatcher:
         return last_crawled > cutoff
 
     def _enqueue(self, job: SubmarineJob) -> str:
-        """Create a SubmarineJob for dispatch.
+        """Enqueue a SubmarineJob to the submarine queue.
 
-        STUB: Queue submission not yet wired. Returns the job ID but
-        does NOT actually enqueue the job to Redis/RQ or SQS.
+        Uses Redis/RQ locally or SQS on AWS, following the existing
+        dual-backend pattern (QUEUE_BACKEND env var).
         """
-        # TODO: Wire up actual queue submission — jobs are NOT being enqueued.
-        # This stub exists so scan/dispatch logic can be validated end-to-end
-        # before the queue integration is complete.
-        logger.warning(
-            "submarine_job_dispatch_stub",
-            extra={
-                "job_id": job.id,
-                "location_id": job.location_id,
-                "website_url": job.website_url,
-                "missing_fields": job.missing_fields,
-                "message": "Queue submission not yet wired — job was NOT enqueued",
-            },
+        job_data = job.model_dump(mode="json")
+
+        if os.environ.get("QUEUE_BACKEND", "redis").lower() == "sqs":
+            from app.pipeline.sqs_sender import send_to_sqs
+
+            queue_url = os.environ.get("SUBMARINE_QUEUE_URL", "")
+            if not queue_url:
+                logger.error(
+                    "submarine_enqueue_failed",
+                    reason="SUBMARINE_QUEUE_URL not set",
+                    job_id=job.id,
+                )
+                return job.id
+            send_to_sqs(
+                queue_url=queue_url,
+                message_body=job_data,
+                message_group_id=job.source_scraper_id,
+                deduplication_id=job.id,
+                source="submarine-dispatcher",
+            )
+        else:
+            from app.llm.queue.queues import submarine_queue
+
+            submarine_queue.enqueue_call(
+                func="app.submarine.worker.process_submarine_job",
+                args=(job_data,),
+                result_ttl=settings.REDIS_TTL_SECONDS,
+                failure_ttl=settings.REDIS_TTL_SECONDS,
+            )
+
+        logger.info(
+            "submarine_job_enqueued",
+            job_id=job.id,
+            location_id=job.location_id,
+            website_url=job.website_url,
+            missing_fields=job.missing_fields,
         )
         return job.id

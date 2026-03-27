@@ -1,5 +1,6 @@
 """Tests for SubmarineDispatcher — gap detection and job enqueueing."""
 
+import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -173,3 +174,66 @@ class TestAdaptiveCooldown:
         """Blocked status uses the long (no_data) cooldown."""
         last_crawled = datetime.now(UTC) - timedelta(days=45)
         assert dispatcher._is_in_cooldown(last_crawled, cooldown_days=90)
+
+
+class TestEnqueueRedis:
+    """Tests for _enqueue() with Redis/RQ backend (local Docker)."""
+
+    @pytest.fixture
+    def dispatcher(self):
+        from app.reconciler.submarine_dispatcher import SubmarineDispatcher
+
+        return SubmarineDispatcher(db=MagicMock())
+
+    @pytest.fixture
+    def sample_job(self):
+        return SubmarineJob(
+            id="sub-test-001",
+            location_id="loc-123",
+            website_url="https://foodbank.example.com",
+            missing_fields=["phone", "hours"],
+            source_scraper_id="test_scraper",
+            location_name="Test Pantry",
+            latitude=40.0,
+            longitude=-75.0,
+        )
+
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "redis"}, clear=False)
+    @patch("app.llm.queue.queues.submarine_queue")
+    def test_enqueue_redis_calls_rq(self, mock_queue, dispatcher, sample_job):
+        """On Redis backend, _enqueue should call submarine_queue.enqueue_call."""
+        result = dispatcher._enqueue(sample_job)
+        assert result == "sub-test-001"
+        mock_queue.enqueue_call.assert_called_once()
+        call_kwargs = mock_queue.enqueue_call.call_args
+        assert (
+            call_kwargs.kwargs["func"] == "app.submarine.worker.process_submarine_job"
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            "QUEUE_BACKEND": "sqs",
+            "SUBMARINE_QUEUE_URL": "https://sqs.example.com/submarine.fifo",
+        },
+        clear=False,
+    )
+    @patch("app.pipeline.sqs_sender.send_to_sqs")
+    def test_enqueue_sqs_calls_sender(self, mock_send, dispatcher, sample_job):
+        """On SQS backend, _enqueue should call send_to_sqs."""
+        result = dispatcher._enqueue(sample_job)
+        assert result == "sub-test-001"
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args
+        assert (
+            call_kwargs.kwargs["queue_url"] == "https://sqs.example.com/submarine.fifo"
+        )
+        assert call_kwargs.kwargs["message_group_id"] == "test_scraper"
+
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "sqs"}, clear=False)
+    def test_enqueue_sqs_missing_url_logs_error(self, dispatcher, sample_job):
+        """On SQS backend without SUBMARINE_QUEUE_URL, should log error and not crash."""
+        # Remove SUBMARINE_QUEUE_URL if set
+        os.environ.pop("SUBMARINE_QUEUE_URL", None)
+        result = dispatcher._enqueue(sample_job)
+        assert result == "sub-test-001"  # Returns job ID even on failure

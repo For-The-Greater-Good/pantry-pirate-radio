@@ -109,6 +109,8 @@ def get_reconciler_environment(config: ServiceConfig) -> dict[str, str]:
         env["RECONCILER_QUEUE_URL"] = config.queue_urls["reconciler"]
     if config.queue_urls.get("recorder"):
         env["RECORDER_QUEUE_URL"] = config.queue_urls["recorder"]
+    if config.queue_urls.get("submarine"):
+        env["SUBMARINE_QUEUE_URL"] = config.queue_urls["submarine"]
     _warn_missing_required(
         "Reconciler",
         {

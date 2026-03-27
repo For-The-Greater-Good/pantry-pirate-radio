@@ -1,5 +1,6 @@
 """Tests for submarine worker."""
 
+import os
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -270,3 +271,73 @@ class TestProcessAsync:
 
         assert result.status == "error"
         assert "LLM extraction failed" in result.error
+
+
+class TestResultForwarding:
+    """Tests for local result forwarding to reconciler queue."""
+
+    @pytest.fixture
+    def sample_job_data(self):
+        return SubmarineJob(
+            id="sub-fwd-001",
+            location_id="loc-fwd-123",
+            organization_id="org-456",
+            website_url="https://gracechurch.example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test_scraper",
+            location_name="Grace Food Pantry",
+            latitude=39.7817,
+            longitude=-89.6501,
+            created_at=datetime.now(UTC),
+        ).model_dump(mode="json")
+
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "redis"}, clear=False)
+    @patch("app.submarine.worker._process_job")
+    @patch("app.llm.queue.queues.reconciler_queue")
+    def test_forwards_result_to_reconciler_on_redis(
+        self, mock_reconciler_queue, mock_process, sample_job_data
+    ):
+        """On Redis backend, successful results should be forwarded to reconciler queue."""
+        from app.submarine.worker import process_submarine_job
+
+        mock_result = {
+            "job_id": "sub-fwd-001",
+            "status": "completed",
+            "data": {"phone": "555-1234"},
+        }
+        mock_process.return_value = mock_result
+
+        result = process_submarine_job(sample_job_data)
+
+        assert result == mock_result
+        mock_reconciler_queue.enqueue_call.assert_called_once()
+        call_kwargs = mock_reconciler_queue.enqueue_call.call_args
+        assert (
+            call_kwargs.kwargs["func"]
+            == "app.reconciler.job_processor.process_job_result"
+        )
+        assert call_kwargs.kwargs["args"] == (mock_result,)
+
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "sqs"}, clear=False)
+    @patch("app.submarine.worker._process_job")
+    def test_skips_forwarding_on_sqs(self, mock_process, sample_job_data):
+        """On SQS backend, PipelineWorker handles forwarding — worker should not."""
+        from app.submarine.worker import process_submarine_job
+
+        mock_result = {"job_id": "sub-fwd-001", "status": "completed"}
+        mock_process.return_value = mock_result
+
+        result = process_submarine_job(sample_job_data)
+        assert result == mock_result
+        # No reconciler_queue import or call should happen
+
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "redis"}, clear=False)
+    @patch("app.submarine.worker._process_job")
+    def test_no_forwarding_when_result_is_none(self, mock_process, sample_job_data):
+        """None results (no_data/error) should not be forwarded."""
+        from app.submarine.worker import process_submarine_job
+
+        mock_process.return_value = None
+
+        result = process_submarine_job(sample_job_data)
+        assert result is None
