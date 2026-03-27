@@ -200,8 +200,6 @@ class Settings(BaseSettings):
         description="Per-provider configuration for timeouts, retries, and circuit breaker settings",
     )
 
-    # Tightbeam removed — write API now in ppr-write-api plugin
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -263,8 +261,6 @@ class Settings(BaseSettings):
             encoded_password = urllib.parse.quote_plus(db_password)
             self.DATABASE_URL = f"postgresql://{db_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
         return self
-
-    # Tightbeam secret resolver removed — write API now in ppr-write-api plugin
 
     @model_validator(mode="after")
     def validate_origins(self) -> "Settings":

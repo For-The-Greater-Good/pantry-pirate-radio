@@ -1,7 +1,7 @@
 """Lambda API Stack for Pantry Pirate Radio.
 
 Deploys the HSDS API as a Lambda function behind API Gateway HTTP API.
-Public endpoints are read-only; Tightbeam write endpoints require API key auth.
+Public endpoints are read-only.
 Zero idle compute cost — pays only per request.
 """
 
@@ -65,7 +65,8 @@ class LambdaApiStack(Stack):
             database_secret: Secrets Manager secret for DB credentials
             proxy_security_group: RDS Proxy security group (for ingress rules)
             ecr_repository: ECR repository for the API Lambda image
-            tightbeam_api_keys_secret: Secrets Manager secret for Tightbeam API keys
+            tightbeam_api_keys_secret: (Deprecated) Retained for CloudFormation export
+                compatibility only. Remove after staged CF cleanup.
             memory_size: Lambda memory in MB
             timeout_seconds: Lambda timeout in seconds
             provisioned_concurrent: Provisioned concurrency (None = on-demand only)
@@ -126,21 +127,11 @@ class LambdaApiStack(Stack):
                 "DATABASE_PORT": "5432",
                 "DATABASE_SECRET_ARN": database_secret.secret_arn,
                 "ENVIRONMENT": environment_name,
-                "TIGHTBEAM_ENABLED": "true",
-                **(
-                    {
-                        "TIGHTBEAM_API_KEYS_SECRET_ARN": tightbeam_api_keys_secret.secret_arn,
-                    }
-                    if tightbeam_api_keys_secret
-                    else {}
-                ),
             },
         )
 
         # Grant Secrets Manager read access
         database_secret.grant_read(self.api_function)
-        if tightbeam_api_keys_secret:
-            tightbeam_api_keys_secret.grant_read(self.api_function)
 
         # Provisioned concurrency (prod only, for warm starts)
         if provisioned_concurrent:

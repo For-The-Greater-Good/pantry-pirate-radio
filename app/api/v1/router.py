@@ -28,7 +28,6 @@ from app.api.v1.taxonomy_terms import router as taxonomy_terms_router
 from app.api.v1.map import router as map_router
 from app.api.v1.consumer.router import router as consumer_router
 from app.api.v1.partners.ptf.router import router as ptf_router
-# Tightbeam write API removed — now handled by ppr-write-api plugin
 
 
 # Define locations/export-simple BEFORE including locations router to avoid conflicts
@@ -333,7 +332,6 @@ router.include_router(taxonomy_terms_router)
 router.include_router(map_router)
 router.include_router(consumer_router)
 router.include_router(ptf_router)
-# tightbeam_router removed — write API now in ppr-write-api plugin
 
 
 @router.get("/")

@@ -39,7 +39,7 @@ class TestSecretsStackResources:
         return assertions.Template.from_stack(prod_stack)
 
     def test_creates_secrets(self, dev_template):
-        """SecretsStack should create 3 secrets: GitHub PAT, LLM keys, Tightbeam keys."""
+        """SecretsStack should create 3 secrets: GitHub PAT, LLM keys, Tightbeam keys (CF compat)."""
         # DB credentials are in DatabaseStack to avoid cross-stack dependency issues
         dev_template.resource_count_is("AWS::SecretsManager::Secret", 3)
 
@@ -58,7 +58,7 @@ class TestSecretsStackResources:
         )
 
     def test_tightbeam_api_keys_secret_exists(self, dev_template):
-        """Tightbeam API keys secret should exist."""
+        """Tightbeam API keys secret retained for CloudFormation export compatibility."""
         dev_template.has_resource_properties(
             "AWS::SecretsManager::Secret",
             {

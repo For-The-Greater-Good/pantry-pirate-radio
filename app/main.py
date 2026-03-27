@@ -13,7 +13,6 @@ from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-# TightbeamCORSMiddleware removed — write API now in ppr-write-api plugin
 
 # Load settings
 settings = Settings()
@@ -30,12 +29,12 @@ app = FastAPI(
     redirect_slashes=True,  # Enable automatic trailing slash redirection
 )
 
-# Add middleware in order (inside -> out):
-# 1. CORS (outermost)
-# 2. Security headers
-# 3. Correlation (adds request ID)
+# Middleware stack (last added = outermost wrapper):
+# 5. Error handling (outermost — catches all unhandled exceptions)
 # 4. Metrics (tracks all requests)
-# 5. Error handling (innermost - handles all errors)
+# 3. Correlation (adds request ID)
+# 2. Security headers
+# 1. CORS (innermost — handles preflight)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -49,7 +48,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationMiddleware)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
-# Tightbeam CORS middleware removed — write API now in ppr-write-api plugin
 
 # Metrics endpoint
 

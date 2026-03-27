@@ -16,7 +16,6 @@ from app.core.config import Settings
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-# TightbeamCORSMiddleware removed — write API now in ppr-write-api plugin
 
 _logger = logging.getLogger(__name__)
 
@@ -54,7 +53,6 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
-# Tightbeam CORS middleware removed — write API now in ppr-write-api plugin
 
 
 @app.get("/", include_in_schema=False)
