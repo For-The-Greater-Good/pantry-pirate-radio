@@ -2415,7 +2415,7 @@ print(json.dumps(l))
             done
 
             # Full services (need Playwright/browser deps)
-            FULL_SERVICES="scraper"
+            FULL_SERVICES="scraper submarine"
             for svc in $FULL_SERVICES; do
                 ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
                 output info "Pushing ${svc} (full)..."

@@ -39,9 +39,9 @@ class TestSecretsStackResources:
         return assertions.Template.from_stack(prod_stack)
 
     def test_creates_secrets(self, dev_template):
-        """SecretsStack should create 2 secrets: GitHub PAT and LLM keys."""
+        """SecretsStack should create 3 secrets: GitHub PAT, LLM keys, Tightbeam (staged removal)."""
         # DB credentials are in DatabaseStack to avoid cross-stack dependency issues
-        dev_template.resource_count_is("AWS::SecretsManager::Secret", 2)
+        dev_template.resource_count_is("AWS::SecretsManager::Secret", 3)
 
     def test_github_pat_secret_exists(self, dev_template):
         """GitHub PAT secret should exist."""

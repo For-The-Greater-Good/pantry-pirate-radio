@@ -14,7 +14,7 @@ dependency issues with Aurora cluster credentials.
 
 import json
 
-from aws_cdk import RemovalPolicy, SecretValue, Stack
+from aws_cdk import CfnOutput, RemovalPolicy, SecretValue, Stack
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 from shared_config import SECRETS
@@ -69,6 +69,20 @@ class SecretsStack(Stack):
         # Create secrets
         self.github_pat_secret = self._create_github_pat_secret(removal_policy)
         self.llm_api_keys_secret = self._create_llm_api_keys_secret(removal_policy)
+        # Tightbeam secret kept temporarily for CF export removal staging.
+        # Step 1: Deploy LambdaApiStack without the import (done in app.py).
+        # Step 2: Remove this secret after LambdaApiStack deploy succeeds.
+        self.tightbeam_api_keys_secret = self._create_tightbeam_api_keys_secret(
+            removal_policy
+        )
+        # Pin the CF export so CDK doesn't remove it while LambdaApiStack
+        # still imports it. Remove this output + the secret on next deploy.
+        CfnOutput(
+            self,
+            "TightbeamExportCompat",
+            value=self.tightbeam_api_keys_secret.secret_arn,
+            export_name=f"SecretsStack-{environment_name}:ExportsOutputRefTightbeamApiKeysSecretC47C8109CA1A3457",
+        )
 
     def _create_github_pat_secret(
         self, removal_policy: RemovalPolicy
@@ -123,6 +137,24 @@ class SecretsStack(Stack):
                 if has_any_key
                 else None
             ),
+            removal_policy=removal_policy,
+        )
+
+        return secret
+
+    def _create_tightbeam_api_keys_secret(
+        self, removal_policy: RemovalPolicy
+    ) -> secretsmanager.Secret:
+        """Create Tightbeam secret (staged for removal).
+
+        Kept temporarily so the CF export exists while LambdaApiStack
+        is updated to stop importing it. Remove after next deploy.
+        """
+        secret = secretsmanager.Secret(
+            self,
+            "TightbeamApiKeysSecret",
+            secret_name=f"pantry-pirate-radio/tightbeam-api-keys-{self.environment_name}",
+            description=f"(Deprecated) Tightbeam API keys - {self.environment_name}",
             removal_policy=removal_policy,
         )
 
