@@ -350,6 +350,17 @@ queue_stack.recorder_queue.grant_consume_messages(services_stack.recorder_task_r
 storage_stack.content_bucket.grant_read_write(services_stack.recorder_task_role)
 storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_task_role)
 
+# Submarine permissions:
+# - Consume from submarine queue, send to reconciler queue
+# - Read database credentials, read LLM API keys
+queue_stack.submarine_queue.grant_consume_messages(services_stack.submarine_task_role)
+queue_stack.reconciler_queue.grant_send_messages(services_stack.submarine_task_role)
+database_stack.database_credentials_secret.grant_read(services_stack.submarine_task_role)
+secrets_stack.llm_api_keys_secret.grant_read(services_stack.submarine_task_role)
+
+# Reconciler also needs to send to submarine queue (for dispatching)
+queue_stack.submarine_queue.grant_send_messages(services_stack.reconciler_task_role)
+
 # Scraper permissions:
 # - Send messages to LLM queue and staging queue (batch inference)
 # - Read/write content bucket and content index table
@@ -374,6 +385,7 @@ services_stack.configure_auto_scaling(
     validator_queue=queue_stack.validator_queue,
     reconciler_queue=queue_stack.reconciler_queue,
     recorder_queue=queue_stack.recorder_queue,
+    submarine_queue=queue_stack.submarine_queue,
 )
 
 # Add stack dependencies (deployment order)

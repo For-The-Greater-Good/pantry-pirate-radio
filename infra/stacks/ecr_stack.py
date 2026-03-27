@@ -43,6 +43,7 @@ class ECRStack(Stack):
         "app",
         "api-lambda",
         "batch-lambda",
+        "submarine",
     ]
 
     def __init__(

@@ -186,6 +186,45 @@ def get_recorder_secrets(config: ServiceConfig) -> dict[str, ecs.Secret]:
     return {}
 
 
+def get_submarine_environment(config: ServiceConfig) -> dict[str, str]:
+    """Get environment variables for the Submarine service."""
+    env: dict[str, str] = {
+        "QUEUE_BACKEND": "sqs",
+    }
+    if config.database_host:
+        env["DATABASE_HOST"] = config.database_host
+    if config.database_name:
+        env["DATABASE_NAME"] = config.database_name
+    if config.database_user:
+        env["DATABASE_USER"] = config.database_user
+    if config.queue_urls.get("submarine"):
+        env["SUBMARINE_QUEUE_URL"] = config.queue_urls["submarine"]
+    if config.queue_urls.get("reconciler"):
+        env["RECONCILER_QUEUE_URL"] = config.queue_urls["reconciler"]
+    _warn_missing_required(
+        "Submarine",
+        {
+            "SUBMARINE_QUEUE_URL": config.queue_urls.get("submarine", ""),
+            "RECONCILER_QUEUE_URL": config.queue_urls.get("reconciler", ""),
+        },
+    )
+    return env
+
+
+def get_submarine_secrets(config: ServiceConfig) -> dict[str, ecs.Secret]:
+    """Get secrets for the Submarine service."""
+    secrets: dict[str, ecs.Secret] = {}
+    if config.database_secret:
+        secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
+            config.database_secret, "password"
+        )
+    if config.llm_api_keys_secret:
+        secrets["ANTHROPIC_API_KEY"] = ecs.Secret.from_secrets_manager(
+            config.llm_api_keys_secret, "ANTHROPIC_API_KEY"
+        )
+    return secrets
+
+
 def get_scraper_environment(
     config: ServiceConfig, environment_name: str
 ) -> dict[str, str]:

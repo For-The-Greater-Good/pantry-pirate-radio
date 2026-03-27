@@ -107,7 +107,7 @@ def create_postgres_materialized_views(pg_conn: PgConnection) -> None:
                 SELECT
                     ls.location_id,
                     STRING_AGG(DISTINCT ls.scraper_id, ', ' ORDER BY ls.scraper_id) as data_sources,
-                    COUNT(DISTINCT ls.scraper_id) as source_count,
+                    COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count,
                     MIN(ls.created_at) as first_seen,
                     MAX(ls.updated_at) as last_updated
                 FROM location_source ls

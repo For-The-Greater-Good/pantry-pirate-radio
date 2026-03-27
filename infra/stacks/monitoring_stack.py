@@ -34,11 +34,13 @@ class MonitoringStack(Stack):
         validator_service_name: str | None = None,
         reconciler_service_name: str | None = None,
         recorder_service_name: str | None = None,
+        submarine_service_name: str | None = None,
         cluster_name: str | None = None,
         queue_name: str | None = None,
         validator_queue_name: str | None = None,
         reconciler_queue_name: str | None = None,
         recorder_queue_name: str | None = None,
+        submarine_queue_name: str | None = None,
         jobs_table_name: str | None = None,
         bedrock_model_id: str | None = None,
         alert_email: str | None = None,
@@ -75,6 +77,9 @@ class MonitoringStack(Stack):
         self.recorder_service_name = (
             recorder_service_name or f"pantry-pirate-radio-recorder-{env}"
         )
+        self.submarine_service_name = (
+            submarine_service_name or f"pantry-pirate-radio-submarine-{env}"
+        )
         self.cluster_name = cluster_name or f"pantry-pirate-radio-{env}"
 
         # Queue names
@@ -87,6 +92,9 @@ class MonitoringStack(Stack):
         )
         self.recorder_queue_name = (
             recorder_queue_name or f"pantry-pirate-radio-recorder-{env}.fifo"
+        )
+        self.submarine_queue_name = (
+            submarine_queue_name or f"pantry-pirate-radio-submarine-{env}.fifo"
         )
         self.staging_queue_name = (
             staging_queue_name or f"pantry-pirate-radio-staging-{env}.fifo"
@@ -302,6 +310,7 @@ class MonitoringStack(Stack):
             "Validator": self.validator_service_name,
             "Reconciler": self.reconciler_service_name,
             "Recorder": self.recorder_service_name,
+            "Submarine": self.submarine_service_name,
         }
 
         cpu_metrics = [
@@ -343,6 +352,7 @@ class MonitoringStack(Stack):
             ("Validator", self.validator_queue_name),
             ("Reconciler", self.reconciler_queue_name),
             ("Recorder", self.recorder_queue_name),
+            ("Submarine", self.submarine_queue_name),
         ]
 
         db.add_widgets(self._section("SQS Queues"))
@@ -634,6 +644,11 @@ class MonitoringStack(Stack):
             self._scaling_widget(
                 "Recorder Scaling", self.recorder_service_name, self.recorder_queue_name
             ),
+            self._scaling_widget(
+                "Submarine Scaling",
+                self.submarine_service_name,
+                self.submarine_queue_name,
+            ),
         )
 
     def _scaling_widget(
@@ -738,6 +753,7 @@ class MonitoringStack(Stack):
             ("ValidatorDLQAlarm", "validator-dlq", self.validator_queue_name),
             ("ReconcilerDLQAlarm", "reconciler-dlq", self.reconciler_queue_name),
             ("RecorderDLQAlarm", "recorder-dlq", self.recorder_queue_name),
+            ("SubmarineDLQAlarm", "submarine-dlq", self.submarine_queue_name),
         ]:
             dlq = self._derive_dlq_name(qname)
             self._alarm(
@@ -844,6 +860,7 @@ class MonitoringStack(Stack):
             ("Validator", self.validator_service_name),
             ("Reconciler", self.reconciler_service_name),
             ("Recorder", self.recorder_service_name),
+            ("Submarine", self.submarine_service_name),
         ]:
             dims = {"ClusterName": self.cluster_name, "ServiceName": svc}
             slug = label.lower()
@@ -920,12 +937,13 @@ class MonitoringStack(Stack):
                 f"DynamoDB {label} table has system errors",
             )
 
-        # H17-H20: Queue depth (validator, reconciler, recorder, staging)
+        # H17-H21: Queue depth (validator, reconciler, recorder, staging, submarine)
         for label, qname in [
             ("Validator", self.validator_queue_name),
             ("Reconciler", self.reconciler_queue_name),
             ("Recorder", self.recorder_queue_name),
             ("Staging", self.staging_queue_name),
+            ("Submarine", self.submarine_queue_name),
         ]:
             self._alarm(
                 f"{label}QueueDepthAlarm",

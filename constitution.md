@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.5.0 — 2026-03-26
+- **Amended Principle IV**: Added Submarine as eighth pipeline stage (post-reconciler web crawling for missing data fields)
+
 ### v1.4.0 — 2026-03-20
 - **Amended Principle VII**: Clarified that authenticated write endpoints (Tightbeam) are permitted with API key auth and full provenance
 
@@ -88,11 +91,12 @@ Content Store → outputs: deduplicated content entry with SHA-256 hash
 LLM Worker    → outputs: HSDS-aligned structured data
 Validator     → outputs: enriched data with confidence score
 Reconciler    → outputs: canonical database records with version tracking
+Submarine     → outputs: extracted field values (JobResult) → Reconciler queue
 API           → outputs: HSDS-compliant JSON responses
 Publisher     → outputs: HAARRRvest repository commits
 ```
 
-**Rationale**: The pipeline has seven distinct stages, each owned by a different module under `app/`. When stages leak responsibilities (scrapers geocoding, LLM workers writing to the database), bugs become impossible to isolate, testing requires end-to-end setup instead of unit mocking, and changes to one stage cascade unpredictably. The current architecture already follows this pattern well; this principle prevents regression as the system grows.
+**Rationale**: The pipeline has eight distinct stages, each owned by a different module under `app/`. When stages leak responsibilities (scrapers geocoding, LLM workers writing to the database), bugs become impossible to isolate, testing requires end-to-end setup instead of unit mocking, and changes to one stage cascade unpredictably. The current architecture already follows this pattern well; this principle prevents regression as the system grows.
 
 ---
 
@@ -387,4 +391,4 @@ Changes to principles MUST propagate to:
 - `.pre-commit-config.yaml` (quality gate enforcement)
 - `.github/workflows/ci.yml` (CI pipeline alignment)
 
-**Version**: 1.3.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-09
+**Version**: 1.5.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-26

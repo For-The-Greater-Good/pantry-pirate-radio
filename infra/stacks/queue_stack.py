@@ -90,6 +90,14 @@ class QueueStack(Stack):
             dlq=self.recorder_dlq,
         )
 
+        # Create Submarine queue (600s visibility for crawling + LLM extraction)
+        self.submarine_dlq = self._create_dlq("submarine")
+        self.submarine_queue = self._create_queue(
+            name="submarine",
+            visibility_timeout_seconds=600,
+            dlq=self.submarine_dlq,
+        )
+
         # Backwards compatibility alias
         self.dlq = self.llm_dlq
 
@@ -170,4 +178,5 @@ class QueueStack(Stack):
             "validator": self.validator_queue.queue_url,
             "reconciler": self.reconciler_queue.queue_url,
             "recorder": self.recorder_queue.queue_url,
+            "submarine": self.submarine_queue.queue_url,
         }

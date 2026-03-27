@@ -26,6 +26,8 @@ from stacks.service_env import (
     get_recorder_secrets,
     get_scraper_environment,
     get_scraper_secrets,
+    get_submarine_environment,
+    get_submarine_secrets,
     get_validator_environment,
     get_validator_secrets,
 )
@@ -184,6 +186,23 @@ class ServicesStack(Stack):
             )
         )
 
+        (
+            self.submarine_service,
+            self.submarine_security_group,
+            self.submarine_task_role,
+        ) = self._create_service(
+            name="submarine",
+            cpu=512,
+            memory_mib=1024,  # crawl4ai + Chromium needs memory
+            desired_count=1,
+            log_retention=log_retention,
+            cluster=cluster,
+            vpc=vpc,
+            environment=get_submarine_environment(self.config),
+            secrets=get_submarine_secrets(self.config),
+            command=["python", "-m", "app.submarine.fargate_worker"],
+        )
+
         # Create scraper task definition (one-shot, triggered by Step Functions)
         (
             self.scraper_task_definition,
@@ -208,6 +227,7 @@ class ServicesStack(Stack):
             "Reconciler": self.reconciler_security_group,
             "Publisher": self.publisher_security_group,
             "Recorder": self.recorder_security_group,
+            "Submarine": self.submarine_security_group,
             "Scraper": self.scraper_security_group,
         }
         for name, sg in service_sgs.items():
@@ -227,6 +247,7 @@ class ServicesStack(Stack):
         validator_queue: sqs.IQueue | None = None,
         reconciler_queue: sqs.IQueue | None = None,
         recorder_queue: sqs.IQueue | None = None,
+        submarine_queue: sqs.IQueue | None = None,
     ) -> None:
         """Configure SQS queue-depth-driven auto-scaling for pipeline services.
 
@@ -237,6 +258,7 @@ class ServicesStack(Stack):
             validator_queue: SQS queue for validator scaling (0-2 instances)
             reconciler_queue: SQS queue for reconciler scaling (0-1 instance)
             recorder_queue: SQS queue for recorder scaling (0-2 instances)
+            submarine_queue: SQS queue for submarine scaling (0-2 instances)
         """
         if validator_queue:
             self._configure_service_scaling(
@@ -276,6 +298,20 @@ class ServicesStack(Stack):
                     appscaling.ScalingInterval(upper=0, change=-1),
                     appscaling.ScalingInterval(lower=0, upper=20, change=1),
                     appscaling.ScalingInterval(lower=20, change=2),
+                ],
+            )
+
+        if submarine_queue:
+            self._configure_service_scaling(
+                service=self.submarine_service,
+                queue=submarine_queue,
+                name="Submarine",
+                min_capacity=0,
+                max_capacity=2,
+                scaling_steps=[
+                    appscaling.ScalingInterval(upper=0, change=-1),
+                    appscaling.ScalingInterval(lower=0, upper=10, change=1),
+                    appscaling.ScalingInterval(lower=10, change=2),
                 ],
             )
 
