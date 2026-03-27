@@ -161,9 +161,7 @@ class TestScanAndEnqueue:
         mock_dispatcher_instance.check_and_enqueue.return_value = "sub-001"
         mock_disp.return_value = mock_dispatcher_instance
 
-        summary = scan_and_enqueue(
-            scraper_id="north_country_food_bank_mn", limit=5
-        )
+        summary = scan_and_enqueue(scraper_id="north_country_food_bank_mn", limit=5)
 
         assert summary["enqueued"] == 1
         assert summary["scraper_id"] == "north_country_food_bank_mn"

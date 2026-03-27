@@ -45,9 +45,7 @@ def scan_and_enqueue(
         if location_id:
             # Target a specific location
             rows = session.execute(
-                text(
-                    "SELECT l.id, l.organization_id FROM location l WHERE l.id = :id"
-                ),
+                text("SELECT l.id, l.organization_id FROM location l WHERE l.id = :id"),
                 {"id": location_id},
             ).fetchall()
         else:

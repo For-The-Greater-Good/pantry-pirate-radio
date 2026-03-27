@@ -171,4 +171,5 @@ class TestECRStackAttributes:
         assert "app" in repos
         assert "api-lambda" in repos
         assert "batch-lambda" in repos
-        assert len(repos) == 9
+        assert "submarine" in repos
+        assert len(repos) == 10

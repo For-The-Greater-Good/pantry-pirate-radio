@@ -29,9 +29,9 @@ class TestMonitoringStackResources:
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        # 30 alarms without conditional Lambdas:
-        # 14 original + 8 Fargate CPU/Memory + 4 DynamoDB table + 4 queue depth
-        template.resource_count_is("AWS::CloudWatch::Alarm", 30)
+        # 34 alarms without conditional Lambdas:
+        # 14 original (incl submarine DLQ) + 10 Fargate CPU/Memory + 4 DynamoDB table + 5 queue depth + 1 submarine DLQ
+        template.resource_count_is("AWS::CloudWatch::Alarm", 34)
 
     def test_sns_topic_has_name(self, template):
         template.has_resource_properties(
@@ -217,7 +217,7 @@ class TestMonitoringStackAlarms:
     # --- H1-H8: Fargate CPU/Memory alarms ---
 
     @pytest.mark.parametrize(
-        "service", ["worker", "validator", "reconciler", "recorder"]
+        "service", ["worker", "validator", "reconciler", "recorder", "submarine"]
     )
     def test_fargate_cpu_alarm_exists(self, template, service):
         template.has_resource_properties(
@@ -233,7 +233,7 @@ class TestMonitoringStackAlarms:
         )
 
     @pytest.mark.parametrize(
-        "service", ["worker", "validator", "reconciler", "recorder"]
+        "service", ["worker", "validator", "reconciler", "recorder", "submarine"]
     )
     def test_fargate_memory_alarm_exists(self, template, service):
         template.has_resource_properties(
@@ -275,7 +275,7 @@ class TestMonitoringStackAlarms:
     # --- H17-H20: Queue depth alarms ---
 
     @pytest.mark.parametrize(
-        "queue_slug", ["validator", "reconciler", "recorder", "staging"]
+        "queue_slug", ["validator", "reconciler", "recorder", "staging", "submarine"]
     )
     def test_service_queue_depth_alarm_exists(self, template, queue_slug):
         template.has_resource_properties(
@@ -379,7 +379,7 @@ class TestMonitoringStackConfiguration:
             app_without, "NoLambdaAlarmStack", environment_name="dev"
         )
         tmpl_without = assertions.Template.from_stack(stack_without)
-        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 30)
+        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 34)
 
         app_with = cdk.App()
         stack_with = MonitoringStack(
@@ -390,8 +390,8 @@ class TestMonitoringStackConfiguration:
             result_processor_function_name="my-processor",
         )
         tmpl_with = assertions.Template.from_stack(stack_with)
-        # 30 base + 4 Lambda alarms (2 per function)
-        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 34)
+        # 34 base + 4 Lambda alarms (2 per function)
+        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 38)
 
     def test_batcher_lambda_error_alarm(self, app):
         stack = MonitoringStack(

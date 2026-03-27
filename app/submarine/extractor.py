@@ -85,7 +85,10 @@ class SubmarineExtractor:
             )
             return {}
 
-        return self._parse_response(response.text, missing_fields)
+        if not hasattr(response, "text"):
+            return {}
+
+        return self._parse_response(response.text, missing_fields)  # type: ignore[union-attr]
 
     @staticmethod
     def _build_prompt(markdown: str, missing_fields: list[str]) -> str:

@@ -35,20 +35,20 @@ class TestServicesStackResources:
         return assertions.Template.from_stack(dev_stack)
 
     def test_creates_validator_service(self, dev_template):
-        """ServicesStack should create Fargate services (validator, reconciler, recorder)."""
-        # 3 services: validator, reconciler, recorder
+        """ServicesStack should create Fargate services (validator, reconciler, recorder, submarine)."""
+        # 4 services: validator, reconciler, recorder, submarine
         # Publisher is now a task definition, not a service
-        dev_template.resource_count_is("AWS::ECS::Service", 3)
+        dev_template.resource_count_is("AWS::ECS::Service", 4)
 
     def test_creates_task_definitions(self, dev_template):
         """ServicesStack should create task definitions for services and tasks."""
-        # 3 services + 1 scraper task + 1 publisher task = 5
-        dev_template.resource_count_is("AWS::ECS::TaskDefinition", 5)
+        # 4 services + 1 scraper task + 1 publisher task = 6
+        dev_template.resource_count_is("AWS::ECS::TaskDefinition", 6)
 
     def test_creates_log_groups(self, dev_template):
         """ServicesStack should create log groups for each service and task."""
-        # 3 services + 1 scraper + 1 publisher = 5
-        dev_template.resource_count_is("AWS::Logs::LogGroup", 5)
+        # 4 services + 1 scraper + 1 publisher = 6
+        dev_template.resource_count_is("AWS::Logs::LogGroup", 6)
 
     def test_validator_service_has_correct_cpu(self, dev_template):
         """Validator task definition should have correct CPU."""

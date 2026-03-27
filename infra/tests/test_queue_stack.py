@@ -25,10 +25,10 @@ class TestQueueStackResources:
         """Get CloudFormation template from stack."""
         return assertions.Template.from_stack(stack)
 
-    def test_creates_eight_sqs_queues(self, template):
-        """QueueStack should create 4 queues + 4 DLQs."""
-        # LLM, Validator, Reconciler, Recorder + their DLQs
-        template.resource_count_is("AWS::SQS::Queue", 8)
+    def test_creates_ten_sqs_queues(self, template):
+        """QueueStack should create 5 queues + 5 DLQs."""
+        # LLM, Validator, Reconciler, Recorder, Submarine + their DLQs
+        template.resource_count_is("AWS::SQS::Queue", 10)
 
     def test_main_queue_is_fifo(self, template):
         """Main queue should be a FIFO queue."""
@@ -167,7 +167,8 @@ class TestQueueStackAttributes:
         assert "validator" in urls
         assert "reconciler" in urls
         assert "recorder" in urls
-        assert len(urls) == 4
+        assert "submarine" in urls
+        assert len(urls) == 5
 
     def test_queue_urls_are_not_empty(self, stack):
         """queue_urls should contain actual queue URL values."""
@@ -177,3 +178,4 @@ class TestQueueStackAttributes:
         assert urls["validator"] is not None
         assert urls["reconciler"] is not None
         assert urls["recorder"] is not None
+        assert urls["submarine"] is not None
