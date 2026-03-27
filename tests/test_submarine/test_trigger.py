@@ -138,38 +138,38 @@ class TestAdaptiveCooldown:
     def test_success_cooldown_active(self, dispatcher):
         """Skip if last crawl was success within cooldown period."""
         last_crawled = datetime.now(UTC) - timedelta(days=10)  # 10 days ago
-        assert dispatcher._is_in_cooldown(last_crawled, "success", cooldown_days=30)
+        assert dispatcher._is_in_cooldown(last_crawled, cooldown_days=30)
 
     def test_success_cooldown_expired(self, dispatcher):
         """Allow if success cooldown has expired."""
         last_crawled = datetime.now(UTC) - timedelta(days=35)  # 35 days ago
-        assert not dispatcher._is_in_cooldown(last_crawled, "success", cooldown_days=30)
+        assert not dispatcher._is_in_cooldown(last_crawled, cooldown_days=30)
 
     def test_no_data_cooldown_active(self, dispatcher):
         """Skip if no_data crawl within long cooldown period."""
         last_crawled = datetime.now(UTC) - timedelta(days=45)  # 45 days ago
-        assert dispatcher._is_in_cooldown(last_crawled, "no_data", cooldown_days=90)
+        assert dispatcher._is_in_cooldown(last_crawled, cooldown_days=90)
 
     def test_no_data_cooldown_expired(self, dispatcher):
         """Allow if no_data long cooldown has expired."""
         last_crawled = datetime.now(UTC) - timedelta(days=95)
-        assert not dispatcher._is_in_cooldown(last_crawled, "no_data", cooldown_days=90)
+        assert not dispatcher._is_in_cooldown(last_crawled, cooldown_days=90)
 
     def test_error_cooldown_active(self, dispatcher):
         """Skip if error crawl within short cooldown."""
         last_crawled = datetime.now(UTC) - timedelta(days=7)
-        assert dispatcher._is_in_cooldown(last_crawled, "error", cooldown_days=14)
+        assert dispatcher._is_in_cooldown(last_crawled, cooldown_days=14)
 
     def test_error_cooldown_expired(self, dispatcher):
         """Allow if error short cooldown has expired."""
         last_crawled = datetime.now(UTC) - timedelta(days=16)
-        assert not dispatcher._is_in_cooldown(last_crawled, "error", cooldown_days=14)
+        assert not dispatcher._is_in_cooldown(last_crawled, cooldown_days=14)
 
     def test_no_previous_crawl(self, dispatcher):
         """No previous crawl -> no cooldown."""
-        assert not dispatcher._is_in_cooldown(None, None, cooldown_days=30)
+        assert not dispatcher._is_in_cooldown(None, cooldown_days=30)
 
     def test_blocked_uses_no_data_cooldown(self, dispatcher):
         """Blocked status uses the long (no_data) cooldown."""
         last_crawled = datetime.now(UTC) - timedelta(days=45)
-        assert dispatcher._is_in_cooldown(last_crawled, "blocked", cooldown_days=90)
+        assert dispatcher._is_in_cooldown(last_crawled, cooldown_days=90)

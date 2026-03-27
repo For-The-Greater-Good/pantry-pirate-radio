@@ -5,13 +5,13 @@ provider to extract structured HSDS fields (phone, hours, email, description).
 """
 
 import json
-import logging
+import structlog
 from typing import Any
 
 from app.llm.providers.base import BaseLLMProvider
 from app.llm.providers.types import GenerateConfig
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 EXTRACTION_SYSTEM_PROMPT = """You are a data extraction assistant for a food bank directory.
 You extract structured contact information from food bank and food pantry websites.
@@ -44,6 +44,12 @@ FIELD_DESCRIPTIONS = {
 }
 
 
+class ExtractionError(Exception):
+    """LLM extraction failed (distinct from 'no data found in content')."""
+
+    pass
+
+
 class SubmarineExtractor:
     """Extracts structured HSDS fields from crawled markdown using LLM."""
 
@@ -62,6 +68,11 @@ class SubmarineExtractor:
 
         Returns:
             Dict of extracted field values. Only non-null fields included.
+
+        Raises:
+            ExtractionError: If the LLM call fails (provider error, bad response).
+                Callers should map this to status="error" (14-day cooldown),
+                not "no_data" (90-day cooldown).
         """
         prompt = self._build_prompt(markdown, missing_fields)
 
@@ -83,10 +94,19 @@ class SubmarineExtractor:
                 "submarine_extraction_failed",
                 extra={"error": str(e), "fields": missing_fields},
             )
-            return {}
+            raise ExtractionError(str(e)) from e
 
         if not hasattr(response, "text"):
-            return {}
+            logger.error(
+                "submarine_extraction_unexpected_response",
+                extra={
+                    "response_type": type(response).__name__,
+                    "fields": missing_fields,
+                },
+            )
+            raise ExtractionError(
+                f"LLM response has no text attribute (type: {type(response).__name__})"
+            )
 
         return self._parse_response(response.text, missing_fields)  # type: ignore[union-attr]
 
@@ -97,7 +117,7 @@ class SubmarineExtractor:
             FIELD_DESCRIPTIONS.get(f, f'"{f}": "value or null"') for f in missing_fields
         )
 
-        # Truncate very long content to stay within token limits
+        # ~3000 tokens at ~4 chars/token, leaving headroom for system prompt + response
         max_content_len = 12000
         content = markdown[:max_content_len]
         if len(markdown) > max_content_len:
@@ -138,9 +158,17 @@ class SubmarineExtractor:
                     )
                     return {}
             else:
+                logger.warning(
+                    "submarine_extraction_no_json",
+                    extra={"response_preview": text[:200]},
+                )
                 return {}
 
         if not isinstance(data, dict):
+            logger.warning(
+                "submarine_extraction_unexpected_type",
+                extra={"data_type": type(data).__name__},
+            )
             return {}
 
         # Filter to only requested fields with non-null values

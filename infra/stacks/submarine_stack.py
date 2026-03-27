@@ -54,11 +54,6 @@ class SubmarineStack(Stack):
 
         self.environment_name = environment_name
 
-        # Build the scanner command with optional parameters
-        # The container runs: python -m app.submarine scan [--scraper X] [--limit N]
-        # Parameters are injected via ContainerOverrides from Step Functions input
-        base_cmd = ["python", "-m", "app.submarine", "scan"]
-
         # Build container environment
         container_env = [
             {"Name": "SUBMARINE_QUEUE_URL", "Value": submarine_queue_url},
@@ -66,20 +61,14 @@ class SubmarineStack(Stack):
 
         # State machine definition (ASL JSON)
         # Uses ecs:runTask.sync to run scanner as a Fargate task
+        # NOTE: --scraper and --limit filtering is local-only (via ./bouy submarine).
+        # AWS runs a full scan. Parameterized AWS scans require a Lambda to build
+        # the command array conditionally — tracked as a follow-up.
+        scan_command = ["python", "-m", "app.submarine", "scan"]
         definition = {
             "Comment": f"Submarine enrichment pipeline for {environment_name}",
-            "StartAt": "BuildScanCommand",
+            "StartAt": "RunSubmarineScan",
             "States": {
-                "BuildScanCommand": {
-                    "Type": "Pass",
-                    "Parameters": {
-                        "command.$": "States.Array('python', '-m', 'app.submarine', 'scan')",
-                        "scraper_id.$": "$.scraper_id",
-                        "limit.$": "$.limit",
-                    },
-                    "ResultPath": "$.config",
-                    "Next": "RunSubmarineScan",
-                },
                 "RunSubmarineScan": {
                     "Type": "Task",
                     "Resource": "arn:aws:states:::ecs:runTask.sync",
@@ -97,7 +86,7 @@ class SubmarineStack(Stack):
                             "ContainerOverrides": [
                                 {
                                     "Name": scanner_container_name,
-                                    "Command.$": "$.config.command",
+                                    "Command": scan_command,
                                     "Environment": container_env,
                                 }
                             ]
@@ -206,7 +195,7 @@ class SubmarineStack(Stack):
                     arn=self.state_machine.attr_arn,
                     id="SubmarineStateMachine",
                     role_arn=role.role_arn,
-                    input=json.dumps({"scraper_id": None, "limit": None}),
+                    input=json.dumps({}),
                 )
             ],
         )

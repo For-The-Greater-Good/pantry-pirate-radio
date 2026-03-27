@@ -6,7 +6,8 @@
 --   error           → cooldown_error_days   (14 days default)
 
 ALTER TABLE location ADD COLUMN IF NOT EXISTS submarine_last_crawled_at TIMESTAMP WITH TIME ZONE;
-ALTER TABLE location ADD COLUMN IF NOT EXISTS submarine_last_status VARCHAR(20);
+ALTER TABLE location ADD COLUMN IF NOT EXISTS submarine_last_status VARCHAR(20)
+    CHECK (submarine_last_status IN ('success', 'partial', 'no_data', 'error', 'blocked'));
 
 CREATE INDEX IF NOT EXISTS idx_location_submarine_crawled
     ON location(submarine_last_crawled_at)

@@ -5,7 +5,7 @@ then enqueues SubmarineJobs. Used by the `./bouy submarine scan` command
 for manual control before automatic dispatch is enabled.
 """
 
-import logging
+import structlog
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.reconciler.submarine_dispatcher import SubmarineDispatcher
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def scan_and_enqueue(
@@ -81,7 +81,7 @@ def scan_and_enqueue(
                 rows = session.execute(text(base_sql), params).fetchall()
 
         total = len(rows)
-        logger.info(f"submarine_scan_started: {total} candidate locations")
+        logger.info("submarine_scan_started", total_candidates=total)
 
         for row in rows:
             loc_id, org_id = row[0], row[1]
@@ -94,13 +94,19 @@ def scan_and_enqueue(
                 if result:
                     enqueued += 1
                     logger.info(
-                        f"submarine_scan_enqueued: location={loc_id}, job={result}"
+                        "submarine_scan_enqueued",
+                        location_id=str(loc_id),
+                        job_id=result,
                     )
                 else:
                     skipped += 1
             except Exception as e:
                 errors += 1
-                logger.warning(f"submarine_scan_error: location={loc_id}, error={e}")
+                logger.warning(
+                    "submarine_scan_error",
+                    location_id=str(loc_id),
+                    error=str(e),
+                )
 
     summary: dict[str, Any] = {
         "total_candidates": total,
@@ -110,7 +116,7 @@ def scan_and_enqueue(
     }
     if scraper_id:
         summary["scraper_id"] = scraper_id
-    logger.info(f"submarine_scan_completed: {summary}")
+    logger.info("submarine_scan_completed", **summary)
     return summary
 
 

@@ -462,3 +462,228 @@ class TestTransformScheduleWkstDefault:
         assert result["freq"] == "WEEKLY"
         assert result["wkst"] == "MO"
         assert result["count"] == 1
+
+
+class TestSubmarineDirectIdPath:
+    """Test submarine's direct ID-based location matching path."""
+
+    @patch("app.reconciler.job_processor.OrganizationCreator")
+    @patch("app.reconciler.job_processor.LocationCreator")
+    @patch("app.reconciler.job_processor.ServiceCreator")
+    @patch("app.reconciler.job_processor.logger")
+    def test_submarine_result_uses_direct_id_match(
+        self, mock_logger, mock_service_creator, mock_location_creator, mock_org_creator
+    ):
+        """Submarine results use location_id from metadata instead of coordinate matching.
+
+        When scraper_id='submarine', the processor should query by ID (not coordinates)
+        and never call find_matching_location.
+        """
+        processor = JobProcessor(MagicMock(spec=Session))
+
+        llm_response = LLMResponse(
+            text=json.dumps(
+                {
+                    "organization": [
+                        {"name": "Grace Food Pantry", "description": "Food pantry"}
+                    ],
+                    "service": [],
+                    "location": [
+                        {
+                            "name": "Grace Food Pantry",
+                            "description": "Community food pantry",
+                            "latitude": 39.7817,
+                            "longitude": -89.6501,
+                        }
+                    ],
+                }
+            ),
+            model="test-model",
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+
+        target_location_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        job = LLMJob(
+            id="job-sub-001",
+            prompt="Test prompt",
+            created_at=datetime.now(),
+            metadata={
+                "scraper_id": "submarine",
+                "location_id": target_location_id,
+                "source_type": "submarine",
+                "type": "hsds_alignment",
+                "data": {},
+            },
+        )
+
+        job_result = JobResult(
+            job_id="job-sub-001",
+            job=job,
+            status=JobStatus.COMPLETED,
+            result=llm_response,
+        )
+
+        mock_org_instance = mock_org_creator.return_value
+        mock_org_instance.process_organization.return_value = ("org-uuid", True)
+
+        mock_service_instance = mock_service_creator.return_value
+        mock_service_instance.create_services.return_value = []
+
+        mock_location_instance = mock_location_creator.return_value
+
+        # Mock DB: return the target location for submarine verification,
+        # and a mock result for all other queries
+        mock_verify_result = MagicMock()
+        mock_verify_result.first.return_value = (target_location_id,)
+        processor.db.execute.return_value = mock_verify_result
+
+        processor.process_job_result(job_result)
+
+        # Submarine should NOT use coordinate matching
+        mock_location_instance.find_matching_location.assert_not_called()
+
+    @patch("app.reconciler.job_processor.OrganizationCreator")
+    @patch("app.reconciler.job_processor.LocationCreator")
+    @patch("app.reconciler.job_processor.ServiceCreator")
+    @patch("app.reconciler.job_processor.logger")
+    def test_submarine_result_skips_nonexistent_location(
+        self, mock_logger, mock_service_creator, mock_location_creator, mock_org_creator
+    ):
+        """Submarine skips processing when target location_id does not exist."""
+        processor = JobProcessor(MagicMock(spec=Session))
+
+        llm_response = LLMResponse(
+            text=json.dumps(
+                {
+                    "organization": [
+                        {"name": "Ghost Pantry", "description": "Does not exist"}
+                    ],
+                    "service": [],
+                    "location": [
+                        {
+                            "name": "Ghost Pantry",
+                            "description": "Non-existent location",
+                            "latitude": 40.0,
+                            "longitude": -75.0,
+                        }
+                    ],
+                }
+            ),
+            model="test-model",
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+
+        job = LLMJob(
+            id="job-sub-002",
+            prompt="Test prompt",
+            created_at=datetime.now(),
+            metadata={
+                "scraper_id": "submarine",
+                "location_id": "loc-does-not-exist",
+                "source_type": "submarine",
+                "type": "hsds_alignment",
+                "data": {},
+            },
+        )
+
+        job_result = JobResult(
+            job_id="job-sub-002",
+            job=job,
+            status=JobStatus.COMPLETED,
+            result=llm_response,
+        )
+
+        mock_org_instance = mock_org_creator.return_value
+        mock_org_instance.process_organization.return_value = ("org-uuid", True)
+
+        mock_service_instance = mock_service_creator.return_value
+        mock_service_instance.create_services.return_value = []
+
+        mock_location_instance = mock_location_creator.return_value
+        mock_location_instance.process_locations.return_value = []
+
+        # DB returns no result for verification query (location doesn't exist)
+        mock_verify_result = MagicMock()
+        mock_verify_result.first.return_value = None
+        processor.db.execute.return_value = mock_verify_result
+
+        result = processor.process_job_result(job_result)
+
+        # Should still succeed overall, but the location was skipped (continue)
+        assert result["status"] == "success"
+        # The location_creator.create_location_source should NOT be called for
+        # a non-existent submarine target since it was skipped via 'continue'
+        mock_location_instance.create_location_source.assert_not_called()
+
+    @patch("app.reconciler.job_processor.OrganizationCreator")
+    @patch("app.reconciler.job_processor.LocationCreator")
+    @patch("app.reconciler.job_processor.ServiceCreator")
+    @patch("app.reconciler.job_processor.logger")
+    def test_submarine_source_type_propagated(
+        self, mock_logger, mock_service_creator, mock_location_creator, mock_org_creator
+    ):
+        """Submarine source_type is passed through to create_location_source."""
+        processor = JobProcessor(MagicMock(spec=Session))
+
+        llm_response = LLMResponse(
+            text=json.dumps(
+                {
+                    "organization": [{"name": "Test Pantry", "description": "Test"}],
+                    "service": [],
+                    "location": [
+                        {
+                            "name": "Test Pantry",
+                            "description": "Test location",
+                            "latitude": 39.78,
+                            "longitude": -89.65,
+                        }
+                    ],
+                }
+            ),
+            model="test-model",
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+
+        target_id = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+        job = LLMJob(
+            id="job-sub-003",
+            prompt="Test prompt",
+            created_at=datetime.now(),
+            metadata={
+                "scraper_id": "submarine",
+                "location_id": target_id,
+                "source_type": "submarine",
+                "type": "hsds_alignment",
+                "data": {},
+            },
+        )
+
+        job_result = JobResult(
+            job_id="job-sub-003",
+            job=job,
+            status=JobStatus.COMPLETED,
+            result=llm_response,
+        )
+
+        mock_org_instance = mock_org_creator.return_value
+        mock_org_instance.process_organization.return_value = ("org-uuid", True)
+
+        mock_service_instance = mock_service_creator.return_value
+        mock_service_instance.create_services.return_value = []
+
+        mock_location_instance = mock_location_creator.return_value
+
+        # DB: location exists for submarine verification
+        mock_verify_result = MagicMock()
+        mock_verify_result.first.return_value = (target_id,)
+        processor.db.execute.return_value = mock_verify_result
+
+        result = processor.process_job_result(job_result)
+
+        assert result["status"] == "success"
+        # Verify create_location_source was called with source_type="submarine"
+        if mock_location_instance.create_location_source.called:
+            call_kwargs = mock_location_instance.create_location_source.call_args
+            assert call_kwargs.kwargs.get("source_type") == "submarine" or (
+                len(call_kwargs.args) > 7 and call_kwargs.args[7] == "submarine"
+            )

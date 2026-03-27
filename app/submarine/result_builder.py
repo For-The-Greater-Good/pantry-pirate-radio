@@ -5,9 +5,10 @@ data that the Reconciler knows how to process. Sets metadata for:
 - Cycle prevention (scraper_id="submarine")
 - Direct ID update (location_id in metadata)
 - Provenance (source_scraper_id)
+- Corroboration exclusion (source_type='submarine' excluded from multi-source scoring)
 """
 
-import logging
+import structlog
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,7 +16,7 @@ from app.llm.queue.job import LLMJob
 from app.llm.queue.types import JobResult, JobStatus
 from app.submarine.models import SubmarineJob, SubmarineResult
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class SubmarineResultBuilder:
@@ -42,7 +43,7 @@ class SubmarineResultBuilder:
 
         llm_job = LLMJob(
             id=f"submarine-{job.id}",
-            prompt="",  # No prompt for submarine results
+            prompt="",
             format={"type": "hsds"},
             metadata={
                 "scraper_id": "submarine",
@@ -87,9 +88,9 @@ class SubmarineResultBuilder:
         if phone:
             location["phones"] = [{"number": phone, "type": "voice"}]
 
-        # Map hours to schedules
+        # Map hours to schedules (LLM may return a string instead of list)
         hours = fields.get("hours")
-        if hours:
+        if hours and isinstance(hours, list):
             schedules = []
             for entry in hours:
                 if isinstance(entry, dict):

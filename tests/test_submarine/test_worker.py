@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.submarine.crawler import CrawlResult
+from app.submarine.extractor import ExtractionError
 from app.submarine.models import SubmarineJob
 
 
@@ -175,3 +176,97 @@ class TestProcessAsync:
             result = await _process_async(job)
 
         assert result.status == "no_data"
+
+    @pytest.mark.asyncio
+    async def test_process_async_success_path(self):
+        """Successful crawl + extraction returns status=success with fields."""
+        from app.submarine.worker import _process_async
+
+        job = SubmarineJob(
+            id="sub-004",
+            location_id="loc-777",
+            website_url="https://foodbank.example.com",
+            missing_fields=["phone", "hours"],
+            source_scraper_id="test",
+        )
+
+        with (
+            patch("app.submarine.worker.SubmarineCrawler") as MockCrawler,
+            patch("app.submarine.worker.SubmarineExtractor") as MockExtractor,
+            patch("app.submarine.worker.create_provider") as mock_create_provider,
+        ):
+            # Mock crawler to return success with markdown
+            mock_crawler = AsyncMock()
+            mock_crawler.crawl.return_value = CrawlResult(
+                url="https://foodbank.example.com",
+                markdown="# Food Bank\nPhone: 555-1234\nOpen Mon-Fri 9-5",
+                pages_crawled=2,
+                status="success",
+                links_followed=["https://foodbank.example.com/contact"],
+            )
+            MockCrawler.return_value = mock_crawler
+
+            # Mock extractor to return extracted fields
+            mock_extractor = AsyncMock()
+            mock_extractor.extract = AsyncMock(
+                return_value={
+                    "phone": "(555) 123-4567",
+                    "hours": [
+                        {"day": "Monday", "opens_at": "09:00", "closes_at": "17:00"}
+                    ],
+                }
+            )
+            MockExtractor.return_value = mock_extractor
+
+            # Mock provider
+            mock_create_provider.return_value = MagicMock()
+
+            result = await _process_async(job)
+
+        assert result.status == "success"
+        assert result.extracted_fields["phone"] == "(555) 123-4567"
+        assert len(result.extracted_fields["hours"]) == 1
+        assert result.crawl_metadata["pages_crawled"] == 2
+
+    @pytest.mark.asyncio
+    async def test_process_async_extraction_error_returns_error_status(self):
+        """ExtractionError from extractor maps to status=error, not no_data."""
+        from app.submarine.worker import _process_async
+
+        job = SubmarineJob(
+            id="sub-005",
+            location_id="loc-666",
+            website_url="https://foodbank.example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+        )
+
+        with (
+            patch("app.submarine.worker.SubmarineCrawler") as MockCrawler,
+            patch("app.submarine.worker.SubmarineExtractor") as MockExtractor,
+            patch("app.submarine.worker.create_provider") as mock_create_provider,
+        ):
+            # Crawler succeeds with content
+            mock_crawler = AsyncMock()
+            mock_crawler.crawl.return_value = CrawlResult(
+                url="https://foodbank.example.com",
+                markdown="Some real page content here",
+                pages_crawled=1,
+                status="success",
+                links_followed=[],
+            )
+            MockCrawler.return_value = mock_crawler
+
+            # Extractor raises ExtractionError
+            mock_extractor = AsyncMock()
+            mock_extractor.extract = AsyncMock(
+                side_effect=ExtractionError("LLM provider timeout")
+            )
+            MockExtractor.return_value = mock_extractor
+
+            mock_create_provider.return_value = MagicMock()
+
+            result = await _process_async(job)
+
+        assert result.status == "error"
+        assert "LLM extraction failed" in result.error

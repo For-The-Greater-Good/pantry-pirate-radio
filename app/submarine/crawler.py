@@ -5,13 +5,13 @@ Follows relevant links (Contact, Hours, About, Services) to find
 phone numbers, hours, email addresses, and descriptions.
 """
 
-import logging
+import structlog
 import re
 from dataclasses import dataclass, field
 
 from app.submarine.rate_limiter import SubmarineRateLimiter
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Link text patterns that suggest pages with contact/hours/service info
 RELEVANT_LINK_PATTERNS = re.compile(

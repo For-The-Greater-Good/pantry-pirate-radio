@@ -136,6 +136,7 @@ class MapDataService:
                 l.is_canonical
             FROM location l
             JOIN location_source ls ON ls.location_id = l.id
+                AND (ls.source_type IS NULL OR ls.source_type != 'submarine')
             LEFT JOIN address a ON a.location_id = l.id
             LEFT JOIN organization o ON o.id = l.organization_id
             LEFT JOIN location_phones lp ON (lp.location_id = l.id OR (lp.location_id IS NULL AND lp.organization_id = o.id))

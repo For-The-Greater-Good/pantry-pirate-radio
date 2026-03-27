@@ -77,6 +77,7 @@ class ServicesStack(Stack):
     - Validator: Data enrichment and confidence scoring (1-5 instances)
     - Reconciler: Canonical record creation (single instance only)
     - Recorder: Job result archiving (1-2 instances)
+    - Submarine: Web crawling enrichment (0-2 instances)
 
     Also creates task definitions for:
     - Publisher: SQLite export to S3 (daily EventBridge schedule)
@@ -86,6 +87,7 @@ class ServicesStack(Stack):
         validator_service: Validator Fargate service
         reconciler_service: Reconciler Fargate service
         recorder_service: Recorder Fargate service
+        submarine_service: Submarine Fargate service
         publisher_task_definition: Publisher task definition for scheduled export
         scraper_task_definition: Scraper task definition for one-shot tasks
     """

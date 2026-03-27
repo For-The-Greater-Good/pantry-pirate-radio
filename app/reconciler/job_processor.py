@@ -927,6 +927,9 @@ class JobProcessor:
                             float(location["latitude"]),
                             float(location["longitude"]),
                             job_result.job.metadata,
+                            source_type=job_result.job.metadata.get(
+                                "source_type", "scraper"
+                            ),
                         )
 
                     else:

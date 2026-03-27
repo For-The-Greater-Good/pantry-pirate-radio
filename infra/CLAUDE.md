@@ -41,7 +41,8 @@ infra/
 │   ├── queue_stack.py        # SQS FIFO queues (17 tests)
 │   ├── secrets_stack.py      # Secrets Manager (9 tests)
 │   ├── services_stack.py     # Fargate services (23 tests)
-│   └── storage_stack.py      # S3 + DynamoDB (19 tests)
+│   ├── storage_stack.py      # S3 + DynamoDB (19 tests)
+│   └── submarine_stack.py    # Submarine Step Functions orchestration
 ├── tests/
 │   ├── conftest.py
 │   ├── test_api_stack.py
@@ -86,6 +87,7 @@ infra/
 - **Validator Queue**: Data enrichment and confidence scoring (600s visibility)
 - **Reconciler Queue**: Canonical record creation (300s visibility)
 - **Recorder Queue**: Job result archiving (120s visibility)
+- **Submarine Queue**: Web crawl enrichment (600s visibility)
 - **Dead Letter Queues**: One per main queue, 14-day retention
 
 ### BatchInferenceStack
@@ -127,12 +129,18 @@ Fargate services for pipeline stages:
 | Publisher | 256 | 512MB | 1 | (polls DB) |
 | Recorder | 256 | 512MB | 1-2 | recorder.fifo |
 | Scraper (task) | 512 | 1024MB | N/A | Step Functions |
+| Submarine | 512 | 1024MB | 0-2 | submarine.fifo |
 
 ### PipelineStack
 - **Step Functions State Machine**: Scraper orchestration with Map state
 - **EventBridge Rule**: Daily schedule at 2 AM UTC (disabled in dev)
 - **Map State**: Runs scrapers in parallel (MaxConcurrency=0 (unlimited))
 - **Retry/Catch**: 2 attempts with 60s backoff, failures recorded
+
+### SubmarineStack
+- **Step Functions State Machine**: Submarine scan orchestration (weekly, disabled in dev)
+- **EventBridge Rule**: Weekly schedule for submarine scans
+- **IAM Role**: ECS runTask permissions for the state machine
 
 ### LambdaApiStack
 - **Lambda (DockerImageFunction)**: ARM64, 1024MB, 30s timeout, VPC private subnets, X-Ray tracing
@@ -217,6 +225,7 @@ StorageStack ─────┐
 QueueStack ───────┘        │          │                    └──► BastionStack (dev)
                            │          ├──► ServicesStack ──┐
                            │          │                    ├──► PipelineStack
+                           │          │                    ├──► SubmarineStack
                            └──► BatchStack ────────────────┘
                                       │
                                       └──► DbInitStack

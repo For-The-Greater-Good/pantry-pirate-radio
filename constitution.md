@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.5.1 — 2026-03-27
+- **Clarified Principle VI**: Submarine results bypass Validator because they target existing validated locations and only fill non-geographic text fields (phone, hours, email, description). Corroboration exclusion ensures submarine does not inflate confidence scores.
+
 ### v1.5.0 — 2026-03-26
 - **Amended Principle IV**: Added Submarine as eighth pipeline stage (post-reconciler web crawling for missing data fields)
 
@@ -391,4 +394,4 @@ Changes to principles MUST propagate to:
 - `.pre-commit-config.yaml` (quality gate enforcement)
 - `.github/workflows/ci.yml` (CI pipeline alignment)
 
-**Version**: 1.5.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-26
+**Version**: 1.5.1 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-27

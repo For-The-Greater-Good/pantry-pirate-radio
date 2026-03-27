@@ -361,6 +361,7 @@ async def get_map_location_detail(
             ls.updated_at as last_updated
         FROM location_source ls
         WHERE ls.location_id = :location_id
+          AND (ls.source_type IS NULL OR ls.source_type != 'submarine')
     """
 
     sources_result = await session.execute(

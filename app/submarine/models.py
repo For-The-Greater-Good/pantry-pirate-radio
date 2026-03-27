@@ -1,9 +1,29 @@
 """Submarine job and result models."""
 
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class SubmarineStatus(str, Enum):
+    """Status values for submarine crawl results.
+
+    Used in SubmarineResult.status, CrawlResult.status, location.submarine_last_status,
+    and the adaptive cooldown logic in SubmarineDispatcher.
+    """
+
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    NO_DATA = "no_data"
+    ERROR = "error"
+    BLOCKED = "blocked"
+
+
+SUBMARINE_TARGET_FIELDS = frozenset({"phone", "hours", "email", "description"})
+"""Canonical set of fields that submarine can extract. Used by the dispatcher,
+extractor, and scanner to ensure consistency."""
 
 
 class SubmarineJob(BaseModel):
@@ -38,9 +58,7 @@ class SubmarineResult(BaseModel):
 
     job_id: str
     location_id: str
-    status: str = Field(
-        description="Outcome: 'success', 'partial', 'no_data', 'error', 'blocked'"
-    )
+    status: SubmarineStatus
     extracted_fields: dict[str, Any] = Field(
         default_factory=dict,
         description="Extracted data keyed by field name, e.g. {'phone': '555-1234'}",

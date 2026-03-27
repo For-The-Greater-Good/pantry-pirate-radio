@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.submarine.extractor import SubmarineExtractor
+from app.submarine.extractor import ExtractionError, SubmarineExtractor
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "test_site"
 
@@ -173,4 +173,57 @@ class TestSubmarineExtractor:
             provider=mock_provider,
         )
         assert "phone" in result
+        assert "hours" not in result
+
+    @pytest.mark.asyncio
+    async def test_extract_raises_extraction_error_on_provider_failure(self, extractor):
+        """ExtractionError raised when LLM provider throws an exception."""
+        mock_provider = AsyncMock()
+        mock_provider.generate = AsyncMock(side_effect=RuntimeError("Provider down"))
+
+        with pytest.raises(ExtractionError, match="Provider down"):
+            await extractor.extract(
+                markdown="Some content",
+                missing_fields=["phone"],
+                provider=mock_provider,
+            )
+
+    @pytest.mark.asyncio
+    async def test_extract_raises_on_missing_text_attribute(self, extractor):
+        """ExtractionError raised when provider returns object without .text."""
+        mock_response = MagicMock(spec=[])  # spec=[] means no attributes
+        mock_provider = AsyncMock()
+        mock_provider.generate = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(ExtractionError, match="no text attribute"):
+            await extractor.extract(
+                markdown="Some content",
+                missing_fields=["phone"],
+                provider=mock_provider,
+            )
+
+    def test_parse_response_markdown_code_block(self, extractor):
+        """Response wrapped in ```json ... ``` code block is parsed correctly."""
+        response_text = '```json\n{"phone": "(555) 123-4567"}\n```'
+        result = extractor._parse_response(response_text, ["phone"])
+        assert result == {"phone": "(555) 123-4567"}
+
+    def test_parse_response_non_dict_returns_empty(self, extractor):
+        """JSON array response returns empty dict (not a dict)."""
+        response_text = '[{"phone": "555-1234"}]'
+        result = extractor._parse_response(response_text, ["phone"])
+        assert result == {}
+
+    def test_parse_response_filters_to_requested_fields(self, extractor):
+        """Only fields in missing_fields are included, even if LLM returns extra."""
+        response_text = json.dumps(
+            {
+                "phone": "(555) 999-0000",
+                "email": "extra@example.com",
+                "hours": [{"day": "Monday", "opens_at": "09:00", "closes_at": "17:00"}],
+            }
+        )
+        result = extractor._parse_response(response_text, ["phone"])
+        assert result == {"phone": "(555) 999-0000"}
+        assert "email" not in result
         assert "hours" not in result

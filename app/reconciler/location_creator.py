@@ -258,6 +258,7 @@ class LocationCreator(BaseReconciler):
             latitude,
             longitude,
             metadata,
+            source_type=metadata.get("source_type", "scraper"),
         )
 
         return location_id

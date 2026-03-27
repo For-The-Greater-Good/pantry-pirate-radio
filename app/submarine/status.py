@@ -1,6 +1,6 @@
 """Submarine status reporting."""
 
-import logging
+import structlog
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def get_status() -> dict[str, Any]:

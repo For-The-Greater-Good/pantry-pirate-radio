@@ -2,10 +2,16 @@
 
 Crawls food bank websites, extracts missing data using LLM, and
 sends enriched results back to the Reconciler queue.
+
+Submarine results go directly to the Reconciler, bypassing the Validator.
+This is intentional: submarine targets existing validated locations (coordinates
+already verified) and only fills missing text fields (phone, hours, email,
+description). These fields have no geographic validation requirements, and the
+reconciler's update path handles merge logic. See constitution.md v1.5.0.
 """
 
 import asyncio
-import logging
+import structlog
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,12 +21,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import settings
 from app.llm.providers.factory import create_provider
 from app.submarine.crawler import SubmarineCrawler
-from app.submarine.extractor import SubmarineExtractor
-from app.submarine.models import SubmarineJob, SubmarineResult
+from app.submarine.extractor import ExtractionError, SubmarineExtractor
+from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
 from app.submarine.rate_limiter import SubmarineRateLimiter
 from app.submarine.result_builder import SubmarineResultBuilder
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -36,6 +42,24 @@ def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
     Returns:
         Serialized JobResult dict for the Reconciler queue, or None.
     """
+    try:
+        return _process_job(job_data)
+    except Exception as e:
+        logger.error(
+            "submarine_job_failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "job_data_keys": (
+                    list(job_data.keys()) if isinstance(job_data, dict) else None
+                ),
+            },
+        )
+        raise
+
+
+def _process_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Inner processing logic, wrapped by process_submarine_job for error handling."""
     job = SubmarineJob.model_validate(job_data)
     logger.info(
         "submarine_job_started",
@@ -110,7 +134,7 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
         return SubmarineResult(
             job_id=job.id,
             location_id=job.location_id,
-            status="error",
+            status=SubmarineStatus.ERROR,
             crawl_metadata={
                 "url": job.website_url,
                 "pages_crawled": crawl_result.pages_crawled,
@@ -122,7 +146,7 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
         return SubmarineResult(
             job_id=job.id,
             location_id=job.location_id,
-            status="no_data",
+            status=SubmarineStatus.NO_DATA,
             crawl_metadata={
                 "url": job.website_url,
                 "pages_crawled": crawl_result.pages_crawled,
@@ -137,17 +161,30 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
         max_tokens=2048,
     )
     extractor = SubmarineExtractor()
-    extracted = await extractor.extract(
-        markdown=crawl_result.markdown,
-        missing_fields=job.missing_fields,
-        provider=provider,
-    )
+    try:
+        extracted = await extractor.extract(
+            markdown=crawl_result.markdown,
+            missing_fields=job.missing_fields,
+            provider=provider,
+        )
+    except ExtractionError as e:
+        return SubmarineResult(
+            job_id=job.id,
+            location_id=job.location_id,
+            status=SubmarineStatus.ERROR,
+            crawl_metadata={
+                "url": job.website_url,
+                "pages_crawled": crawl_result.pages_crawled,
+                "links_followed": crawl_result.links_followed,
+            },
+            error=f"LLM extraction failed: {e}",
+        )
 
     if not extracted:
         return SubmarineResult(
             job_id=job.id,
             location_id=job.location_id,
-            status="no_data",
+            status=SubmarineStatus.NO_DATA,
             crawl_metadata={
                 "url": job.website_url,
                 "pages_crawled": crawl_result.pages_crawled,
@@ -155,7 +192,11 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
             },
         )
 
-    status = "success" if len(extracted) == len(job.missing_fields) else "partial"
+    status = (
+        SubmarineStatus.SUCCESS
+        if len(extracted) == len(job.missing_fields)
+        else SubmarineStatus.PARTIAL
+    )
 
     return SubmarineResult(
         job_id=job.id,
@@ -170,10 +211,21 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
     )
 
 
+def _get_engine():
+    """Get or create the module-level SQLAlchemy engine."""
+    global _engine
+    if _engine is None:
+        _engine = create_engine(settings.DATABASE_URL)
+    return _engine
+
+
+_engine = None
+
+
 def _update_location_status(location_id: str, status: str) -> None:
     """Update submarine tracking columns on the location record."""
     try:
-        engine = create_engine(settings.DATABASE_URL)
+        engine = _get_engine()
         session_factory = sessionmaker(bind=engine)
         with session_factory() as session:
             session.execute(
@@ -191,7 +243,7 @@ def _update_location_status(location_id: str, status: str) -> None:
             )
             session.commit()
     except Exception as e:
-        logger.warning(
+        logger.error(
             "submarine_status_update_failed",
-            extra={"location_id": location_id, "error": str(e)},
+            extra={"location_id": location_id, "status": status, "error": str(e)},
         )

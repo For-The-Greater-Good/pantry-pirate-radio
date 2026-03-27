@@ -135,7 +135,17 @@ class LocationModel(Base):
 
     # Submarine enrichment tracking
     submarine_last_crawled_at = Column(DateTime(timezone=True), nullable=True)
-    submarine_last_status = Column(Text, nullable=True)
+    submarine_last_status: Column[str] = Column(
+        Enum(
+            "success",
+            "partial",
+            "no_data",
+            "error",
+            "blocked",
+            name="submarine_status_enum",
+        ),
+        nullable=True,
+    )
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

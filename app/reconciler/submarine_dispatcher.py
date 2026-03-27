@@ -5,7 +5,7 @@ has a website URL and missing target fields, then enqueues a SubmarineJob
 for the submarine worker to crawl and extract data.
 """
 
-import logging
+import structlog
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -14,12 +14,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.submarine.models import SubmarineJob
+from app.submarine.models import SUBMARINE_TARGET_FIELDS, SubmarineJob
 
-logger = logging.getLogger(__name__)
-
-# Fields the submarine targets for extraction
-TARGET_FIELDS = ["phone", "hours", "email", "description"]
+logger = structlog.get_logger(__name__)
 
 
 class SubmarineDispatcher:
@@ -73,7 +70,7 @@ class SubmarineDispatcher:
         if cooldown_row:
             last_crawled, last_status = cooldown_row
             cooldown_days = self._get_cooldown_days(last_status)
-            if self._is_in_cooldown(last_crawled, last_status, cooldown_days):
+            if self._is_in_cooldown(last_crawled, cooldown_days):
                 return None
 
         # --- Gap detection ---
@@ -178,6 +175,8 @@ class SubmarineDispatcher:
         if (
             not desc_row
             or not desc_row[0]
+            # The reconciler generates "Food service location: {name}" as a placeholder
+            # when no description is available (see job_processor.py:871). Treat as missing.
             or desc_row[0].startswith("Food service location:")
         ):
             missing.append("description")
@@ -198,7 +197,6 @@ class SubmarineDispatcher:
     @staticmethod
     def _is_in_cooldown(
         last_crawled: datetime | None,
-        last_status: str | None,
         cooldown_days: int,
     ) -> bool:
         """Check if a location is still within its cooldown period."""
@@ -210,20 +208,22 @@ class SubmarineDispatcher:
         return last_crawled > cutoff
 
     def _enqueue(self, job: SubmarineJob) -> str:
-        """Enqueue a SubmarineJob to the submarine queue.
+        """Create a SubmarineJob for dispatch.
 
-        Uses Redis/RQ locally or SQS on AWS, following the existing
-        queue abstraction pattern.
+        STUB: Queue submission not yet wired. Returns the job ID but
+        does NOT actually enqueue the job to Redis/RQ or SQS.
         """
-        logger.info(
-            "submarine_job_enqueued",
+        # TODO: Wire up actual queue submission — jobs are NOT being enqueued.
+        # This stub exists so scan/dispatch logic can be validated end-to-end
+        # before the queue integration is complete.
+        logger.warning(
+            "submarine_job_dispatch_stub",
             extra={
                 "job_id": job.id,
                 "location_id": job.location_id,
                 "website_url": job.website_url,
                 "missing_fields": job.missing_fields,
+                "message": "Queue submission not yet wired — job was NOT enqueued",
             },
         )
-        # TODO: Wire up actual queue submission in Phase 5
-        # For now, return the job ID to indicate successful dispatch
         return job.id

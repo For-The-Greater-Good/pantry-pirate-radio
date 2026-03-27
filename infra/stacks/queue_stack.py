@@ -19,7 +19,8 @@ class QueueStack(Stack):
     - LLM queue: Content → HSDS alignment (600s visibility)
     - Validator queue: Enrichment & scoring (600s visibility)
     - Reconciler queue: DB writes (300s visibility)
-    - Recorder queue: Archiving (120s visibility)
+    - Recorder queue: Archiving (300s visibility)
+    - Submarine queue: Web crawl enrichment (600s visibility)
 
     Each queue has its own DLQ for failed message handling.
 
@@ -32,6 +33,8 @@ class QueueStack(Stack):
         reconciler_dlq: Dead-letter queue for reconciler failures
         recorder_queue: SQS FIFO queue for recording jobs
         recorder_dlq: Dead-letter queue for recorder failures
+        submarine_queue: SQS FIFO queue for submarine crawl jobs
+        submarine_dlq: Dead-letter queue for submarine failures
     """
 
     def __init__(
@@ -108,7 +111,7 @@ class QueueStack(Stack):
         for investigation and potential reprocessing.
 
         Args:
-            name: Queue name (llm, validator, reconciler, recorder)
+            name: Queue name (llm, validator, reconciler, recorder, submarine)
 
         Returns:
             SQS FIFO dead-letter queue
@@ -140,7 +143,7 @@ class QueueStack(Stack):
         - Dead-letter queue for failed messages
 
         Args:
-            name: Queue name (llm, validator, reconciler, recorder)
+            name: Queue name (llm, validator, reconciler, recorder, submarine)
             visibility_timeout_seconds: Seconds before message becomes visible again
             dlq: Dead-letter queue for failures
 
