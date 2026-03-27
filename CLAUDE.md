@@ -664,7 +664,7 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **HAARRRvest Publisher**: Syncs processed data to public repository
 
 #### Data Validation Pipeline
-- **Confidence Scoring**: Build-up model — scraped data starts at base 60, earns bonuses for completeness. Capped at 90 for scraped data; only human corrections (Tightbeam) reach 91-100.
+- **Confidence Scoring**: Build-up model — scraped data starts at base 60, earns bonuses for completeness. Capped at 90 for scraped data; only human corrections (Write API) reach 91-100.
 - **Source Corroboration**: Locations confirmed by multiple scrapers receive +5 (2 sources) or +10 (3+ sources) bonus, applied during reconciliation.
 - **Enrichment**: Enhances incomplete data using geocoding services
 - **Rejection**: Filters out test data and low-quality records
@@ -746,28 +746,11 @@ See [constitution.md](constitution.md) for full details. Key principles:
 12. **Structured Logging** - structlog only. Structured context fields. Prometheus metrics.
 13. **Documentation Maintenance** - CLAUDE.md updated with code changes. Docs not deferred.
 
-## Tightbeam (Authenticated Write API)
+## Write API (ppr-write-api plugin)
 
-Tightbeam is the authenticated write API for field staff and plugins to correct location data.
+The authenticated write API for location data management is now a separate plugin at `plugins/ppr-write-api/`. It runs as a Lambda function in VPC with RDS Proxy access, exposed via function URL.
 
-### Endpoints (prefix: `/api/v1/tightbeam`)
-- `GET /search` — Multi-field search across locations
-- `GET /locations/{id}` — Location detail with source records
-- `GET /locations/{id}/history` — Audit trail
-- `PUT /locations/{id}` — Human correction (creates location_source row + audit)
-- `DELETE /locations/{id}` — Soft-delete (sets validation_status='rejected')
-- `POST /locations/{id}/restore` — Restore a soft-deleted location
-
-### Environment Variables
-```bash
-TIGHTBEAM_ENABLED=true                     # Enable/disable Tightbeam endpoints
-TIGHTBEAM_API_KEYS=name1:key1,name2:key2   # Comma-separated API keys (local mode)
-TIGHTBEAM_API_KEYS_SECRET_ARN=arn:...      # Secrets Manager ARN (Lambda mode)
-```
-
-### Authentication
-- **Local mode**: Validates against `TIGHTBEAM_API_KEYS` env var
-- **Lambda mode**: API Gateway pre-validates the key; middleware extracts key ID from headers
+See `plugins/ppr-write-api/CLAUDE.md` for full documentation.
 
 ## Plugin System
 
@@ -791,7 +774,7 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 ## Recent Updates and Features
 
 ### Data Validation Pipeline (Latest - Issues #362-#369)
-- **Confidence Scoring System**: Build-up model — base score of 60, bonuses for data completeness (address +5, description +3, geocoder quality +5, phone/hours/website +3 each). Hard cap at 90 for scraped data; 100 reserved for human corrections via Tightbeam.
+- **Confidence Scoring System**: Build-up model — base score of 60, bonuses for data completeness (address +5, description +3, geocoder quality +5, phone/hours/website +3 each). Hard cap at 90 for scraped data; 100 reserved for human corrections via Write API (ppr-write-api).
 - **Source Corroboration**: Multi-scraper confirmation boosts scores (+5 for 2 sources, +10 for 3+), applied during reconciliation merge.
 - **Automated Data Enrichment**: Enhances incomplete data using geocoding services
 - **Quality Rejection**: Automatically rejects test addresses and placeholder data

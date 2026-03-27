@@ -3,7 +3,7 @@
 Creates AWS Secrets Manager secrets for centralized secrets management:
 - GitHub PAT for HAARRRvest publishing
 - LLM API keys (Anthropic/OpenRouter/ArcGIS)
-- Tightbeam API keys for location management endpoints
+- Tightbeam API keys (deprecated — retained for CloudFormation export compatibility)
 
 Secret values are seeded from .env at deploy time. CloudFormation only updates
 the value if it changes in the template (i.e., if .env changes between deploys).
@@ -37,7 +37,7 @@ class SecretsStack(Stack):
     Attributes:
         github_pat_secret: Secret for GitHub PAT
         llm_api_keys_secret: Secret for LLM provider API keys
-        tightbeam_api_keys_secret: Secret for Tightbeam API keys
+        tightbeam_api_keys_secret: (Deprecated) Retained for CloudFormation export stability
     """
 
     def __init__(
@@ -137,13 +137,10 @@ class SecretsStack(Stack):
     ) -> secretsmanager.Secret:
         """Create secret for Tightbeam API keys.
 
-        Stores API keys used by tightbeam endpoints for authentication.
-        Format: ``name:key,name2:key2`` (matches TIGHTBEAM_API_KEYS env var).
-
-        Seeds value from TIGHTBEAM_API_KEYS in .env if available.
-
-        Returns:
-            Secrets Manager secret for Tightbeam API keys
+        DEPRECATED: Tightbeam has been migrated to ppr-write-api plugin.
+        This secret is retained because LambdaApiStack references it as a
+        CloudFormation cross-stack export. Deleting it would fail the deploy.
+        Remove in a future PR after staged CF cleanup.
         """
         value = SECRETS.get("TIGHTBEAM_API_KEYS", "")
 

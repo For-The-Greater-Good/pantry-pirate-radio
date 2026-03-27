@@ -177,68 +177,10 @@ class TestLambdaApiStackResources:
         """Should output the Lambda function name."""
         template.has_output("FunctionName", {})
 
-
-class TestLambdaApiStackTightbeam:
-    """Tests for Tightbeam integration in LambdaApiStack."""
-
-    @pytest.fixture
-    def app(self):
-        return cdk.App()
-
-    @pytest.fixture
-    def dependent_stacks(self, app):
-        compute = ComputeStack(app, "TBComputeStack", environment_name="dev")
-        database = DatabaseStack(
-            app,
-            "TBDatabaseStack",
-            vpc=compute.vpc,
-            environment_name="dev",
-        )
-        ecr = ECRStack(app, "TBECRStack", environment_name="dev")
-        return compute, database, ecr
-
-    @pytest.fixture
-    def stack(self, app, dependent_stacks):
-        compute, database, ecr = dependent_stacks
-        return LambdaApiStack(
-            app,
-            "TBLambdaApiStack",
-            vpc=compute.vpc,
-            environment_name="dev",
-            database_proxy_endpoint=database.proxy_endpoint,
-            database_name=database.database_name,
-            database_user="pantry_pirate",
-            database_secret=database.database_credentials_secret,
-            proxy_security_group=database.proxy_security_group,
-            ecr_repository=ecr.repositories.get("app"),
-        )
-
-    @pytest.fixture
-    def template(self, stack):
-        return assertions.Template.from_stack(stack)
-
-    def test_lambda_has_tightbeam_enabled_env_var(self, template):
-        """Lambda should have TIGHTBEAM_ENABLED environment variable."""
-        template.has_resource_properties(
-            "AWS::Lambda::Function",
-            {
-                "Environment": assertions.Match.object_like(
-                    {
-                        "Variables": assertions.Match.object_like(
-                            {
-                                "TIGHTBEAM_ENABLED": "true",
-                            }
-                        ),
-                    }
-                ),
-            },
-        )
-
     def test_cors_is_read_only_at_gateway_level(self, template):
         """API Gateway CORS allows only read methods.
 
-        Write-method CORS for Tightbeam is handled by TightbeamCORSMiddleware
-        at the FastAPI application layer, not at the API Gateway level.
+        Write operations are handled by standalone plugin Lambda functions.
         """
         template.has_resource_properties(
             "AWS::ApiGatewayV2::Api",
@@ -252,53 +194,13 @@ class TestLambdaApiStackTightbeam:
         )
 
     def test_cors_includes_api_key_header(self, template):
-        """CORS should allow X-Api-Key header for tightbeam auth."""
+        """CORS allows X-Api-Key header for plugin authentication."""
         template.has_resource_properties(
             "AWS::ApiGatewayV2::Api",
             {
                 "CorsConfiguration": assertions.Match.object_like(
                     {
                         "AllowHeaders": assertions.Match.array_with(["X-Api-Key"]),
-                    }
-                ),
-            },
-        )
-
-    def test_tightbeam_secret_grant_when_provided(self):
-        """When tightbeam secret is provided, Lambda gets TIGHTBEAM_API_KEYS_SECRET_ARN."""
-        from stacks.secrets_stack import SecretsStack
-
-        app = cdk.App()
-        compute = ComputeStack(app, "TBSComputeStack", environment_name="dev")
-        database = DatabaseStack(
-            app, "TBSDatabaseStack", vpc=compute.vpc, environment_name="dev"
-        )
-        ecr = ECRStack(app, "TBSECRStack", environment_name="dev")
-        secrets = SecretsStack(app, "TBSSecretsStack", environment_name="dev")
-        stack = LambdaApiStack(
-            app,
-            "TBSLambdaApiStack",
-            vpc=compute.vpc,
-            environment_name="dev",
-            database_proxy_endpoint=database.proxy_endpoint,
-            database_name=database.database_name,
-            database_user="pantry_pirate",
-            database_secret=database.database_credentials_secret,
-            proxy_security_group=database.proxy_security_group,
-            ecr_repository=ecr.repositories.get("app"),
-            tightbeam_api_keys_secret=secrets.tightbeam_api_keys_secret,
-        )
-        template = assertions.Template.from_stack(stack)
-        template.has_resource_properties(
-            "AWS::Lambda::Function",
-            {
-                "Environment": assertions.Match.object_like(
-                    {
-                        "Variables": assertions.Match.object_like(
-                            {
-                                "TIGHTBEAM_API_KEYS_SECRET_ARN": assertions.Match.any_value(),
-                            }
-                        ),
                     }
                 ),
             },

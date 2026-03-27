@@ -228,6 +228,9 @@ lambda_api_stack = LambdaApiStack(
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
+    # Retained for CloudFormation export stability: LambdaApiStack imports
+    # tightbeam_api_keys_secret from SecretsStack. Removing it here would
+    # delete the CF export and fail the deploy. Clean up after staged removal.
     tightbeam_api_keys_secret=secrets_stack.tightbeam_api_keys_secret,
     memory_size=1024,
     timeout_seconds=30,
@@ -479,10 +482,17 @@ import sys
 import yaml
 
 _plugins_dir = pathlib.Path(__file__).parent.parent / "plugins"
+_plugin_stacks: dict[str, list] = {}  # plugin_name -> [stack_instances]
+_plugin_deps: dict[str, list[str]] = {}  # plugin_name -> [depends_on names]
+
 for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
     try:
         _plugin_conf = yaml.safe_load(_manifest.read_text())
-    except Exception:
+    except (yaml.YAMLError, OSError) as exc:
+        warnings.warn(
+            f"Skipping plugin manifest {_manifest}: {exc}",
+            stacklevel=1,
+        )
         continue
     _infra_stacks = _plugin_conf.get("cdk_stacks", [])
     _plugin_infra_dir = _manifest.parent / "infra"
@@ -492,13 +502,20 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         "vpc": compute_stack.vpc,
         "cluster": compute_stack.cluster,
         "core_secrets": {
-            "tightbeam_api_keys": secrets_stack.tightbeam_api_keys_secret,
             "database_credentials": database_stack.database_credentials_secret,
         },
         "api_url": lambda_api_stack.api_url,
         "place_index_name": database_stack.place_index.index_name,
         "place_index_arn": database_stack.place_index.attr_index_arn,
+        # Database access for write API plugins
+        "proxy_endpoint": database_stack.proxy_endpoint,
+        "proxy_security_group": database_stack.proxy_security_group,
+        "database_credentials_secret": database_stack.database_credentials_secret,
     }
+
+    _plugin_name = _plugin_conf.get("name", _manifest.parent.name)
+    _plugin_depends_on = _plugin_conf.get("depends_on", [])
+    _plugin_deps.setdefault(_plugin_name, _plugin_depends_on)
 
     for _stack_entry in _infra_stacks:
         _module_name = _stack_entry.get("module")
@@ -522,22 +539,75 @@ for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
         if _plugin_infra_str not in sys.path:
             sys.path.insert(0, _plugin_infra_str)
         _spec = importlib.util.spec_from_file_location(_module_name, _module_path)
-        if _spec and _spec.loader:
-            _mod = importlib.util.module_from_spec(_spec)
+        if not _spec or not _spec.loader:
+            warnings.warn(
+                f"Cannot load plugin module: {_module_path}", stacklevel=1
+            )
+            continue
+        _mod = importlib.util.module_from_spec(_spec)
+        try:
             _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
-            _stack_cls = getattr(_mod, _class_name, None)
-            if _stack_cls:
-                _plugin_name = _plugin_conf.get("name", _manifest.parent.name)
-                _instance = _stack_cls(
-                    app,
-                    f"{_class_name}-{environment_name}",
-                    environment_name=environment_name,
-                    env=env,
-                    plugin_context=_plugin_context,
-                    description=f"{_plugin_name} plugin stack ({environment_name})",
-                )
-                _instance.add_dependency(compute_stack)
-                _instance.add_dependency(secrets_stack)
-                _instance.add_dependency(database_stack)
+        except Exception as exc:
+            warnings.warn(
+                f"Failed to load plugin {_module_path}: {exc}", stacklevel=1
+            )
+            continue
+        _stack_cls = getattr(_mod, _class_name, None)
+        if not _stack_cls:
+            warnings.warn(
+                f"Class {_class_name!r} not found in {_module_path}",
+                stacklevel=1,
+            )
+            continue
+        try:
+            _instance = _stack_cls(
+                app,
+                f"{_class_name}-{environment_name}",
+                environment_name=environment_name,
+                env=env,
+                plugin_context=_plugin_context,
+                description=f"{_plugin_name} plugin stack ({environment_name})",
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"Failed to instantiate {_class_name}: {exc}", stacklevel=1
+            )
+            continue
+        _instance.add_dependency(compute_stack)
+        _instance.add_dependency(secrets_stack)
+        _instance.add_dependency(database_stack)
+
+        # Track for inter-plugin dependency resolution
+        _plugin_stacks.setdefault(_plugin_name, []).append(_instance)
+
+        # Wire RDS Proxy SG ingress for plugins with lambda_sg
+        # Uses L1 CfnSecurityGroupIngress on the PLUGIN stack
+        # (not database stack) to avoid cyclic cross-stack refs.
+        if hasattr(_instance, "lambda_sg") and _instance.lambda_sg:
+            ec2.CfnSecurityGroupIngress(
+                _instance,
+                f"PluginLambdaToProxyIngress-{_class_name}",
+                ip_protocol="tcp",
+                from_port=5432,
+                to_port=5432,
+                group_id=database_stack.proxy_security_group.security_group_id,
+                source_security_group_id=_instance.lambda_sg.security_group_id,
+                description=f"{_plugin_name} Lambda to RDS Proxy",
+            )
+
+# Resolve inter-plugin dependencies (depends_on in plugin.yml)
+for _dep_plugin, _dep_names in _plugin_deps.items():
+    for _dep_name in _dep_names:
+        _dep_stacks = _plugin_stacks.get(_dep_name, [])
+        if not _dep_stacks:
+            warnings.warn(
+                f"Plugin {_dep_plugin!r} depends on {_dep_name!r} but no stacks found",
+                stacklevel=1,
+            )
+            continue
+        _my_stacks = _plugin_stacks.get(_dep_plugin, [])
+        for _my_stack in _my_stacks:
+            for _dep_stack in _dep_stacks:
+                _my_stack.add_dependency(_dep_stack)
 
 app.synth()

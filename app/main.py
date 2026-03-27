@@ -13,7 +13,6 @@ from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-from app.middleware.tightbeam_cors import TightbeamCORSMiddleware
 
 # Load settings
 settings = Settings()
@@ -21,7 +20,7 @@ settings = Settings()
 # Initialize FastAPI app with no default routes or exception handlers
 app = FastAPI(
     title=settings.app_name,
-    description="Food security data API using HSDS specification (authenticated write endpoints available via Tightbeam)",
+    description="Food security data API using HSDS specification",
     version=settings.version,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -30,12 +29,12 @@ app = FastAPI(
     redirect_slashes=True,  # Enable automatic trailing slash redirection
 )
 
-# Add middleware in order (inside -> out):
-# 1. CORS (outermost)
-# 2. Security headers
-# 3. Correlation (adds request ID)
+# Middleware stack (last added = outermost wrapper):
+# 5. Error handling (outermost — catches all unhandled exceptions)
 # 4. Metrics (tracks all requests)
-# 5. Error handling (innermost - handles all errors)
+# 3. Correlation (adds request ID)
+# 2. Security headers
+# 1. CORS (innermost — handles preflight)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -49,8 +48,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CorrelationMiddleware)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
-# Outermost: scoped write-method CORS for Tightbeam (must wrap global CORSMiddleware)
-app.add_middleware(TightbeamCORSMiddleware)
 
 # Metrics endpoint
 

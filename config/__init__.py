@@ -37,7 +37,6 @@ def _hardcoded_defaults() -> dict[str, Any]:
         "GEOCODING_TIMEOUT": 10,
         "CONTENT_STORE_ENABLED": True,
         "RECONCILER_LOCATION_TOLERANCE": 0.0001,
-        "TIGHTBEAM_ENABLED": True,
     }
 
 
@@ -59,7 +58,6 @@ _KEY_MAP: dict[str, str] = {
     "geocoding.timeout": "GEOCODING_TIMEOUT",
     "content_store.enabled": "CONTENT_STORE_ENABLED",
     "reconciler.location_tolerance": "RECONCILER_LOCATION_TOLERANCE",
-    "tightbeam.enabled": "TIGHTBEAM_ENABLED",
 }
 
 
