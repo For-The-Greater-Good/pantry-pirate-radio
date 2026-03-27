@@ -503,8 +503,8 @@ jobs:
       - name: Run pip-audit security check
         # Ignore GHSA-4xh5-x5gv-qwph (pip CVE-2025-8869) - pip upgraded in Dockerfile
         # Ignore GHSA-3936-cmfr-pm3m (black ReDoS) - dev-only tool, not in production
-        # Ignore GHSA-752w-5fwx-jx9f (pyjwt) - no JWT audience verification in use
-        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-752w-5fwx-jx9f
+        # Ignore GHSA-5239-wwwm-4pmq (pygments ReDoS in ADL lexer) - dev-only, no fix available (2.19.2 is latest)
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq
 
   xenon:
     needs: setup
