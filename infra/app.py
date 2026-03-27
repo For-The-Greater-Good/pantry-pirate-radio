@@ -229,10 +229,6 @@ lambda_api_stack = LambdaApiStack(
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
-    # Retained for CloudFormation export stability: LambdaApiStack imports
-    # tightbeam_api_keys_secret from SecretsStack. Removing it here would
-    # delete the CF export and fail the deploy. Clean up after staged removal.
-    tightbeam_api_keys_secret=secrets_stack.tightbeam_api_keys_secret,
     memory_size=1024,
     timeout_seconds=30,
     provisioned_concurrent=None,

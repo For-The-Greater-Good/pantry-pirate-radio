@@ -46,7 +46,6 @@ class LambdaApiStack(Stack):
         database_secret: secretsmanager.ISecret,
         proxy_security_group: ec2.ISecurityGroup,
         ecr_repository: ecr.IRepository | None = None,
-        tightbeam_api_keys_secret: secretsmanager.ISecret | None = None,
         memory_size: int = 1024,
         timeout_seconds: int = 30,
         provisioned_concurrent: int | None = None,
@@ -65,8 +64,6 @@ class LambdaApiStack(Stack):
             database_secret: Secrets Manager secret for DB credentials
             proxy_security_group: RDS Proxy security group (for ingress rules)
             ecr_repository: ECR repository for the API Lambda image
-            tightbeam_api_keys_secret: (Deprecated) Retained for CloudFormation export
-                compatibility only. Remove after staged CF cleanup.
             memory_size: Lambda memory in MB
             timeout_seconds: Lambda timeout in seconds
             provisioned_concurrent: Provisioned concurrency (None = on-demand only)

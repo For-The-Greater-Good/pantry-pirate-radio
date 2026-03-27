@@ -37,7 +37,6 @@ class SecretsStack(Stack):
     Attributes:
         github_pat_secret: Secret for GitHub PAT
         llm_api_keys_secret: Secret for LLM provider API keys
-        tightbeam_api_keys_secret: (Deprecated) Retained for CloudFormation export stability
     """
 
     def __init__(
@@ -70,9 +69,6 @@ class SecretsStack(Stack):
         # Create secrets
         self.github_pat_secret = self._create_github_pat_secret(removal_policy)
         self.llm_api_keys_secret = self._create_llm_api_keys_secret(removal_policy)
-        self.tightbeam_api_keys_secret = self._create_tightbeam_api_keys_secret(
-            removal_policy
-        )
 
     def _create_github_pat_secret(
         self, removal_policy: RemovalPolicy
@@ -126,31 +122,6 @@ class SecretsStack(Stack):
                 SecretValue.unsafe_plain_text(json.dumps(api_keys))
                 if has_any_key
                 else None
-            ),
-            removal_policy=removal_policy,
-        )
-
-        return secret
-
-    def _create_tightbeam_api_keys_secret(
-        self, removal_policy: RemovalPolicy
-    ) -> secretsmanager.Secret:
-        """Create secret for Tightbeam API keys.
-
-        DEPRECATED: Tightbeam has been migrated to ppr-write-api plugin.
-        This secret is retained because LambdaApiStack references it as a
-        CloudFormation cross-stack export. Deleting it would fail the deploy.
-        Remove in a future PR after staged CF cleanup.
-        """
-        value = SECRETS.get("TIGHTBEAM_API_KEYS", "")
-
-        secret = secretsmanager.Secret(
-            self,
-            "TightbeamApiKeysSecret",
-            secret_name=f"pantry-pirate-radio/tightbeam-api-keys-{self.environment_name}",
-            description=f"Tightbeam API keys for location management - {self.environment_name}",
-            secret_string_value=(
-                SecretValue.unsafe_plain_text(value) if value else None
             ),
             removal_policy=removal_policy,
         )
