@@ -111,7 +111,7 @@ class SubmarineDispatcher:
     def _get_website_url(
         self, location_id: str, organization_id: str | None
     ) -> str | None:
-        """Find a website URL from the organization or service."""
+        """Find a website URL from the organization, location, or service."""
         # Check organization website first
         if organization_id:
             row = self.db.execute(
@@ -120,6 +120,14 @@ class SubmarineDispatcher:
             ).first()
             if row and row[0]:
                 return row[0]
+
+        # Check location website (may be set via write API)
+        row = self.db.execute(
+            text("SELECT website FROM location WHERE id = :id"),
+            {"id": location_id},
+        ).first()
+        if row and row[0]:
+            return row[0]
 
         # Check service URLs linked to this location
         row = self.db.execute(
