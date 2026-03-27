@@ -34,6 +34,7 @@ from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
 from stacks.pipeline_stack import PipelineStack
 from stacks.queue_stack import QueueStack
+from stacks.submarine_stack import SubmarineStack
 from stacks.secrets_stack import SecretsStack
 from stacks.services_stack import ServiceConfig, ServicesStack
 from stacks.storage_stack import StorageStack
@@ -242,6 +243,24 @@ lambda_api_stack.add_dependency(compute_stack)
 lambda_api_stack.add_dependency(database_stack)
 lambda_api_stack.add_dependency(ecr_stack)
 lambda_api_stack.grant_database_access(database_stack.proxy_security_group)
+
+# Submarine Stack - Step Functions for web crawling enrichment
+submarine_stack = SubmarineStack(
+    app,
+    f"SubmarineStack-{environment_name}",
+    environment_name=environment_name,
+    cluster_arn=compute_stack.cluster.cluster_arn,
+    subnet_ids=[s.subnet_id for s in compute_stack.vpc.private_subnets],
+    scanner_task_family=f"pantry-pirate-radio-app-{environment_name}",
+    scanner_container_name="AppContainer",
+    submarine_queue_url=queue_stack.submarine_queue.queue_url,
+    schedule_enabled=(environment_name == "prod"),
+    env=env,
+    description=f"Pantry Pirate Radio submarine enrichment ({environment_name})",
+)
+submarine_stack.add_dependency(compute_stack)
+submarine_stack.add_dependency(queue_stack)
+submarine_stack.add_dependency(services_stack)
 
 # Monitoring Stack - CloudWatch dashboards and alarms
 monitoring_stack = MonitoringStack(

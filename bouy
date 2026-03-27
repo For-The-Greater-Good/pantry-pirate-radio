@@ -1758,11 +1758,39 @@ print(json.dumps(l))
             logs)
                 $COMPOSE_CMD $COMPOSE_FILES logs -f submarine
                 ;;
+            --aws)
+                shift
+                # Trigger submarine scan on AWS via Step Functions
+                local ENV="${CDK_DEPLOY_ENVIRONMENT:-dev}"
+                local SM_NAME="pantry-pirate-radio-submarine-${ENV}"
+                local INPUT="{}"
+
+                # Parse optional --scraper and --limit flags
+                local SCRAPER=""
+                local LIMIT=""
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --scraper) SCRAPER="$2"; shift 2 ;;
+                        --limit) LIMIT="$2"; shift 2 ;;
+                        *) shift ;;
+                    esac
+                done
+
+                if [ -n "$SCRAPER" ] || [ -n "$LIMIT" ]; then
+                    INPUT="{\"scraper_id\": $([ -n "$SCRAPER" ] && echo "\"$SCRAPER\"" || echo "null"), \"limit\": $([ -n "$LIMIT" ] && echo "$LIMIT" || echo "null")}"
+                fi
+
+                output info "Triggering submarine scan on AWS (state machine: $SM_NAME)..."
+                aws stepfunctions start-execution \
+                    --state-machine-arn "arn:aws:states:${CDK_DEPLOY_REGION:-us-east-1}:${CDK_DEPLOY_ACCOUNT}:stateMachine:${SM_NAME}" \
+                    --input "$INPUT"
+                ;;
             *)
                 echo "Usage: ./bouy submarine <command>"
                 echo ""
                 echo "Commands:"
-                echo "  scan [--limit N] [--location-id UUID]  Scan DB and enqueue submarine jobs"
+                echo "  scan [--limit N] [--scraper NAME] [--location-id UUID]  Scan DB and enqueue submarine jobs"
+                echo "  --aws [--scraper NAME] [--limit N]   Trigger submarine scan on AWS via Step Functions"
                 echo "  status                                 Show submarine job counts"
                 echo "  logs                                   Follow submarine worker logs"
                 ;;

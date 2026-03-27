@@ -30,6 +30,12 @@ def main() -> int:
     scan_parser.add_argument(
         "--location-id", type=str, default=None, help="Target a specific location ID"
     )
+    scan_parser.add_argument(
+        "--scraper",
+        type=str,
+        default=None,
+        help="Filter to locations from a specific scraper (e.g. capital_area_food_bank_dc)",
+    )
 
     # status command
     subparsers.add_parser("status", help="Show submarine job counts")
@@ -42,6 +48,7 @@ def main() -> int:
         summary = scan_and_enqueue(
             limit=args.limit,
             location_id=args.location_id,
+            scraper_id=args.scraper,
         )
         print(json.dumps(summary, indent=2))
         return 0

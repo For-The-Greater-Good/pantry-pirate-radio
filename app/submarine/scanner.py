@@ -20,12 +20,14 @@ logger = logging.getLogger(__name__)
 def scan_and_enqueue(
     limit: int | None = None,
     location_id: str | None = None,
+    scraper_id: str | None = None,
 ) -> dict[str, Any]:
     """Scan DB for locations needing submarine enrichment and enqueue jobs.
 
     Args:
         limit: Maximum number of jobs to enqueue (None = no limit).
-        location_id: Target a specific location ID (overrides limit).
+        location_id: Target a specific location ID (overrides other filters).
+        scraper_id: Filter to locations produced by this scraper.
 
     Returns:
         Summary dict with counts of scanned/enqueued/skipped locations.
@@ -44,27 +46,41 @@ def scan_and_enqueue(
             # Target a specific location
             rows = session.execute(
                 text(
-                    "SELECT l.id, l.organization_id " "FROM location l WHERE l.id = :id"
+                    "SELECT l.id, l.organization_id FROM location l WHERE l.id = :id"
                 ),
                 {"id": location_id},
             ).fetchall()
         else:
-            # Find all locations with website URLs
-            base_sql = (
-                "SELECT DISTINCT l.id, l.organization_id "
-                "FROM location l "
-                "JOIN organization o ON l.organization_id = o.id "
-                "WHERE o.website IS NOT NULL "
-                "AND l.validation_status != 'rejected' "
-                "ORDER BY l.id"
-            )
+            # Build query with optional scraper filter
+            params: dict[str, Any] = {}
+            if scraper_id:
+                base_sql = (
+                    "SELECT DISTINCT l.id, l.organization_id "
+                    "FROM location l "
+                    "JOIN organization o ON l.organization_id = o.id "
+                    "JOIN location_source ls ON ls.location_id = l.id "
+                    "WHERE o.website IS NOT NULL "
+                    "AND l.validation_status != 'rejected' "
+                    "AND ls.scraper_id = :scraper_id "
+                    "ORDER BY l.id"
+                )
+                params["scraper_id"] = scraper_id
+            else:
+                base_sql = (
+                    "SELECT DISTINCT l.id, l.organization_id "
+                    "FROM location l "
+                    "JOIN organization o ON l.organization_id = o.id "
+                    "WHERE o.website IS NOT NULL "
+                    "AND l.validation_status != 'rejected' "
+                    "ORDER BY l.id"
+                )
             if limit:
+                params["lim"] = int(limit)
                 rows = session.execute(
-                    text(base_sql + " LIMIT :lim"),
-                    {"lim": int(limit)},
+                    text(base_sql + " LIMIT :lim"), params
                 ).fetchall()
             else:
-                rows = session.execute(text(base_sql)).fetchall()
+                rows = session.execute(text(base_sql), params).fetchall()
 
         total = len(rows)
         logger.info(f"submarine_scan_started: {total} candidate locations")
@@ -88,12 +104,14 @@ def scan_and_enqueue(
                 errors += 1
                 logger.warning(f"submarine_scan_error: location={loc_id}, error={e}")
 
-    summary = {
+    summary: dict[str, Any] = {
         "total_candidates": total,
         "enqueued": enqueued,
         "skipped": skipped,
         "errors": errors,
     }
+    if scraper_id:
+        summary["scraper_id"] = scraper_id
     logger.info(f"submarine_scan_completed: {summary}")
     return summary
 
