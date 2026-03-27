@@ -40,3 +40,13 @@ content_store:
 
 reconciler:
   location_tolerance: 0.0001
+
+submarine:
+  enabled: false
+  crawl_timeout: 30
+  max_pages_per_site: 3
+  min_crawl_delay: 5
+  max_attempts: 3
+  cooldown_success_days: 30
+  cooldown_no_data_days: 90
+  cooldown_error_days: 14

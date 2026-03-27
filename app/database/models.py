@@ -133,6 +133,10 @@ class LocationModel(Base):
         # Fallback: use index on lat/lon columns for spatial queries
         pass
 
+    # Submarine enrichment tracking
+    submarine_last_crawled_at = Column(DateTime(timezone=True), nullable=True)
+    submarine_last_status = Column(Text, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(

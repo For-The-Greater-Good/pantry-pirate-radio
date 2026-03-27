@@ -148,6 +148,7 @@ usage() {
     echo "  scraper-test [NAME] Test scrapers without processing"
     echo "  claude-auth [CMD]   Manage Claude authentication"
     echo "  reconciler [ARGS]   Run the reconciler service"
+    echo "  submarine [CMD]     Manage submarine web crawler"
     echo "  recorder [ARGS]     Run the recorder service"
     echo "  content-store [CMD] Manage content store"
     echo "  haarrrvest [CMD]    Manage HAARRRvest publisher"
@@ -1711,6 +1712,61 @@ print(json.dumps(l))
             EXEC_FLAGS="-T"
         fi
         $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS reconciler bash -c "$cmd"
+        ;;
+
+    submarine)
+        shift
+        parse_mode "$@"
+
+        SUBCMD="${1:-}"
+
+        case "$SUBCMD" in
+            scan)
+                shift
+                # Ensure database and cache are running
+                if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+                    output info "Database service is not running. Starting it..."
+                    $COMPOSE_CMD $COMPOSE_FILES up -d db cache
+                    wait_for_database || exit 1
+                fi
+
+                # Build command with args
+                cmd="python -m app.submarine scan"
+                for arg in "$@"; do
+                    case $arg in
+                        --dev|--prod|--test|--with-init)
+                            ;;
+                        *)
+                            cmd="$cmd $arg"
+                            ;;
+                    esac
+                done
+
+                output info "Scanning for locations needing submarine enrichment..."
+                $COMPOSE_CMD $COMPOSE_FILES exec -T app bash -c "$cmd"
+                ;;
+            status)
+                # Ensure database is running
+                if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+                    output info "Database service is not running. Starting it..."
+                    $COMPOSE_CMD $COMPOSE_FILES up -d db
+                    wait_for_database || exit 1
+                fi
+                output info "Submarine status:"
+                $COMPOSE_CMD $COMPOSE_FILES exec -T app python -m app.submarine status
+                ;;
+            logs)
+                $COMPOSE_CMD $COMPOSE_FILES logs -f submarine
+                ;;
+            *)
+                echo "Usage: ./bouy submarine <command>"
+                echo ""
+                echo "Commands:"
+                echo "  scan [--limit N] [--location-id UUID]  Scan DB and enqueue submarine jobs"
+                echo "  status                                 Show submarine job counts"
+                echo "  logs                                   Follow submarine worker logs"
+                ;;
+        esac
         ;;
 
     recorder)

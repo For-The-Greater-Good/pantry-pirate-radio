@@ -271,6 +271,7 @@ class LocationCreator(BaseReconciler):
         latitude: float,
         longitude: float,
         metadata: dict[str, Any],
+        source_type: str = "scraper",
     ) -> str:
         """Create new source-specific location record.
 
@@ -282,6 +283,8 @@ class LocationCreator(BaseReconciler):
             latitude: Location latitude
             longitude: Location longitude
             metadata: Additional metadata
+            source_type: Source type for the record (default: 'scraper',
+                also supports 'submarine' and 'human_update')
 
         Returns:
             Source location ID
@@ -308,7 +311,7 @@ class LocationCreator(BaseReconciler):
                 :latitude,
                 :longitude,
                 'physical',
-                'scraper'
+                :source_type
             )
             ON CONFLICT (location_id, scraper_id)
                 WHERE source_type = 'scraper' OR source_type IS NULL
@@ -332,6 +335,7 @@ class LocationCreator(BaseReconciler):
                 "description": description,
                 "latitude": latitude,
                 "longitude": longitude,
+                "source_type": source_type,
             },
         )
         row = result.first()

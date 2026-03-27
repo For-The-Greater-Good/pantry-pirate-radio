@@ -788,9 +788,33 @@ class JobProcessor:
                             if "coordinates" in addr:
                                 del addr["coordinates"]
 
+                    # Direct ID-based update for Submarine results
+                    # When source is submarine, use the target location_id from
+                    # metadata instead of coordinate matching — ensures we update
+                    # the exact record the submarine was dispatched for.
+                    job_metadata = (
+                        job_result.job.metadata
+                        if job_result.job and job_result.job.metadata
+                        else {}
+                    )
+                    if job_metadata.get(
+                        "scraper_id"
+                    ) == "submarine" and job_metadata.get("location_id"):
+                        target_id = str(job_metadata["location_id"])
+                        verify_result = self.db.execute(
+                            text("SELECT id FROM location WHERE id = :id"),
+                            {"id": target_id},
+                        )
+                        if verify_result.first():
+                            match_id = target_id
+                        else:
+                            logger.warning(
+                                f"Submarine target location {target_id} not found, skipping"
+                            )
+                            continue
                     # Trust the validator's coordinates - no geocoding needed here
                     # The validator has already enriched and validated coordinates
-                    if (
+                    elif (
                         "latitude" in location
                         and "longitude" in location
                         and location["latitude"] is not None
@@ -1104,6 +1128,30 @@ class JobProcessor:
 
                         # Store UUID in location_ids dictionary
                         location_ids[self._location_key(location)] = location_id
+
+                        # Submarine dispatch: check if this location needs
+                        # web crawling to fill missing fields (hours/phone/email/desc)
+                        if settings.SUBMARINE_ENABLED and location_id:
+                            try:
+                                from app.reconciler.submarine_dispatcher import (
+                                    SubmarineDispatcher,
+                                )
+
+                                submarine = SubmarineDispatcher(db=self.db)
+                                submarine.check_and_enqueue(
+                                    location_id=str(location_id),
+                                    organization_id=str(org_id) if org_id else None,
+                                    job_metadata=(
+                                        job_result.job.metadata
+                                        if job_result.job and job_result.job.metadata
+                                        else {}
+                                    ),
+                                )
+                            except Exception as e:
+                                # Submarine dispatch failure must not break reconciler
+                                logger.warning(
+                                    f"Submarine dispatch failed for location {location_id}: {e}"
+                                )
 
             # Process services (both top-level and organization-nested)
             services_to_process: list[ServiceDict] = []
