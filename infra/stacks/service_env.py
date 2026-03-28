@@ -192,6 +192,8 @@ def get_submarine_environment(config: ServiceConfig) -> dict[str, str]:
     """Get environment variables for the Submarine service."""
     env: dict[str, str] = {
         "QUEUE_BACKEND": "sqs",
+        "LLM_PROVIDER": "bedrock",
+        "LLM_MODEL_NAME": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     }
     if config.database_host:
         env["DATABASE_HOST"] = config.database_host
@@ -214,15 +216,15 @@ def get_submarine_environment(config: ServiceConfig) -> dict[str, str]:
 
 
 def get_submarine_secrets(config: ServiceConfig) -> dict[str, ecs.Secret]:
-    """Get secrets for the Submarine service."""
+    """Get secrets for the Submarine service.
+
+    Note: No ANTHROPIC_API_KEY needed — submarine uses Bedrock (IAM-based)
+    for LLM extraction, not the Anthropic API directly.
+    """
     secrets: dict[str, ecs.Secret] = {}
     if config.database_secret:
         secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
             config.database_secret, "password"
-        )
-    if config.llm_api_keys_secret:
-        secrets["ANTHROPIC_API_KEY"] = ecs.Secret.from_secrets_manager(
-            config.llm_api_keys_secret, "ANTHROPIC_API_KEY"
         )
     return secrets
 

@@ -368,11 +368,21 @@ storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_
 
 # Submarine permissions:
 # - Consume from submarine queue, send to reconciler queue
-# - Read database credentials, read LLM API keys
+# - Read database credentials
+# - Invoke Bedrock models (for LLM extraction)
 queue_stack.submarine_queue.grant_consume_messages(services_stack.submarine_task_role)
 queue_stack.reconciler_queue.grant_send_messages(services_stack.submarine_task_role)
 database_stack.database_credentials_secret.grant_read(services_stack.submarine_task_role)
-secrets_stack.llm_api_keys_secret.grant_read(services_stack.submarine_task_role)
+services_stack.submarine_task_role.add_to_policy(
+    iam.PolicyStatement(
+        effect=iam.Effect.ALLOW,
+        actions=["bedrock:InvokeModel"],
+        resources=[
+            f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-*",
+            f"arn:aws:bedrock:{region}:{account}:inference-profile/us.anthropic.*",
+        ],
+    )
+)
 
 # Reconciler also needs to send to submarine queue (for dispatching)
 queue_stack.submarine_queue.grant_send_messages(services_stack.reconciler_task_role)
