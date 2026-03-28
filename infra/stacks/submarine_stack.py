@@ -55,8 +55,12 @@ class SubmarineStack(Stack):
         self.environment_name = environment_name
 
         # Build container environment
+        # SERVICE_TYPE=exec bypasses docker-entrypoint.sh routing, hitting the
+        # fallback case which does `exec "$@"` — running the command directly.
         container_env = [
             {"Name": "SUBMARINE_QUEUE_URL", "Value": submarine_queue_url},
+            {"Name": "QUEUE_BACKEND", "Value": "sqs"},
+            {"Name": "SERVICE_TYPE", "Value": "exec"},
         ]
 
         # State machine definition (ASL JSON)
