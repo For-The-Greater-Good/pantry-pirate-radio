@@ -377,6 +377,14 @@ secrets_stack.llm_api_keys_secret.grant_read(services_stack.submarine_task_role)
 # Reconciler also needs to send to submarine queue (for dispatching)
 queue_stack.submarine_queue.grant_send_messages(services_stack.reconciler_task_role)
 
+# Submarine scanner needs to send to submarine queue (scan -> enqueue jobs)
+queue_stack.submarine_queue.grant_send_messages(
+    services_stack.submarine_scanner_task_definition.task_role
+)
+database_stack.database_credentials_secret.grant_read(
+    services_stack.submarine_scanner_task_definition.task_role
+)
+
 # Scraper permissions:
 # - Send messages to LLM queue and staging queue (batch inference)
 # - Read/write content bucket and content index table
