@@ -3,6 +3,7 @@
 Creates ECS Fargate cluster and services for running LLM workers.
 """
 
+import aws_cdk as cdk
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_applicationautoscaling as appscaling
 from aws_cdk import aws_cloudwatch as cloudwatch
@@ -108,6 +109,9 @@ class ComputeStack(Stack):
 
         # Expose worker security group for database wiring
         self.worker_security_group = self.worker_service.connections.security_groups[0]
+
+        # Service-level tag for cost attribution
+        cdk.Tags.of(self.worker_service).add("Service", "worker")
 
     def _create_vpc(self) -> ec2.Vpc:
         """Create VPC for ECS resources.

@@ -29,9 +29,10 @@ class TestMonitoringStackResources:
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        # 30 alarms without conditional Lambdas:
-        # 14 original + 8 Fargate CPU/Memory + 4 DynamoDB table + 4 queue depth
-        template.resource_count_is("AWS::CloudWatch::Alarm", 30)
+        # 37 alarms without conditional params (no api_gateway_id, no batcher):
+        # 30 original + 1 Lambda error rate % + 2 Aurora/Proxy connections + 4 S3 4xx/5xx
+        # (API Gateway 5xx/4xx are conditional on api_gateway_id)
+        template.resource_count_is("AWS::CloudWatch::Alarm", 37)
 
     def test_sns_topic_has_name(self, template):
         template.has_resource_properties(
@@ -379,7 +380,7 @@ class TestMonitoringStackConfiguration:
             app_without, "NoLambdaAlarmStack", environment_name="dev"
         )
         tmpl_without = assertions.Template.from_stack(stack_without)
-        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 30)
+        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 37)
 
         app_with = cdk.App()
         stack_with = MonitoringStack(
@@ -390,8 +391,8 @@ class TestMonitoringStackConfiguration:
             result_processor_function_name="my-processor",
         )
         tmpl_with = assertions.Template.from_stack(stack_with)
-        # 30 base + 4 Lambda alarms (2 per function)
-        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 34)
+        # 37 base + 4 Lambda alarms (2 per function)
+        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 41)
 
     def test_batcher_lambda_error_alarm(self, app):
         stack = MonitoringStack(
@@ -518,3 +519,149 @@ class TestMonitoringStackAttributes:
 
     def test_environment_name_stored(self, stack):
         assert stack.environment_name == "dev"
+
+
+class TestMonitoringStackNewAlarms:
+    """Tests for new monitoring alarms added in the tags/monitoring audit."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def stack(self, app):
+        return MonitoringStack(
+            app,
+            "NewAlarmsStack",
+            environment_name="dev",
+            api_gateway_id="test-api-gw-id",
+        )
+
+    @pytest.fixture
+    def template(self, stack):
+        return assertions.Template.from_stack(stack)
+
+    # --- API Gateway error alarms (conditional on api_gateway_id) ---
+
+    def test_api_gateway_5xx_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "ppr-dev-api-gateway-5xx",
+                "MetricName": "5xx",
+                "Namespace": "AWS/ApiGateway",
+            },
+        )
+
+    def test_api_gateway_4xx_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "ppr-dev-api-gateway-4xx",
+                "MetricName": "4xx",
+                "Namespace": "AWS/ApiGateway",
+            },
+        )
+
+    def test_api_lambda_error_rate_alarm_exists(self, template):
+        """Lambda error rate % alarm uses MathExpression — check it synthesizes."""
+        # MathExpression-based alarms use Metrics array, not MetricName
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "ppr-dev-api-lambda-error-rate",
+                "Threshold": 5,
+                "EvaluationPeriods": 3,
+            },
+        )
+
+    # --- Aurora / RDS Proxy connection alarms ---
+
+    def test_aurora_connections_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "ppr-dev-aurora-connections-high",
+                "MetricName": "DatabaseConnections",
+                "Namespace": "AWS/RDS",
+                "Threshold": 80,
+            },
+        )
+
+    def test_rds_proxy_connections_alarm_exists(self, template):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "ppr-dev-rds-proxy-connections-high",
+                "Threshold": 50,
+            },
+        )
+
+    # --- S3 error alarms ---
+
+    @pytest.mark.parametrize("bucket_slug", ["content", "exports"])
+    def test_s3_4xx_alarm_exists(self, template, bucket_slug):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-s3-{bucket_slug}-4xx",
+                "Namespace": "AWS/S3",
+            },
+        )
+
+    @pytest.mark.parametrize("bucket_slug", ["content", "exports"])
+    def test_s3_5xx_alarm_exists(self, template, bucket_slug):
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": f"ppr-dev-s3-{bucket_slug}-5xx",
+                "Namespace": "AWS/S3",
+            },
+        )
+
+    def test_new_alarms_have_actions(self, template):
+        """All new alarms must route to the centralized SNS topic (Principle XIV)."""
+        alarms = template.find_resources("AWS::CloudWatch::Alarm")
+        new_alarm_prefixes = [
+            "ppr-dev-api-gateway-",
+            "ppr-dev-api-lambda-error-rate",
+            "ppr-dev-aurora-connections-",
+            "ppr-dev-rds-proxy-",
+            "ppr-dev-s3-",
+        ]
+        for name, alarm in alarms.items():
+            alarm_name = alarm.get("Properties", {}).get("AlarmName", "")
+            if any(alarm_name.startswith(p) for p in new_alarm_prefixes):
+                props = alarm.get("Properties", {})
+                assert "AlarmActions" in props, (
+                    f"New alarm {alarm_name} must route to SNS topic (Principle XIV)"
+                )
+
+
+class TestMonitoringStackRDSProxyDashboard:
+    """Tests for RDS Proxy dashboard section."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def stack(self, app):
+        return MonitoringStack(app, "ProxyDashStack", environment_name="dev")
+
+    def test_rds_proxy_name_default(self, stack):
+        assert stack.rds_proxy_name == "pantry-pirate-radio-proxy-dev"
+
+    def test_rds_proxy_name_custom(self, app):
+        stack = MonitoringStack(
+            app,
+            "CustomProxyStack",
+            environment_name="dev",
+            rds_proxy_name="custom-proxy",
+        )
+        assert stack.rds_proxy_name == "custom-proxy"
+
+    def test_dashboard_still_synthesizes(self, stack):
+        """Dashboard should synthesize without errors with new RDS Proxy section."""
+        template = assertions.Template.from_stack(stack)
+        template.resource_count_is("AWS::CloudWatch::Dashboard", 1)

@@ -107,6 +107,12 @@ class StorageStack(Stack):
             ],
         )
 
+        # Enable S3 request metrics for CloudWatch 4xx/5xx monitoring
+        cfn_content_bucket = bucket.node.default_child
+        cfn_content_bucket.add_property_override(
+            "MetricsConfigurations", [{"Id": "AllRequests"}]
+        )
+
         return bucket
 
     def _create_exports_bucket(self) -> s3.Bucket:
@@ -150,6 +156,12 @@ class StorageStack(Stack):
                     enabled=True,
                 ),
             ],
+        )
+
+        # Enable S3 request metrics for CloudWatch 4xx/5xx monitoring
+        cfn_exports_bucket = bucket.node.default_child
+        cfn_exports_bucket.add_property_override(
+            "MetricsConfigurations", [{"Id": "AllRequests"}]
         )
 
         # Allow public read ONLY on sqlite-exports/* prefix.

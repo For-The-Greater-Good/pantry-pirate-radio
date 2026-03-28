@@ -69,6 +69,14 @@ bedrock_model_id = os.environ.get(
 
 app = cdk.App()
 
+# --- Resource Tags ---
+# App-level tags propagate to ALL constructs across ALL stacks automatically.
+cdk.Tags.of(app).add("Project", "pantry-pirate-radio")
+cdk.Tags.of(app).add("Environment", environment_name)
+cdk.Tags.of(app).add("ManagedBy", "cdk")
+cdk.Tags.of(app).add("Owner", "for-the-greater-good")
+cdk.Tags.of(app).add("CostCenter", f"pantry-pirate-radio-{environment_name}")
+
 # Create environment
 env = cdk.Environment(account=account, region=region)
 
@@ -263,9 +271,27 @@ monitoring_stack = MonitoringStack(
     batch_bucket_name=batch_stack.batch_bucket.bucket_name,
     exports_bucket_name=storage_stack.exports_bucket.bucket_name,
     place_index_name=database_stack.place_index.index_name,
+    rds_proxy_name=f"pantry-pirate-radio-proxy-{environment_name}",
     env=env,
     description=f"Pantry Pirate Radio monitoring infrastructure ({environment_name})",
 )
+
+# --- Per-Stack Tags ---
+for _stack_label, _stack_obj in [
+    ("SecretsStack", secrets_stack),
+    ("ECRStack", ecr_stack),
+    ("StorageStack", storage_stack),
+    ("QueueStack", queue_stack),
+    ("ComputeStack", compute_stack),
+    ("DatabaseStack", database_stack),
+    ("BatchStack", batch_stack),
+    ("ServicesStack", services_stack),
+    ("DbInitStack", db_init_stack),
+    ("PipelineStack", pipeline_stack),
+    ("LambdaApiStack", lambda_api_stack),
+    ("MonitoringStack", monitoring_stack),
+]:
+    cdk.Tags.of(_stack_obj).add("Stack", f"{_stack_label}-{environment_name}")
 
 # Grant permissions between stacks
 
@@ -417,55 +443,56 @@ db_init_stack.add_dependency(database_stack)
 # DbInit depends on secrets (needs GitHub PAT)
 db_init_stack.add_dependency(secrets_stack)
 
-# Bastion Stack (dev only) - SSM port forwarding to Aurora for Metabase
-if environment_name == "dev":
-    bastion_stack = BastionStack(
-        app,
-        f"BastionStack-{environment_name}",
-        vpc=compute_stack.vpc,
-        environment_name=environment_name,
-        env=env,
-        description=f"Pantry Pirate Radio bastion for SSM port forwarding ({environment_name})",
-    )
-    bastion_stack.add_dependency(compute_stack)
-    bastion_stack.add_dependency(database_stack)
+# Bastion Stack - SSM port forwarding to Aurora
+bastion_stack = BastionStack(
+    app,
+    f"BastionStack-{environment_name}",
+    vpc=compute_stack.vpc,
+    environment_name=environment_name,
+    env=env,
+    description=f"Pantry Pirate Radio bastion for SSM port forwarding ({environment_name})",
+)
+bastion_stack.add_dependency(compute_stack)
+bastion_stack.add_dependency(database_stack)
+cdk.Tags.of(bastion_stack).add("Stack", f"BastionStack-{environment_name}")
 
-    # Allow bastion to connect to RDS Proxy
-    ec2.CfnSecurityGroupIngress(
-        bastion_stack,
-        "BastionToProxyIngress",
-        group_id=database_stack.proxy_security_group.security_group_id,
-        source_security_group_id=bastion_stack.bastion_security_group.security_group_id,
-        ip_protocol="tcp",
-        from_port=5432,
-        to_port=5432,
-        description="Allow bastion to connect to RDS Proxy",
-    )
+# Allow bastion to connect to RDS Proxy
+ec2.CfnSecurityGroupIngress(
+    bastion_stack,
+    "BastionToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=bastion_stack.bastion_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow bastion to connect to RDS Proxy",
+)
 
-    # Metabase Access Stack — NLB for Metabase Cloud to reach Aurora via RDS Proxy
-    metabase_stack = MetabaseAccessStack(
-        app,
-        f"MetabaseAccessStack-{environment_name}",
-        vpc=compute_stack.vpc,
-        proxy_endpoint=database_stack.proxy_endpoint,
-        environment_name=environment_name,
-        env=env,
-        description=f"Pantry Pirate Radio NLB for Metabase Cloud access ({environment_name})",
-    )
-    metabase_stack.add_dependency(compute_stack)
-    metabase_stack.add_dependency(database_stack)
+# Metabase Access Stack — NLB for Metabase Cloud to reach Aurora via RDS Proxy
+metabase_stack = MetabaseAccessStack(
+    app,
+    f"MetabaseAccessStack-{environment_name}",
+    vpc=compute_stack.vpc,
+    proxy_endpoint=database_stack.proxy_endpoint,
+    environment_name=environment_name,
+    env=env,
+    description=f"Pantry Pirate Radio NLB for Metabase Cloud access ({environment_name})",
+)
+metabase_stack.add_dependency(compute_stack)
+metabase_stack.add_dependency(database_stack)
+cdk.Tags.of(metabase_stack).add("Stack", f"MetabaseAccessStack-{environment_name}")
 
-    # Allow NLB targets to reach RDS Proxy
-    ec2.CfnSecurityGroupIngress(
-        metabase_stack,
-        "NlbToProxyIngress",
-        group_id=database_stack.proxy_security_group.security_group_id,
-        source_security_group_id=metabase_stack.nlb_security_group.security_group_id,
-        ip_protocol="tcp",
-        from_port=5432,
-        to_port=5432,
-        description="Allow NLB to reach RDS Proxy for Metabase Cloud",
-    )
+# Allow NLB targets to reach RDS Proxy
+ec2.CfnSecurityGroupIngress(
+    metabase_stack,
+    "NlbToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=metabase_stack.nlb_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow NLB to reach RDS Proxy for Metabase Cloud",
+)
 
 # Monitoring depends on all other stacks
 monitoring_stack.add_dependency(compute_stack)

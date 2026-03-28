@@ -35,8 +35,10 @@ infra/
 │   ├── compute_stack.py      # VPC + ECS Fargate Workers (20 tests)
 │   ├── database_stack.py     # Aurora Serverless v2 + RDS Proxy (22 tests)
 │   ├── ecr_stack.py          # ECR container repositories (16 tests)
-│   ├── metabase_access_stack.py # NLB for Metabase Cloud (dev only)
-│   ├── monitoring_stack.py   # CloudWatch + Alarms (22 tests)
+│   ├── metabase_access_stack.py # NLB for Metabase Cloud
+│   ├── monitoring_stack.py   # CloudWatch orchestrator (delegates to dashboard + alarms modules)
+│   ├── monitoring_dashboard.py # CloudWatch dashboard sections
+│   ├── monitoring_alarms.py  # CloudWatch alarm definitions
 │   ├── pipeline_stack.py     # Step Functions + EventBridge (16 tests)
 │   ├── queue_stack.py        # SQS FIFO queues (17 tests)
 │   ├── secrets_stack.py      # Secrets Manager (9 tests)
@@ -149,7 +151,7 @@ Fargate services for pipeline stages:
 - **Auto-scaling**: CPU (70%) and request-based (1000/target)
 - **Health Check**: `/health` endpoint
 
-### MetabaseAccessStack (dev only)
+### MetabaseAccessStack
 - **Network Load Balancer**: Internet-facing NLB in public subnets, TCP 5432
 - **NLB Security Group**: Restricted to Metabase Cloud static IPs (us-east-1)
 - **IP Target Group**: Points at RDS Proxy private IPs
@@ -158,7 +160,7 @@ Fargate services for pipeline stages:
 - **Custom Resource**: Seeds initial IPs at deploy time
 - **Cost**: ~$17/month (NLB ~$16 + Lambda ~$0.50)
 
-### BastionStack (dev only)
+### BastionStack
 - **EC2 t4g.nano**: SSM Session Manager for ad-hoc port forwarding to Aurora
 - **No SSH**: Access via SSM only
 
