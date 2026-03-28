@@ -1,7 +1,7 @@
 """CLI entry point for the submarine module.
 
 Usage:
-    python -m app.submarine scan [--limit N] [--location-id UUID]
+    python -m app.submarine scan [--limit N] [--location-id UUID] [--scraper NAME]
     python -m app.submarine status
 """
 
@@ -47,7 +47,20 @@ def main() -> int:
         from app.submarine.scanner import scan_and_enqueue
 
         # CLI args take priority, env vars as fallback (for Step Functions)
-        limit = args.limit or (int(os.environ["SUBMARINE_LIMIT"]) if os.environ.get("SUBMARINE_LIMIT") else None)
+        env_limit = os.environ.get("SUBMARINE_LIMIT")
+        if args.limit:
+            limit = args.limit
+        elif env_limit:
+            try:
+                limit = int(env_limit)
+            except ValueError:
+                print(
+                    f"Error: SUBMARINE_LIMIT must be an integer, got '{env_limit}'",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            limit = None
         scraper_id = args.scraper or os.environ.get("SUBMARINE_SCRAPER_FILTER") or None
 
         summary = scan_and_enqueue(

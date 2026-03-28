@@ -1,8 +1,8 @@
-"""Batch scanner for manual submarine job creation.
+"""Batch scanner for submarine job creation.
 
 Queries the database for locations with website URLs and missing fields,
-then enqueues SubmarineJobs. Used by the `./bouy submarine scan` command
-for manual control before automatic dispatch is enabled.
+then enqueues SubmarineJobs. Used by `./bouy submarine scan` for manual
+or Step Functions-triggered scans independent of the automatic dispatch pipeline.
 """
 
 import structlog
@@ -102,10 +102,11 @@ def scan_and_enqueue(
                     skipped += 1
             except Exception as e:
                 errors += 1
-                logger.warning(
+                logger.error(
                     "submarine_scan_error",
                     location_id=str(loc_id),
                     error=str(e),
+                    exc_info=True,
                 )
 
     summary: dict[str, Any] = {

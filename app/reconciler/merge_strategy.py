@@ -159,6 +159,7 @@ class MergeStrategy(BaseReconciler):
             updated_at
         FROM location_source
         WHERE location_id = :location_id
+        AND (source_type = 'scraper' OR source_type IS NULL)
         ORDER BY updated_at DESC
         """
         )

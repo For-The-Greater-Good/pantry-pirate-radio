@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from app.llm.queue.job import LLMJob
 from app.llm.queue.types import JobResult, JobStatus
 from app.models.hsds.response import PhoneInfo, ScheduleInfo
-from app.submarine.models import SubmarineJob, SubmarineResult
+from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -52,7 +52,11 @@ class SubmarineResultBuilder:
             JobResult ready for the Reconciler queue, or None if
             no useful data was extracted.
         """
-        if result.status in ("no_data", "error", "blocked"):
+        if result.status in (
+            SubmarineStatus.NO_DATA,
+            SubmarineStatus.ERROR,
+            SubmarineStatus.BLOCKED,
+        ):
             return None
 
         if not result.extracted_fields:
@@ -138,11 +142,11 @@ class SubmarineResultBuilder:
                     }
                     try:
                         ScheduleInfo(**sched)
-                        # Reject schedules with empty time fields
+                        # Skip schedules with empty time fields
                         if not sched["opens_at"] or not sched["closes_at"]:
-                            raise ValidationError
+                            continue
                         schedules.append(sched)
-                    except (ValidationError, Exception):
+                    except (ValidationError, ValueError, TypeError):
                         logger.warning(
                             "submarine_invalid_schedule",
                             extra={"schedule": sched},

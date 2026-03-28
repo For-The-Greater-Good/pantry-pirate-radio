@@ -37,7 +37,7 @@ def _hardcoded_defaults() -> dict[str, Any]:
         "GEOCODING_TIMEOUT": 10,
         "CONTENT_STORE_ENABLED": True,
         "RECONCILER_LOCATION_TOLERANCE": 0.0001,
-        "SUBMARINE_ENABLED": False,
+        "SUBMARINE_ENABLED": True,
         "SUBMARINE_CRAWL_TIMEOUT": 30,
         "SUBMARINE_MAX_PAGES_PER_SITE": 3,
         "SUBMARINE_MIN_CRAWL_DELAY": 5,

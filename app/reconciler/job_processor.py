@@ -1168,8 +1168,11 @@ class JobProcessor:
                                 )
                             except Exception as e:
                                 # Submarine dispatch failure must not break reconciler
-                                logger.warning(
-                                    f"Submarine dispatch failed for location {location_id}: {e}"
+                                logger.error(
+                                    "submarine_dispatch_failed location_id=%s: %s",
+                                    location_id,
+                                    e,
+                                    exc_info=True,
                                 )
 
             # Process services (both top-level and organization-nested)

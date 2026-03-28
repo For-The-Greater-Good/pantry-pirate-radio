@@ -100,20 +100,20 @@ class TestSubmarineExtractor:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_extract_handles_malformed_json(self, extractor):
-        """Extractor returns empty dict on unparseable LLM response."""
+    async def test_extract_raises_on_malformed_json(self, extractor):
+        """Extractor raises ExtractionError on unparseable LLM response."""
         mock_response = MagicMock()
         mock_response.text = "I couldn't find any data on this page."
 
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(return_value=mock_response)
 
-        result = await extractor.extract(
-            markdown="Some content",
-            missing_fields=["phone"],
-            provider=mock_provider,
-        )
-        assert result == {}
+        with pytest.raises(ExtractionError, match="No JSON object found"):
+            await extractor.extract(
+                markdown="Some content",
+                missing_fields=["phone"],
+                provider=mock_provider,
+            )
 
     @pytest.mark.asyncio
     async def test_extract_with_fixture_content(self, extractor):
@@ -208,11 +208,11 @@ class TestSubmarineExtractor:
         result = extractor._parse_response(response_text, ["phone"])
         assert result == {"phone": "(555) 123-4567"}
 
-    def test_parse_response_non_dict_returns_empty(self, extractor):
-        """JSON array response returns empty dict (not a dict)."""
+    def test_parse_response_non_dict_raises_error(self, extractor):
+        """JSON array response raises ExtractionError (not a dict)."""
         response_text = '[{"phone": "555-1234"}]'
-        result = extractor._parse_response(response_text, ["phone"])
-        assert result == {}
+        with pytest.raises(ExtractionError, match="not a JSON object"):
+            extractor._parse_response(response_text, ["phone"])
 
     def test_parse_response_filters_to_requested_fields(self, extractor):
         """Only fields in missing_fields are included, even if LLM returns extra."""

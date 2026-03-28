@@ -236,4 +236,4 @@ class TestEnqueueRedis:
         # Remove SUBMARINE_QUEUE_URL if set
         os.environ.pop("SUBMARINE_QUEUE_URL", None)
         result = dispatcher._enqueue(sample_job)
-        assert result == "sub-test-001"  # Returns job ID even on failure
+        assert result is None  # Returns None when queue URL is missing

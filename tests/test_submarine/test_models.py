@@ -3,8 +3,9 @@
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
-from app.submarine.models import SubmarineJob, SubmarineResult
+from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
 
 
 class TestSubmarineJob:
@@ -178,3 +179,52 @@ class TestSubmarineResult:
         restored = SubmarineResult.model_validate(data)
         assert restored.job_id == result.job_id
         assert restored.extracted_fields == result.extracted_fields
+
+
+class TestSubmarineResultValidator:
+    """Tests for SubmarineResult status-field correlation validator."""
+
+    def test_success_requires_extracted_fields(self):
+        """SUCCESS status with empty extracted_fields is rejected."""
+        with pytest.raises(ValidationError, match="requires non-empty"):
+            SubmarineResult(
+                job_id="val-001",
+                location_id="loc-001",
+                status=SubmarineStatus.SUCCESS,
+            )
+
+    def test_partial_requires_extracted_fields(self):
+        """PARTIAL status with empty extracted_fields is rejected."""
+        with pytest.raises(ValidationError, match="requires non-empty"):
+            SubmarineResult(
+                job_id="val-002",
+                location_id="loc-002",
+                status=SubmarineStatus.PARTIAL,
+            )
+
+    def test_error_requires_error_string(self):
+        """ERROR status without error message is rejected."""
+        with pytest.raises(ValidationError, match="requires an error"):
+            SubmarineResult(
+                job_id="val-003",
+                location_id="loc-003",
+                status=SubmarineStatus.ERROR,
+            )
+
+    def test_no_data_accepts_empty_fields(self):
+        """NO_DATA status with empty extracted_fields is valid."""
+        result = SubmarineResult(
+            job_id="val-004",
+            location_id="loc-004",
+            status=SubmarineStatus.NO_DATA,
+        )
+        assert result.status == SubmarineStatus.NO_DATA
+
+    def test_blocked_accepts_empty_fields(self):
+        """BLOCKED status with empty extracted_fields is valid."""
+        result = SubmarineResult(
+            job_id="val-005",
+            location_id="loc-005",
+            status=SubmarineStatus.BLOCKED,
+        )
+        assert result.status == SubmarineStatus.BLOCKED

@@ -94,9 +94,10 @@ class SubmarineExtractor:
                 config=config,
             )
         except Exception as e:
-            logger.warning(
+            logger.error(
                 "submarine_extraction_failed",
                 extra={"error": str(e), "fields": missing_fields},
+                exc_info=True,
             )
             raise ExtractionError(str(e)) from e
 
@@ -158,24 +159,30 @@ class SubmarineExtractor:
                 try:
                     data = json.loads(text[start:end])
                 except json.JSONDecodeError:
-                    logger.warning(
+                    logger.error(
                         "submarine_extraction_parse_failed",
                         extra={"response_preview": text[:200]},
                     )
-                    return {}
+                    raise ExtractionError(
+                        f"Failed to parse JSON from LLM response: {text[:200]}"
+                    )
             else:
-                logger.warning(
+                logger.error(
                     "submarine_extraction_no_json",
                     extra={"response_preview": text[:200]},
                 )
-                return {}
+                raise ExtractionError(
+                    f"No JSON object found in LLM response: {text[:200]}"
+                )
 
         if not isinstance(data, dict):
-            logger.warning(
+            logger.error(
                 "submarine_extraction_unexpected_type",
                 extra={"data_type": type(data).__name__},
             )
-            return {}
+            raise ExtractionError(
+                f"LLM response was not a JSON object (type: {type(data).__name__})"
+            )
 
         # Reject if LLM explicitly says content is not food-related
         if data.get("is_food_related") is False:

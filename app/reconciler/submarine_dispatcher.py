@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.submarine.models import SUBMARINE_TARGET_FIELDS, SubmarineJob
+from app.submarine.models import SUBMARINE_TARGET_FIELDS, SubmarineJob, SubmarineStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -185,7 +185,7 @@ class SubmarineDispatcher:
             not desc_row
             or not desc_row[0]
             # The reconciler generates "Food service location: {name}" as a placeholder
-            # when no description is available (see job_processor.py:871). Treat as missing.
+            # when no description is available. Treat as missing.
             or desc_row[0].startswith("Food service location:")
         ):
             missing.append("description")
@@ -194,11 +194,17 @@ class SubmarineDispatcher:
 
     def _get_cooldown_days(self, last_status: str | None) -> int:
         """Get the appropriate cooldown period based on last crawl status."""
-        if last_status in ("success", "partial"):
+        if last_status in (
+            SubmarineStatus.SUCCESS.value,
+            SubmarineStatus.PARTIAL.value,
+        ):
             return settings.SUBMARINE_COOLDOWN_SUCCESS_DAYS
-        if last_status in ("no_data", "blocked"):
+        if last_status in (
+            SubmarineStatus.NO_DATA.value,
+            SubmarineStatus.BLOCKED.value,
+        ):
             return settings.SUBMARINE_COOLDOWN_NO_DATA_DAYS
-        if last_status == "error":
+        if last_status == SubmarineStatus.ERROR.value:
             return settings.SUBMARINE_COOLDOWN_ERROR_DAYS
         # Unknown status or None — no cooldown
         return 0
@@ -234,14 +240,22 @@ class SubmarineDispatcher:
                     reason="SUBMARINE_QUEUE_URL not set",
                     job_id=job.id,
                 )
-                return job.id
-            send_to_sqs(
-                queue_url=queue_url,
-                message_body=job_data,
-                message_group_id=job.source_scraper_id,
-                deduplication_id=job.id,
-                source="submarine-dispatcher",
-            )
+                return None
+            try:
+                send_to_sqs(
+                    queue_url=queue_url,
+                    message_body=job_data,
+                    message_group_id=job.source_scraper_id,
+                    deduplication_id=job.id,
+                    source="submarine-dispatcher",
+                )
+            except Exception as e:
+                logger.error(
+                    "submarine_sqs_send_failed",
+                    job_id=job.id,
+                    error=str(e),
+                )
+                return None
         else:
             from app.llm.queue.queues import submarine_queue
 

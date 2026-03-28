@@ -292,10 +292,11 @@ class TestResultForwarding:
         ).model_dump(mode="json")
 
     @patch.dict(os.environ, {"QUEUE_BACKEND": "redis"}, clear=False)
+    @patch("app.submarine.worker._update_location_status")
     @patch("app.submarine.worker._process_job")
     @patch("app.llm.queue.queues.reconciler_queue")
     def test_forwards_result_to_reconciler_on_redis(
-        self, mock_reconciler_queue, mock_process, sample_job_data
+        self, mock_reconciler_queue, mock_process, mock_update, sample_job_data
     ):
         """On Redis backend, successful results should be forwarded to reconciler queue."""
         from app.submarine.worker import process_submarine_job
@@ -305,7 +306,7 @@ class TestResultForwarding:
             "status": "completed",
             "data": {"phone": "555-1234"},
         }
-        mock_process.return_value = mock_result
+        mock_process.return_value = (mock_result, "loc-fwd-123", "success")
 
         result = process_submarine_job(sample_job_data)
 
@@ -317,19 +318,23 @@ class TestResultForwarding:
             == "app.reconciler.job_processor.process_job_result"
         )
         assert call_kwargs.kwargs["args"] == (mock_result,)
+        # Status update happens AFTER forwarding for success
+        mock_update.assert_called_once_with("loc-fwd-123", "success")
 
     @patch.dict(os.environ, {"QUEUE_BACKEND": "sqs"}, clear=False)
+    @patch("app.submarine.worker._update_location_status")
     @patch("app.submarine.worker._process_job")
-    def test_skips_forwarding_on_sqs(self, mock_process, sample_job_data):
+    def test_skips_forwarding_on_sqs(self, mock_process, mock_update, sample_job_data):
         """On SQS backend, PipelineWorker handles forwarding — worker should not."""
         from app.submarine.worker import process_submarine_job
 
         mock_result = {"job_id": "sub-fwd-001", "status": "completed"}
-        mock_process.return_value = mock_result
+        mock_process.return_value = (mock_result, "loc-fwd-123", "success")
 
         result = process_submarine_job(sample_job_data)
         assert result == mock_result
-        # No reconciler_queue import or call should happen
+        # Status still updated even on SQS (forwarding is handled by PipelineWorker)
+        mock_update.assert_called_once_with("loc-fwd-123", "success")
 
     @patch.dict(os.environ, {"QUEUE_BACKEND": "redis"}, clear=False)
     @patch("app.submarine.worker._process_job")
@@ -337,7 +342,7 @@ class TestResultForwarding:
         """None results (no_data/error) should not be forwarded."""
         from app.submarine.worker import process_submarine_job
 
-        mock_process.return_value = None
+        mock_process.return_value = (None, "loc-fwd-123", "no_data")
 
         result = process_submarine_job(sample_job_data)
         assert result is None

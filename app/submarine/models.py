@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SubmarineStatus(str, Enum):
@@ -68,3 +68,16 @@ class SubmarineResult(BaseModel):
         description="URL crawled, pages visited, content hash, etc.",
     )
     error: str | None = None
+
+    @model_validator(mode="after")
+    def validate_status_field_correlation(self) -> "SubmarineResult":
+        """Enforce status-field correlations (following JobResult pattern)."""
+        if self.status in (SubmarineStatus.SUCCESS, SubmarineStatus.PARTIAL):
+            if not self.extracted_fields:
+                raise ValueError(
+                    f"{self.status.value} status requires non-empty extracted_fields"
+                )
+        if self.status == SubmarineStatus.ERROR:
+            if not self.error:
+                raise ValueError("ERROR status requires an error string")
+        return self

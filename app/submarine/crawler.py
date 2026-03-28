@@ -8,6 +8,7 @@ phone numbers, hours, email addresses, and descriptions.
 import structlog
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
 from app.submarine.rate_limiter import SubmarineRateLimiter
 
@@ -35,7 +36,7 @@ class CrawlResult:
     url: str
     markdown: str
     pages_crawled: int
-    status: str  # 'success', 'partial', 'no_data', 'error'
+    status: Literal["success", "partial", "no_data", "error"]
     links_followed: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -163,9 +164,10 @@ class SubmarineCrawler:
 
         except Exception as e:
             error_msg = str(e)
-            logger.warning(
+            logger.error(
                 "submarine_crawl_error",
-                extra={"url": url, "error": error_msg},
+                extra={"url": url, "error": error_msg, "error_type": type(e).__name__},
+                exc_info=True,
             )
             if pages_crawled > 0:
                 return CrawlResult(

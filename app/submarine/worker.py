@@ -79,7 +79,7 @@ def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
         Serialized JobResult dict for the Reconciler queue, or None.
     """
     try:
-        result = _process_job(job_data)
+        result, location_id, status = _process_job(job_data)
     except Exception as e:
         logger.error(
             "submarine_job_failed",
@@ -109,11 +109,24 @@ def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
             job_id=result.get("job_id", "unknown"),
         )
 
+    # Update status AFTER successful forwarding to prevent data loss
+    if result:
+        _update_location_status(location_id, status)
+
     return result
 
 
-def _process_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
-    """Inner processing logic, wrapped by process_submarine_job for error handling."""
+def _process_job(
+    job_data: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str, str]:
+    """Inner processing logic, wrapped by process_submarine_job for error handling.
+
+    Returns:
+        Tuple of (result_dict, location_id, status). The caller is responsible
+        for updating location status AFTER successful queue forwarding to avoid
+        a data loss window where status is marked success but data never reaches
+        the reconciler.
+    """
     job = SubmarineJob.model_validate(job_data)
     logger.info(
         "submarine_job_started",
@@ -128,10 +141,13 @@ def _process_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
 
     result = asyncio.run(_process_async(job))
 
-    # Update the location's submarine tracking columns
-    _update_location_status(job.location_id, result.status)
-
-    if result.status in ("no_data", "error", "blocked"):
+    if result.status in (
+        SubmarineStatus.NO_DATA,
+        SubmarineStatus.ERROR,
+        SubmarineStatus.BLOCKED,
+    ):
+        # Update status immediately — no forwarding needed for these statuses
+        _update_location_status(job.location_id, result.status)
         logger.info(
             "submarine_job_no_useful_data",
             extra={
@@ -141,14 +157,15 @@ def _process_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
                 "error": result.error,
             },
         )
-        return None
+        return None, job.location_id, result.status
 
     # Build JobResult for the Reconciler
     builder = SubmarineResultBuilder()
     job_result = builder.build(job, result)
 
     if job_result is None:
-        return None
+        _update_location_status(job.location_id, result.status)
+        return None, job.location_id, result.status
 
     logger.info(
         "submarine_job_completed",
@@ -160,7 +177,8 @@ def _process_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
         },
     )
 
-    return job_result.model_dump(mode="json")
+    # Do NOT update status here — caller must do it after forwarding
+    return job_result.model_dump(mode="json"), job.location_id, result.status
 
 
 async def _process_async(job: SubmarineJob) -> SubmarineResult:

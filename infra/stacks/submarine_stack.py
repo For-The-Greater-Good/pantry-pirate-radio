@@ -62,8 +62,10 @@ class SubmarineStack(Stack):
 
         # State machine definition (ASL JSON)
         # Uses ecs:runTask.sync to run scanner as a Fargate task.
-        # Accepts optional input: {"limit": 5, "scraper_id": "food_oasis_la"}
-        # These are passed as env vars to __main__.py which reads them as fallbacks.
+        # TODO: Wire up input passthrough so state machine input
+        # {"limit": 5, "scraper_id": "food_oasis_la"} is forwarded
+        # as SUBMARINE_LIMIT / SUBMARINE_SCRAPER_FILTER env vars
+        # to __main__.py via Step Functions JsonPath overrides.
         scan_command = ["python", "-m", "app.submarine", "scan"]
         definition = {
             "Comment": f"Submarine enrichment pipeline for {environment_name}",

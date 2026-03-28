@@ -6,9 +6,9 @@ from app.core.config import settings
 class TestSubmarineConfig:
     """Tests for submarine settings in the shared config."""
 
-    def test_submarine_disabled_by_default(self):
-        """Submarine is disabled by default (manual control first)."""
-        assert settings.SUBMARINE_ENABLED is False
+    def test_submarine_enabled_by_default(self):
+        """Submarine is enabled by default (auto-dispatch after PR #404)."""
+        assert settings.SUBMARINE_ENABLED is True
 
     def test_crawl_timeout_default(self):
         """Default crawl timeout is 30 seconds."""
