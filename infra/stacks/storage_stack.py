@@ -107,7 +107,9 @@ class StorageStack(Stack):
             ],
         )
 
-        # Enable S3 request metrics for CloudWatch 4xx/5xx monitoring
+        # Enable S3 request metrics for CloudWatch 4xx/5xx monitoring.
+        # The "AllRequests" FilterId MUST match the FilterId dimension
+        # used in monitoring_alarms.py _s3_error_alarms().
         cfn_content_bucket = bucket.node.default_child
         cfn_content_bucket.add_property_override(
             "MetricsConfigurations", [{"Id": "AllRequests"}]
@@ -158,7 +160,9 @@ class StorageStack(Stack):
             ],
         )
 
-        # Enable S3 request metrics for CloudWatch 4xx/5xx monitoring
+        # Enable S3 request metrics for CloudWatch 4xx/5xx monitoring.
+        # The "AllRequests" FilterId MUST match the FilterId dimension
+        # used in monitoring_alarms.py _s3_error_alarms().
         cfn_exports_bucket = bucket.node.default_child
         cfn_exports_bucket.add_property_override(
             "MetricsConfigurations", [{"Id": "AllRequests"}]

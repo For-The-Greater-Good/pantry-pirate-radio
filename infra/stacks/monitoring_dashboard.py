@@ -2,9 +2,12 @@
 
 Each ``add_*_section()`` function appends a group of widgets to the
 CloudWatch dashboard.  The module-level helpers (``metric``, ``graph``,
-``section``, ``derive_dlq_name``, ``scaling_widget``) mirror the former
-private methods of ``MonitoringStack`` but operate on a stack instance
-passed as the first parameter.
+``section``, ``scaling_widget``) mirror the former private methods of
+``MonitoringStack`` but operate on a stack instance passed as the first
+parameter.
+
+SQS queue and pipeline sections live in ``monitoring_dashboard_queues``
+to keep this file under 600 lines.
 
 ``build_dashboard(stack)`` is the top-level orchestrator that creates the
 ``cloudwatch.Dashboard`` and calls every section builder in order.
@@ -18,7 +21,7 @@ from aws_cdk import Duration
 from aws_cdk import aws_cloudwatch as cloudwatch
 
 if TYPE_CHECKING:
-    from infra.stacks.monitoring_stack import MonitoringStack
+    from stacks.monitoring_stack import MonitoringStack
 
 # ---------------------------------------------------------------------------
 # Generic helpers
@@ -58,34 +61,6 @@ def graph(
 def section(title: str) -> cloudwatch.TextWidget:
     """Create a section-header ``TextWidget``."""
     return cloudwatch.TextWidget(markdown=f"# {title}", width=24, height=1)
-
-
-def derive_dlq_name(stack: MonitoringStack, queue_name: str) -> str:
-    """Derive the DLQ name from a main queue name.
-
-    QueueStack creates DLQs as ``...-{name}-dlq-{env}.fifo``
-    (e.g. ``pantry-pirate-radio-llm-dlq-dev.fifo``), so we insert
-    ``-dlq`` before the environment suffix.
-
-    BatchStack's staging DLQ uses ``...-staging-{env}-dlq.fifo``
-    (e.g. ``pantry-pirate-radio-staging-dev-dlq.fifo``), so we
-    append ``-dlq`` before ``.fifo`` for that queue.
-    """
-    env = stack.environment_name
-    staging_suffix = f"-staging-{env}.fifo"
-    env_suffix = f"-{env}.fifo"
-
-    # Staging queue (BatchStack): DLQ is ``...-staging-{env}-dlq.fifo``
-    if queue_name.endswith(staging_suffix):
-        return queue_name.replace(".fifo", "-dlq.fifo")
-
-    # QueueStack queues: DLQ is ``...-{name}-dlq-{env}.fifo``
-    if queue_name.endswith(env_suffix):
-        base = queue_name[: -len(env_suffix)]
-        return f"{base}-dlq-{env}.fifo"
-
-    # Fallback
-    return queue_name.replace(".fifo", "-dlq.fifo")
 
 
 def scaling_widget(
@@ -133,7 +108,7 @@ def add_lambda_api_section(
     duration_p99 = metric(ns, "Duration", fn_dims, "p99", p1)
     errors = metric(ns, "Errors", fn_dims, "Sum", p1)
     throttles = metric(ns, "Throttles", fn_dims, "Sum", p1)
-    cold_starts = metric(ns, "ConcurrentExecutions", fn_dims, "Maximum", p1)
+    concurrency = metric(ns, "ConcurrentExecutions", fn_dims, "Maximum", p1)
 
     left_errors: list = [errors, throttles]
     if stack.api_gateway_id:
@@ -147,7 +122,7 @@ def add_lambda_api_section(
         graph("API Invocations", [invocations]),
         graph("API Duration", [duration_avg, duration_p99]),
         graph("API Errors & Throttles", left_errors),
-        graph("API Cold Starts", [cold_starts]),
+        graph("API Concurrent Executions", [concurrency]),
     )
 
 
@@ -192,138 +167,6 @@ def add_worker_section(
     )
 
 
-def add_sqs_queues_section(
-    stack: MonitoringStack, db: cloudwatch.Dashboard
-) -> None:
-    """Section 3 -- SQS Queues."""
-    p1 = Duration.minutes(1)
-    ns = "AWS/SQS"
-
-    queues = [
-        ("LLM", stack.queue_name),
-        ("Staging", stack.staging_queue_name),
-        ("Validator", stack.validator_queue_name),
-        ("Reconciler", stack.reconciler_queue_name),
-        ("Recorder", stack.recorder_queue_name),
-    ]
-
-    db.add_widgets(section("SQS Queues"))
-
-    # Per-queue depth graphs: visible + not-visible, DLQ on right axis
-    queue_widgets = []
-    for label, qname in queues:
-        dlq_name = derive_dlq_name(stack, qname)
-        queue_widgets.append(
-            graph(
-                f"{label}",
-                left=[
-                    metric(
-                        ns,
-                        "ApproximateNumberOfMessagesVisible",
-                        {"QueueName": qname},
-                        "Sum",
-                        p1,
-                    ),
-                    metric(
-                        ns,
-                        "ApproximateNumberOfMessagesNotVisible",
-                        {"QueueName": qname},
-                        "Sum",
-                        p1,
-                    ),
-                ],
-                right=[
-                    metric(
-                        ns,
-                        "ApproximateNumberOfMessagesVisible",
-                        {"QueueName": dlq_name},
-                        "Sum",
-                        p1,
-                    ),
-                ],
-            )
-        )
-
-    # Queue ages (all on one graph)
-    queue_widgets.append(
-        graph(
-            "Oldest Message Age",
-            left=[
-                metric(
-                    ns,
-                    "ApproximateAgeOfOldestMessage",
-                    {"QueueName": qname},
-                    "Maximum",
-                    p1,
-                )
-                for _, qname in queues
-            ],
-        )
-    )
-
-    db.add_widgets(*queue_widgets)
-
-
-def add_pipeline_section(
-    stack: MonitoringStack, db: cloudwatch.Dashboard
-) -> None:
-    """Section 4 -- Pipeline Overview."""
-    queues = [
-        stack.queue_name,
-        stack.staging_queue_name,
-        stack.validator_queue_name,
-        stack.reconciler_queue_name,
-        stack.recorder_queue_name,
-    ]
-    dlqs = [derive_dlq_name(stack, q) for q in queues]
-
-    queue_depths = [
-        metric(
-            "AWS/SQS",
-            "ApproximateNumberOfMessagesVisible",
-            {"QueueName": q},
-            "Sum",
-        )
-        for q in queues
-    ]
-    dlq_depths = [
-        metric(
-            "AWS/SQS",
-            "ApproximateNumberOfMessagesVisible",
-            {"QueueName": d},
-            "Sum",
-        )
-        for d in dlqs
-    ]
-
-    sm_arn = (
-        f"arn:aws:states:{stack.region}:{stack.account}"
-        f":stateMachine:{stack.state_machine_name}"
-    )
-    sm_dims = {"StateMachineArn": sm_arn}
-
-    db.add_widgets(section("Pipeline Overview"))
-    db.add_widgets(
-        graph("All Queue Depths", queue_depths),
-        graph("Dead Letter Queues", dlq_depths),
-        graph(
-            "Step Functions Executions",
-            [
-                metric("AWS/States", "ExecutionsStarted", sm_dims),
-                metric("AWS/States", "ExecutionsSucceeded", sm_dims),
-                metric("AWS/States", "ExecutionsFailed", sm_dims),
-            ],
-        ),
-        graph(
-            "Step Functions Duration",
-            [
-                metric("AWS/States", "ExecutionTime", sm_dims, "Average"),
-                metric("AWS/States", "ExecutionTime", sm_dims, "p99"),
-            ],
-        ),
-    )
-
-
 def add_aurora_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
@@ -358,7 +201,7 @@ def add_aurora_section(
 def add_rds_proxy_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section -- RDS Proxy metrics.
+    """Section 6 -- RDS Proxy metrics.
 
     Graphs for client connections, query latency, database connections,
     and query response latency sourced from the ``AWS/RDS`` namespace
@@ -404,7 +247,7 @@ def add_rds_proxy_section(
 def add_dynamodb_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section 6 -- DynamoDB Tables."""
+    """Section 7 -- DynamoDB Tables."""
     tables = [
         stack.jobs_table_name,
         stack.content_index_table_name,
@@ -427,12 +270,14 @@ def add_dynamodb_section(
 def add_bedrock_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section 7 -- Bedrock LLM."""
+    """Section 8 -- Bedrock LLM."""
     dims = {"ModelId": stack.bedrock_model_id}
     ns = "AWS/Bedrock"
 
     input_tokens = metric(ns, "InputTokenCount", dims)
     output_tokens = metric(ns, "OutputTokenCount", dims)
+    # Pricing for Claude Haiku 4.5 on-demand ($0.80/MTok input, $4.00/MTok output).
+    # Update rates if bedrock_model_id changes to a different model.
     cost = cloudwatch.MathExpression(
         expression="(input * 0.80 / 1000000) + (output * 4.00 / 1000000)",
         using_metrics={"input": input_tokens, "output": output_tokens},
@@ -465,7 +310,7 @@ def add_bedrock_section(
 def add_batch_inference_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section 8 -- Batch Inference Lambdas (conditional)."""
+    """Section 9 -- Batch Inference Lambdas (conditional)."""
     ns = "AWS/Lambda"
     b_dims = {"FunctionName": stack.batcher_function_name}
     r_dims = {"FunctionName": stack.result_processor_function_name}
@@ -506,7 +351,7 @@ def add_batch_inference_section(
 def add_geocoding_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section 9 -- Geocoding (Amazon Location Service)."""
+    """Section 10 -- Geocoding (Amazon Location Service)."""
     ns = "AWS/Location"
     p5 = Duration.minutes(5)
     fwd = {
@@ -548,7 +393,7 @@ def add_geocoding_section(
 def add_autoscaling_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section 10 -- Auto-Scaling."""
+    """Section 11 -- Auto-Scaling."""
     db.add_widgets(section("Auto-Scaling"))
     db.add_widgets(
         scaling_widget(stack, "Worker Scaling", stack.worker_service_name, stack.queue_name),
@@ -576,7 +421,7 @@ def add_autoscaling_section(
 def add_s3_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
-    """Section 11 -- S3 Storage."""
+    """Section 12 -- S3 Storage."""
     ns = "AWS/S3"
     day = Duration.days(1)
 
@@ -617,6 +462,11 @@ def build_dashboard(stack: MonitoringStack) -> cloudwatch.Dashboard:
     Returns the ``cloudwatch.Dashboard`` instance so the caller can store
     it as ``stack.dashboard``.
     """
+    from stacks.monitoring_dashboard_queues import (
+        add_pipeline_section,
+        add_sqs_queues_section,
+    )
+
     db = cloudwatch.Dashboard(
         stack,
         "OperationalDashboard",
@@ -631,7 +481,7 @@ def build_dashboard(stack: MonitoringStack) -> cloudwatch.Dashboard:
     add_rds_proxy_section(stack, db)
     add_dynamodb_section(stack, db)
     add_bedrock_section(stack, db)
-    if stack.batcher_function_name:
+    if stack.batcher_function_name and stack.result_processor_function_name:
         add_batch_inference_section(stack, db)
     add_geocoding_section(stack, db)
     add_autoscaling_section(stack, db)

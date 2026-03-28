@@ -24,6 +24,7 @@ cd infra && docker build -t pantry-pirate-radio-cdk . && docker run --rm pantry-
 ```
 infra/
 ├── app.py                    # CDK app entry point
+├── plugin_discovery.py       # Plugin CDK stack discovery
 ├── cdk.json                  # CDK configuration
 ├── requirements.txt          # Python dependencies
 ├── Dockerfile                # Container for CDK operations
@@ -38,6 +39,7 @@ infra/
 │   ├── metabase_access_stack.py # NLB for Metabase Cloud
 │   ├── monitoring_stack.py   # CloudWatch orchestrator (delegates to dashboard + alarms modules)
 │   ├── monitoring_dashboard.py # CloudWatch dashboard sections
+│   ├── monitoring_dashboard_queues.py # SQS queue + pipeline dashboard sections
 │   ├── monitoring_alarms.py  # CloudWatch alarm definitions
 │   ├── pipeline_stack.py     # Step Functions + EventBridge (16 tests)
 │   ├── queue_stack.py        # SQS FIFO queues (17 tests)
@@ -57,7 +59,8 @@ infra/
 │   ├── test_queue_stack.py
 │   ├── test_secrets_stack.py
 │   ├── test_services_stack.py
-│   └── test_storage_stack.py
+│   ├── test_storage_stack.py
+│   └── test_tags.py
 └── scripts/
     ├── bootstrap.sh          # One-time AWS setup
     └── deploy.sh             # Deployment script
@@ -165,9 +168,10 @@ Fargate services for pipeline stages:
 - **No SSH**: Access via SSM only
 
 ### MonitoringStack
-- **CloudWatch Dashboard**: API, Worker, Queue, DynamoDB, Bedrock LLM, Auto-Scaling metrics
+Split into three modules: `monitoring_stack.py` (orchestrator), `monitoring_dashboard.py` + `monitoring_dashboard_queues.py` (12 dashboard sections), `monitoring_alarms.py` (37+ alarms).
+- **CloudWatch Dashboard**: Lambda API, ECS Services, SQS Queues, Pipeline Overview, Aurora, RDS Proxy, DynamoDB, Bedrock LLM, Batch Inference (conditional), Geocoding, Auto-Scaling, S3 Storage
 - **SNS Topic**: Alert notifications
-- **Alarms**: API CPU, Queue depth, DLQ messages, DynamoDB throttles, Bedrock throttles
+- **Alarms (37+ base)**: Lambda errors/throttles/error-rate-%, API Gateway 5xx/4xx (conditional), SQS queue depths, DLQ messages, DynamoDB throttles/system-errors, Bedrock throttles, Aurora ACU/connections, RDS Proxy connections, Fargate CPU/memory per service, Step Functions failures, Location Service errors, S3 4xx/5xx per bucket, batch Lambda errors/throttles (conditional)
 
 ## Environment Variables
 

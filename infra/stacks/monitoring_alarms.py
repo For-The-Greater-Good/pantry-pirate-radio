@@ -7,6 +7,7 @@ alerts topic.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 from aws_cdk import Duration
@@ -74,30 +75,10 @@ def alarm(
 
 
 def _derive_dlq_name(queue_name: str, env: str) -> str:
-    """Derive DLQ name from main queue name.
+    """Delegate to shared ``derive_dlq_name`` in monitoring_dashboard_queues."""
+    from stacks.monitoring_dashboard_queues import derive_dlq_name
 
-    QueueStack creates DLQs as ``...-{name}-dlq-{env}.fifo``
-    (e.g. ``pantry-pirate-radio-llm-dlq-dev.fifo``), so we insert
-    ``-dlq`` before the environment suffix.
-
-    BatchStack's staging DLQ uses ``...-staging-{env}-dlq.fifo``
-    (e.g. ``pantry-pirate-radio-staging-dev-dlq.fifo``), so we
-    append ``-dlq`` before ``.fifo`` for that queue.
-    """
-    staging_suffix = f"-staging-{env}.fifo"
-    env_suffix = f"-{env}.fifo"
-
-    # Staging queue (BatchStack): DLQ is ``...-staging-{env}-dlq.fifo``
-    if queue_name.endswith(staging_suffix):
-        return queue_name.replace(".fifo", "-dlq.fifo")
-
-    # QueueStack queues: DLQ is ``...-{name}-dlq-{env}.fifo``
-    if queue_name.endswith(env_suffix):
-        base = queue_name[: -len(env_suffix)]
-        return f"{base}-dlq-{env}.fifo"
-
-    # Fallback
-    return queue_name.replace(".fifo", "-dlq.fifo")
+    return derive_dlq_name(queue_name, env)
 
 
 # ── Public entry point ─────────────────────────────────────────────
@@ -275,8 +256,8 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
         dims = {"ClusterName": stack.cluster_name, "ServiceName": svc}
         slug = label.lower()
         for suffix, metric_name in [
-            ("cpu-high", "CpuUtilized"),
-            ("memory-high", "MemoryUtilized"),
+            ("cpu-high", "CPUUtilization"),
+            ("memory-high", "MemoryUtilization"),
         ]:
             kind = "CPU" if "cpu" in suffix else "memory"
             alarm(
@@ -374,7 +355,7 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
     # NEW ALARMS
     # ================================================================
 
-    # ── (a) API Gateway 5xx ───────────────────────────────────────
+    # ── (a-b) API Gateway 5xx / 4xx (conditional on api_gateway_id) ──
     if stack.api_gateway_id:
         gw_dims = {"ApiId": stack.api_gateway_id}
         alarm(
@@ -399,8 +380,17 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
             GTE,
             "API Gateway 4xx errors are elevated",
         )
+    else:
+        warnings.warn(
+            "api_gateway_id not provided to MonitoringStack — "
+            "API Gateway 5xx/4xx alarms will NOT be created.",
+            stacklevel=2,
+        )
 
     # ── (c) API Lambda error rate % (MathExpression) ─────────────
+    # CloudWatch MathExpression: division by zero when invocations=0
+    # produces no data point.  Combined with treat_missing_data=NOT_BREACHING,
+    # this correctly avoids false alarms during zero-traffic periods.
     errors_metric = cloudwatch.Metric(
         namespace="AWS/Lambda",
         metric_name="Errors",

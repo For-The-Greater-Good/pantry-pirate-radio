@@ -225,7 +225,7 @@ class TestMonitoringStackAlarms:
             "AWS::CloudWatch::Alarm",
             {
                 "AlarmName": f"ppr-dev-{service}-cpu-high",
-                "MetricName": "CpuUtilized",
+                "MetricName": "CPUUtilization",
                 "Namespace": "ECS/ContainerInsights",
                 "Threshold": 80,
                 "EvaluationPeriods": 5,
@@ -241,7 +241,7 @@ class TestMonitoringStackAlarms:
             "AWS::CloudWatch::Alarm",
             {
                 "AlarmName": f"ppr-dev-{service}-memory-high",
-                "MetricName": "MemoryUtilized",
+                "MetricName": "MemoryUtilization",
                 "Namespace": "ECS/ContainerInsights",
                 "Threshold": 80,
                 "EvaluationPeriods": 5,
