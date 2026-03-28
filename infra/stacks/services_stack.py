@@ -263,10 +263,10 @@ class ServicesStack(Stack):
         Pass only the queues for services you want to auto-scale.
 
         Args:
-            validator_queue: SQS queue for validator scaling (0-2 instances)
+            validator_queue: SQS queue for validator scaling (0-4 instances)
             reconciler_queue: SQS queue for reconciler scaling (0-1 instance)
-            recorder_queue: SQS queue for recorder scaling (0-2 instances)
-            submarine_queue: SQS queue for submarine scaling (0-2 instances)
+            recorder_queue: SQS queue for recorder scaling (0-4 instances)
+            submarine_queue: SQS queue for submarine scaling (0-4 instances)
         """
         if validator_queue:
             self._configure_service_scaling(
@@ -274,11 +274,12 @@ class ServicesStack(Stack):
                 queue=validator_queue,
                 name="Validator",
                 min_capacity=0,
-                max_capacity=2,
+                max_capacity=4,
                 scaling_steps=[
                     appscaling.ScalingInterval(upper=0, change=-1),
                     appscaling.ScalingInterval(lower=0, upper=10, change=1),
-                    appscaling.ScalingInterval(lower=10, change=2),
+                    appscaling.ScalingInterval(lower=10, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, change=3),
                 ],
             )
 
@@ -301,11 +302,12 @@ class ServicesStack(Stack):
                 queue=recorder_queue,
                 name="Recorder",
                 min_capacity=0,
-                max_capacity=2,
+                max_capacity=4,
                 scaling_steps=[
                     appscaling.ScalingInterval(upper=0, change=-1),
                     appscaling.ScalingInterval(lower=0, upper=20, change=1),
-                    appscaling.ScalingInterval(lower=20, change=2),
+                    appscaling.ScalingInterval(lower=20, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, change=3),
                 ],
             )
 
@@ -315,11 +317,12 @@ class ServicesStack(Stack):
                 queue=submarine_queue,
                 name="Submarine",
                 min_capacity=0,
-                max_capacity=2,
+                max_capacity=4,
                 scaling_steps=[
                     appscaling.ScalingInterval(upper=0, change=-1),
                     appscaling.ScalingInterval(lower=0, upper=10, change=1),
-                    appscaling.ScalingInterval(lower=10, change=2),
+                    appscaling.ScalingInterval(lower=10, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, change=3),
                 ],
             )
 
