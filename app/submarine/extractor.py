@@ -41,6 +41,10 @@ FIELD_DESCRIPTIONS = {
         '"description": "brief description of the food pantry/food bank services '
         '(1-2 sentences, focus on what they provide and who they serve)"'
     ),
+    "is_food_related": (
+        '"is_food_related": true if this page is about a food bank, food pantry, '
+        "or food assistance program; false otherwise"
+    ),
 }
 
 
@@ -113,8 +117,10 @@ class SubmarineExtractor:
     @staticmethod
     def _build_prompt(markdown: str, missing_fields: list[str]) -> str:
         """Build the extraction prompt for the LLM."""
+        # Always include is_food_related alongside the requested fields
+        all_fields = [*missing_fields, "is_food_related"]
         fields_desc = "\n".join(
-            FIELD_DESCRIPTIONS.get(f, f'"{f}": "value or null"') for f in missing_fields
+            FIELD_DESCRIPTIONS.get(f, f'"{f}": "value or null"') for f in all_fields
         )
 
         # ~3000 tokens at ~4 chars/token, leaving headroom for system prompt + response
@@ -168,6 +174,14 @@ class SubmarineExtractor:
             logger.warning(
                 "submarine_extraction_unexpected_type",
                 extra={"data_type": type(data).__name__},
+            )
+            return {}
+
+        # Reject if LLM explicitly says content is not food-related
+        if data.get("is_food_related") is False:
+            logger.info(
+                "submarine_llm_not_food_related",
+                extra={"response_preview": text[:200]},
             )
             return {}
 

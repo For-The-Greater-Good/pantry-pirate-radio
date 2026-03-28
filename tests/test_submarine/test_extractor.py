@@ -227,3 +227,45 @@ class TestSubmarineExtractor:
         assert result == {"phone": "(555) 999-0000"}
         assert "email" not in result
         assert "hours" not in result
+
+
+class TestFoodRelevanceSignal:
+    """Tests for the LLM is_food_related relevance signal."""
+
+    @pytest.fixture
+    def extractor(self):
+        return SubmarineExtractor()
+
+    def test_rejects_non_food_content_via_llm(self, extractor):
+        """When LLM says is_food_related=false, return empty dict."""
+        response_text = json.dumps(
+            {
+                "is_food_related": False,
+                "phone": "(555) 999-0000",
+                "hours": None,
+            }
+        )
+        result = extractor._parse_response(response_text, ["phone"])
+        assert result == {}
+
+    def test_accepts_food_content_and_strips_flag(self, extractor):
+        """When LLM says is_food_related=true, return fields without the flag."""
+        response_text = json.dumps(
+            {
+                "is_food_related": True,
+                "phone": "(555) 234-5678",
+            }
+        )
+        result = extractor._parse_response(response_text, ["phone"])
+        assert result == {"phone": "(555) 234-5678"}
+        assert "is_food_related" not in result
+
+    def test_defaults_to_accept_when_field_omitted(self, extractor):
+        """When LLM omits is_food_related, extraction proceeds normally."""
+        response_text = json.dumps(
+            {
+                "phone": "(555) 111-2222",
+            }
+        )
+        result = extractor._parse_response(response_text, ["phone"])
+        assert result == {"phone": "(555) 111-2222"}

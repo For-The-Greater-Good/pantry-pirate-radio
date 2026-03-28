@@ -29,6 +29,41 @@ from app.submarine.result_builder import SubmarineResultBuilder
 
 logger = structlog.get_logger(__name__)
 
+# Keywords that indicate food-related content. At least 2 distinct matches required.
+_FOOD_KEYWORDS = [
+    "food bank",
+    "food pantry",
+    "food distribution",
+    "food assistance",
+    "food shelf",
+    "food closet",
+    "food program",
+    "food insecurity",
+    "free food",
+    "food box",
+    "pantry",
+    "grocery",
+    "hunger",
+    "feeding",
+    "snap",
+    "wic",
+    "meal program",
+]
+
+_FOOD_RELEVANCE_THRESHOLD = 2
+
+
+def _check_content_relevance(markdown: str) -> bool:
+    """Check if crawled content is about a food bank or food assistance program.
+
+    Performs a case-insensitive keyword scan. Requires at least 2 distinct
+    keyword matches to pass — a single mention of "food" in a footer is
+    not sufficient.
+    """
+    text_lower = markdown.lower()
+    matches = sum(1 for kw in _FOOD_KEYWORDS if kw in text_lower)
+    return matches >= _FOOD_RELEVANCE_THRESHOLD
+
 
 def process_submarine_job(job_data: dict[str, Any]) -> dict[str, Any] | None:
     """Process a submarine job from the queue.
@@ -169,6 +204,27 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
             crawl_metadata={
                 "url": job.website_url,
                 "pages_crawled": crawl_result.pages_crawled,
+            },
+        )
+
+    # --- Content relevance gate ---
+    if not _check_content_relevance(crawl_result.markdown):
+        logger.info(
+            "submarine_content_not_food_related",
+            extra={
+                "job_id": job.id,
+                "location_id": job.location_id,
+                "website_url": job.website_url,
+            },
+        )
+        return SubmarineResult(
+            job_id=job.id,
+            location_id=job.location_id,
+            status=SubmarineStatus.NO_DATA,
+            crawl_metadata={
+                "url": job.website_url,
+                "pages_crawled": crawl_result.pages_crawled,
+                "rejection_reason": "content_not_food_related",
             },
         )
 

@@ -23,6 +23,7 @@ from app.reconciler.metrics import (
 )
 from app.reconciler.organization_creator import OrganizationCreator
 from app.reconciler.service_creator import ServiceCreator
+from app.reconciler.submarine_location_handler import SubmarineLocationHandler
 from app.reconciler.version_tracker import VersionTracker
 
 # Configure logging
@@ -788,29 +789,21 @@ class JobProcessor:
                             if "coordinates" in addr:
                                 del addr["coordinates"]
 
-                    # Direct ID-based update for Submarine results
-                    # When source is submarine, use the target location_id from
-                    # metadata instead of coordinate matching — ensures we update
-                    # the exact record the submarine was dispatched for.
+                    # Resolve location match — submarine uses direct ID,
+                    # standard path uses coordinate matching.
                     job_metadata = (
                         job_result.job.metadata
                         if job_result.job and job_result.job.metadata
                         else {}
                     )
-                    if job_metadata.get(
-                        "scraper_id"
-                    ) == "submarine" and job_metadata.get("location_id"):
-                        target_id = str(job_metadata["location_id"])
-                        verify_result = self.db.execute(
-                            text("SELECT id FROM location WHERE id = :id"),
-                            {"id": target_id},
+                    submarine_handler = SubmarineLocationHandler(self.db)
+                    is_submarine = submarine_handler.is_submarine_job(job_metadata)
+
+                    if is_submarine:
+                        match_id = submarine_handler.resolve_target_location(
+                            job_metadata
                         )
-                        if verify_result.first():
-                            match_id = target_id
-                        else:
-                            logger.warning(
-                                f"Submarine target location {target_id} not found, skipping"
-                            )
+                        if match_id is None:
                             continue
                     # Trust the validator's coordinates - no geocoding needed here
                     # The validator has already enriched and validated coordinates
@@ -865,40 +858,63 @@ class JobProcessor:
                                     location["name"] = row[0]
 
                         # Update location record
-                        # Ensure description is never null
-                        update_description = location.get("description")
-                        if update_description is None or update_description == "":
-                            update_description = (
-                                f"Food service location: {location['name']}"
+                        if is_submarine:
+                            # Submarine: dynamic UPDATE — only set fields
+                            # that were actually extracted
+                            update_description = submarine_handler.update_location(
+                                location_id, location, org_id
                             )
-                            logger.warning(
-                                f"Missing description for location update {location['name']}, using generated description"
+                            # Persist submarine schedules directly to location
+                            submarine_handler.persist_schedules(
+                                location_id,
+                                location,
+                                job_result.job.metadata,
+                                service_creator,
+                                self._transform_schedule,
+                            )
+                        else:
+                            # Standard path: static UPDATE with all fields
+                            update_description = location.get("description")
+                            if update_description is None or update_description == "":
+                                update_description = (
+                                    f"Food service location: {location['name']}"
+                                )
+                                logger.warning(
+                                    f"Missing description for location update {location['name']}, using generated description"
+                                )
+
+                            query = text(
+                                """
+                                UPDATE location
+                                SET name=:name,
+                                    description=:description,
+                                    latitude=:latitude,
+                                    longitude=:longitude,
+                                    organization_id=:organization_id
+                                WHERE id=:id
+                                """
                             )
 
-                        query = text(
-                            """
-                            UPDATE location
-                            SET name=:name,
-                                description=:description,
-                                latitude=:latitude,
-                                longitude=:longitude,
-                                organization_id=:organization_id
-                            WHERE id=:id
-                            """
-                        )
+                            self.db.execute(
+                                query,
+                                {
+                                    "id": str(location_id),
+                                    "name": location["name"],
+                                    "description": update_description,
+                                    "latitude": float(location["latitude"]),
+                                    "longitude": float(location["longitude"]),
+                                    "organization_id": str(org_id) if org_id else None,
+                                },
+                            )
+                            self.db.commit()
 
-                        self.db.execute(
-                            query,
-                            {
-                                "id": str(location_id),
-                                "name": location["name"],
-                                "description": update_description,
-                                "latitude": float(location["latitude"]),
-                                "longitude": float(location["longitude"]),
-                                "organization_id": str(org_id) if org_id else None,
-                            },
+                        # For version tracking, use update_description if set,
+                        # otherwise fall back to location description
+                        version_description = (
+                            update_description
+                            or location.get("description")
+                            or f"Food service location: {location['name']}"
                         )
-                        self.db.commit()
 
                         # Create version for update
                         version_tracker = VersionTracker(self.db)
@@ -907,7 +923,7 @@ class JobProcessor:
                             "location",
                             {
                                 "name": location["name"],
-                                "description": update_description,  # Use the same description as the update
+                                "description": version_description,
                                 "latitude": float(location["latitude"]),
                                 "longitude": float(location["longitude"]),
                                 "organization_id": str(org_id) if org_id else None,
@@ -923,7 +939,7 @@ class JobProcessor:
                             str(location_id),
                             job_result.job.metadata.get("scraper_id", "unknown"),
                             location["name"],
-                            update_description,
+                            version_description,
                             float(location["latitude"]),
                             float(location["longitude"]),
                             job_result.job.metadata,

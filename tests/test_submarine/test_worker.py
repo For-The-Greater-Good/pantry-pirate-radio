@@ -200,7 +200,7 @@ class TestProcessAsync:
             mock_crawler = AsyncMock()
             mock_crawler.crawl.return_value = CrawlResult(
                 url="https://foodbank.example.com",
-                markdown="# Food Bank\nPhone: 555-1234\nOpen Mon-Fri 9-5",
+                markdown="# Food Bank\nWe are a food pantry serving the community.\nPhone: 555-1234\nOpen Mon-Fri 9-5",
                 pages_crawled=2,
                 status="success",
                 links_followed=["https://foodbank.example.com/contact"],
@@ -251,7 +251,7 @@ class TestProcessAsync:
             mock_crawler = AsyncMock()
             mock_crawler.crawl.return_value = CrawlResult(
                 url="https://foodbank.example.com",
-                markdown="Some real page content here",
+                markdown="# Community Food Pantry\nOur food bank provides grocery assistance to families in need.",
                 pages_crawled=1,
                 status="success",
                 links_followed=[],
@@ -341,3 +341,119 @@ class TestResultForwarding:
 
         result = process_submarine_job(sample_job_data)
         assert result is None
+
+
+class TestContentRelevanceGate:
+    """Tests for the pre-extraction content relevance keyword check."""
+
+    @pytest.mark.asyncio
+    async def test_irrelevant_content_returns_no_data(self):
+        """Website about a dental office should be rejected as NO_DATA."""
+        from app.submarine.worker import _process_async
+
+        job = SubmarineJob(
+            id="sub-rel-001",
+            location_id="loc-rel-1",
+            website_url="https://dentist.example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+        )
+
+        with patch("app.submarine.worker.SubmarineCrawler") as MockCrawler:
+            mock_crawler = AsyncMock()
+            mock_crawler.crawl.return_value = CrawlResult(
+                url="https://dentist.example.com",
+                markdown=(
+                    "# Smith Family Dentistry\n"
+                    "We offer general dentistry, cosmetic procedures, and orthodontics.\n"
+                    "Call us at (555) 999-0000 for an appointment.\n"
+                    "Open Monday through Friday, 8am to 5pm."
+                ),
+                pages_crawled=1,
+                status="success",
+            )
+            MockCrawler.return_value = mock_crawler
+
+            result = await _process_async(job)
+
+        assert result.status == "no_data"
+        assert (
+            result.crawl_metadata.get("rejection_reason") == "content_not_food_related"
+        )
+
+    @pytest.mark.asyncio
+    async def test_relevant_content_proceeds_to_extraction(self):
+        """Website with food bank content should pass the gate and hit the extractor."""
+        from app.submarine.worker import _process_async
+
+        job = SubmarineJob(
+            id="sub-rel-002",
+            location_id="loc-rel-2",
+            website_url="https://foodbank.example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+        )
+
+        with (
+            patch("app.submarine.worker.SubmarineCrawler") as MockCrawler,
+            patch("app.submarine.worker.SubmarineExtractor") as MockExtractor,
+            patch("app.submarine.worker.create_provider") as mock_create_provider,
+        ):
+            mock_crawler = AsyncMock()
+            mock_crawler.crawl.return_value = CrawlResult(
+                url="https://foodbank.example.com",
+                markdown=(
+                    "# Grace Community Food Pantry\n"
+                    "Our food bank serves families in need with grocery assistance.\n"
+                    "Free food distribution every Tuesday and Thursday."
+                ),
+                pages_crawled=1,
+                status="success",
+                links_followed=[],
+            )
+            MockCrawler.return_value = mock_crawler
+
+            mock_extractor = AsyncMock()
+            mock_extractor.extract = AsyncMock(return_value={"phone": "(555) 123-4567"})
+            MockExtractor.return_value = mock_extractor
+            mock_create_provider.return_value = MagicMock()
+
+            result = await _process_async(job)
+
+        # Should have proceeded to extraction
+        assert result.status in ("success", "partial")
+        mock_extractor.extract.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_single_keyword_insufficient(self):
+        """Content with only one food keyword should be rejected."""
+        from app.submarine.worker import _process_async
+
+        job = SubmarineJob(
+            id="sub-rel-003",
+            location_id="loc-rel-3",
+            website_url="https://restaurant.example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+        )
+
+        with patch("app.submarine.worker.SubmarineCrawler") as MockCrawler:
+            mock_crawler = AsyncMock()
+            mock_crawler.crawl.return_value = CrawlResult(
+                url="https://restaurant.example.com",
+                markdown=(
+                    "# Joe's Diner\n"
+                    "We serve the best meal in town! Come try our burgers.\n"
+                    "Open daily 11am-9pm. Call (555) 777-8888."
+                ),
+                pages_crawled=1,
+                status="success",
+            )
+            MockCrawler.return_value = mock_crawler
+
+            result = await _process_async(job)
+
+        assert result.status == "no_data"
+        assert (
+            result.crawl_metadata.get("rejection_reason") == "content_not_food_related"
+        )

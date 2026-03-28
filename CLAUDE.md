@@ -643,7 +643,7 @@ Web Sources → Scrapers → Content Store → Redis Queue → LLM Workers
                                                            ↓
 PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
     ↓                          ↓
-    ├→ Submarine → Crawl websites → LLM extract → Reconciler (enriched data)
+    ├→ Submarine → Crawl websites → Content filter → LLM extract → Reconciler (enriched data)
     ├→ FastAPI → Clients  JSON Archives → HAARRRvest Repository
     │                                         ↓
     │                                   GitHub Pages → Public Access
@@ -673,7 +673,7 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
-- **Submarine**: Post-reconciler web crawling enrichment using crawl4ai to fill missing hours/phone/email/description
+- **Submarine**: Post-reconciler web crawling enrichment using crawl4ai to fill missing hours/phone/email/description. Includes content relevance filtering (keyword gate + LLM signal) to reject non-food-related content. Only updates fields that were actually missing (selective field update).
 - **API**: Read-only HSDS v3.1.1 compliant REST endpoints
   - **AWS Deployment**: Lambda + API Gateway HTTP API (serverless, zero idle cost)
   - **Local Development**: Docker via `./bouy up` (unchanged, uses `app/main.py`)
@@ -793,7 +793,10 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 
 ### Scraper Submarine (PR #404)
 - **Post-Reconciler Enrichment**: Crawls food bank websites using crawl4ai to fill missing hours, phone, email, and description fields
-- **LLM Extraction**: Uses LLM to extract structured data from crawled web pages
+- **Content Relevance Validation**: Two-tier filtering — keyword gate rejects non-food content before LLM extraction, LLM `is_food_related` signal provides secondary check
+- **Selective Field Updates**: Only overwrites fields that were actually missing at dispatch time; extracted data validated against canonical HSDS Pydantic models
+- **Schedule Persistence**: Hours extracted by submarine are persisted directly to location via `SubmarineLocationHandler`
+- **LLM Extraction**: Uses LLM to extract structured data from crawled web pages with RRULE-compliant byday normalization
 - **Step Functions Orchestration**: Weekly scans on AWS via Step Functions (disabled in dev)
 - **Scraper Filtering**: `--scraper NAME` flag to limit scans to locations from a specific scraper
 

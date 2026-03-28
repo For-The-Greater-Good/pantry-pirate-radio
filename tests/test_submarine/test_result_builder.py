@@ -103,7 +103,7 @@ class TestSubmarineResultBuilder:
 
         schedules = job_result.data["location"][0].get("schedules", [])
         assert len(schedules) == 3
-        assert schedules[0]["byday"] == "Tuesday"
+        assert schedules[0]["byday"] == "TU"
         assert schedules[0]["opens_at"] == "10:00"
 
     def test_data_has_extracted_description(self, builder, sample_job, full_result):
@@ -135,7 +135,7 @@ class TestSubmarineResultBuilder:
         location = job_result.data["location"][0]
         assert len(location.get("phones", [])) == 1
         assert location.get("schedules", []) == []
-        assert "description" not in location or location["description"] is None
+        assert "description" not in location
 
     def test_empty_result_returns_none(self, builder, sample_job):
         """No-data result returns None (nothing to send to reconciler)."""
@@ -159,3 +159,305 @@ class TestSubmarineResultBuilder:
 
         job_result = builder.build(sample_job, error)
         assert job_result is None
+
+
+class TestSelectiveFieldUpdate:
+    """Tests that result_builder only includes fields from missing_fields."""
+
+    @pytest.fixture
+    def builder(self):
+        return SubmarineResultBuilder()
+
+    def test_omits_description_when_not_in_missing_fields(self, builder):
+        """When only phone is missing, description key should be absent."""
+        job = SubmarineJob(
+            id="sub-010",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-010",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"phone": "(555) 111-2222"},
+        )
+
+        job_result = builder.build(job, result)
+        location = job_result.data["location"][0]
+
+        assert "phones" in location
+        assert "description" not in location
+
+    def test_omits_phones_when_not_in_missing_fields(self, builder):
+        """When only description is missing, phones key should be absent."""
+        job = SubmarineJob(
+            id="sub-011",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["description"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-011",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"description": "A food pantry"},
+        )
+
+        job_result = builder.build(job, result)
+        location = job_result.data["location"][0]
+
+        assert "description" in location
+        assert "phones" not in location
+
+    def test_omits_schedules_when_not_in_missing_fields(self, builder):
+        """When hours is not in missing_fields, schedules key should be absent."""
+        job = SubmarineJob(
+            id="sub-012",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-012",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"phone": "(555) 111-2222"},
+        )
+
+        job_result = builder.build(job, result)
+        location = job_result.data["location"][0]
+
+        assert "schedules" not in location
+
+    def test_omits_email_when_not_in_missing_fields(self, builder):
+        """When email is not in missing_fields, org should not have email."""
+        job = SubmarineJob(
+            id="sub-013",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-013",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"phone": "(555) 111-2222"},
+        )
+
+        job_result = builder.build(job, result)
+        org = job_result.data["organization"][0]
+
+        assert "email" not in org
+
+    def test_includes_all_fields_when_all_missing(self, builder):
+        """When all four fields are missing, all should be present."""
+        job = SubmarineJob(
+            id="sub-014",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["phone", "hours", "email", "description"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-014",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={
+                "phone": "(555) 111-2222",
+                "hours": [{"day": "Monday", "opens_at": "09:00", "closes_at": "17:00"}],
+                "email": "test@example.com",
+                "description": "Food pantry services",
+            },
+        )
+
+        job_result = builder.build(job, result)
+        location = job_result.data["location"][0]
+        org = job_result.data["organization"][0]
+
+        assert "phones" in location
+        assert "schedules" in location
+        assert "description" in location
+        assert "email" in org
+
+
+class TestBydayNormalization:
+    """Tests that day names are converted to RRULE abbreviations."""
+
+    @pytest.fixture
+    def builder(self):
+        return SubmarineResultBuilder()
+
+    def _build_with_hours(self, builder, hours_list):
+        job = SubmarineJob(
+            id="sub-020",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["hours"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-020",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"hours": hours_list},
+        )
+        return builder.build(job, result)
+
+    def test_byday_uses_rrule_abbreviations(self, builder):
+        """Full day names should be converted to two-letter RRULE codes."""
+        job_result = self._build_with_hours(
+            builder,
+            [
+                {"day": "Tuesday", "opens_at": "10:00", "closes_at": "14:00"},
+                {"day": "thursday", "opens_at": "09:00", "closes_at": "12:00"},
+            ],
+        )
+
+        schedules = job_result.data["location"][0]["schedules"]
+        assert schedules[0]["byday"] == "TU"
+        assert schedules[1]["byday"] == "TH"
+
+    def test_schedule_includes_wkst_default(self, builder):
+        """Each schedule should have wkst defaulting to MO."""
+        job_result = self._build_with_hours(
+            builder,
+            [{"day": "Monday", "opens_at": "09:00", "closes_at": "17:00"}],
+        )
+
+        schedules = job_result.data["location"][0]["schedules"]
+        assert schedules[0]["wkst"] == "MO"
+
+    def test_already_abbreviated_day_passes_through(self, builder):
+        """If LLM returns an abbreviation already, it should pass through."""
+        job_result = self._build_with_hours(
+            builder,
+            [{"day": "FR", "opens_at": "09:00", "closes_at": "15:00"}],
+        )
+
+        schedules = job_result.data["location"][0]["schedules"]
+        assert schedules[0]["byday"] == "FR"
+
+    def test_unknown_day_kept_as_is(self, builder):
+        """Unknown day values should be kept as-is (no crash)."""
+        job_result = self._build_with_hours(
+            builder,
+            [{"day": "Everyday", "opens_at": "09:00", "closes_at": "17:00"}],
+        )
+
+        schedules = job_result.data["location"][0]["schedules"]
+        assert schedules[0]["byday"] == "Everyday"
+
+
+class TestHsdsValidation:
+    """Tests that result_builder validates output against HSDS Pydantic models."""
+
+    @pytest.fixture
+    def builder(self):
+        return SubmarineResultBuilder()
+
+    def test_invalid_phone_stripped(self, builder):
+        """Phone with empty string number should be excluded."""
+        job = SubmarineJob(
+            id="sub-val-001",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-val-001",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"phone": ""},
+        )
+
+        job_result = builder.build(job, result)
+
+        # Empty phone should be stripped — no phones key or empty list
+        if job_result is not None:
+            location = job_result.data["location"][0]
+            phones = location.get("phones", [])
+            assert len(phones) == 0
+
+    def test_valid_phone_passes(self, builder):
+        """Valid phone entry passes validation."""
+        job = SubmarineJob(
+            id="sub-val-002",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["phone"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-val-002",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"phone": "(555) 234-5678"},
+        )
+
+        job_result = builder.build(job, result)
+
+        location = job_result.data["location"][0]
+        assert len(location["phones"]) == 1
+        assert location["phones"][0]["number"] == "(555) 234-5678"
+
+    def test_invalid_schedule_stripped(self, builder):
+        """Schedule with missing opens_at should be excluded."""
+        job = SubmarineJob(
+            id="sub-val-003",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["hours"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-val-003",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={
+                "hours": [
+                    {"day": "Monday", "opens_at": "09:00", "closes_at": "17:00"},
+                    {"day": "Wednesday"},  # Missing opens_at and closes_at
+                ]
+            },
+        )
+
+        job_result = builder.build(job, result)
+
+        location = job_result.data["location"][0]
+        schedules = location.get("schedules", [])
+        # Only the valid schedule should remain
+        assert len(schedules) == 1
+        assert schedules[0]["byday"] == "MO"
