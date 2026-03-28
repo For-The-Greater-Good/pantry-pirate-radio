@@ -205,6 +205,12 @@ class ServicesStack(Stack):
             command=["python", "-m", "app.submarine.fargate_worker"],
         )
 
+        # Create submarine scanner task definition (one-shot, triggered by Step Functions)
+        # Reuses the submarine image and security group for DB access
+        self.submarine_scanner_task_definition = self._create_submarine_scanner_task_definition(
+            log_retention=log_retention,
+        )
+
         # Create scraper task definition (one-shot, triggered by Step Functions)
         (
             self.scraper_task_definition,
@@ -495,6 +501,67 @@ class ServicesStack(Stack):
         )
 
         return task_definition, security_group, task_definition.task_role
+
+    def _create_submarine_scanner_task_definition(
+        self,
+        log_retention: logs.RetentionDays,
+    ) -> ecs.FargateTaskDefinition:
+        """Create task definition for submarine scanner one-shot tasks.
+
+        Reuses the submarine ECR image and env vars. The scanner needs DB
+        access (to query locations) and SQS access (to dispatch jobs), both
+        of which the submarine service already has.
+
+        Returns:
+            Fargate task definition for the scanner ECS task
+        """
+        log_group = logs.LogGroup(
+            self,
+            "SubmarineScannerLogGroup",
+            log_group_name=f"/ecs/pantry-pirate-radio/submarine-scanner-{self.environment_name}",
+            retention=log_retention,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
+        )
+
+        task_definition = ecs.FargateTaskDefinition(
+            self,
+            "SubmarineScannerTaskDef",
+            cpu=512,
+            memory_limit_mib=1024,
+            family=f"pantry-pirate-radio-submarine-scanner-{self.environment_name}",
+        )
+
+        scanner_env = get_submarine_environment(self.config)
+        scanner_env["PYTHONUNBUFFERED"] = "1"
+        scanner_secrets = get_submarine_secrets(self.config)
+
+        if "submarine" in self.ecr_repositories:
+            image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repositories["submarine"], tag="latest"
+            )
+        else:
+            ecr_image = (
+                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
+                f"pantry-pirate-radio-submarine-{self.environment_name}:latest"
+            )
+            image = ecs.ContainerImage.from_registry(ecr_image)
+
+        task_definition.add_container(
+            "SubmarineScannerContainer",
+            image=image,
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="submarine-scanner",
+                log_group=log_group,
+            ),
+            environment=scanner_env,
+            secrets=scanner_secrets,
+        )
+
+        return task_definition
 
     def _create_scraper_task_definition(
         self,

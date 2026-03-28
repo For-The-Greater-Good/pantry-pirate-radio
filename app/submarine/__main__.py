@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 
 import structlog
@@ -45,10 +46,14 @@ def main() -> int:
     if args.command == "scan":
         from app.submarine.scanner import scan_and_enqueue
 
+        # CLI args take priority, env vars as fallback (for Step Functions)
+        limit = args.limit or (int(os.environ["SUBMARINE_LIMIT"]) if os.environ.get("SUBMARINE_LIMIT") else None)
+        scraper_id = args.scraper or os.environ.get("SUBMARINE_SCRAPER_FILTER") or None
+
         summary = scan_and_enqueue(
-            limit=args.limit,
+            limit=limit,
             location_id=args.location_id,
-            scraper_id=args.scraper,
+            scraper_id=scraper_id,
         )
         print(json.dumps(summary, indent=2))
         return 0

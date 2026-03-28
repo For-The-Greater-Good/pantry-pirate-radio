@@ -1,38 +1,34 @@
-"""Submarine Stack — Step Functions orchestration for web crawling enrichment.
+"""Submarine Step Functions orchestration stack.
 
-Creates a standalone state machine that triggers submarine scans
+Creates a Step Functions state machine that runs the submarine scanner
 (crawl food bank websites for missing data). Can be scheduled weekly
-or triggered manually via ./bouy submarine --aws.
+or triggered on-demand via `./bouy submarine --aws`.
 
-Accepts parameters for filtering by scraper and limiting job count.
+Resources:
+    - Step Functions state machine with ECS:runTask integration
+    - EventBridge rule for weekly scheduling (disabled by default in dev)
+    - IAM roles for Step Functions execution and ECS task launching
+
+Attributes:
+    state_machine: Step Functions state machine
+    schedule_rule: EventBridge schedule rule
 """
 
 import json
 
-from aws_cdk import Duration, Stack
+from aws_cdk import Stack
 from aws_cdk import aws_events as events
-from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_stepfunctions as sfn
 from constructs import Construct
 
 
 class SubmarineStack(Stack):
-    """Submarine orchestration for Pantry Pirate Radio.
+    """Submarine orchestration via Step Functions.
 
-    Creates:
-    - Step Functions state machine that runs the submarine scanner as an ECS task
-    - EventBridge rule for weekly scheduling (disabled by default in dev)
-
-    The state machine runs a single ECS task with the scanner command,
-    accepting optional scraper_id and limit parameters.
-
-    Input format:
-        {"scraper_id": "optional_scraper_name", "limit": 50}
-
-    Attributes:
-        state_machine: Step Functions state machine
-        schedule_rule: EventBridge schedule rule
+    Runs the submarine scanner as an ECS Fargate task using the
+    submarine scanner task definition (which has DB access and the
+    submarine ECR image).
     """
 
     def __init__(
@@ -44,7 +40,8 @@ class SubmarineStack(Stack):
         cluster_arn: str,
         subnet_ids: list[str],
         scanner_task_family: str,
-        scanner_container_name: str = "AppContainer",
+        scanner_container_name: str = "SubmarineScannerContainer",
+        scanner_security_group_id: str = "",
         submarine_queue_url: str = "",
         schedule_enabled: bool = False,
         schedule_expression: str = "rate(7 days)",
@@ -54,20 +51,19 @@ class SubmarineStack(Stack):
 
         self.environment_name = environment_name
 
-        # Build container environment
-        # SERVICE_TYPE=exec bypasses docker-entrypoint.sh routing, hitting the
-        # fallback case which does `exec "$@"` — running the command directly.
+        # Container env overrides for the scanner task.
+        # The task definition already has DB and queue env vars from
+        # get_submarine_environment(). We override SERVICE_TYPE to bypass
+        # the docker-entrypoint.sh routing and run the command directly.
         container_env = [
-            {"Name": "SUBMARINE_QUEUE_URL", "Value": submarine_queue_url},
-            {"Name": "QUEUE_BACKEND", "Value": "sqs"},
             {"Name": "SERVICE_TYPE", "Value": "exec"},
+            {"Name": "PYTHONUNBUFFERED", "Value": "1"},
         ]
 
         # State machine definition (ASL JSON)
-        # Uses ecs:runTask.sync to run scanner as a Fargate task
-        # NOTE: --scraper and --limit filtering is local-only (via ./bouy submarine).
-        # AWS runs a full scan. Parameterized AWS scans require a Lambda to build
-        # the command array conditionally — tracked as a follow-up.
+        # Uses ecs:runTask.sync to run scanner as a Fargate task.
+        # Accepts optional input: {"limit": 5, "scraper_id": "food_oasis_la"}
+        # These are passed as env vars to __main__.py which reads them as fallbacks.
         scan_command = ["python", "-m", "app.submarine", "scan"]
         definition = {
             "Comment": f"Submarine enrichment pipeline for {environment_name}",
@@ -83,6 +79,11 @@ class SubmarineStack(Stack):
                         "NetworkConfiguration": {
                             "AwsvpcConfiguration": {
                                 "Subnets": subnet_ids,
+                                "SecurityGroups": (
+                                    [scanner_security_group_id]
+                                    if scanner_security_group_id
+                                    else []
+                                ),
                                 "AssignPublicIp": "DISABLED",
                             }
                         },
@@ -133,50 +134,47 @@ class SubmarineStack(Stack):
             self,
             "SubmarineStateMachineRole",
             assumed_by=iam.ServicePrincipal("states.amazonaws.com"),
-            description="Role for Submarine Step Functions state machine",
         )
 
-        # Grant ECS RunTask
+        # Allow running ECS tasks
         role.add_to_policy(
             iam.PolicyStatement(
-                actions=["ecs:RunTask"],
+                actions=["ecs:RunTask", "ecs:StopTask", "ecs:DescribeTasks"],
                 resources=["*"],
                 conditions={
-                    "ArnLike": {
-                        "ecs:cluster": cluster_arn,
-                    }
+                    "ArnEquals": {"ecs:cluster": cluster_arn},
                 },
             )
         )
 
-        # Grant PassRole for task execution and task roles
+        # Allow passing the task role
         role.add_to_policy(
             iam.PolicyStatement(
                 actions=["iam:PassRole"],
                 resources=["*"],
                 conditions={
                     "StringLike": {
-                        "iam:PassedToService": "ecs-tasks.amazonaws.com",
-                    }
+                        "iam:PassedToService": "ecs-tasks.amazonaws.com"
+                    },
                 },
             )
         )
 
-        # Grant StopTask and DescribeTasks for .sync integration
+        # Allow EventBridge sync (.sync integration needs events access)
         role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
-                    "ecs:StopTask",
-                    "ecs:DescribeTasks",
                     "events:PutTargets",
                     "events:PutRule",
                     "events:DescribeRule",
                 ],
-                resources=["*"],
+                resources=[
+                    f"arn:aws:events:{Stack.of(self).region}:{Stack.of(self).account}:rule/StepFunctionsGetEventsForECSTaskRule",
+                ],
             )
         )
 
-        # Create the state machine
+        # State machine
         self.state_machine = sfn.CfnStateMachine(
             self,
             "SubmarineStateMachine",
