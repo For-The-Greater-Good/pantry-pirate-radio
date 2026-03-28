@@ -2416,8 +2416,8 @@ print(json.dumps(l))
                 output success "Pushed ${svc} (slim)"
             done
 
-            # Full services (need Playwright/browser deps)
-            FULL_SERVICES="scraper submarine"
+            # Full services (need Playwright/browser deps — use unified full image)
+            FULL_SERVICES="scraper"
             for svc in $FULL_SERVICES; do
                 ECR_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
                 output info "Pushing ${svc} (full)..."
@@ -2428,6 +2428,27 @@ print(json.dumps(l))
                 fi
                 output success "Pushed ${svc} (full)"
             done
+
+            # Build and push submarine image (dedicated: crawl4ai + Chromium)
+            output info "Building submarine Docker image..."
+            if ! docker buildx build -t "pantry-pirate-radio-submarine:${IMAGE_TAG}" \
+                --platform linux/amd64 \
+                --provenance=false \
+                --output type=docker \
+                -f .docker/images/submarine/Dockerfile .; then
+                output error "Failed to build submarine image"
+                exit 1
+            fi
+            output success "Submarine image built"
+
+            SUBMARINE_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-submarine-${DEPLOY_ENV}"
+            output info "Pushing submarine..."
+            docker tag "pantry-pirate-radio-submarine:${IMAGE_TAG}" "${SUBMARINE_REPO}:${IMAGE_TAG}"
+            if ! docker push "${SUBMARINE_REPO}:${IMAGE_TAG}" 2>/dev/null; then
+                output error "Failed to push submarine"
+                exit 1
+            fi
+            output success "Pushed submarine"
 
             # Build and push batch-lambda image (separate Lambda base image)
             output info "Building batch-lambda Docker image..."
