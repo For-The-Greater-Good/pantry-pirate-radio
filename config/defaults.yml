@@ -42,7 +42,7 @@ reconciler:
   location_tolerance: 0.0001
 
 submarine:
-  enabled: false
+  enabled: true
   crawl_timeout: 30
   max_pages_per_site: 3
   min_crawl_delay: 5

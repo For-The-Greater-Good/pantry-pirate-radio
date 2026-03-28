@@ -98,6 +98,7 @@ def get_reconciler_environment(config: ServiceConfig) -> dict[str, str]:
     """Get environment variables for the Reconciler service."""
     env: dict[str, str] = {
         "QUEUE_BACKEND": "sqs",
+        "SUBMARINE_ENABLED": "true",
     }
     if config.database_host:
         env["DATABASE_HOST"] = config.database_host
