@@ -378,7 +378,7 @@ services_stack.submarine_task_role.add_to_policy(
         effect=iam.Effect.ALLOW,
         actions=["bedrock:InvokeModel"],
         resources=[
-            f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-*",
+            "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
             f"arn:aws:bedrock:{region}:{account}:inference-profile/us.anthropic.*",
         ],
     )
