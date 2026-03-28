@@ -6,6 +6,7 @@ definitions for one-shot tasks (publisher, scraper).
 
 from dataclasses import dataclass, field
 
+import aws_cdk as cdk
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_applicationautoscaling as appscaling
 from aws_cdk import aws_cloudwatch as cloudwatch
@@ -217,6 +218,13 @@ class ServicesStack(Stack):
             self.scraper_security_group,
             self.scraper_task_role,
         ) = self._create_scraper_task_definition(log_retention=log_retention, vpc=vpc)
+
+        # Service-level tags for cost attribution
+        cdk.Tags.of(self.validator_service).add("Service", "validator")
+        cdk.Tags.of(self.reconciler_service).add("Service", "reconciler")
+        cdk.Tags.of(self.recorder_service).add("Service", "recorder")
+        cdk.Tags.of(self.publisher_task_definition).add("Service", "publisher")
+        cdk.Tags.of(self.scraper_task_definition).add("Service", "scraper")
 
     def grant_database_access(self, proxy_security_group: ec2.ISecurityGroup) -> None:
         """Allow all pipeline services to connect to the RDS Proxy.

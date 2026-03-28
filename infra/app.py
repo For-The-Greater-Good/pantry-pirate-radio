@@ -70,6 +70,14 @@ bedrock_model_id = os.environ.get(
 
 app = cdk.App()
 
+# --- Resource Tags ---
+# App-level tags propagate to ALL constructs across ALL stacks automatically.
+cdk.Tags.of(app).add("Project", "pantry-pirate-radio")
+cdk.Tags.of(app).add("Environment", environment_name)
+cdk.Tags.of(app).add("ManagedBy", "cdk")
+cdk.Tags.of(app).add("Owner", "for-the-greater-good")
+cdk.Tags.of(app).add("CostCenter", f"pantry-pirate-radio-{environment_name}")
+
 # Create environment
 env = cdk.Environment(account=account, region=region)
 
@@ -279,9 +287,27 @@ monitoring_stack = MonitoringStack(
     batch_bucket_name=batch_stack.batch_bucket.bucket_name,
     exports_bucket_name=storage_stack.exports_bucket.bucket_name,
     place_index_name=database_stack.place_index.index_name,
+    rds_proxy_name=f"pantry-pirate-radio-proxy-{environment_name}",
     env=env,
     description=f"Pantry Pirate Radio monitoring infrastructure ({environment_name})",
 )
+
+# --- Per-Stack Tags ---
+for _stack_label, _stack_obj in [
+    ("SecretsStack", secrets_stack),
+    ("ECRStack", ecr_stack),
+    ("StorageStack", storage_stack),
+    ("QueueStack", queue_stack),
+    ("ComputeStack", compute_stack),
+    ("DatabaseStack", database_stack),
+    ("BatchStack", batch_stack),
+    ("ServicesStack", services_stack),
+    ("DbInitStack", db_init_stack),
+    ("PipelineStack", pipeline_stack),
+    ("LambdaApiStack", lambda_api_stack),
+    ("MonitoringStack", monitoring_stack),
+]:
+    cdk.Tags.of(_stack_obj).add("Stack", f"{_stack_label}-{environment_name}")
 
 # Grant permissions between stacks
 
@@ -463,55 +489,56 @@ db_init_stack.add_dependency(database_stack)
 # DbInit depends on secrets (needs GitHub PAT)
 db_init_stack.add_dependency(secrets_stack)
 
-# Bastion Stack (dev only) - SSM port forwarding to Aurora for Metabase
-if environment_name == "dev":
-    bastion_stack = BastionStack(
-        app,
-        f"BastionStack-{environment_name}",
-        vpc=compute_stack.vpc,
-        environment_name=environment_name,
-        env=env,
-        description=f"Pantry Pirate Radio bastion for SSM port forwarding ({environment_name})",
-    )
-    bastion_stack.add_dependency(compute_stack)
-    bastion_stack.add_dependency(database_stack)
+# Bastion Stack - SSM port forwarding to Aurora
+bastion_stack = BastionStack(
+    app,
+    f"BastionStack-{environment_name}",
+    vpc=compute_stack.vpc,
+    environment_name=environment_name,
+    env=env,
+    description=f"Pantry Pirate Radio bastion for SSM port forwarding ({environment_name})",
+)
+bastion_stack.add_dependency(compute_stack)
+bastion_stack.add_dependency(database_stack)
+cdk.Tags.of(bastion_stack).add("Stack", f"BastionStack-{environment_name}")
 
-    # Allow bastion to connect to RDS Proxy
-    ec2.CfnSecurityGroupIngress(
-        bastion_stack,
-        "BastionToProxyIngress",
-        group_id=database_stack.proxy_security_group.security_group_id,
-        source_security_group_id=bastion_stack.bastion_security_group.security_group_id,
-        ip_protocol="tcp",
-        from_port=5432,
-        to_port=5432,
-        description="Allow bastion to connect to RDS Proxy",
-    )
+# Allow bastion to connect to RDS Proxy
+ec2.CfnSecurityGroupIngress(
+    bastion_stack,
+    "BastionToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=bastion_stack.bastion_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow bastion to connect to RDS Proxy",
+)
 
-    # Metabase Access Stack — NLB for Metabase Cloud to reach Aurora via RDS Proxy
-    metabase_stack = MetabaseAccessStack(
-        app,
-        f"MetabaseAccessStack-{environment_name}",
-        vpc=compute_stack.vpc,
-        proxy_endpoint=database_stack.proxy_endpoint,
-        environment_name=environment_name,
-        env=env,
-        description=f"Pantry Pirate Radio NLB for Metabase Cloud access ({environment_name})",
-    )
-    metabase_stack.add_dependency(compute_stack)
-    metabase_stack.add_dependency(database_stack)
+# Metabase Access Stack — NLB for Metabase Cloud to reach Aurora via RDS Proxy
+metabase_stack = MetabaseAccessStack(
+    app,
+    f"MetabaseAccessStack-{environment_name}",
+    vpc=compute_stack.vpc,
+    proxy_endpoint=database_stack.proxy_endpoint,
+    environment_name=environment_name,
+    env=env,
+    description=f"Pantry Pirate Radio NLB for Metabase Cloud access ({environment_name})",
+)
+metabase_stack.add_dependency(compute_stack)
+metabase_stack.add_dependency(database_stack)
+cdk.Tags.of(metabase_stack).add("Stack", f"MetabaseAccessStack-{environment_name}")
 
-    # Allow NLB targets to reach RDS Proxy
-    ec2.CfnSecurityGroupIngress(
-        metabase_stack,
-        "NlbToProxyIngress",
-        group_id=database_stack.proxy_security_group.security_group_id,
-        source_security_group_id=metabase_stack.nlb_security_group.security_group_id,
-        ip_protocol="tcp",
-        from_port=5432,
-        to_port=5432,
-        description="Allow NLB to reach RDS Proxy for Metabase Cloud",
-    )
+# Allow NLB targets to reach RDS Proxy
+ec2.CfnSecurityGroupIngress(
+    metabase_stack,
+    "NlbToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=metabase_stack.nlb_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow NLB to reach RDS Proxy for Metabase Cloud",
+)
 
 # Monitoring depends on all other stacks
 monitoring_stack.add_dependency(compute_stack)
@@ -522,138 +549,31 @@ monitoring_stack.add_dependency(db_init_stack)
 monitoring_stack.add_dependency(lambda_api_stack)
 
 # Plugin CDK stack discovery — scan ../plugins/*/infra/ for declared stacks
-import importlib.util
-import pathlib
-import sys
-import yaml
+from plugin_discovery import discover_and_load_plugins
 
-_plugins_dir = pathlib.Path(__file__).parent.parent / "plugins"
-_plugin_stacks: dict[str, list] = {}  # plugin_name -> [stack_instances]
-_plugin_deps: dict[str, list[str]] = {}  # plugin_name -> [depends_on names]
+_plugin_context = {
+    "vpc": compute_stack.vpc,
+    "cluster": compute_stack.cluster,
+    "core_secrets": {
+        "database_credentials": database_stack.database_credentials_secret,
+    },
+    "api_url": lambda_api_stack.api_url,
+    "place_index_name": database_stack.place_index.index_name,
+    "place_index_arn": database_stack.place_index.attr_index_arn,
+    # Database access for write API plugins
+    "proxy_endpoint": database_stack.proxy_endpoint,
+    "proxy_security_group": database_stack.proxy_security_group,
+    "database_credentials_secret": database_stack.database_credentials_secret,
+}
 
-for _manifest in sorted(_plugins_dir.glob("*/plugin.yml")):
-    try:
-        _plugin_conf = yaml.safe_load(_manifest.read_text())
-    except (yaml.YAMLError, OSError) as exc:
-        warnings.warn(
-            f"Skipping plugin manifest {_manifest}: {exc}",
-            stacklevel=1,
-        )
-        continue
-    _infra_stacks = _plugin_conf.get("cdk_stacks", [])
-    _plugin_infra_dir = _manifest.parent / "infra"
-
-    # Shared context for plugin CDK stacks — generic platform resources
-    _plugin_context = {
-        "vpc": compute_stack.vpc,
-        "cluster": compute_stack.cluster,
-        "core_secrets": {
-            "database_credentials": database_stack.database_credentials_secret,
-        },
-        "api_url": lambda_api_stack.api_url,
-        "place_index_name": database_stack.place_index.index_name,
-        "place_index_arn": database_stack.place_index.attr_index_arn,
-        # Database access for write API plugins
-        "proxy_endpoint": database_stack.proxy_endpoint,
-        "proxy_security_group": database_stack.proxy_security_group,
-        "database_credentials_secret": database_stack.database_credentials_secret,
-    }
-
-    _plugin_name = _plugin_conf.get("name", _manifest.parent.name)
-    _plugin_depends_on = _plugin_conf.get("depends_on", [])
-    _plugin_deps.setdefault(_plugin_name, _plugin_depends_on)
-
-    for _stack_entry in _infra_stacks:
-        _module_name = _stack_entry.get("module")
-        _class_name = _stack_entry.get("class")
-        if not _module_name or not _class_name:
-            continue
-        _module_path = _plugin_infra_dir / f"{_module_name}.py"
-        if not _module_path.resolve().is_relative_to(_plugin_infra_dir.resolve()):
-            warnings.warn(
-                f"Plugin module path escapes plugin dir: {_module_path}",
-                stacklevel=1,
-            )
-            continue
-        if not _module_path.exists():
-            warnings.warn(
-                f"Plugin CDK module not found: {_module_path}", stacklevel=1
-            )
-            continue
-        # Add plugin infra dir to sys.path so intra-plugin imports work
-        _plugin_infra_str = str(_plugin_infra_dir.resolve())
-        if _plugin_infra_str not in sys.path:
-            sys.path.insert(0, _plugin_infra_str)
-        _spec = importlib.util.spec_from_file_location(_module_name, _module_path)
-        if not _spec or not _spec.loader:
-            warnings.warn(
-                f"Cannot load plugin module: {_module_path}", stacklevel=1
-            )
-            continue
-        _mod = importlib.util.module_from_spec(_spec)
-        try:
-            _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
-        except Exception as exc:
-            warnings.warn(
-                f"Failed to load plugin {_module_path}: {exc}", stacklevel=1
-            )
-            continue
-        _stack_cls = getattr(_mod, _class_name, None)
-        if not _stack_cls:
-            warnings.warn(
-                f"Class {_class_name!r} not found in {_module_path}",
-                stacklevel=1,
-            )
-            continue
-        try:
-            _instance = _stack_cls(
-                app,
-                f"{_class_name}-{environment_name}",
-                environment_name=environment_name,
-                env=env,
-                plugin_context=_plugin_context,
-                description=f"{_plugin_name} plugin stack ({environment_name})",
-            )
-        except Exception as exc:
-            warnings.warn(
-                f"Failed to instantiate {_class_name}: {exc}", stacklevel=1
-            )
-            continue
-        _instance.add_dependency(compute_stack)
-        _instance.add_dependency(secrets_stack)
-        _instance.add_dependency(database_stack)
-
-        # Track for inter-plugin dependency resolution
-        _plugin_stacks.setdefault(_plugin_name, []).append(_instance)
-
-        # Wire RDS Proxy SG ingress for plugins with lambda_sg
-        # Uses L1 CfnSecurityGroupIngress on the PLUGIN stack
-        # (not database stack) to avoid cyclic cross-stack refs.
-        if hasattr(_instance, "lambda_sg") and _instance.lambda_sg:
-            ec2.CfnSecurityGroupIngress(
-                _instance,
-                f"PluginLambdaToProxyIngress-{_class_name}",
-                ip_protocol="tcp",
-                from_port=5432,
-                to_port=5432,
-                group_id=database_stack.proxy_security_group.security_group_id,
-                source_security_group_id=_instance.lambda_sg.security_group_id,
-                description=f"{_plugin_name} Lambda to RDS Proxy",
-            )
-
-# Resolve inter-plugin dependencies (depends_on in plugin.yml)
-for _dep_plugin, _dep_names in _plugin_deps.items():
-    for _dep_name in _dep_names:
-        _dep_stacks = _plugin_stacks.get(_dep_name, [])
-        if not _dep_stacks:
-            warnings.warn(
-                f"Plugin {_dep_plugin!r} depends on {_dep_name!r} but no stacks found",
-                stacklevel=1,
-            )
-            continue
-        _my_stacks = _plugin_stacks.get(_dep_plugin, [])
-        for _my_stack in _my_stacks:
-            for _dep_stack in _dep_stacks:
-                _my_stack.add_dependency(_dep_stack)
+discover_and_load_plugins(
+    app,
+    environment_name,
+    env,
+    plugin_context=_plugin_context,
+    compute_stack=compute_stack,
+    secrets_stack=secrets_stack,
+    database_stack=database_stack,
+)
 
 app.synth()
