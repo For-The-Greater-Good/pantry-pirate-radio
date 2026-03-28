@@ -93,20 +93,27 @@ class SubmarineCrawler:
         browser_config = BrowserConfig(
             headless=True,
             verbose=False,
+            enable_stealth=True,  # playwright-stealth: hides navigator.webdriver
             text_mode=True,  # Skip images — faster, less memory
             light_mode=True,  # Disable background features
             user_agent=self.rate_limiter.user_agent,
+            viewport_width=1366,  # Common laptop resolution
+            viewport_height=768,
             extra_args=[
                 "--no-sandbox",  # Required when running as root in Docker
                 "--disable-dev-shm-usage",  # Avoid /dev/shm 64MB limit
                 "--disable-gpu",  # No GPU in containers
+                "--disable-blink-features=AutomationControlled",  # Hide automation flag
             ],
         )
         run_config = CrawlerRunConfig(
             word_count_threshold=5,  # Low threshold to capture short contact blocks
             page_timeout=self.timeout * 1000,  # crawl4ai uses milliseconds
             cache_mode=CacheMode.BYPASS,  # Always fetch fresh
+            wait_until="load",  # Full load, not just DOM (WordPress JS needs this)
+            delay_before_return_html=1.0,  # Let JS hydrate after load event
             remove_overlay_elements=True,  # Dismiss cookie banners
+            override_navigator=True,  # Mask navigator properties (cheap, safe)
         )
 
         try:
