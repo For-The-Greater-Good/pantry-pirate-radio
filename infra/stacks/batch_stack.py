@@ -9,6 +9,7 @@ Creates infrastructure for Bedrock Batch Inference:
 - EventBridge rule for batch job completion detection
 """
 
+import aws_cdk as cdk
 from aws_cdk import Duration, RemovalPolicy, Size, Stack
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_ec2 as ec2
@@ -110,6 +111,10 @@ class BatchInferenceStack(Stack):
             jobs_table=jobs_table,
             bedrock_model_id=bedrock_model_id,
         )
+
+        # Service-level tags for cost attribution
+        cdk.Tags.of(self.batcher_lambda).add("Service", "batcher")
+        cdk.Tags.of(self.result_processor_lambda).add("Service", "result-processor")
 
         # Create EventBridge rule for batch job completion
         self._create_eventbridge_rule()

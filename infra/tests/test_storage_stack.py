@@ -93,6 +93,27 @@ class TestStorageStackResources:
             },
         )
 
+    def test_s3_buckets_have_request_metrics(self, dev_template):
+        """S3 buckets should have request metrics enabled for CloudWatch 4xx/5xx monitoring.
+
+        The MetricsConfigurations with FilterId 'AllRequests' must match the
+        FilterId dimension used in monitoring_alarms.py S3 error alarms.
+        """
+        dev_template.has_resource_properties(
+            "AWS::S3::Bucket",
+            {
+                "BucketName": "pantry-pirate-radio-content-dev",
+                "MetricsConfigurations": [{"Id": "AllRequests"}],
+            },
+        )
+        dev_template.has_resource_properties(
+            "AWS::S3::Bucket",
+            {
+                "BucketName": "pantry-pirate-radio-exports-dev",
+                "MetricsConfigurations": [{"Id": "AllRequests"}],
+            },
+        )
+
     def test_creates_jobs_dynamodb_table(self, dev_template):
         """StorageStack should create DynamoDB table for jobs."""
         dev_template.resource_count_is("AWS::DynamoDB::Table", 2)

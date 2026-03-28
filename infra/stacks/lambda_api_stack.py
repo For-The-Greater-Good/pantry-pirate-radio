@@ -5,6 +5,7 @@ Public endpoints are read-only.
 Zero idle compute cost — pays only per request.
 """
 
+import aws_cdk as cdk
 from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_ec2 as ec2
@@ -129,6 +130,9 @@ class LambdaApiStack(Stack):
                 "ENVIRONMENT": environment_name,
             },
         )
+
+        # Service-level tag for cost attribution
+        cdk.Tags.of(self.api_function).add("Service", "api")
 
         # Grant Secrets Manager read access
         database_secret.grant_read(self.api_function)
