@@ -137,6 +137,7 @@ def add_worker_section(
         "Validator": stack.validator_service_name,
         "Reconciler": stack.reconciler_service_name,
         "Recorder": stack.recorder_service_name,
+        "Submarine": stack.submarine_service_name,
     }
 
     cpu_metrics = [
@@ -414,6 +415,12 @@ def add_autoscaling_section(
             "Recorder Scaling",
             stack.recorder_service_name,
             stack.recorder_queue_name,
+        ),
+        scaling_widget(
+            stack,
+            "Submarine Scaling",
+            stack.submarine_service_name,
+            stack.submarine_queue_name,
         ),
     )
 

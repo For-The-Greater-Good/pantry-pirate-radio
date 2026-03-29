@@ -286,6 +286,7 @@ monitoring_stack = MonitoringStack(
     content_bucket_name=storage_stack.content_bucket.bucket_name,
     batch_bucket_name=batch_stack.batch_bucket.bucket_name,
     exports_bucket_name=storage_stack.exports_bucket.bucket_name,
+    submarine_queue_name=queue_stack.submarine_queue.queue_name,
     place_index_name=database_stack.place_index.index_name,
     rds_proxy_name=f"pantry-pirate-radio-proxy-{environment_name}",
     env=env,
