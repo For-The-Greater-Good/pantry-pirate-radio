@@ -1148,32 +1148,10 @@ class JobProcessor:
                         # Store UUID in location_ids dictionary
                         location_ids[self._location_key(location)] = location_id
 
-                        # Submarine dispatch: check if this location needs
-                        # web crawling to fill missing fields (hours/phone/email/desc)
-                        if settings.SUBMARINE_ENABLED and location_id:
-                            try:
-                                from app.reconciler.submarine_dispatcher import (
-                                    SubmarineDispatcher,
-                                )
-
-                                submarine = SubmarineDispatcher(db=self.db)
-                                submarine.check_and_enqueue(
-                                    location_id=str(location_id),
-                                    organization_id=str(org_id) if org_id else None,
-                                    job_metadata=(
-                                        job_result.job.metadata
-                                        if job_result.job and job_result.job.metadata
-                                        else {}
-                                    ),
-                                )
-                            except Exception as e:
-                                # Submarine dispatch failure must not break reconciler
-                                logger.error(
-                                    "submarine_dispatch_failed location_id=%s: %s",
-                                    location_id,
-                                    e,
-                                    exc_info=True,
-                                )
+                        # Submarine enrichment is handled by the weekly scanner
+                        # (Step Functions schedule), not per-location dispatch.
+                        # This avoids scale-up/down churn and enables future
+                        # batch inference for 50% LLM cost savings.
 
             # Process services (both top-level and organization-nested)
             services_to_process: list[ServiceDict] = []
