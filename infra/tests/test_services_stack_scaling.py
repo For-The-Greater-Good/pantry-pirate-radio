@@ -49,18 +49,18 @@ class TestServicesStackAutoScaling:
         """Get CloudFormation template from stack with all scaling."""
         return assertions.Template.from_stack(stack_with_all_scaling)
 
-    def test_creates_three_scalable_targets(self, template_with_all_scaling):
-        """Auto-scaling should create 3 ScalableTargets (validator, reconciler, recorder)."""
+    def test_creates_four_scalable_targets(self, template_with_all_scaling):
+        """Auto-scaling should create 4 ScalableTargets (validator, reconciler, recorder, submarine)."""
         template_with_all_scaling.resource_count_is(
-            "AWS::ApplicationAutoScaling::ScalableTarget", 3
+            "AWS::ApplicationAutoScaling::ScalableTarget", 4
         )
 
-    def test_validator_max_capacity_is_two(self, template_with_all_scaling):
-        """Validator ScalableTarget should have max capacity of 2."""
+    def test_validator_max_capacity_is_four(self, template_with_all_scaling):
+        """Validator ScalableTarget should have max capacity of 4."""
         template_with_all_scaling.has_resource_properties(
             "AWS::ApplicationAutoScaling::ScalableTarget",
             {
-                "MaxCapacity": 2,
+                "MaxCapacity": 4,
                 "MinCapacity": 0,
                 "ScalableDimension": "ecs:service:DesiredCount",
             },

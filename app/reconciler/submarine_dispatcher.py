@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.submarine.models import SUBMARINE_TARGET_FIELDS, SubmarineJob, SubmarineStatus
+from app.submarine.models import SubmarineJob, SubmarineStatus
 
 logger = structlog.get_logger(__name__)
 

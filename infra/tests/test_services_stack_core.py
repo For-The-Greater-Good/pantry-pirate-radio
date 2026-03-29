@@ -42,13 +42,13 @@ class TestServicesStackResources:
 
     def test_creates_task_definitions(self, dev_template):
         """ServicesStack should create task definitions for services and tasks."""
-        # 4 services + 1 scraper task + 1 publisher task = 6
-        dev_template.resource_count_is("AWS::ECS::TaskDefinition", 6)
+        # 4 services + 1 scraper task + 1 publisher task + 1 submarine scanner task = 7
+        dev_template.resource_count_is("AWS::ECS::TaskDefinition", 7)
 
     def test_creates_log_groups(self, dev_template):
         """ServicesStack should create log groups for each service and task."""
-        # 4 services + 1 scraper + 1 publisher = 6
-        dev_template.resource_count_is("AWS::Logs::LogGroup", 6)
+        # 4 services + 1 scraper + 1 publisher + 1 submarine scanner = 7
+        dev_template.resource_count_is("AWS::Logs::LogGroup", 7)
 
     def test_validator_service_has_correct_cpu(self, dev_template):
         """Validator task definition should have correct CPU."""
