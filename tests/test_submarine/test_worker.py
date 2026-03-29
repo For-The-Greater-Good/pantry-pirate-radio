@@ -67,26 +67,19 @@ class TestProcessSubmarineJob:
         mock_update.assert_called_once_with("loc-123", "error")
 
     @patch("app.submarine.worker._update_location_status")
-    @patch("app.submarine.worker._process_async")
+    @patch("app.submarine.worker._process_job")
     def test_returns_job_result_for_success(
-        self, mock_process, mock_update, sample_job_data
+        self, mock_process_job, mock_update, sample_job_data
     ):
         """Worker returns JobResult dict when extraction succeeds."""
-        from app.submarine.models import SubmarineResult
         from app.submarine.worker import process_submarine_job
 
-        mock_process.return_value = SubmarineResult(
-            job_id="sub-001",
-            location_id="loc-123",
-            status="success",
-            extracted_fields={
-                "phone": "(555) 234-5678",
-                "hours": [
-                    {"day": "Tuesday", "opens_at": "10:00", "closes_at": "14:00"}
-                ],
-            },
-            crawl_metadata={"pages_crawled": 2},
-        )
+        mock_result = {
+            "job_id": "submarine-sub-001",
+            "status": "completed",
+            "job": {"metadata": {"scraper_id": "submarine", "location_id": "loc-123"}},
+        }
+        mock_process_job.return_value = (mock_result, "loc-123", "success")
 
         result = process_submarine_job(sample_job_data)
 
@@ -97,21 +90,15 @@ class TestProcessSubmarineJob:
         mock_update.assert_called_once_with("loc-123", "success")
 
     @patch("app.submarine.worker._update_location_status")
-    @patch("app.submarine.worker._process_async")
+    @patch("app.submarine.worker._process_job")
     def test_returns_job_result_for_partial(
-        self, mock_process, mock_update, sample_job_data
+        self, mock_process_job, mock_update, sample_job_data
     ):
         """Worker returns JobResult for partial extraction."""
-        from app.submarine.models import SubmarineResult
         from app.submarine.worker import process_submarine_job
 
-        mock_process.return_value = SubmarineResult(
-            job_id="sub-001",
-            location_id="loc-123",
-            status="partial",
-            extracted_fields={"phone": "(555) 234-5678"},
-            crawl_metadata={"pages_crawled": 1},
-        )
+        mock_result = {"job_id": "submarine-sub-001", "status": "completed"}
+        mock_process_job.return_value = (mock_result, "loc-123", "partial")
 
         result = process_submarine_job(sample_job_data)
 
