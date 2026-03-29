@@ -238,7 +238,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     reconciler_queue_url = os.environ.get("RECONCILER_QUEUE_URL", "")
     recorder_queue_url = os.environ.get("RECORDER_QUEUE_URL", "")
     llm_queue_url = os.environ.get("LLM_QUEUE_URL", "")
-    submarine_extraction_queue_url = os.environ.get("SUBMARINE_EXTRACTION_QUEUE_URL", "")
+    submarine_extraction_queue_url = os.environ.get(
+        "SUBMARINE_EXTRACTION_QUEUE_URL", ""
+    )
     jobs_table = os.environ.get("SQS_JOBS_TABLE", "")
     model_id = os.environ.get(
         "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"

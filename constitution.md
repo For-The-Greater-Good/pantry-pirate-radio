@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.6.0 — 2026-03-29
+- **Amended Principle IV**: Submarine stage now has two internal sub-stages: crawl (Fargate, real-time) and extract (Bedrock batch inference, 50% cost savings). Output contract unchanged: JobResult → Reconciler queue. On AWS, crawled content is staged to a submarine-staging queue; the batcher Lambda submits Bedrock batch jobs. On local Docker, inline extraction is preserved.
+
 ### v1.5.1 — 2026-03-27
 - **Clarified Principle VI**: Submarine results bypass Validator because they target existing validated locations and only fill non-geographic text fields (phone, hours, email, description). Corroboration exclusion ensures submarine does not inflate confidence scores.
 
@@ -95,6 +98,7 @@ LLM Worker    → outputs: HSDS-aligned structured data
 Validator     → outputs: enriched data with confidence score
 Reconciler    → outputs: canonical database records with version tracking
 Submarine     → outputs: extracted field values (JobResult) → Reconciler queue
+                 (internal: crawl → staging queue → batch/on-demand extract)
 API           → outputs: HSDS-compliant JSON responses
 Publisher     → outputs: HAARRRvest repository commits
 ```
@@ -394,4 +398,4 @@ Changes to principles MUST propagate to:
 - `.pre-commit-config.yaml` (quality gate enforcement)
 - `.github/workflows/ci.yml` (CI pipeline alignment)
 
-**Version**: 1.5.1 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-27
+**Version**: 1.6.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-03-29

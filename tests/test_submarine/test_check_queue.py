@@ -67,7 +67,9 @@ class TestCheckQueueHandler:
         assert result["is_empty"] is True
         assert "error" in result
 
-    @patch.dict("os.environ", {"SUBMARINE_QUEUE_URL": "https://sqs.example.com/sub.fifo"})
+    @patch.dict(
+        "os.environ", {"SUBMARINE_QUEUE_URL": "https://sqs.example.com/sub.fifo"}
+    )
     @patch("app.submarine.check_queue.boto3")
     def test_uses_env_var_fallback(self, mock_boto3):
         """Falls back to SUBMARINE_QUEUE_URL env var when not in event."""

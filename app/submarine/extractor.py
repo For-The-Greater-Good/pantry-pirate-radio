@@ -136,9 +136,7 @@ class SubmarineExtractor:
         )
 
     @staticmethod
-    def parse_response(
-        response_text: str, missing_fields: list[str]
-    ) -> dict[str, Any]:
+    def parse_response(response_text: str, missing_fields: list[str]) -> dict[str, Any]:
         """Parse the LLM JSON response, returning only non-null fields."""
         # Try to extract JSON from the response
         text = response_text.strip()

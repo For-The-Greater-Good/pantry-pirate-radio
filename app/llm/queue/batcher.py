@@ -243,10 +243,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     }
     _required_env_vars.update(_scraper_env_vars)
     source = event.get("source", "scraper")
-    check_vars = _required_env_vars if source != "submarine" else {
-        k: v for k, v in _required_env_vars.items()
-        if k not in ("STAGING_QUEUE_URL", "LLM_QUEUE_URL")
-    }
+    check_vars = (
+        _required_env_vars
+        if source != "submarine"
+        else {
+            k: v
+            for k, v in _required_env_vars.items()
+            if k not in ("STAGING_QUEUE_URL", "LLM_QUEUE_URL")
+        }
+    )
     missing = [name for name, val in check_vars.items() if not val]
     if missing:
         raise ValueError(
@@ -443,7 +448,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             # 5. Submit Bedrock batch job
             now = datetime.now(UTC)
-            job_name = f"{job_name_prefix}-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
+            job_name = (
+                f"{job_name_prefix}-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
+            )
             # Job names must be <= 63 chars and match [a-zA-Z0-9][-a-zA-Z0-9]*
             job_name = job_name[:63]
 
