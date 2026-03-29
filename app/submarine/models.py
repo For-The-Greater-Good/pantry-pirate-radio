@@ -19,6 +19,7 @@ class SubmarineStatus(str, Enum):
     NO_DATA = "no_data"
     ERROR = "error"
     BLOCKED = "blocked"
+    STAGED = "staged"
 
 
 SUBMARINE_TARGET_FIELDS = frozenset({"phone", "hours", "email", "description"})

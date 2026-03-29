@@ -77,9 +77,11 @@ def _get_batch_metadata(dynamodb: Any, jobs_table: str, job_arn: str) -> dict[st
     if not original_jobs_key:
         raise ValueError("original_jobs_key must not be empty")
 
+    source = item.get("source", {}).get("S", "scraper")
     return {
         "output_key_prefix": output_key_prefix,
         "original_jobs_key": original_jobs_key,
+        "source": source,
     }
 
 
@@ -236,6 +238,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     reconciler_queue_url = os.environ.get("RECONCILER_QUEUE_URL", "")
     recorder_queue_url = os.environ.get("RECORDER_QUEUE_URL", "")
     llm_queue_url = os.environ.get("LLM_QUEUE_URL", "")
+    submarine_extraction_queue_url = os.environ.get("SUBMARINE_EXTRACTION_QUEUE_URL", "")
     jobs_table = os.environ.get("SQS_JOBS_TABLE", "")
     model_id = os.environ.get(
         "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -283,6 +286,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     metadata = _get_batch_metadata(dynamodb, jobs_table, job_arn)
     original_jobs_key = metadata["original_jobs_key"]
     output_key_prefix = metadata["output_key_prefix"]
+    source = metadata.get("source", "scraper")
+    retry_queue_url = (
+        submarine_extraction_queue_url if source == "submarine" else llm_queue_url
+    )
 
     temp_files: list[str] = []
 
@@ -320,7 +327,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                         record = json.loads(line)
                         _job_id = record["k"]
                         try:
-                            _requeue_to_llm(record["v"], llm_queue_url)
+                            _requeue_to_llm(record["v"], retry_queue_url)
                             requeued += 1
                         except Exception as e:
                             failed_requeue_count += 1
@@ -333,7 +340,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             else:
                 for _job_id, original_job in original_jobs.items():
                     try:
-                        _requeue_to_llm(original_job, llm_queue_url)
+                        _requeue_to_llm(original_job, retry_queue_url)
                         requeued += 1
                     except Exception as e:
                         failed_requeue_count += 1
@@ -390,7 +397,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                             error_message=record["error"].get("errorMessage"),
                         )
                         try:
-                            _requeue_to_llm(original_job, llm_queue_url)
+                            _requeue_to_llm(original_job, retry_queue_url)
                         except Exception as e:
                             failed_requeue_count += 1
                             logger.error(
@@ -419,15 +426,28 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     continue
 
                 try:
-                    _route_success(
-                        record_id=record_id,
-                        output=model_output,
-                        original_job=original_job,
-                        model_id=model_id,
-                        validator_queue_url=validator_queue_url,
-                        reconciler_queue_url=reconciler_queue_url,
-                        recorder_queue_url=recorder_queue_url,
-                    )
+                    if source == "submarine":
+                        from app.llm.queue.submarine_batch import (
+                            route_submarine_success,
+                        )
+
+                        route_submarine_success(
+                            record_id=record_id,
+                            output=model_output,
+                            original_record=original_job,
+                            model_id=model_id,
+                            reconciler_queue_url=reconciler_queue_url,
+                        )
+                    else:
+                        _route_success(
+                            record_id=record_id,
+                            output=model_output,
+                            original_job=original_job,
+                            model_id=model_id,
+                            validator_queue_url=validator_queue_url,
+                            reconciler_queue_url=reconciler_queue_url,
+                            recorder_queue_url=recorder_queue_url,
+                        )
                     processed += 1
                 except Exception as e:
                     errors += 1
@@ -439,7 +459,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     )
                     if original_job:
                         try:
-                            _requeue_to_llm(original_job, llm_queue_url)
+                            _requeue_to_llm(original_job, retry_queue_url)
                         except Exception as requeue_err:
                             failed_requeue_count += 1
                             logger.error(
@@ -465,7 +485,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 original_job = _get_original_job(missing_id)
                 if original_job:
                     try:
-                        _requeue_to_llm(original_job, llm_queue_url)
+                        _requeue_to_llm(original_job, retry_queue_url)
                         requeued += 1
                     except Exception as e:
                         partial_failed_requeue_count += 1

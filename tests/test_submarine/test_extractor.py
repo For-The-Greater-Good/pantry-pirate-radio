@@ -20,7 +20,7 @@ class TestSubmarineExtractor:
 
     def test_build_prompt_includes_missing_fields(self, extractor):
         """Prompt tells the LLM which fields to extract."""
-        prompt = extractor._build_prompt(
+        prompt = extractor.build_prompt(
             markdown="Some page content",
             missing_fields=["phone", "hours"],
         )
@@ -29,7 +29,7 @@ class TestSubmarineExtractor:
 
     def test_build_prompt_includes_content(self, extractor):
         """Prompt includes the crawled markdown content."""
-        prompt = extractor._build_prompt(
+        prompt = extractor.build_prompt(
             markdown="# Grace Community Church\nOpen Mon-Fri 9-5",
             missing_fields=["hours"],
         )
@@ -37,7 +37,7 @@ class TestSubmarineExtractor:
 
     def test_build_prompt_only_requested_fields(self, extractor):
         """Prompt only asks for fields that are actually missing."""
-        prompt = extractor._build_prompt(
+        prompt = extractor.build_prompt(
             markdown="Some content",
             missing_fields=["phone"],
         )
@@ -205,14 +205,14 @@ class TestSubmarineExtractor:
     def test_parse_response_markdown_code_block(self, extractor):
         """Response wrapped in ```json ... ``` code block is parsed correctly."""
         response_text = '```json\n{"phone": "(555) 123-4567"}\n```'
-        result = extractor._parse_response(response_text, ["phone"])
+        result = extractor.parse_response(response_text, ["phone"])
         assert result == {"phone": "(555) 123-4567"}
 
     def test_parse_response_non_dict_raises_error(self, extractor):
         """JSON array response raises ExtractionError (not a dict)."""
         response_text = '[{"phone": "555-1234"}]'
         with pytest.raises(ExtractionError, match="not a JSON object"):
-            extractor._parse_response(response_text, ["phone"])
+            extractor.parse_response(response_text, ["phone"])
 
     def test_parse_response_filters_to_requested_fields(self, extractor):
         """Only fields in missing_fields are included, even if LLM returns extra."""
@@ -223,7 +223,7 @@ class TestSubmarineExtractor:
                 "hours": [{"day": "Monday", "opens_at": "09:00", "closes_at": "17:00"}],
             }
         )
-        result = extractor._parse_response(response_text, ["phone"])
+        result = extractor.parse_response(response_text, ["phone"])
         assert result == {"phone": "(555) 999-0000"}
         assert "email" not in result
         assert "hours" not in result
@@ -245,7 +245,7 @@ class TestFoodRelevanceSignal:
                 "hours": None,
             }
         )
-        result = extractor._parse_response(response_text, ["phone"])
+        result = extractor.parse_response(response_text, ["phone"])
         assert result == {}
 
     def test_accepts_food_content_and_strips_flag(self, extractor):
@@ -256,7 +256,7 @@ class TestFoodRelevanceSignal:
                 "phone": "(555) 234-5678",
             }
         )
-        result = extractor._parse_response(response_text, ["phone"])
+        result = extractor.parse_response(response_text, ["phone"])
         assert result == {"phone": "(555) 234-5678"}
         assert "is_food_related" not in result
 
@@ -267,5 +267,5 @@ class TestFoodRelevanceSignal:
                 "phone": "(555) 111-2222",
             }
         )
-        result = extractor._parse_response(response_text, ["phone"])
+        result = extractor.parse_response(response_text, ["phone"])
         assert result == {"phone": "(555) 111-2222"}

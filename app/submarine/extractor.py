@@ -78,7 +78,7 @@ class SubmarineExtractor:
                 Callers should map this to status="error" (14-day cooldown),
                 not "no_data" (90-day cooldown).
         """
-        prompt = self._build_prompt(markdown, missing_fields)
+        prompt = self.build_prompt(markdown, missing_fields)
 
         config = GenerateConfig(
             temperature=0.1,  # Low temp for factual extraction
@@ -113,10 +113,10 @@ class SubmarineExtractor:
                 f"LLM response has no text attribute (type: {type(response).__name__})"
             )
 
-        return self._parse_response(response.text, missing_fields)  # type: ignore[union-attr]
+        return self.parse_response(response.text, missing_fields)  # type: ignore[union-attr]
 
     @staticmethod
-    def _build_prompt(markdown: str, missing_fields: list[str]) -> str:
+    def build_prompt(markdown: str, missing_fields: list[str]) -> str:
         """Build the extraction prompt for the LLM."""
         # Always include is_food_related alongside the requested fields
         all_fields = [*missing_fields, "is_food_related"]
@@ -136,7 +136,7 @@ class SubmarineExtractor:
         )
 
     @staticmethod
-    def _parse_response(
+    def parse_response(
         response_text: str, missing_fields: list[str]
     ) -> dict[str, Any]:
         """Parse the LLM JSON response, returning only non-null fields."""

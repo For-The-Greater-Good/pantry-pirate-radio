@@ -231,26 +231,50 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         {"mode": "batch"|"on-demand", ...}
     """
     # Validate required environment variables up front
+    # STAGING_QUEUE_URL and LLM_QUEUE_URL are only required for scraper source;
+    # submarine uses its own queue URLs from get_submarine_batcher_config().
     _required_env_vars = {
-        "STAGING_QUEUE_URL": os.environ.get("STAGING_QUEUE_URL", ""),
-        "LLM_QUEUE_URL": os.environ.get("LLM_QUEUE_URL", ""),
         "BATCH_BUCKET": os.environ.get("BATCH_BUCKET", ""),
         "BEDROCK_SERVICE_ROLE_ARN": os.environ.get("BEDROCK_SERVICE_ROLE_ARN", ""),
     }
-    missing = [name for name, val in _required_env_vars.items() if not val]
+    _scraper_env_vars = {
+        "STAGING_QUEUE_URL": os.environ.get("STAGING_QUEUE_URL", ""),
+        "LLM_QUEUE_URL": os.environ.get("LLM_QUEUE_URL", ""),
+    }
+    _required_env_vars.update(_scraper_env_vars)
+    source = event.get("source", "scraper")
+    check_vars = _required_env_vars if source != "submarine" else {
+        k: v for k, v in _required_env_vars.items()
+        if k not in ("STAGING_QUEUE_URL", "LLM_QUEUE_URL")
+    }
+    missing = [name for name, val in check_vars.items() if not val]
     if missing:
         raise ValueError(
             f"Missing required environment variables: {', '.join(sorted(missing))}"
         )
 
     execution_id = event.get("execution_id", "unknown")
+    source = event.get("source", "scraper")
+
     # Extract the UUID portion from the Step Functions ARN for S3-safe paths.
     # ARN format: arn:aws:states:...:execution:name:uuid
     s3_safe_id = (
         execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
     )
-    staging_queue_url = _required_env_vars["STAGING_QUEUE_URL"]
-    llm_queue_url = _required_env_vars["LLM_QUEUE_URL"]
+
+    # Source-specific queue routing
+    if source == "submarine":
+        from app.llm.queue.submarine_batch import get_submarine_batcher_config
+
+        sub_config = get_submarine_batcher_config()
+        staging_queue_url = sub_config["staging_queue_url"]
+        on_demand_queue_url = sub_config["on_demand_queue_url"]
+        job_name_prefix = sub_config["job_name_prefix"]
+    else:
+        staging_queue_url = _required_env_vars["STAGING_QUEUE_URL"]
+        on_demand_queue_url = _required_env_vars["LLM_QUEUE_URL"]
+        job_name_prefix = "ppr-batch"
+
     batch_bucket = _required_env_vars["BATCH_BUCKET"]
     model_id = os.environ.get(
         "BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -290,7 +314,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             return {"mode": "on-demand", "count": 0}
 
         if decision == "on-demand":
-            # Re-enqueue each job to LLM queue for Fargate processing.
+            # Re-enqueue each job to the appropriate on-demand queue.
             # Staging messages were already deleted during drain.
             succeeded = 0
             failed_count = 0
@@ -299,17 +323,24 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 for line in f:
                     record = json.loads(line)
                     try:
-                        job_data = record.get("job", {})
-                        scraper_id = job_data.get("metadata", {}).get(
-                            "scraper_id", "default"
-                        )
-                        send_to_sqs(
-                            queue_url=llm_queue_url,
-                            message_body=record,
-                            message_group_id=scraper_id,
-                            deduplication_id=record.get("job_id", ""),
-                            source="batcher-lambda",
-                        )
+                        if source == "submarine":
+                            from app.llm.queue.submarine_batch import (
+                                requeue_submarine_on_demand,
+                            )
+
+                            requeue_submarine_on_demand(record, on_demand_queue_url)
+                        else:
+                            job_data = record.get("job", {})
+                            scraper_id = job_data.get("metadata", {}).get(
+                                "scraper_id", "default"
+                            )
+                            send_to_sqs(
+                                queue_url=on_demand_queue_url,
+                                message_body=record,
+                                message_group_id=scraper_id,
+                                deduplication_id=record.get("job_id", ""),
+                                source="batcher-lambda",
+                            )
                         succeeded += 1
                     except Exception as e:
                         failed_count += 1
@@ -359,8 +390,22 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             with open(staging_file) as sf:
                 for line in sf:
                     record = json.loads(line)
-                    job_data = record.get("job", {})
-                    job_id = job_data.get("id", record.get("job_id", ""))
+
+                    if source == "submarine":
+                        from app.llm.queue.submarine_batch import (
+                            extract_submarine_record,
+                        )
+
+                        job_id, messages_body = extract_submarine_record(record)
+                    else:
+                        job_data = record.get("job", {})
+                        job_id = job_data.get("id", record.get("job_id", ""))
+                        messages_body = build_messages_api_request(
+                            prompt=job_data.get("prompt", ""),
+                            format_schema=job_data.get("format") or None,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                        )
 
                     if not job_id:
                         job_id = f"unknown-{uuid4()}"
@@ -369,13 +414,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                             generated_id=job_id,
                             record_keys=list(record.keys()),
                         )
-
-                    messages_body = build_messages_api_request(
-                        prompt=job_data.get("prompt", ""),
-                        format_schema=job_data.get("format") or None,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    )
 
                     jsonl_record = {
                         "recordId": job_id,
@@ -405,7 +443,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             # 5. Submit Bedrock batch job
             now = datetime.now(UTC)
-            job_name = f"ppr-batch-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
+            job_name = f"{job_name_prefix}-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
             # Job names must be <= 63 chars and match [a-zA-Z0-9][-a-zA-Z0-9]*
             job_name = job_name[:63]
 
@@ -460,6 +498,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     "input_key": {"S": input_key},
                     "output_key_prefix": {"S": output_key_prefix},
                     "original_jobs_key": {"S": original_jobs_key},
+                    "source": {"S": source},
                     "created_at": {"S": now.isoformat()},
                 },
             )

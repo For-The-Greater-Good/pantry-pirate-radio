@@ -141,6 +141,13 @@ def _process_job(
 
     result = asyncio.run(_process_async(job))
 
+    if result.status == SubmarineStatus.STAGED:
+        # Crawl succeeded, extraction staged for batch inference.
+        # DB status updated to "staged" — the batch result processor
+        # will update to success/error after extraction completes.
+        _update_location_status(job.location_id, result.status)
+        return None, job.location_id, result.status
+
     if result.status in (
         SubmarineStatus.NO_DATA,
         SubmarineStatus.ERROR,
@@ -246,7 +253,17 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
             },
         )
 
-    # --- Extract with LLM ---
+    crawl_metadata = {
+        "url": job.website_url,
+        "pages_crawled": crawl_result.pages_crawled,
+        "links_followed": crawl_result.links_followed,
+    }
+
+    # --- AWS batch path: stage for batch inference (50% cheaper) ---
+    if os.environ.get("QUEUE_BACKEND", "redis").lower() == "sqs":
+        return _stage_for_batch_extraction(job, crawl_result, crawl_metadata)
+
+    # --- Local/Redis path: extract inline ---
     provider = create_provider(
         provider_name=settings.LLM_PROVIDER,
         model_name=settings.LLM_MODEL_NAME,
@@ -265,11 +282,7 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
             job_id=job.id,
             location_id=job.location_id,
             status=SubmarineStatus.ERROR,
-            crawl_metadata={
-                "url": job.website_url,
-                "pages_crawled": crawl_result.pages_crawled,
-                "links_followed": crawl_result.links_followed,
-            },
+            crawl_metadata=crawl_metadata,
             error=f"LLM extraction failed: {e}",
         )
 
@@ -278,11 +291,7 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
             job_id=job.id,
             location_id=job.location_id,
             status=SubmarineStatus.NO_DATA,
-            crawl_metadata={
-                "url": job.website_url,
-                "pages_crawled": crawl_result.pages_crawled,
-                "links_followed": crawl_result.links_followed,
-            },
+            crawl_metadata=crawl_metadata,
         )
 
     status = (
@@ -296,11 +305,78 @@ async def _process_async(job: SubmarineJob) -> SubmarineResult:
         location_id=job.location_id,
         status=status,
         extracted_fields=extracted,
-        crawl_metadata={
-            "url": job.website_url,
-            "pages_crawled": crawl_result.pages_crawled,
-            "links_followed": crawl_result.links_followed,
-        },
+        crawl_metadata=crawl_metadata,
+    )
+
+
+def _stage_for_batch_extraction(
+    job: SubmarineJob,
+    crawl_result: Any,
+    crawl_metadata: dict[str, Any],
+) -> SubmarineResult:
+    """Stage crawled content for batch inference instead of extracting inline.
+
+    Builds the extraction prompt, creates a SubmarineStagingMessage, and
+    enqueues it to the submarine-staging queue. Returns a STAGED result
+    so the caller updates the DB accordingly.
+    """
+    from app.pipeline.sqs_sender import send_to_sqs
+    from app.submarine.extractor import (
+        EXTRACTION_SYSTEM_PROMPT,
+        SubmarineExtractor,
+    )
+    from app.submarine.staging import SubmarineStagingMessage
+
+    # Build the extraction prompt (same prompt the inline path would use)
+    user_prompt = SubmarineExtractor.build_prompt(
+        crawl_result.markdown, job.missing_fields
+    )
+    prompt = [
+        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    staging_msg = SubmarineStagingMessage(
+        job_id=job.id,
+        location_id=job.location_id,
+        submarine_job=job.model_dump(mode="json"),
+        prompt=prompt,
+        missing_fields=job.missing_fields,
+        crawl_metadata=crawl_metadata,
+    )
+
+    staging_queue_url = os.environ.get("SUBMARINE_STAGING_QUEUE_URL", "")
+    if not staging_queue_url:
+        logger.error("submarine_staging_queue_url_not_set", job_id=job.id)
+        return SubmarineResult(
+            job_id=job.id,
+            location_id=job.location_id,
+            status=SubmarineStatus.ERROR,
+            crawl_metadata=crawl_metadata,
+            error="SUBMARINE_STAGING_QUEUE_URL not set",
+        )
+
+    send_to_sqs(
+        queue_url=staging_queue_url,
+        message_body=staging_msg.model_dump(mode="json"),
+        message_group_id="submarine",
+        deduplication_id=job.id,
+        source="submarine-crawler",
+    )
+
+    logger.info(
+        "submarine_job_staged_for_batch",
+        job_id=job.id,
+        location_id=job.location_id,
+        missing_fields=job.missing_fields,
+        pages_crawled=crawl_metadata.get("pages_crawled", 0),
+    )
+
+    return SubmarineResult(
+        job_id=job.id,
+        location_id=job.location_id,
+        status=SubmarineStatus.STAGED,
+        crawl_metadata=crawl_metadata,
     )
 
 

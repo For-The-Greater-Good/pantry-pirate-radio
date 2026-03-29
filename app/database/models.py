@@ -142,6 +142,7 @@ class LocationModel(Base):
             "no_data",
             "error",
             "blocked",
+            "staged",
             name="submarine_status_enum",
         ),
         nullable=True,
