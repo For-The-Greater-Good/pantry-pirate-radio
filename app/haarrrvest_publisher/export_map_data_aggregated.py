@@ -181,6 +181,7 @@ class AggregatedMapDataExporter:
                     lp.phone_number as phone,
                     -- Source information
                     ls.scraper_id,
+                    ls.source_type,
                     ls.created_at as first_seen,
                     ls.updated_at as last_updated,
                     -- Additional data
@@ -264,6 +265,10 @@ class AggregatedMapDataExporter:
 
             for loc in group:
                 scraper_id = loc.get("scraper_id")
+                source_type = loc.get("source_type")
+                # Exclude submarine sources from corroboration counts
+                if source_type == "submarine":
+                    continue
                 if scraper_id and scraper_id not in scrapers_seen:
                     scrapers_seen.add(scraper_id)
 

@@ -92,7 +92,7 @@ class EnhancedMapDataExporter:
                     l.confidence_score,
                     l.validation_status,
                     l.is_canonical,
-                    COUNT(DISTINCT ls.scraper_id) as scraper_count
+                    COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as scraper_count
                 FROM location l
                 LEFT JOIN address a ON a.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id

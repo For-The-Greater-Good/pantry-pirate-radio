@@ -108,9 +108,7 @@ class TestExtractSystemPrompt:
             {"role": "user", "content": "Hello"},
         ]
         system = self.provider._extract_system_prompt(chat_input)
-        assert system == [
-            {"text": "You are helpful", "cacheControl": {"type": "ephemeral"}}
-        ]
+        assert system == [{"text": "You are helpful"}]
 
     def test_no_system_prompt(self):
         """Test when no system messages exist."""
@@ -358,9 +356,7 @@ class TestBuildConverseRequest:
             {"role": "user", "content": "Hello"},
         ]
         result = build_converse_request(prompt=prompt)
-        assert result["system"] == [
-            {"text": "You are helpful", "cacheControl": {"type": "ephemeral"}}
-        ]
+        assert result["system"] == [{"text": "You are helpful"}]
         assert len(result["messages"]) == 1
         assert result["messages"][0]["role"] == "user"
 

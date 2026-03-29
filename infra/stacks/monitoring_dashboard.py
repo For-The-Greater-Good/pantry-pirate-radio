@@ -137,6 +137,7 @@ def add_worker_section(
         "Validator": stack.validator_service_name,
         "Reconciler": stack.reconciler_service_name,
         "Recorder": stack.recorder_service_name,
+        "Submarine": stack.submarine_service_name,
     }
 
     cpu_metrics = [
@@ -415,6 +416,57 @@ def add_autoscaling_section(
             stack.recorder_service_name,
             stack.recorder_queue_name,
         ),
+        scaling_widget(
+            stack,
+            "Submarine Scaling",
+            stack.submarine_service_name,
+            stack.submarine_queue_name,
+        ),
+    )
+
+
+def add_submarine_section(
+    stack: MonitoringStack, db: cloudwatch.Dashboard
+) -> None:
+    """Section -- Submarine Enrichment performance from log-based metrics."""
+    ns = "PantryPirateRadio/Submarine"
+    p5 = Duration.minutes(5)
+    dims: dict = {}  # Metric filters don't use dimensions
+
+    started = metric(ns, "JobsStarted", dims, "Sum", p5)
+    completed = metric(ns, "JobsCompleted", dims, "Sum", p5)
+    no_data = metric(ns, "JobsNoData", dims, "Sum", p5)
+
+    db.add_widgets(section("Submarine Enrichment"))
+    db.add_widgets(
+        graph(
+            "Submarine Jobs",
+            [started, completed, no_data],
+        ),
+        graph(
+            "Submarine Success Rate",
+            [
+                cloudwatch.MathExpression(
+                    expression=(
+                        "IF(started > 0, 100 * completed / started, 0)"
+                    ),
+                    using_metrics={"started": started, "completed": completed},
+                    label="Success %",
+                    period=p5,
+                ),
+            ],
+        ),
+        graph(
+            "Submarine Errors",
+            [
+                metric(ns, "CrawlErrors", dims, "Sum", p5),
+                metric(ns, "ExtractionErrors", dims, "Sum", p5),
+            ],
+        ),
+        graph(
+            "Content Relevance Rejections",
+            [metric(ns, "ContentNotFoodRelated", dims, "Sum", p5)],
+        ),
     )
 
 
@@ -484,6 +536,7 @@ def build_dashboard(stack: MonitoringStack) -> cloudwatch.Dashboard:
     if stack.batcher_function_name and stack.result_processor_function_name:
         add_batch_inference_section(stack, db)
     add_geocoding_section(stack, db)
+    add_submarine_section(stack, db)
     add_autoscaling_section(stack, db)
     add_s3_section(stack, db)
 

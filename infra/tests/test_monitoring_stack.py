@@ -29,10 +29,10 @@ class TestMonitoringStackResources:
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        # 37 alarms without conditional params (no api_gateway_id, no batcher):
+        # 39 alarms without conditional params (no api_gateway_id, no batcher):
         # 30 original + 1 Lambda error rate % + 2 Aurora/Proxy connections + 4 S3 4xx/5xx
-        # (API Gateway 5xx/4xx are conditional on api_gateway_id)
-        template.resource_count_is("AWS::CloudWatch::Alarm", 37)
+        # + 2 submarine staging/extraction DLQ alarms
+        template.resource_count_is("AWS::CloudWatch::Alarm", 39)
 
     def test_sns_topic_has_name(self, template):
         template.has_resource_properties(
@@ -380,7 +380,7 @@ class TestMonitoringStackConfiguration:
             app_without, "NoLambdaAlarmStack", environment_name="dev"
         )
         tmpl_without = assertions.Template.from_stack(stack_without)
-        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 37)
+        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 39)
 
         app_with = cdk.App()
         stack_with = MonitoringStack(
@@ -391,8 +391,8 @@ class TestMonitoringStackConfiguration:
             result_processor_function_name="my-processor",
         )
         tmpl_with = assertions.Template.from_stack(stack_with)
-        # 37 base + 4 Lambda alarms (2 per function)
-        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 41)
+        # 39 base + 4 Lambda alarms (2 per function)
+        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 43)
 
     def test_batcher_lambda_error_alarm(self, app):
         stack = MonitoringStack(

@@ -75,7 +75,6 @@ def _extract_system_prompt(prompt: LLMInput) -> list[dict[str, Any]] | None:
             system_parts.append(
                 {
                     "text": msg.get("content", ""),
-                    "cacheControl": {"type": "ephemeral"},
                 }
             )
 

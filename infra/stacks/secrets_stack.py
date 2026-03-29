@@ -14,7 +14,7 @@ dependency issues with Aurora cluster credentials.
 
 import json
 
-from aws_cdk import RemovalPolicy, SecretValue, Stack
+from aws_cdk import CfnOutput, RemovalPolicy, SecretValue, Stack
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 from shared_config import SECRETS
@@ -37,7 +37,6 @@ class SecretsStack(Stack):
     Attributes:
         github_pat_secret: Secret for GitHub PAT
         llm_api_keys_secret: Secret for LLM provider API keys
-        tightbeam_api_keys_secret: (Deprecated) Retained for CloudFormation export stability
     """
 
     def __init__(
@@ -70,8 +69,19 @@ class SecretsStack(Stack):
         # Create secrets
         self.github_pat_secret = self._create_github_pat_secret(removal_policy)
         self.llm_api_keys_secret = self._create_llm_api_keys_secret(removal_policy)
+        # Tightbeam secret kept temporarily for CF export removal staging.
+        # Step 1: Deploy LambdaApiStack without the import (done in app.py).
+        # Step 2: Remove this secret after LambdaApiStack deploy succeeds.
         self.tightbeam_api_keys_secret = self._create_tightbeam_api_keys_secret(
             removal_policy
+        )
+        # Pin the CF export so CDK doesn't remove it while LambdaApiStack
+        # still imports it. Remove this output + the secret on next deploy.
+        CfnOutput(
+            self,
+            "TightbeamExportCompat",
+            value=self.tightbeam_api_keys_secret.secret_arn,
+            export_name=f"SecretsStack-{environment_name}:ExportsOutputRefTightbeamApiKeysSecretC47C8109CA1A3457",
         )
 
     def _create_github_pat_secret(
@@ -135,23 +145,16 @@ class SecretsStack(Stack):
     def _create_tightbeam_api_keys_secret(
         self, removal_policy: RemovalPolicy
     ) -> secretsmanager.Secret:
-        """Create secret for Tightbeam API keys.
+        """Create Tightbeam secret (staged for removal).
 
-        DEPRECATED: Tightbeam has been migrated to ppr-write-api plugin.
-        This secret is retained because LambdaApiStack references it as a
-        CloudFormation cross-stack export. Deleting it would fail the deploy.
-        Remove in a future PR after staged CF cleanup.
+        Kept temporarily so the CF export exists while LambdaApiStack
+        is updated to stop importing it. Remove after next deploy.
         """
-        value = SECRETS.get("TIGHTBEAM_API_KEYS", "")
-
         secret = secretsmanager.Secret(
             self,
             "TightbeamApiKeysSecret",
             secret_name=f"pantry-pirate-radio/tightbeam-api-keys-{self.environment_name}",
-            description=f"Tightbeam API keys for location management - {self.environment_name}",
-            secret_string_value=(
-                SecretValue.unsafe_plain_text(value) if value else None
-            ),
+            description=f"(Deprecated) Tightbeam API keys - {self.environment_name}",
             removal_policy=removal_policy,
         )
 

@@ -65,6 +65,9 @@ def add_sqs_queues_section(
         ("Validator", stack.validator_queue_name),
         ("Reconciler", stack.reconciler_queue_name),
         ("Recorder", stack.recorder_queue_name),
+        ("Submarine", stack.submarine_queue_name),
+        ("Sub Staging", stack.submarine_staging_queue_name),
+        ("Sub Extraction", stack.submarine_extraction_queue_name),
     ]
 
     db.add_widgets(section("SQS Queues"))
@@ -135,6 +138,9 @@ def add_pipeline_section(
         stack.validator_queue_name,
         stack.reconciler_queue_name,
         stack.recorder_queue_name,
+        stack.submarine_queue_name,
+        stack.submarine_staging_queue_name,
+        stack.submarine_extraction_queue_name,
     ]
     dlqs = [derive_dlq_name(q, env) for q in queues]
 

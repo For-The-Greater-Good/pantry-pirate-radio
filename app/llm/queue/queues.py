@@ -39,6 +39,7 @@ reconciler_queue = Queue(
     "reconciler", connection=redis.Redis(connection_pool=redis_pool)
 )
 recorder_queue = Queue("recorder", connection=redis.Redis(connection_pool=redis_pool))
+submarine_queue = Queue("submarine", connection=redis.Redis(connection_pool=redis_pool))
 
 # Export queue types for type hints
 QueueType = Queue

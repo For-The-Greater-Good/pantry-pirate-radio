@@ -27,8 +27,8 @@ class TestECRStackResources:
 
     def test_creates_ecr_repositories(self, template):
         """ECRStack should create ECR repositories for all services."""
-        # worker, validator, reconciler, publisher, recorder, scraper, app, api-lambda, batch-lambda
-        template.resource_count_is("AWS::ECR::Repository", 9)
+        # worker, validator, reconciler, publisher, recorder, scraper, app, api-lambda, batch-lambda, submarine
+        template.resource_count_is("AWS::ECR::Repository", 10)
 
     def test_worker_repository_exists(self, template):
         """Worker repository should be created."""
@@ -171,4 +171,5 @@ class TestECRStackAttributes:
         assert "app" in repos
         assert "api-lambda" in repos
         assert "batch-lambda" in repos
-        assert len(repos) == 9
+        assert "submarine" in repos
+        assert len(repos) == 10

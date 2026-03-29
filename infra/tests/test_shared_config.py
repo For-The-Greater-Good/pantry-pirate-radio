@@ -37,6 +37,14 @@ class TestSharedConfig:
             "GEOCODING_TIMEOUT",
             "CONTENT_STORE_ENABLED",
             "RECONCILER_LOCATION_TOLERANCE",
+            "SUBMARINE_ENABLED",
+            "SUBMARINE_CRAWL_TIMEOUT",
+            "SUBMARINE_MAX_PAGES_PER_SITE",
+            "SUBMARINE_MIN_CRAWL_DELAY",
+            "SUBMARINE_MAX_ATTEMPTS",
+            "SUBMARINE_COOLDOWN_SUCCESS_DAYS",
+            "SUBMARINE_COOLDOWN_NO_DATA_DAYS",
+            "SUBMARINE_COOLDOWN_ERROR_DAYS",
         }
         assert set(SHARED.keys()) == expected_keys
 

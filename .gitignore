@@ -35,8 +35,9 @@ ENV/
 *.swp
 *.swo
 
-# Claude settings (local configuration)
+# Claude settings and worktrees
 .claude/settings.local.json
+.claude/worktrees/
 
 # Environment variables
 .env

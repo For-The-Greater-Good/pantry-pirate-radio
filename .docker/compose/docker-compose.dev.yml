@@ -48,6 +48,13 @@ services:
       - DEBUG=1
       - PYTHONPATH=/app
 
+  submarine:
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=1
+      - PYTHONPATH=/app
+
   haarrrvest-publisher:
     volumes:
       - ../..:/app

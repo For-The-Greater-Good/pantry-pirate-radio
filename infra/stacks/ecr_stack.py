@@ -20,6 +20,7 @@ class ECRStack(Stack):
     - scraper: Web scraping tasks
     - app: API and db-init shared image
     - batch-lambda: Batch inference Lambda functions
+    - submarine: Web crawling enrichment worker
 
     Attributes:
         worker_repository: ECR repository for worker image
@@ -29,6 +30,7 @@ class ECRStack(Stack):
         recorder_repository: ECR repository for recorder image
         scraper_repository: ECR repository for scraper image
         app_repository: ECR repository for app/db-init image
+        submarine_repository: ECR repository for submarine image
         repositories: Dict of all repositories by name
     """
 
@@ -43,6 +45,7 @@ class ECRStack(Stack):
         "app",
         "api-lambda",
         "batch-lambda",
+        "submarine",
     ]
 
     def __init__(

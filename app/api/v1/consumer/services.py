@@ -58,7 +58,7 @@ class ConsumerLocationService:
                     l.longitude,
                     l.name,
                     l.confidence_score,
-                    COUNT(DISTINCT ls.scraper_id) as source_count,
+                    COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count,
                     EXISTS(
                         SELECT 1 FROM schedule s
                         JOIN service_at_location sal ON s.service_id = sal.service_id

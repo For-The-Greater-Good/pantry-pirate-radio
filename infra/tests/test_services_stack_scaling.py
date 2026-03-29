@@ -41,6 +41,7 @@ class TestServicesStackAutoScaling:
             validator_queue=queue_stack.validator_queue,
             reconciler_queue=queue_stack.reconciler_queue,
             recorder_queue=queue_stack.recorder_queue,
+            submarine_queue=queue_stack.submarine_queue,
         )
         return stack
 
@@ -49,18 +50,18 @@ class TestServicesStackAutoScaling:
         """Get CloudFormation template from stack with all scaling."""
         return assertions.Template.from_stack(stack_with_all_scaling)
 
-    def test_creates_three_scalable_targets(self, template_with_all_scaling):
-        """Auto-scaling should create 3 ScalableTargets (validator, reconciler, recorder)."""
+    def test_creates_four_scalable_targets(self, template_with_all_scaling):
+        """Auto-scaling should create 4 ScalableTargets (validator, reconciler, recorder, submarine)."""
         template_with_all_scaling.resource_count_is(
-            "AWS::ApplicationAutoScaling::ScalableTarget", 3
+            "AWS::ApplicationAutoScaling::ScalableTarget", 4
         )
 
-    def test_validator_max_capacity_is_two(self, template_with_all_scaling):
-        """Validator ScalableTarget should have max capacity of 2."""
+    def test_validator_max_capacity_is_four(self, template_with_all_scaling):
+        """Validator ScalableTarget should have max capacity of 4."""
         template_with_all_scaling.has_resource_properties(
             "AWS::ApplicationAutoScaling::ScalableTarget",
             {
-                "MaxCapacity": 2,
+                "MaxCapacity": 4,
                 "MinCapacity": 0,
                 "ScalableDimension": "ecs:service:DesiredCount",
             },
@@ -77,10 +78,10 @@ class TestServicesStackAutoScaling:
             },
         )
 
-    def test_creates_six_scaling_policies(self, template_with_all_scaling):
-        """Auto-scaling should create 6 scaling policies (2 per service)."""
+    def test_creates_eight_scaling_policies(self, template_with_all_scaling):
+        """Auto-scaling should create 8 scaling policies (2 per service x 4 services)."""
         template_with_all_scaling.resource_count_is(
-            "AWS::ApplicationAutoScaling::ScalingPolicy", 6
+            "AWS::ApplicationAutoScaling::ScalingPolicy", 8
         )
 
     def test_partial_config_only_validator(self, app, queue_stack):

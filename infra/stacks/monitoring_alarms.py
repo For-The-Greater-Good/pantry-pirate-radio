@@ -125,13 +125,15 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
         "SQS queue depth is high - jobs are backing up",
     )
 
-    # ── 4-5. DLQ alarms (LLM + staging + validator + reconciler + recorder)
+    # ── 4-5. DLQ alarms (LLM + staging + validator + reconciler + recorder + submarine)
     for cid, label, qname in [
         ("DLQAlarm", "dlq", stack.queue_name),
         ("StagingDLQAlarm", "staging-dlq", stack.staging_queue_name),
         ("ValidatorDLQAlarm", "validator-dlq", stack.validator_queue_name),
         ("ReconcilerDLQAlarm", "reconciler-dlq", stack.reconciler_queue_name),
         ("RecorderDLQAlarm", "recorder-dlq", stack.recorder_queue_name),
+        ("SubmarineStagingDLQAlarm", "submarine-staging-dlq", stack.submarine_staging_queue_name),
+        ("SubmarineExtractionDLQAlarm", "submarine-extraction-dlq", stack.submarine_extraction_queue_name),
     ]:
         dlq = _derive_dlq_name(qname, env)
         alarm(

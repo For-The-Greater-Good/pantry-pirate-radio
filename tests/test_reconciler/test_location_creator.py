@@ -545,6 +545,51 @@ def test_create_location_source_with_result(
         assert source_id == "returned-source-id"
 
 
+def test_create_location_source_with_submarine_type(
+    mock_db: MagicMock, test_location_data: Dict[str, Union[str, float]]
+) -> None:
+    """Test creating location source with source_type='submarine'."""
+    location_creator = LocationCreator(mock_db)
+    location_id = str(uuid.uuid4())
+
+    # Mock database result for INSERT...ON CONFLICT
+    result = MagicMock()
+    result.first.return_value = ["returned-source-id"]
+    mock_db.execute.return_value = result
+
+    # Mock version tracker
+    with patch(
+        "app.reconciler.location_creator.VersionTracker"
+    ) as mock_version_tracker:
+        mock_tracker_instance = MagicMock()
+        mock_version_tracker.return_value = mock_tracker_instance
+
+        source_id = location_creator.create_location_source(
+            location_id,
+            "submarine",
+            str(test_location_data["name"]),
+            str(test_location_data["description"]),
+            float(test_location_data["latitude"]),
+            float(test_location_data["longitude"]),
+            {"source": "submarine_crawl"},
+            source_type="submarine",
+        )
+
+        # Verify SQL execution
+        mock_db.execute.assert_called_once()
+        call_args = mock_db.execute.call_args
+        assert isinstance(call_args[0][0], TextClause)
+        # Verify source_type parameter is "submarine"
+        assert call_args[0][1]["source_type"] == "submarine"
+        assert call_args[0][1]["scraper_id"] == "submarine"
+        assert call_args[0][1]["location_id"] == location_id
+
+        # Verify commit and version were created
+        mock_db.commit.assert_called_once()
+        mock_tracker_instance.create_version.assert_called_once()
+        assert source_id == "returned-source-id"
+
+
 def test_create_address_missing_postal_code(mock_db: MagicMock) -> None:
     """Test creating address with missing postal code."""
     location_creator = LocationCreator(mock_db)
