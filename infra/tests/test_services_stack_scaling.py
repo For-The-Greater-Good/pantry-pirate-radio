@@ -41,6 +41,7 @@ class TestServicesStackAutoScaling:
             validator_queue=queue_stack.validator_queue,
             reconciler_queue=queue_stack.reconciler_queue,
             recorder_queue=queue_stack.recorder_queue,
+            submarine_queue=queue_stack.submarine_queue,
         )
         return stack
 
