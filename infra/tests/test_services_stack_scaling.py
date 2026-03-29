@@ -78,10 +78,10 @@ class TestServicesStackAutoScaling:
             },
         )
 
-    def test_creates_six_scaling_policies(self, template_with_all_scaling):
-        """Auto-scaling should create 6 scaling policies (2 per service)."""
+    def test_creates_eight_scaling_policies(self, template_with_all_scaling):
+        """Auto-scaling should create 8 scaling policies (2 per service x 4 services)."""
         template_with_all_scaling.resource_count_is(
-            "AWS::ApplicationAutoScaling::ScalingPolicy", 6
+            "AWS::ApplicationAutoScaling::ScalingPolicy", 8
         )
 
     def test_partial_config_only_validator(self, app, queue_stack):

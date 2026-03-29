@@ -101,7 +101,9 @@ class SubmarineLocationHandler:
 
         set_clause = ", ".join(set_clauses)
         # set_clauses are hardcoded column names, not user input
-        query = text(f"UPDATE location SET {set_clause} WHERE id=:id")  # noqa: S608  # nosec B608
+        query = text(
+            f"UPDATE location SET {set_clause} WHERE id=:id"  # noqa: S608  # nosec B608
+        )
 
         self.db.execute(query, params)
         self.db.commit()
