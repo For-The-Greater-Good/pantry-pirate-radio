@@ -92,15 +92,17 @@ infra/
 - **Validator Queue**: Data enrichment and confidence scoring (600s visibility)
 - **Reconciler Queue**: Canonical record creation (300s visibility)
 - **Recorder Queue**: Job result archiving (120s visibility)
-- **Submarine Queue**: Web crawl enrichment (600s visibility)
+- **Submarine Queue**: Web crawl jobs for Fargate crawlers (600s visibility)
+- **Submarine Staging Queue**: Crawled content awaiting batch extraction (300s visibility)
+- **Submarine Extraction Queue**: On-demand extraction fallback when <100 records (600s visibility)
 - **Dead Letter Queues**: One per main queue, 14-day retention
 
 ### BatchInferenceStack
 - **SQS Staging Queue**: FIFO queue for scraper output staging (300s visibility, DLQ)
 - **S3 Batch Bucket**: JSONL I/O for Bedrock batch jobs (7-day lifecycle)
 - **Bedrock Service Role**: IAM role trusting `bedrock.amazonaws.com` for batch jobs
-- **Batcher Lambda**: Drains staging queue, decides batch (>= 100 records) vs on-demand
-- **Result Processor Lambda**: Routes batch output downstream (validator/reconciler/recorder)
+- **Batcher Lambda**: Drains staging queue, decides batch (>= 100 records) vs on-demand. Also handles submarine source (`source="submarine"` param) for submarine batch extraction
+- **Result Processor Lambda**: Routes batch output downstream (validator/reconciler/recorder for scrapers, reconciler-only for submarine)
 - **EventBridge Rule**: Triggers result processor on `Batch Inference Job State Change`
 
 ### ComputeStack
@@ -134,7 +136,8 @@ Fargate services for pipeline stages:
 | Publisher | 256 | 512MB | 1 | (polls DB) |
 | Recorder | 256 | 512MB | 1-2 | recorder.fifo |
 | Scraper (task) | 512 | 1024MB | N/A | Step Functions |
-| Submarine | 512 | 1024MB | 0-2 | submarine.fifo |
+| Submarine (crawl) | 512 | 1024MB | 0-4 | submarine.fifo |
+| Submarine (extract) | 512 | 1024MB | 0-2 | submarine-extraction.fifo |
 
 ### PipelineStack
 - **Step Functions State Machine**: Scraper orchestration with Map state
@@ -143,9 +146,13 @@ Fargate services for pipeline stages:
 - **Retry/Catch**: 2 attempts with 60s backoff, failures recorded
 
 ### SubmarineStack
-- **Step Functions State Machine**: Submarine scan orchestration (weekly, disabled in dev)
-- **EventBridge Rule**: Weekly schedule for submarine scans
-- **IAM Role**: ECS runTask permissions for the state machine
+- **Step Functions State Machine**: Submarine scan + batch extraction orchestration
+  - `RunSubmarineScan` (ECS task) → `WaitForCrawlSoak` (30min) → `CheckCrawlersDone` (Lambda polls queue) → `RunBatcher` (Lambda, source="submarine") → `ScanComplete`
+  - Check-queue Lambda loops every 5min until submarine queue is empty
+  - Batcher decides: ≥100 records → Bedrock batch (50% off), <100 → on-demand extraction queue
+- **EventBridge Rule**: Weekly schedule (prod only, disabled in dev)
+- **Check-Queue Lambda**: Inline Python 3.12, checks SQS queue depth
+- **IAM Role**: ECS runTask + Lambda invoke permissions
 
 ### LambdaApiStack
 - **Lambda (DockerImageFunction)**: ARM64, 1024MB, 30s timeout, VPC private subnets, X-Ray tracing
@@ -231,7 +238,7 @@ StorageStack ─────┐
 QueueStack ───────┘        │          │                    └──► BastionStack (dev)
                            │          ├──► ServicesStack ──┐
                            │          │                    ├──► PipelineStack
-                           │          │                    ├──► SubmarineStack
+                           │          │                    ├──► SubmarineStack (also depends on BatchStack)
                            └──► BatchStack ────────────────┘
                                       │
                                       └──► DbInitStack

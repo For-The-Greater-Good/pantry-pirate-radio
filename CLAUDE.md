@@ -87,8 +87,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy submarine logs                          # Follow submarine worker logs
 
 # Submarine Commands (AWS)
-./bouy submarine --aws                         # Full scan via Step Functions
-./bouy submarine --aws --scraper NAME          # Filter by scraper (local only for now)
+./bouy submarine --aws                         # Full scan via Step Functions (scan → crawl → batch extract)
+./bouy submarine --aws --scraper NAME          # Filter by scraper
 
 # Service Management
 ./bouy build                # Build all services
@@ -643,7 +643,10 @@ Web Sources → Scrapers → Content Store → Redis Queue → LLM Workers
                                                            ↓
 PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
     ↓                          ↓
-    ├→ Submarine → Crawl websites → Content filter → LLM extract → Reconciler (enriched data)
+    ├→ Submarine:
+    │     Scanner → Crawl websites → Content filter → Staging Queue
+    │     → Batcher Lambda (≥100: Bedrock batch 50% off, <100: on-demand)
+    │     → Result Processor → Reconciler (enriched data)
     ├→ FastAPI → Clients  JSON Archives → HAARRRvest Repository
     │                                         ↓
     │                                   GitHub Pages → Public Access
@@ -673,7 +676,7 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
-- **Submarine**: Post-reconciler web crawling enrichment using crawl4ai to fill missing hours/phone/email/description. Includes content relevance filtering (keyword gate + LLM signal) to reject non-food-related content. Only updates fields that were actually missing (selective field update).
+- **Submarine**: Post-reconciler web crawling enrichment using crawl4ai to fill missing hours/phone/email/description. Two-phase architecture: crawl (Fargate, real-time) then extract (Bedrock batch inference at 50% cost, or on-demand fallback). Includes content relevance filtering (keyword gate + LLM signal). Only updates fields that were actually missing (selective field update). Weekly scanner via Step Functions (prod), manual via `./bouy submarine --aws` (dev).
 - **API**: Read-only HSDS v3.1.1 compliant REST endpoints
   - **AWS Deployment**: Lambda + API Gateway HTTP API (serverless, zero idle cost)
   - **Local Development**: Docker via `./bouy up` (unchanged, uses `app/main.py`)
@@ -793,11 +796,13 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 
 ### Scraper Submarine (PR #404)
 - **Post-Reconciler Enrichment**: Crawls food bank websites using crawl4ai to fill missing hours, phone, email, and description fields
+- **Two-Phase Architecture**: Crawl (Fargate, real-time) → Staging Queue → Batch Extract (Bedrock batch inference at 50% cost) or on-demand fallback (<100 records)
 - **Content Relevance Validation**: Two-tier filtering — keyword gate rejects non-food content before LLM extraction, LLM `is_food_related` signal provides secondary check
 - **Selective Field Updates**: Only overwrites fields that were actually missing at dispatch time; extracted data validated against canonical HSDS Pydantic models
 - **Schedule Persistence**: Hours extracted by submarine are persisted directly to location via `SubmarineLocationHandler`
-- **LLM Extraction**: Uses LLM to extract structured data from crawled web pages with RRULE-compliant byday normalization
-- **Step Functions Orchestration**: Weekly scans on AWS via Step Functions (disabled in dev)
+- **Batch Inference Integration**: Extends existing batcher Lambda with `source="submarine"` parameter (DRY). ≥100 records → Bedrock batch (50% off), <100 → on-demand extraction queue
+- **Step Functions Orchestration**: Weekly scans on AWS (prod). Scanner → Wait for crawlers → Batcher Lambda → Batch/on-demand extraction → Reconciler
+- **Adaptive Cooldown**: success=30d, no_data=90d, error=14d, staged=pending. Prevents re-crawling
 - **Scraper Filtering**: `--scraper NAME` flag to limit scans to locations from a specific scraper
 
 ### Data Validation Pipeline (Latest - Issues #362-#369)

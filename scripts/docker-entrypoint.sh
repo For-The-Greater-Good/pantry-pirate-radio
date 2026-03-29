@@ -63,6 +63,15 @@ case "$SERVICE" in
             exec rq worker submarine
         fi
         ;;
+
+    submarine-extraction)
+        echo "Starting submarine extraction worker..."
+        if [ "$QUEUE_BACKEND" = "sqs" ]; then
+            exec python -m app.submarine.extraction_worker
+        else
+            exec rq worker submarine-extraction
+        fi
+        ;;
     
     scraper)
         echo "Starting scraper service..."
