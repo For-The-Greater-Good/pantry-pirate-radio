@@ -47,6 +47,8 @@ class MonitoringStack(Stack):
         reconciler_queue_name: str | None = None,
         recorder_queue_name: str | None = None,
         submarine_queue_name: str | None = None,
+        submarine_staging_queue_name: str | None = None,
+        submarine_extraction_queue_name: str | None = None,
         jobs_table_name: str | None = None,
         bedrock_model_id: str | None = None,
         alert_email: str | None = None,
@@ -102,6 +104,14 @@ class MonitoringStack(Stack):
         )
         self.submarine_queue_name = (
             submarine_queue_name or f"pantry-pirate-radio-submarine-{env}.fifo"
+        )
+        self.submarine_staging_queue_name = (
+            submarine_staging_queue_name
+            or f"pantry-pirate-radio-submarine-staging-{env}.fifo"
+        )
+        self.submarine_extraction_queue_name = (
+            submarine_extraction_queue_name
+            or f"pantry-pirate-radio-submarine-extraction-{env}.fifo"
         )
         self.staging_queue_name = (
             staging_queue_name or f"pantry-pirate-radio-staging-{env}.fifo"

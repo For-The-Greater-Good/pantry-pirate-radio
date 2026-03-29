@@ -206,6 +206,8 @@ def get_submarine_environment(config: ServiceConfig) -> dict[str, str]:
         env["SUBMARINE_QUEUE_URL"] = config.queue_urls["submarine"]
     if config.queue_urls.get("reconciler"):
         env["RECONCILER_QUEUE_URL"] = config.queue_urls["reconciler"]
+    if config.queue_urls.get("submarine-staging"):
+        env["SUBMARINE_STAGING_QUEUE_URL"] = config.queue_urls["submarine-staging"]
     _warn_missing_required(
         "Submarine",
         {

@@ -5,6 +5,9 @@ Creates SQS queues for the data processing pipeline:
 - Validator queue: Data enrichment and confidence scoring
 - Reconciler queue: Canonical record creation
 - Recorder queue: Job result archiving
+- Submarine queue: Web crawl enrichment
+- Submarine Staging queue: Holds crawled content awaiting batch extraction
+- Submarine Extraction queue: On-demand LLM extraction fallback
 """
 
 from aws_cdk import Duration, Stack
@@ -21,6 +24,8 @@ class QueueStack(Stack):
     - Reconciler queue: DB writes (300s visibility)
     - Recorder queue: Archiving (300s visibility)
     - Submarine queue: Web crawl enrichment (600s visibility)
+    - Submarine Staging queue: Crawled content awaiting batch extraction (300s)
+    - Submarine Extraction queue: On-demand LLM extraction fallback (600s)
 
     Each queue has its own DLQ for failed message handling.
 
@@ -35,6 +40,10 @@ class QueueStack(Stack):
         recorder_dlq: Dead-letter queue for recorder failures
         submarine_queue: SQS FIFO queue for submarine crawl jobs
         submarine_dlq: Dead-letter queue for submarine failures
+        submarine_staging_queue: SQS FIFO queue for submarine batch staging
+        submarine_staging_dlq: Dead-letter queue for submarine staging failures
+        submarine_extraction_queue: SQS FIFO queue for submarine LLM extraction
+        submarine_extraction_dlq: Dead-letter queue for submarine extraction failures
     """
 
     def __init__(
@@ -99,6 +108,22 @@ class QueueStack(Stack):
             name="submarine",
             visibility_timeout_seconds=600,
             dlq=self.submarine_dlq,
+        )
+
+        # Create Submarine Staging queue (300s visibility — holds crawled content awaiting batch extraction)
+        self.submarine_staging_dlq = self._create_dlq("submarine-staging")
+        self.submarine_staging_queue = self._create_queue(
+            name="submarine-staging",
+            visibility_timeout_seconds=300,
+            dlq=self.submarine_staging_dlq,
+        )
+
+        # Create Submarine Extraction queue (600s visibility — on-demand LLM extraction fallback)
+        self.submarine_extraction_dlq = self._create_dlq("submarine-extraction")
+        self.submarine_extraction_queue = self._create_queue(
+            name="submarine-extraction",
+            visibility_timeout_seconds=600,
+            dlq=self.submarine_extraction_dlq,
         )
 
         # Backwards compatibility alias
@@ -182,4 +207,6 @@ class QueueStack(Stack):
             "reconciler": self.reconciler_queue.queue_url,
             "recorder": self.recorder_queue.queue_url,
             "submarine": self.submarine_queue.queue_url,
+            "submarine-staging": self.submarine_staging_queue.queue_url,
+            "submarine-extraction": self.submarine_extraction_queue.queue_url,
         }
