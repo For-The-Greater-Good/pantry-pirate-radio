@@ -8,6 +8,8 @@ Alarm definitions are implemented in monitoring_alarms.py.
 """
 
 from aws_cdk import Stack
+from aws_cdk import aws_cloudwatch as cloudwatch
+from aws_cdk import aws_logs as logs
 from aws_cdk import aws_sns as sns
 from constructs import Construct
 
@@ -150,10 +152,46 @@ class MonitoringStack(Stack):
             place_index_name or f"pantry-pirate-radio-geocoding-{env}"
         )
 
+        # Submarine log-based metrics
+        self._create_submarine_metric_filters(env)
+
         # Create SNS topic, dashboard, and alarms via extracted modules
         self.alerts_topic = self._create_alerts_topic(alert_email)
         self.dashboard = build_dashboard(self)
         create_alarms(self)
+
+    def _create_submarine_metric_filters(self, env: str) -> None:
+        """Create CloudWatch metric filters on submarine log events.
+
+        Extracts operational metrics from structured log events emitted by
+        the submarine worker, enabling dashboard graphs without code changes.
+        """
+        ns = "PantryPirateRadio/Submarine"
+        log_group = logs.LogGroup.from_log_group_name(
+            self,
+            "SubmarineLogGroup",
+            f"/ecs/pantry-pirate-radio/submarine-{env}",
+        )
+
+        filters = {
+            "JobsStarted": "submarine_job_started",
+            "JobsCompleted": "submarine_job_completed",
+            "JobsNoData": "submarine_job_no_useful_data",
+            "ContentNotFoodRelated": "submarine_content_not_food_related",
+            "CrawlErrors": "submarine_crawl_error",
+            "ExtractionErrors": "submarine_extraction_failed",
+        }
+        for metric_name, pattern in filters.items():
+            logs.MetricFilter(
+                self,
+                f"Submarine{metric_name}Filter",
+                log_group=log_group,
+                filter_pattern=logs.FilterPattern.literal(pattern),
+                metric_namespace=ns,
+                metric_name=metric_name,
+                metric_value="1",
+                default_value=0,
+            )
 
     def _create_alerts_topic(self, alert_email: str | None) -> sns.Topic:
         topic = sns.Topic(
