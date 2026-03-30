@@ -66,11 +66,7 @@ class TestProcessSubmarineJob:
         assert result is None
         mock_update.assert_called_once_with("loc-123", "error")
 
-    @patch("app.submarine.worker._update_location_status")
-    @patch("app.submarine.worker._process_job")
-    def test_returns_job_result_for_success(
-        self, mock_process_job, mock_update, sample_job_data
-    ):
+    def test_returns_job_result_for_success(self, sample_job_data):
         """Worker returns JobResult dict when extraction succeeds."""
         from app.submarine.worker import process_submarine_job
 
@@ -79,9 +75,15 @@ class TestProcessSubmarineJob:
             "status": "completed",
             "job": {"metadata": {"scraper_id": "submarine", "location_id": "loc-123"}},
         }
-        mock_process_job.return_value = (mock_result, "loc-123", "success")
 
-        result = process_submarine_job(sample_job_data)
+        with (
+            patch(
+                "app.submarine.worker._process_job",
+                return_value=(mock_result, "loc-123", "success"),
+            ),
+            patch("app.submarine.worker._update_location_status") as mock_update,
+        ):
+            result = process_submarine_job(sample_job_data)
 
         assert result is not None
         assert result["job"]["metadata"]["scraper_id"] == "submarine"
@@ -89,18 +91,20 @@ class TestProcessSubmarineJob:
         assert result["status"] == "completed"
         mock_update.assert_called_once_with("loc-123", "success")
 
-    @patch("app.submarine.worker._update_location_status")
-    @patch("app.submarine.worker._process_job")
-    def test_returns_job_result_for_partial(
-        self, mock_process_job, mock_update, sample_job_data
-    ):
+    def test_returns_job_result_for_partial(self, sample_job_data):
         """Worker returns JobResult for partial extraction."""
         from app.submarine.worker import process_submarine_job
 
         mock_result = {"job_id": "submarine-sub-001", "status": "completed"}
-        mock_process_job.return_value = (mock_result, "loc-123", "partial")
 
-        result = process_submarine_job(sample_job_data)
+        with (
+            patch(
+                "app.submarine.worker._process_job",
+                return_value=(mock_result, "loc-123", "partial"),
+            ),
+            patch("app.submarine.worker._update_location_status") as mock_update,
+        ):
+            result = process_submarine_job(sample_job_data)
 
         assert result is not None
         mock_update.assert_called_once_with("loc-123", "partial")
