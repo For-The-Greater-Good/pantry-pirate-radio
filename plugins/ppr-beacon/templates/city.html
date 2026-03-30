@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+<script type="application/ld+json">{{ jsonld_breadcrumbs }}</script>
+{% endblock %}
+
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  <a href="{{ base_url }}">Home</a>
+  <span>/</span>
+  <a href="{{ base_url }}/{{ state | lower }}">{{ state_full }}</a>
+  <span>/</span>
+  {{ city }}
+</nav>
+
+<div class="page-hero">
+  <h1>Food Pantries in {{ city }}, {{ state }}</h1>
+  <p class="count">{{ locations | length }} verified location{{ 's' if locations | length != 1 }}</p>
+</div>
+
+<div class="listing-grid">
+  {% for loc in locations %}
+  <div class="location-card">
+    <h3><a href="{{ loc.url }}">{{ loc.name }}</a></h3>
+    {% if loc.organization_name %}
+    <p class="org-name">{{ loc.organization_name }}</p>
+    {% endif %}
+    {% if loc.address_1 %}
+    <p class="address">{{ loc.address_1 }}, {{ loc.city }}, {{ loc.state }} {{ loc.postal_code }}</p>
+    {% endif %}
+    {% if loc.phone %}
+    <p class="phone"><a href="{{ loc.phone | tel_url }}" data-track="call">{{ loc.phone | format_phone }}</a></p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-hero">
+  <h1>Find a Food Pantry</h1>
+  <p class="subtitle">Verified locations across the United States</p>
+  <p class="count">{{ total_locations }} food pantries and counting</p>
+</div>
+
+<div class="state-grid">
+  {% for state in states %}
+  <a href="{{ base_url }}/{{ state.slug }}" class="state-card">
+    <h3>{{ state.name }}</h3>
+    <p class="count">{{ state.count }} location{{ 's' if state.count != 1 }} in {{ state.cities }} cit{{ 'ies' if state.cities != 1 else 'y' }}</p>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="cta-section">
+  <h2>Need help finding food?</h2>
+  <p>Download the Plentiful app to find food pantries near you and reserve visits.</p>
+  <a href="https://plentiful.org" class="btn btn-primary">Get Plentiful</a>
+</div>
+{% endblock %}

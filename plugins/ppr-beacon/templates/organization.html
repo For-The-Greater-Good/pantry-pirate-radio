@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+<script type="application/ld+json">{{ jsonld_org }}</script>
+<script type="application/ld+json">{{ jsonld_breadcrumbs }}</script>
+{% endblock %}
+
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  <a href="{{ base_url }}">Home</a>
+  <span>/</span>
+  {{ org.name }}
+</nav>
+
+<div class="page-hero">
+  <h1>{{ org.name }}</h1>
+  {% if org.description %}
+  <p class="subtitle">{{ org.description }}</p>
+  {% endif %}
+  <p class="count">{{ org.locations | length }} verified location{{ 's' if org.locations | length != 1 }}</p>
+</div>
+
+{% if org.email or org.website %}
+<div class="card" style="margin-bottom: 2.4rem;">
+  {% if org.website %}
+  <a href="{{ org.website }}" class="btn btn-white btn-sm" target="_blank" rel="noopener">Website</a>
+  {% endif %}
+  {% if org.email %}
+  <a href="mailto:{{ org.email }}" class="btn btn-white btn-sm">Email</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="listing-grid">
+  {% for loc in org.locations %}
+  <div class="location-card">
+    <h3><a href="{{ loc.url }}">{{ loc.name }}</a></h3>
+    {% if loc.address_1 %}
+    <p class="address">{{ loc.address_1 }}, {{ loc.city }}, {{ loc.state }} {{ loc.postal_code }}</p>
+    {% endif %}
+    {% if loc.phone %}
+    <p class="phone"><a href="{{ loc.phone | tel_url }}" data-track="call">{{ loc.phone | format_phone }}</a></p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

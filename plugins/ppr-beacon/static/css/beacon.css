@@ -1,0 +1,262 @@
+/* ppr-beacon — Plentiful design system (plain CSS, no build step)
+   Fonts: Noto Sans (400,700) + Noto Serif (400,italic)
+   Brand: green #00CD96, black #0F0F0F, white #FFFFFF
+   Base: 62.5% = 10px, all sizing in rem */
+
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 62.5%; -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  font-family: 'Noto Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.4rem;
+  line-height: 1.5;
+  color: #0F0F0F;
+  background: #00CD96;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { max-width: 100%; height: auto; display: block; }
+h1, h2, h3, h4 { font-family: 'Noto Serif', Georgia, serif; letter-spacing: -0.02em; }
+
+/* ===== Fonts ===== */
+@font-face {
+  font-family: 'Noto Sans';
+  src: url('../fonts/NotoSans-Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans';
+  src: url('../fonts/NotoSans-Bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Serif';
+  src: url('../fonts/NotoSerif-Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Serif';
+  src: url('../fonts/NotoSerif-Italic.woff2') format('woff2');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+
+/* ===== Layout ===== */
+.page-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.container {
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 0 2.4rem;
+}
+main {
+  flex: 1;
+  margin-top: 4.8rem;
+  margin-bottom: 7.2rem;
+}
+
+/* ===== Header ===== */
+.site-header {
+  padding: 2rem 0;
+}
+.site-header .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.site-logo {
+  font-family: 'Noto Serif', serif;
+  font-size: 2.4rem;
+  font-weight: 400;
+  color: #0F0F0F;
+}
+.site-logo span { color: #FFFFFF; }
+
+/* ===== Footer ===== */
+.site-footer {
+  background: #FFFFFF;
+  padding: 4.8rem 0 3.2rem;
+  border-radius: 1.6rem 1.6rem 0 0;
+}
+.footer-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.6rem;
+}
+.footer-text { color: #696969; font-size: 1.2rem; }
+.footer-link { color: #0F0F0F; font-weight: 700; }
+
+/* ===== Breadcrumbs ===== */
+.breadcrumbs {
+  font-size: 1.2rem;
+  color: #696969;
+  margin-bottom: 2.4rem;
+}
+.breadcrumbs a { color: #0F0F0F; font-weight: 700; }
+.breadcrumbs span { margin: 0 0.8rem; }
+
+/* ===== Cards ===== */
+.card {
+  background: #FFFFFF;
+  border-radius: 1.6rem;
+  padding: 3.2rem;
+}
+.card + .card { margin-top: 1.6rem; }
+.card h2 { font-size: 2.4rem; margin-bottom: 0.8rem; }
+.card h3 { font-size: 1.8rem; margin-bottom: 0.8rem; }
+
+/* ===== Buttons ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1.2rem 2.4rem;
+  border: 2px solid #0F0F0F;
+  border-radius: 9999px;
+  font-family: 'Noto Sans', sans-serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  text-decoration: none;
+  background: transparent;
+  color: #0F0F0F;
+}
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 0 #0F0F0F;
+  text-decoration: none;
+}
+.btn-primary { background: #00CD96; }
+.btn-white { background: #FFFFFF; }
+.btn-sm { padding: 0.8rem 1.6rem; font-size: 1.2rem; }
+
+/* ===== Trust Badge ===== */
+.trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 1.2rem;
+  border-radius: 9999px;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+.trust-badge--source { background: #00CD96; color: #0F0F0F; }
+.trust-badge--admin { background: #3BD1FF; color: #0F0F0F; }
+
+/* ===== Location Detail ===== */
+.location-header { margin-bottom: 3.2rem; }
+.location-header h1 { font-size: 3rem; margin-bottom: 0.4rem; }
+.location-org { color: #696969; font-size: 1.6rem; }
+.location-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.6rem;
+  margin-top: 1.6rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.6rem;
+}
+
+.contact-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.2rem;
+  padding: 1.2rem 0;
+  border-bottom: 1px solid #EFEFEF;
+}
+.contact-item:last-child { border-bottom: none; }
+.contact-label { color: #696969; font-size: 1.2rem; min-width: 8rem; }
+.contact-value { font-size: 1.4rem; }
+.contact-value a { color: #008763; font-weight: 700; }
+
+/* Hours table */
+.hours-table { width: 100%; border-collapse: collapse; }
+.hours-table td { padding: 0.8rem 0; border-bottom: 1px solid #EFEFEF; }
+.hours-table td:first-child { font-weight: 700; width: 12rem; }
+
+/* Description */
+.description { font-size: 1.6rem; line-height: 1.6; color: #696969; }
+
+/* ===== Listing Pages ===== */
+.page-hero {
+  margin-bottom: 4rem;
+}
+.page-hero h1 { font-size: 4rem; margin-bottom: 0.8rem; }
+.page-hero .subtitle { font-size: 1.8rem; color: #696969; }
+.page-hero .count { font-size: 1.4rem; color: #696969; margin-top: 0.8rem; }
+
+.listing-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.6rem;
+}
+
+.location-card {
+  background: #FFFFFF;
+  border-radius: 1.6rem;
+  padding: 2.4rem;
+  transition: transform 0.15s;
+}
+.location-card:hover { transform: translateY(-2px); }
+.location-card h3 { font-size: 1.8rem; margin-bottom: 0.4rem; }
+.location-card h3 a { color: #0F0F0F; }
+.location-card .org-name { color: #696969; font-size: 1.2rem; }
+.location-card .address { margin-top: 0.8rem; color: #696969; }
+.location-card .phone { margin-top: 0.4rem; }
+.location-card .phone a { color: #008763; font-weight: 700; }
+
+/* State/city cards */
+.state-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 1.6rem;
+}
+.state-card, .city-card {
+  background: #FFFFFF;
+  border-radius: 1.6rem;
+  padding: 2rem;
+  transition: transform 0.15s;
+}
+.state-card:hover, .city-card:hover { transform: translateY(-2px); }
+.state-card h3, .city-card h3 { font-size: 1.8rem; }
+.state-card .count, .city-card .count { color: #696969; font-size: 1.2rem; }
+
+/* ===== CTA Section ===== */
+.cta-section {
+  background: #FFFFFF;
+  border-radius: 1.6rem;
+  padding: 4rem 3.2rem;
+  text-align: center;
+  margin-top: 4rem;
+}
+.cta-section h2 { font-size: 2.4rem; margin-bottom: 1.2rem; }
+.cta-section p { color: #696969; margin-bottom: 2rem; }
+
+/* ===== Responsive ===== */
+@media (min-width: 768px) {
+  .container { padding: 0 4.2rem; }
+  main { margin-top: 6.4rem; margin-bottom: 9.6rem; }
+  .detail-grid { grid-template-columns: 1fr 1fr; }
+  .page-hero h1 { font-size: 5.4rem; }
+  .location-header h1 { font-size: 4rem; }
+}
+
+@media (min-width: 1024px) {
+  .listing-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (min-width: 1280px) {
+  .container { padding: 0 7.2rem; }
+  main { margin-top: 7.2rem; margin-bottom: 16rem; }
+  .detail-grid { grid-template-columns: 2fr 1fr; }
+  .listing-grid { grid-template-columns: repeat(3, 1fr); }
+}
