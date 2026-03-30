@@ -230,6 +230,11 @@ main {
 .state-card h3, .city-card h3 { font-size: 1.8rem; }
 .state-card .count, .city-card .count { color: #696969; font-size: 1.2rem; }
 
+/* ===== Utility classes ===== */
+.card--mt { margin-top: 1.6rem; }
+.btn--full { width: 100%; justify-content: center; }
+.btn--full + .btn--full { margin-top: 1.2rem; }
+
 /* ===== CTA Section ===== */
 .cta-section {
   background: #FFFFFF;

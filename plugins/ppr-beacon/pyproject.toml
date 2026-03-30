@@ -29,7 +29,7 @@ line-length = 88
 
 [tool.ruff]
 line-length = 88
-select = ["E", "F", "I", "B", "S", "UP"]
+select = ["E", "F", "I", "C90", "N", "B", "S", "RUF", "UP"]
 
 [tool.mypy]
 python_version = "3.12"

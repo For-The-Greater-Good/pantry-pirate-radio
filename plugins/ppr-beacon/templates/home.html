@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block head_extra %}
+<script type="application/ld+json">{{ jsonld_breadcrumbs }}</script>
+{% endblock %}
+
 {% block content %}
 <div class="page-hero">
   <h1>Find a Food Pantry</h1>

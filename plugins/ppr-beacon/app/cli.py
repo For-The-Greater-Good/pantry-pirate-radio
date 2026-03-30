@@ -53,16 +53,19 @@ def _cmd_build(args: argparse.Namespace) -> None:
     if args.location:
         path = builder.build_location(args.location)
         if path:
-            print(f"Built: {path}")
+            log.info("build_single_complete", path=path)
         else:
-            print(f"Location {args.location} not found or not eligible")
+            log.error("location_not_eligible", location_id=args.location)
             sys.exit(1)
     else:
         stats = builder.build_all()
-        print(
-            f"Build complete: {stats.locations} locations, "
-            f"{stats.cities} cities, {stats.states} states, "
-            f"{stats.orgs} orgs ({stats.pages_total} total pages)"
+        log.info(
+            "build_complete",
+            locations=stats.locations,
+            cities=stats.cities,
+            states=stats.states,
+            orgs=stats.orgs,
+            total_pages=stats.pages_total,
         )
 
 
@@ -72,19 +75,18 @@ def _cmd_status() -> None:
     output = Path(config.output_dir)
 
     if not output.exists():
-        print("No build output found. Run 'beacon build' first.")
+        log.warning("no_build_output", output_dir=str(output))
         return
 
     html_files = list(output.rglob("*.html"))
     sitemap = output / "sitemap.xml"
 
-    print(f"Output directory: {output}")
-    print(f"HTML pages: {len(html_files)}")
-    print(f"Sitemap: {'exists' if sitemap.exists() else 'missing'}")
-
-    if html_files:
-        newest = max(html_files, key=lambda f: f.stat().st_mtime)
-        print(f"Last modified: {newest.name}")
+    log.info(
+        "build_status",
+        output_dir=str(output),
+        html_pages=len(html_files),
+        sitemap_exists=sitemap.exists(),
+    )
 
 
 if __name__ == "__main__":

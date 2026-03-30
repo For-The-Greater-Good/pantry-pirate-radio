@@ -20,6 +20,9 @@
   <meta name="twitter:description" content="{{ page_description }}">
 
   <link rel="stylesheet" href="{{ base_url }}/static/css/beacon.css">
+  {% if analytics_endpoint %}
+  <meta name="beacon-analytics" content="{{ analytics_endpoint }}">
+  {% endif %}
   {% block head_extra %}{% endblock %}
 </head>
 <body>

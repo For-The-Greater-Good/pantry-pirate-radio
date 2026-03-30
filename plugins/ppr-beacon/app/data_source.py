@@ -77,8 +77,8 @@ def get_location_detail(
             "LEFT JOIN organization o ON l.organization_id = o.id "
             "LEFT JOIN address a ON a.location_id = l.id "
             "AND a.address_type = 'physical' "
-            "WHERE l.id = %s",
-            (location_id,),
+            f"WHERE l.id = %s AND {_QUALITY_GATE}",  # noqa: S608
+            (location_id, config.min_confidence),
         )
         row = cur.fetchone()
         if not row:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any
+from urllib.parse import quote
 
 import structlog
 from jinja2 import Environment, FileSystemLoader
@@ -33,6 +34,7 @@ class BeaconRenderer:
             autoescape=True,
         )
         self._register_filters()
+        self._register_globals()
 
     def _register_filters(self) -> None:
         """Register custom Jinja2 filters."""
@@ -43,6 +45,15 @@ class BeaconRenderer:
         self.env.filters["tel_url"] = _tel_url
         self.env.filters["trust_badge"] = _trust_badge
 
+    def _register_globals(self) -> None:
+        """Register global functions available in all templates."""
+        from .slug import city_slug as _city_slug
+        from .slug import state_slug as _state_slug
+
+        self.env.globals["state_slug"] = _state_slug
+        self.env.globals["city_slug"] = _city_slug
+        self.env.globals["state_full_name"] = state_full_name
+
     def _common_ctx(self) -> dict[str, Any]:
         """Common template context."""
         return {
@@ -52,16 +63,22 @@ class BeaconRenderer:
 
     def render_location(self, location: LocationDetail) -> str:
         """Render a location detail page."""
+        from .slug import city_slug, state_slug
+
+        st_slug = state_slug(location.state or "")
+        ct_slug = city_slug(location.city or "")
+        st_full = state_full_name(location.state or "")
         crumbs = [
             ("Home", self.base_url),
-            (state_full_name(location.state or ""), f"{self.base_url}/{location.state}"),
-            (location.city or "", f"{self.base_url}/{location.state}/{location.city}"),
+            (st_full, f"{self.base_url}/{st_slug}"),
+            (location.city or "", f"{self.base_url}/{st_slug}/{ct_slug}"),
             (location.name, location.url),
         ]
         template = self.env.get_template("location.html")
         return template.render(
             **self._common_ctx(),
             location=location,
+            state_full=st_full,
             jsonld_location=build_location_jsonld(location),
             jsonld_breadcrumbs=build_breadcrumbs(crumbs),
             page_title=f"{location.name} | Food Pantry in {location.city}, {location.state}",
@@ -130,11 +147,13 @@ class BeaconRenderer:
 
     def render_home(self, states: list[dict[str, Any]], total_locations: int) -> str:
         """Render the homepage."""
+        crumbs = [("Home", self.base_url)]
         template = self.env.get_template("home.html")
         return template.render(
             **self._common_ctx(),
             states=states,
             total_locations=total_locations,
+            jsonld_breadcrumbs=build_breadcrumbs(crumbs),
             page_title="Find a Food Pantry Near You | Plentiful",
             page_description=(
                 f"Search {total_locations} verified food pantries across the US. "
@@ -219,7 +238,7 @@ def _maps_url(location: Any) -> str:
     if hasattr(location, "postal_code") and location.postal_code:
         parts.append(location.postal_code)
     query = ", ".join(parts)
-    return f"https://www.google.com/maps/dir/?api=1&destination={query}"
+    return f"https://www.google.com/maps/dir/?api=1&destination={quote(query)}"
 
 
 def _trust_badge(location: Any) -> str:

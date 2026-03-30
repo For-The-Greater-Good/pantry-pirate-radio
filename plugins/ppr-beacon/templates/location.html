@@ -9,9 +9,9 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb">
   <a href="{{ base_url }}">Home</a>
   <span>/</span>
-  <a href="{{ base_url }}/{{ location.state | lower }}">{{ location.state }}</a>
+  <a href="{{ base_url }}/{{ state_slug(location.state or '') }}">{{ state_full }}</a>
   <span>/</span>
-  <a href="{{ base_url }}/{{ location.state | lower }}/{{ location.city | lower | replace(' ', '-') }}">{{ location.city }}</a>
+  <a href="{{ base_url }}/{{ state_slug(location.state or '') }}/{{ city_slug(location.city or '') }}">{{ location.city }}</a>
   <span>/</span>
   {{ location.name }}
 </nav>
@@ -77,7 +77,7 @@
 
       <!-- Hours -->
       {% if location.schedules %}
-      <div class="card" style="margin-top: 1.6rem;">
+      <div class="card card--mt">
         <h2>Hours</h2>
         <table class="hours-table">
           {% for sched in location.schedules %}
@@ -92,7 +92,7 @@
 
       <!-- Description -->
       {% if location.description %}
-      <div class="card" style="margin-top: 1.6rem;">
+      <div class="card card--mt">
         <h2>About</h2>
         <p class="description">{{ location.description }}</p>
       </div>
@@ -103,12 +103,12 @@
       <!-- Actions -->
       <div class="card">
         {% if location.address_1 %}
-        <a href="{{ location | maps_url }}" class="btn btn-primary" target="_blank" rel="noopener" data-track="directions" style="width:100%;justify-content:center;margin-bottom:1.2rem;">
+        <a href="{{ location | maps_url }}" class="btn btn-primary btn--full" target="_blank" rel="noopener" data-track="directions">
           Get Directions
         </a>
         {% endif %}
         {% if location.phones %}
-        <a href="{{ location.phones[0].number | tel_url }}" class="btn btn-white" data-track="call" style="width:100%;justify-content:center;">
+        <a href="{{ location.phones[0].number | tel_url }}" class="btn btn-white btn--full" data-track="call">
           Call {{ location.phones[0].number | format_phone }}
         </a>
         {% endif %}
@@ -116,7 +116,7 @@
 
       <!-- Languages -->
       {% if location.languages %}
-      <div class="card" style="margin-top: 1.6rem;">
+      <div class="card card--mt">
         <h3>Languages</h3>
         <p>{{ location.languages | map(attribute='name') | join(', ') }}</p>
       </div>
@@ -124,7 +124,7 @@
 
       <!-- Accessibility -->
       {% if location.accessibility %}
-      <div class="card" style="margin-top: 1.6rem;">
+      <div class="card card--mt">
         <h3>Accessibility</h3>
         {% if location.accessibility.description %}
         <p>{{ location.accessibility.description }}</p>
@@ -137,7 +137,7 @@
 
       <!-- Transportation -->
       {% if location.transportation %}
-      <div class="card" style="margin-top: 1.6rem;">
+      <div class="card card--mt">
         <h3>Transportation</h3>
         <p class="description">{{ location.transportation }}</p>
       </div>

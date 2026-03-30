@@ -18,7 +18,7 @@
 
 <div class="state-grid">
   {% for city in cities %}
-  <a href="{{ base_url }}/{{ state | lower }}/{{ city.slug }}" class="city-card">
+  <a href="{{ base_url }}/{{ state_slug(state) }}/{{ city.slug }}" class="city-card">
     <h3>{{ city.name }}</h3>
     <p class="count">{{ city.count }} location{{ 's' if city.count != 1 }}</p>
   </a>
