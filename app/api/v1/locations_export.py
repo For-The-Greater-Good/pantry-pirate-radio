@@ -159,7 +159,7 @@ async def export_simple_locations(
                     )
                     ORDER BY ls.updated_at DESC
                 ) as sources,
-                COUNT(DISTINCT ls.scraper_id) as source_count
+                COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count
             FROM location_source ls
             LEFT JOIN location l2 ON l2.id = ls.location_id
             LEFT JOIN organization o2 ON o2.id = l2.organization_id

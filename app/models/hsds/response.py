@@ -134,6 +134,15 @@ class BaseResponse(HSDSBaseModel):
     )
 
 
+class PhoneInfo(BaseModel):
+    """Phone information for a location, service, or organization."""
+
+    number: str = Field(..., description="Phone number")
+    type: str = Field("voice", description="Phone type (voice, fax, tty)")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ScheduleInfo(BaseModel):
     """Schedule information for a location or service."""
 

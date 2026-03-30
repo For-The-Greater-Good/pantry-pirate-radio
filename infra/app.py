@@ -34,6 +34,7 @@ from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
 from stacks.pipeline_stack import PipelineStack
 from stacks.queue_stack import QueueStack
+from stacks.submarine_stack import SubmarineStack
 from stacks.secrets_stack import SecretsStack
 from stacks.services_stack import ServiceConfig, ServicesStack
 from stacks.storage_stack import StorageStack
@@ -154,6 +155,8 @@ batch_stack = BatchInferenceStack(
     vpc=compute_stack.vpc,
     bedrock_model_id=bedrock_model_id,
     ecr_repository=ecr_stack.repositories.get("batch-lambda"),
+    submarine_staging_queue=queue_stack.submarine_staging_queue,
+    submarine_extraction_queue=queue_stack.submarine_extraction_queue,
     env=env,
     description=f"Pantry Pirate Radio batch inference infrastructure ({environment_name})",
 )
@@ -236,10 +239,6 @@ lambda_api_stack = LambdaApiStack(
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,
     ecr_repository=ecr_stack.repositories.get("api-lambda"),
-    # Retained for CloudFormation export stability: LambdaApiStack imports
-    # tightbeam_api_keys_secret from SecretsStack. Removing it here would
-    # delete the CF export and fail the deploy. Clean up after staged removal.
-    tightbeam_api_keys_secret=secrets_stack.tightbeam_api_keys_secret,
     memory_size=1024,
     timeout_seconds=30,
     provisioned_concurrent=None,
@@ -250,6 +249,27 @@ lambda_api_stack.add_dependency(compute_stack)
 lambda_api_stack.add_dependency(database_stack)
 lambda_api_stack.add_dependency(ecr_stack)
 lambda_api_stack.grant_database_access(database_stack.proxy_security_group)
+
+# Submarine Stack - Step Functions for web crawling enrichment
+submarine_stack = SubmarineStack(
+    app,
+    f"SubmarineStack-{environment_name}",
+    environment_name=environment_name,
+    cluster_arn=compute_stack.cluster.cluster_arn,
+    subnet_ids=[s.subnet_id for s in compute_stack.vpc.private_subnets],
+    scanner_task_family=services_stack.submarine_scanner_task_definition.family,
+    scanner_container_name="SubmarineScannerContainer",
+    scanner_security_group_id=services_stack.submarine_security_group.security_group_id,
+    submarine_queue_url=queue_stack.submarine_queue.queue_url,
+    batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
+    schedule_enabled=(environment_name == "prod"),
+    env=env,
+    description=f"Pantry Pirate Radio submarine enrichment ({environment_name})",
+)
+submarine_stack.add_dependency(compute_stack)
+submarine_stack.add_dependency(queue_stack)
+submarine_stack.add_dependency(services_stack)
+submarine_stack.add_dependency(batch_stack)
 
 # Monitoring Stack - CloudWatch dashboards and alarms
 monitoring_stack = MonitoringStack(
@@ -270,6 +290,9 @@ monitoring_stack = MonitoringStack(
     content_bucket_name=storage_stack.content_bucket.bucket_name,
     batch_bucket_name=batch_stack.batch_bucket.bucket_name,
     exports_bucket_name=storage_stack.exports_bucket.bucket_name,
+    submarine_queue_name=queue_stack.submarine_queue.queue_name,
+    submarine_staging_queue_name=queue_stack.submarine_staging_queue.queue_name,
+    submarine_extraction_queue_name=queue_stack.submarine_extraction_queue.queue_name,
     place_index_name=database_stack.place_index.index_name,
     rds_proxy_name=f"pantry-pirate-radio-proxy-{environment_name}",
     env=env,
@@ -376,6 +399,38 @@ queue_stack.recorder_queue.grant_consume_messages(services_stack.recorder_task_r
 storage_stack.content_bucket.grant_read_write(services_stack.recorder_task_role)
 storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_task_role)
 
+# Submarine permissions:
+# - Consume from submarine queue, send to reconciler queue
+# - Read database credentials
+# - Invoke Bedrock models (for LLM extraction)
+queue_stack.submarine_queue.grant_consume_messages(services_stack.submarine_task_role)
+queue_stack.reconciler_queue.grant_send_messages(services_stack.submarine_task_role)
+database_stack.database_credentials_secret.grant_read(services_stack.submarine_task_role)
+services_stack.submarine_task_role.add_to_policy(
+    iam.PolicyStatement(
+        effect=iam.Effect.ALLOW,
+        actions=["bedrock:InvokeModel"],
+        resources=[
+            "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+            f"arn:aws:bedrock:{region}:{account}:inference-profile/us.anthropic.*",
+        ],
+    )
+)
+
+# Reconciler also needs to send to submarine queue (for dispatching)
+queue_stack.submarine_queue.grant_send_messages(services_stack.reconciler_task_role)
+
+# Submarine scanner needs to send to submarine queue (scan -> enqueue jobs)
+queue_stack.submarine_queue.grant_send_messages(
+    services_stack.submarine_scanner_task_definition.task_role
+)
+database_stack.database_credentials_secret.grant_read(
+    services_stack.submarine_scanner_task_definition.task_role
+)
+
+# Submarine worker: send to submarine staging queue (crawled content for batch extraction)
+queue_stack.submarine_staging_queue.grant_send_messages(services_stack.submarine_task_role)
+
 # Scraper permissions:
 # - Send messages to LLM queue and staging queue (batch inference)
 # - Read/write content bucket and content index table
@@ -400,6 +455,7 @@ services_stack.configure_auto_scaling(
     validator_queue=queue_stack.validator_queue,
     reconciler_queue=queue_stack.reconciler_queue,
     recorder_queue=queue_stack.recorder_queue,
+    submarine_queue=queue_stack.submarine_queue,
 )
 
 # Add stack dependencies (deployment order)

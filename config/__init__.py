@@ -37,6 +37,14 @@ def _hardcoded_defaults() -> dict[str, Any]:
         "GEOCODING_TIMEOUT": 10,
         "CONTENT_STORE_ENABLED": True,
         "RECONCILER_LOCATION_TOLERANCE": 0.0001,
+        "SUBMARINE_ENABLED": True,
+        "SUBMARINE_CRAWL_TIMEOUT": 30,
+        "SUBMARINE_MAX_PAGES_PER_SITE": 3,
+        "SUBMARINE_MIN_CRAWL_DELAY": 5,
+        "SUBMARINE_MAX_ATTEMPTS": 3,
+        "SUBMARINE_COOLDOWN_SUCCESS_DAYS": 30,
+        "SUBMARINE_COOLDOWN_NO_DATA_DAYS": 90,
+        "SUBMARINE_COOLDOWN_ERROR_DAYS": 14,
     }
 
 
@@ -58,6 +66,14 @@ _KEY_MAP: dict[str, str] = {
     "geocoding.timeout": "GEOCODING_TIMEOUT",
     "content_store.enabled": "CONTENT_STORE_ENABLED",
     "reconciler.location_tolerance": "RECONCILER_LOCATION_TOLERANCE",
+    "submarine.enabled": "SUBMARINE_ENABLED",
+    "submarine.crawl_timeout": "SUBMARINE_CRAWL_TIMEOUT",
+    "submarine.max_pages_per_site": "SUBMARINE_MAX_PAGES_PER_SITE",
+    "submarine.min_crawl_delay": "SUBMARINE_MIN_CRAWL_DELAY",
+    "submarine.max_attempts": "SUBMARINE_MAX_ATTEMPTS",
+    "submarine.cooldown_success_days": "SUBMARINE_COOLDOWN_SUCCESS_DAYS",
+    "submarine.cooldown_no_data_days": "SUBMARINE_COOLDOWN_NO_DATA_DAYS",
+    "submarine.cooldown_error_days": "SUBMARINE_COOLDOWN_ERROR_DAYS",
 }
 
 

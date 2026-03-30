@@ -79,6 +79,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy scraper --aws --status EXEC_ARN # Check specific execution status
 ./bouy scraper --aws --logs            # Tail AWS scraper CloudWatch logs
 
+# Submarine Commands (Local)
+./bouy submarine scan                          # Scan all locations with gaps
+./bouy submarine scan --scraper NAME           # Filter to one scraper
+./bouy submarine scan --scraper NAME --limit 5 # Controlled rollout
+./bouy submarine status                        # Show crawl counts
+./bouy submarine logs                          # Follow submarine worker logs
+
+# Submarine Commands (AWS)
+./bouy submarine --aws                         # Full scan via Step Functions (scan → crawl → batch extract)
+./bouy submarine --aws --scraper NAME          # Filter by scraper
+
 # Service Management
 ./bouy build                # Build all services
 ./bouy build app            # Build specific service
@@ -167,6 +178,11 @@ DATA_REPO_TOKEN=github_pat_xxx  # GitHub PAT with repo access
 # Content Store
 CONTENT_STORE_PATH=/path/to/content-store
 CONTENT_STORE_BACKEND=file  # Backend type: "file" (default) or "s3" (AWS deployment)
+
+# Submarine Enrichment
+SUBMARINE_ENABLED=false  # Enable/disable submarine enrichment (default: false)
+SUBMARINE_CRAWL_TIMEOUT=30  # Crawl timeout in seconds
+SUBMARINE_MAX_PAGES_PER_SITE=3  # Max pages to crawl per site
 
 # Lambda API (set automatically in AWS, not needed locally)
 AWS_LAMBDA_FUNCTION_NAME=  # Auto-set by Lambda runtime; triggers Lambda-optimized behavior
@@ -627,6 +643,10 @@ Web Sources → Scrapers → Content Store → Redis Queue → LLM Workers
                                                            ↓
 PostgreSQL ← Reconciler ← Job Creation ← Enrichment & Quality Control
     ↓                          ↓
+    ├→ Submarine:
+    │     Scanner → Crawl websites → Content filter → Staging Queue
+    │     → Batcher Lambda (≥100: Bedrock batch 50% off, <100: on-demand)
+    │     → Result Processor → Reconciler (enriched data)
     ├→ FastAPI → Clients  JSON Archives → HAARRRvest Repository
     │                                         ↓
     │                                   GitHub Pages → Public Access
@@ -656,6 +676,7 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
+- **Submarine**: Post-reconciler web crawling enrichment using crawl4ai to fill missing hours/phone/email/description. Two-phase architecture: crawl (Fargate, real-time) then extract (Bedrock batch inference at 50% cost, or on-demand fallback). Includes content relevance filtering (keyword gate + LLM signal). Only updates fields that were actually missing (selective field update). Weekly scanner via Step Functions (prod), manual via `./bouy submarine --aws` (dev).
 - **API**: Read-only HSDS v3.1.1 compliant REST endpoints
   - **AWS Deployment**: Lambda + API Gateway HTTP API (serverless, zero idle cost)
   - **Local Development**: Docker via `./bouy up` (unchanged, uses `app/main.py`)
@@ -772,6 +793,17 @@ Plugins extend Pantry Pirate Radio with additional commands, compose overlays, a
 Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stacks[]` entries and added to the CDK app with dependencies on compute and secrets stacks.
 
 ## Recent Updates and Features
+
+### Scraper Submarine (PR #404)
+- **Post-Reconciler Enrichment**: Crawls food bank websites using crawl4ai to fill missing hours, phone, email, and description fields
+- **Two-Phase Architecture**: Crawl (Fargate, real-time) → Staging Queue → Batch Extract (Bedrock batch inference at 50% cost) or on-demand fallback (<100 records)
+- **Content Relevance Validation**: Two-tier filtering — keyword gate rejects non-food content before LLM extraction, LLM `is_food_related` signal provides secondary check
+- **Selective Field Updates**: Only overwrites fields that were actually missing at dispatch time; extracted data validated against canonical HSDS Pydantic models
+- **Schedule Persistence**: Hours extracted by submarine are persisted directly to location via `SubmarineLocationHandler`
+- **Batch Inference Integration**: Extends existing batcher Lambda with `source="submarine"` parameter (DRY). ≥100 records → Bedrock batch (50% off), <100 → on-demand extraction queue
+- **Step Functions Orchestration**: Weekly scans on AWS (prod). Scanner → Wait for crawlers → Batcher Lambda → Batch/on-demand extraction → Reconciler
+- **Adaptive Cooldown**: success=30d, no_data=90d, error=14d, staged=pending. Prevents re-crawling
+- **Scraper Filtering**: `--scraper NAME` flag to limit scans to locations from a specific scraper
 
 ### Data Validation Pipeline (Latest - Issues #362-#369)
 - **Confidence Scoring System**: Build-up model — base score of 60, bonuses for data completeness (address +5, description +3, geocoder quality +5, phone/hours/website +3 each). Hard cap at 90 for scraped data; 100 reserved for human corrections via Write API (ppr-write-api).

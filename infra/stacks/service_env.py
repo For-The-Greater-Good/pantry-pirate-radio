@@ -98,6 +98,7 @@ def get_reconciler_environment(config: ServiceConfig) -> dict[str, str]:
     """Get environment variables for the Reconciler service."""
     env: dict[str, str] = {
         "QUEUE_BACKEND": "sqs",
+        "SUBMARINE_ENABLED": "true",
     }
     if config.database_host:
         env["DATABASE_HOST"] = config.database_host
@@ -109,6 +110,8 @@ def get_reconciler_environment(config: ServiceConfig) -> dict[str, str]:
         env["RECONCILER_QUEUE_URL"] = config.queue_urls["reconciler"]
     if config.queue_urls.get("recorder"):
         env["RECORDER_QUEUE_URL"] = config.queue_urls["recorder"]
+    if config.queue_urls.get("submarine"):
+        env["SUBMARINE_QUEUE_URL"] = config.queue_urls["submarine"]
     _warn_missing_required(
         "Reconciler",
         {
@@ -184,6 +187,49 @@ def get_recorder_secrets(config: ServiceConfig) -> dict[str, ecs.Secret]:
     """Get secrets for the Recorder service."""
     # Recorder doesn't need any secrets
     return {}
+
+
+def get_submarine_environment(config: ServiceConfig) -> dict[str, str]:
+    """Get environment variables for the Submarine service."""
+    env: dict[str, str] = {
+        "QUEUE_BACKEND": "sqs",
+        "LLM_PROVIDER": "bedrock",
+        "LLM_MODEL_NAME": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    }
+    if config.database_host:
+        env["DATABASE_HOST"] = config.database_host
+    if config.database_name:
+        env["DATABASE_NAME"] = config.database_name
+    if config.database_user:
+        env["DATABASE_USER"] = config.database_user
+    if config.queue_urls.get("submarine"):
+        env["SUBMARINE_QUEUE_URL"] = config.queue_urls["submarine"]
+    if config.queue_urls.get("reconciler"):
+        env["RECONCILER_QUEUE_URL"] = config.queue_urls["reconciler"]
+    if config.queue_urls.get("submarine-staging"):
+        env["SUBMARINE_STAGING_QUEUE_URL"] = config.queue_urls["submarine-staging"]
+    _warn_missing_required(
+        "Submarine",
+        {
+            "SUBMARINE_QUEUE_URL": config.queue_urls.get("submarine", ""),
+            "RECONCILER_QUEUE_URL": config.queue_urls.get("reconciler", ""),
+        },
+    )
+    return env
+
+
+def get_submarine_secrets(config: ServiceConfig) -> dict[str, ecs.Secret]:
+    """Get secrets for the Submarine service.
+
+    Note: No ANTHROPIC_API_KEY needed — submarine uses Bedrock (IAM-based)
+    for LLM extraction, not the Anthropic API directly.
+    """
+    secrets: dict[str, ecs.Secret] = {}
+    if config.database_secret:
+        secrets["DATABASE_PASSWORD"] = ecs.Secret.from_secrets_manager(
+            config.database_secret, "password"
+        )
+    return secrets
 
 
 def get_scraper_environment(

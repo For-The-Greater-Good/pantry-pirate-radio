@@ -40,6 +40,14 @@ if _SHARED is None:
         "GEOCODING_TIMEOUT": 10,
         "CONTENT_STORE_ENABLED": True,
         "RECONCILER_LOCATION_TOLERANCE": 0.0001,
+        "SUBMARINE_ENABLED": True,
+        "SUBMARINE_CRAWL_TIMEOUT": 30,
+        "SUBMARINE_MAX_PAGES_PER_SITE": 3,
+        "SUBMARINE_MIN_CRAWL_DELAY": 5,
+        "SUBMARINE_MAX_ATTEMPTS": 3,
+        "SUBMARINE_COOLDOWN_SUCCESS_DAYS": 30,
+        "SUBMARINE_COOLDOWN_NO_DATA_DAYS": 90,
+        "SUBMARINE_COOLDOWN_ERROR_DAYS": 14,
     }
 
 
@@ -198,6 +206,28 @@ class Settings(BaseSettings):
             },
         },
         description="Per-provider configuration for timeouts, retries, and circuit breaker settings",
+    )
+
+    # Submarine Settings
+    SUBMARINE_ENABLED: bool = _SHARED["SUBMARINE_ENABLED"]
+    SUBMARINE_CRAWL_TIMEOUT: int = Field(
+        default=_SHARED["SUBMARINE_CRAWL_TIMEOUT"], ge=1
+    )
+    SUBMARINE_MAX_PAGES_PER_SITE: int = Field(
+        default=_SHARED["SUBMARINE_MAX_PAGES_PER_SITE"], ge=1, le=10
+    )
+    SUBMARINE_MIN_CRAWL_DELAY: int = Field(
+        default=_SHARED["SUBMARINE_MIN_CRAWL_DELAY"], ge=0
+    )
+    SUBMARINE_MAX_ATTEMPTS: int = Field(default=_SHARED["SUBMARINE_MAX_ATTEMPTS"], ge=1)
+    SUBMARINE_COOLDOWN_SUCCESS_DAYS: int = Field(
+        default=_SHARED["SUBMARINE_COOLDOWN_SUCCESS_DAYS"], ge=0
+    )
+    SUBMARINE_COOLDOWN_NO_DATA_DAYS: int = Field(
+        default=_SHARED["SUBMARINE_COOLDOWN_NO_DATA_DAYS"], ge=0
+    )
+    SUBMARINE_COOLDOWN_ERROR_DAYS: int = Field(
+        default=_SHARED["SUBMARINE_COOLDOWN_ERROR_DAYS"], ge=0
     )
 
     model_config = SettingsConfigDict(

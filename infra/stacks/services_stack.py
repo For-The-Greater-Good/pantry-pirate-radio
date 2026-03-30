@@ -27,6 +27,8 @@ from stacks.service_env import (
     get_recorder_secrets,
     get_scraper_environment,
     get_scraper_secrets,
+    get_submarine_environment,
+    get_submarine_secrets,
     get_validator_environment,
     get_validator_secrets,
 )
@@ -76,6 +78,7 @@ class ServicesStack(Stack):
     - Validator: Data enrichment and confidence scoring (1-5 instances)
     - Reconciler: Canonical record creation (single instance only)
     - Recorder: Job result archiving (1-2 instances)
+    - Submarine: Web crawling enrichment (0-2 instances)
 
     Also creates task definitions for:
     - Publisher: SQLite export to S3 (daily EventBridge schedule)
@@ -85,6 +88,7 @@ class ServicesStack(Stack):
         validator_service: Validator Fargate service
         reconciler_service: Reconciler Fargate service
         recorder_service: Recorder Fargate service
+        submarine_service: Submarine Fargate service
         publisher_task_definition: Publisher task definition for scheduled export
         scraper_task_definition: Scraper task definition for one-shot tasks
     """
@@ -185,6 +189,29 @@ class ServicesStack(Stack):
             )
         )
 
+        (
+            self.submarine_service,
+            self.submarine_security_group,
+            self.submarine_task_role,
+        ) = self._create_service(
+            name="submarine",
+            cpu=512,
+            memory_mib=1024,  # crawl4ai + Chromium needs memory
+            desired_count=1,
+            log_retention=log_retention,
+            cluster=cluster,
+            vpc=vpc,
+            environment=get_submarine_environment(self.config),
+            secrets=get_submarine_secrets(self.config),
+            command=["python", "-m", "app.submarine.fargate_worker"],
+        )
+
+        # Create submarine scanner task definition (one-shot, triggered by Step Functions)
+        # Reuses the submarine image and security group for DB access
+        self.submarine_scanner_task_definition = self._create_submarine_scanner_task_definition(
+            log_retention=log_retention,
+        )
+
         # Create scraper task definition (one-shot, triggered by Step Functions)
         (
             self.scraper_task_definition,
@@ -216,6 +243,7 @@ class ServicesStack(Stack):
             "Reconciler": self.reconciler_security_group,
             "Publisher": self.publisher_security_group,
             "Recorder": self.recorder_security_group,
+            "Submarine": self.submarine_security_group,
             "Scraper": self.scraper_security_group,
         }
         for name, sg in service_sgs.items():
@@ -235,6 +263,7 @@ class ServicesStack(Stack):
         validator_queue: sqs.IQueue | None = None,
         reconciler_queue: sqs.IQueue | None = None,
         recorder_queue: sqs.IQueue | None = None,
+        submarine_queue: sqs.IQueue | None = None,
     ) -> None:
         """Configure SQS queue-depth-driven auto-scaling for pipeline services.
 
@@ -242,9 +271,10 @@ class ServicesStack(Stack):
         Pass only the queues for services you want to auto-scale.
 
         Args:
-            validator_queue: SQS queue for validator scaling (0-2 instances)
+            validator_queue: SQS queue for validator scaling (0-4 instances)
             reconciler_queue: SQS queue for reconciler scaling (0-1 instance)
-            recorder_queue: SQS queue for recorder scaling (0-2 instances)
+            recorder_queue: SQS queue for recorder scaling (0-4 instances)
+            submarine_queue: SQS queue for submarine scaling (0-4 instances)
         """
         if validator_queue:
             self._configure_service_scaling(
@@ -252,11 +282,12 @@ class ServicesStack(Stack):
                 queue=validator_queue,
                 name="Validator",
                 min_capacity=0,
-                max_capacity=2,
+                max_capacity=4,
                 scaling_steps=[
                     appscaling.ScalingInterval(upper=0, change=-1),
                     appscaling.ScalingInterval(lower=0, upper=10, change=1),
-                    appscaling.ScalingInterval(lower=10, change=2),
+                    appscaling.ScalingInterval(lower=10, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, change=3),
                 ],
             )
 
@@ -279,11 +310,28 @@ class ServicesStack(Stack):
                 queue=recorder_queue,
                 name="Recorder",
                 min_capacity=0,
-                max_capacity=2,
+                max_capacity=4,
                 scaling_steps=[
                     appscaling.ScalingInterval(upper=0, change=-1),
                     appscaling.ScalingInterval(lower=0, upper=20, change=1),
-                    appscaling.ScalingInterval(lower=20, change=2),
+                    appscaling.ScalingInterval(lower=20, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, change=3),
+                ],
+            )
+
+        if submarine_queue:
+            self._configure_service_scaling(
+                service=self.submarine_service,
+                queue=submarine_queue,
+                name="Submarine",
+                min_capacity=0,
+                max_capacity=20,
+                scaling_steps=[
+                    appscaling.ScalingInterval(upper=0, change=-1),
+                    appscaling.ScalingInterval(lower=0, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, upper=200, change=5),
+                    appscaling.ScalingInterval(lower=200, upper=1000, change=10),
+                    appscaling.ScalingInterval(lower=1000, change=15),
                 ],
             )
 
@@ -465,6 +513,67 @@ class ServicesStack(Stack):
         )
 
         return task_definition, security_group, task_definition.task_role
+
+    def _create_submarine_scanner_task_definition(
+        self,
+        log_retention: logs.RetentionDays,
+    ) -> ecs.FargateTaskDefinition:
+        """Create task definition for submarine scanner one-shot tasks.
+
+        Reuses the submarine ECR image and env vars. The scanner needs DB
+        access (to query locations) and SQS access (to dispatch jobs), both
+        of which the submarine service already has.
+
+        Returns:
+            Fargate task definition for the scanner ECS task
+        """
+        log_group = logs.LogGroup(
+            self,
+            "SubmarineScannerLogGroup",
+            log_group_name=f"/ecs/pantry-pirate-radio/submarine-scanner-{self.environment_name}",
+            retention=log_retention,
+            removal_policy=(
+                RemovalPolicy.RETAIN
+                if self.environment_name == "prod"
+                else RemovalPolicy.DESTROY
+            ),
+        )
+
+        task_definition = ecs.FargateTaskDefinition(
+            self,
+            "SubmarineScannerTaskDef",
+            cpu=512,
+            memory_limit_mib=1024,
+            family=f"pantry-pirate-radio-submarine-scanner-{self.environment_name}",
+        )
+
+        scanner_env = get_submarine_environment(self.config)
+        scanner_env["PYTHONUNBUFFERED"] = "1"
+        scanner_secrets = get_submarine_secrets(self.config)
+
+        if "submarine" in self.ecr_repositories:
+            image = ecs.ContainerImage.from_ecr_repository(
+                self.ecr_repositories["submarine"], tag="latest"
+            )
+        else:
+            ecr_image = (
+                f"{Stack.of(self).account}.dkr.ecr.{Stack.of(self).region}.amazonaws.com/"
+                f"pantry-pirate-radio-submarine-{self.environment_name}:latest"
+            )
+            image = ecs.ContainerImage.from_registry(ecr_image)
+
+        task_definition.add_container(
+            "SubmarineScannerContainer",
+            image=image,
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="submarine-scanner",
+                log_group=log_group,
+            ),
+            environment=scanner_env,
+            secrets=scanner_secrets,
+        )
+
+        return task_definition
 
     def _create_scraper_task_definition(
         self,

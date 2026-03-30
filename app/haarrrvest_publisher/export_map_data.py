@@ -121,7 +121,7 @@ class MapDataExporter:
                     SELECT
                         location_id,
                         STRING_AGG(DISTINCT scraper_id, ', ' ORDER BY scraper_id) as scrapers,
-                        COUNT(DISTINCT scraper_id) as scraper_count,
+                        COUNT(DISTINCT scraper_id) FILTER (WHERE source_type IS NULL OR source_type != 'submarine') as scraper_count,
                         MIN(created_at) as first_seen,
                         MAX(updated_at) as last_updated
                     FROM location_source

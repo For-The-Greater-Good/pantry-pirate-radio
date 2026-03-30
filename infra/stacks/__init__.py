@@ -14,6 +14,7 @@ from stacks.queue_stack import QueueStack
 from stacks.secrets_stack import SecretsStack
 from stacks.services_stack import ServiceConfig, ServicesStack
 from stacks.storage_stack import StorageStack
+from stacks.submarine_stack import SubmarineStack
 
 __all__ = [
     "APIStack",
@@ -31,4 +32,5 @@ __all__ = [
     "ServiceConfig",
     "ServicesStack",
     "StorageStack",
+    "SubmarineStack",
 ]

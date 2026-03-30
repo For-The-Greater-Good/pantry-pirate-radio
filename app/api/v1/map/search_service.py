@@ -59,7 +59,9 @@ class MapSearchService:
             WITH source_counts AS (
                 SELECT
                     location_id,
-                    COUNT(DISTINCT scraper_id) as source_count
+                    COUNT(DISTINCT scraper_id) FILTER (
+                        WHERE source_type IS NULL OR source_type != 'submarine'
+                    ) as source_count
                 FROM location_source
                 GROUP BY location_id
             ),

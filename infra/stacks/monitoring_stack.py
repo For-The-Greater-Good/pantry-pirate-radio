@@ -8,6 +8,8 @@ Alarm definitions are implemented in monitoring_alarms.py.
 """
 
 from aws_cdk import Stack
+from aws_cdk import aws_cloudwatch as cloudwatch
+from aws_cdk import aws_logs as logs
 from aws_cdk import aws_sns as sns
 from constructs import Construct
 
@@ -38,11 +40,15 @@ class MonitoringStack(Stack):
         validator_service_name: str | None = None,
         reconciler_service_name: str | None = None,
         recorder_service_name: str | None = None,
+        submarine_service_name: str | None = None,
         cluster_name: str | None = None,
         queue_name: str | None = None,
         validator_queue_name: str | None = None,
         reconciler_queue_name: str | None = None,
         recorder_queue_name: str | None = None,
+        submarine_queue_name: str | None = None,
+        submarine_staging_queue_name: str | None = None,
+        submarine_extraction_queue_name: str | None = None,
         jobs_table_name: str | None = None,
         bedrock_model_id: str | None = None,
         alert_email: str | None = None,
@@ -80,6 +86,9 @@ class MonitoringStack(Stack):
         self.recorder_service_name = (
             recorder_service_name or f"pantry-pirate-radio-recorder-{env}"
         )
+        self.submarine_service_name = (
+            submarine_service_name or f"pantry-pirate-radio-submarine-{env}"
+        )
         self.cluster_name = cluster_name or f"pantry-pirate-radio-{env}"
 
         # Queue names
@@ -92,6 +101,17 @@ class MonitoringStack(Stack):
         )
         self.recorder_queue_name = (
             recorder_queue_name or f"pantry-pirate-radio-recorder-{env}.fifo"
+        )
+        self.submarine_queue_name = (
+            submarine_queue_name or f"pantry-pirate-radio-submarine-{env}.fifo"
+        )
+        self.submarine_staging_queue_name = (
+            submarine_staging_queue_name
+            or f"pantry-pirate-radio-submarine-staging-{env}.fifo"
+        )
+        self.submarine_extraction_queue_name = (
+            submarine_extraction_queue_name
+            or f"pantry-pirate-radio-submarine-extraction-{env}.fifo"
         )
         self.staging_queue_name = (
             staging_queue_name or f"pantry-pirate-radio-staging-{env}.fifo"
@@ -142,10 +162,46 @@ class MonitoringStack(Stack):
             place_index_name or f"pantry-pirate-radio-geocoding-{env}"
         )
 
+        # Submarine log-based metrics
+        self._create_submarine_metric_filters(env)
+
         # Create SNS topic, dashboard, and alarms via extracted modules
         self.alerts_topic = self._create_alerts_topic(alert_email)
         self.dashboard = build_dashboard(self)
         create_alarms(self)
+
+    def _create_submarine_metric_filters(self, env: str) -> None:
+        """Create CloudWatch metric filters on submarine log events.
+
+        Extracts operational metrics from structured log events emitted by
+        the submarine worker, enabling dashboard graphs without code changes.
+        """
+        ns = "PantryPirateRadio/Submarine"
+        log_group = logs.LogGroup.from_log_group_name(
+            self,
+            "SubmarineLogGroup",
+            f"/ecs/pantry-pirate-radio/submarine-{env}",
+        )
+
+        filters = {
+            "JobsStarted": "submarine_job_started",
+            "JobsCompleted": "submarine_job_completed",
+            "JobsNoData": "submarine_job_no_useful_data",
+            "ContentNotFoodRelated": "submarine_content_not_food_related",
+            "CrawlErrors": "submarine_crawl_error",
+            "ExtractionErrors": "submarine_extraction_failed",
+        }
+        for metric_name, pattern in filters.items():
+            logs.MetricFilter(
+                self,
+                f"Submarine{metric_name}Filter",
+                log_group=log_group,
+                filter_pattern=logs.FilterPattern.literal(pattern),
+                metric_namespace=ns,
+                metric_name=metric_name,
+                metric_value="1",
+                default_value=0,
+            )
 
     def _create_alerts_topic(self, alert_email: str | None) -> sns.Topic:
         topic = sns.Topic(

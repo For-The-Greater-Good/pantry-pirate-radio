@@ -258,6 +258,7 @@ class LocationCreator(BaseReconciler):
             latitude,
             longitude,
             metadata,
+            source_type=metadata.get("source_type", "scraper"),
         )
 
         return location_id
@@ -271,6 +272,7 @@ class LocationCreator(BaseReconciler):
         latitude: float,
         longitude: float,
         metadata: dict[str, Any],
+        source_type: str = "scraper",
     ) -> str:
         """Create new source-specific location record.
 
@@ -282,45 +284,55 @@ class LocationCreator(BaseReconciler):
             latitude: Location latitude
             longitude: Location longitude
             metadata: Additional metadata
+            source_type: Source type for the record (default: 'scraper',
+                also supports 'submarine' and 'human_update')
 
         Returns:
             Source location ID
         """
         source_id = str(uuid.uuid4())
-        query = text(
-            """
-            INSERT INTO location_source (
-                id,
-                location_id,
-                scraper_id,
-                name,
-                description,
-                latitude,
-                longitude,
-                location_type,
-                source_type
-            ) VALUES (
-                :id,
-                :location_id,
-                :scraper_id,
-                :name,
-                :description,
-                :latitude,
-                :longitude,
-                'physical',
-                'scraper'
+        if source_type == "submarine":
+            query = text(
+                """
+                INSERT INTO location_source (
+                    id, location_id, scraper_id, name, description,
+                    latitude, longitude, location_type, source_type
+                ) VALUES (
+                    :id, :location_id, :scraper_id, :name, :description,
+                    :latitude, :longitude, 'physical', :source_type
+                )
+                ON CONFLICT (location_id, scraper_id)
+                    WHERE source_type = 'submarine'
+                DO UPDATE SET
+                    name = :name,
+                    description = :description,
+                    latitude = :latitude,
+                    longitude = :longitude,
+                    updated_at = NOW()
+                RETURNING id
+                """
             )
-            ON CONFLICT (location_id, scraper_id)
-                WHERE source_type = 'scraper' OR source_type IS NULL
-            DO UPDATE SET
-                name = :name,
-                description = :description,
-                latitude = :latitude,
-                longitude = :longitude,
-                updated_at = NOW()
-            RETURNING id
-            """
-        )
+        else:
+            query = text(
+                """
+                INSERT INTO location_source (
+                    id, location_id, scraper_id, name, description,
+                    latitude, longitude, location_type, source_type
+                ) VALUES (
+                    :id, :location_id, :scraper_id, :name, :description,
+                    :latitude, :longitude, 'physical', :source_type
+                )
+                ON CONFLICT (location_id, scraper_id)
+                    WHERE source_type = 'scraper' OR source_type IS NULL
+                DO UPDATE SET
+                    name = :name,
+                    description = :description,
+                    latitude = :latitude,
+                    longitude = :longitude,
+                    updated_at = NOW()
+                RETURNING id
+                """
+            )
 
         result = self.db.execute(
             query,
@@ -332,6 +344,7 @@ class LocationCreator(BaseReconciler):
                 "description": description,
                 "latitude": latitude,
                 "longitude": longitude,
+                "source_type": source_type,
             },
         )
         row = result.first()

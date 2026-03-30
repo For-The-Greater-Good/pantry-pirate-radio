@@ -2,5 +2,5 @@
 # boto3 is in the Lambda base image but too old for modelInvocationType (Converse batch).
 boto3>=1.42.0
 structlog>=24.1.0
-pydantic>=2.6.0
+pydantic[email]>=2.6.0
 pydantic-settings>=2.1.0

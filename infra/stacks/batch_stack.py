@@ -59,6 +59,8 @@ class BatchInferenceStack(Stack):
         bedrock_model_id: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         batch_threshold: int = 100,
         ecr_repository: ecr.IRepository | None = None,
+        submarine_staging_queue: sqs.IQueue | None = None,
+        submarine_extraction_queue: sqs.IQueue | None = None,
         **kwargs,
     ) -> None:
         """Initialize BatchInferenceStack.
@@ -77,12 +79,16 @@ class BatchInferenceStack(Stack):
             bedrock_model_id: Bedrock model ID for batch jobs
             batch_threshold: Minimum records for batch processing
             ecr_repository: ECR repository for batch Lambda Docker image
+            submarine_staging_queue: SQS queue for submarine batch staging (optional)
+            submarine_extraction_queue: SQS queue for submarine on-demand extraction (optional)
             **kwargs: Additional stack properties
         """
         super().__init__(scope, construct_id, **kwargs)
 
         self.environment_name = environment_name
         self.ecr_repository = ecr_repository
+        self.submarine_staging_queue = submarine_staging_queue
+        self.submarine_extraction_queue = submarine_extraction_queue
 
         # Create staging queue
         self.staging_dlq = self._create_staging_dlq()
@@ -269,6 +275,27 @@ class BatchInferenceStack(Stack):
             ),
         )
 
+        batcher_env: dict[str, str] = {
+            "STAGING_QUEUE_URL": self.staging_queue.queue_url,
+            "STAGING_DLQ_URL": self.staging_dlq.queue_url,
+            "LLM_QUEUE_URL": llm_queue.queue_url,
+            "BATCH_BUCKET": self.batch_bucket.bucket_name,
+            "BEDROCK_MODEL_ID": bedrock_model_id,
+            "BEDROCK_SERVICE_ROLE_ARN": self.bedrock_service_role.role_arn,
+            "LLM_TEMPERATURE": SHARED["LLM_TEMPERATURE"],
+            "LLM_MAX_TOKENS": SHARED["LLM_MAX_TOKENS"],
+            "SQS_JOBS_TABLE": jobs_table.table_name,
+            "BATCH_THRESHOLD": str(batch_threshold),
+        }
+        if self.submarine_staging_queue:
+            batcher_env["SUBMARINE_STAGING_QUEUE_URL"] = (
+                self.submarine_staging_queue.queue_url
+            )
+        if self.submarine_extraction_queue:
+            batcher_env["SUBMARINE_EXTRACTION_QUEUE_URL"] = (
+                self.submarine_extraction_queue.queue_url
+            )
+
         fn = _lambda.DockerImageFunction(
             self,
             "BatcherLambda",
@@ -281,18 +308,7 @@ class BatchInferenceStack(Stack):
             memory_size=1024,
             ephemeral_storage_size=Size.gibibytes(4),
             tracing=_lambda.Tracing.ACTIVE,
-            environment={
-                "STAGING_QUEUE_URL": self.staging_queue.queue_url,
-                "STAGING_DLQ_URL": self.staging_dlq.queue_url,
-                "LLM_QUEUE_URL": llm_queue.queue_url,
-                "BATCH_BUCKET": self.batch_bucket.bucket_name,
-                "BEDROCK_MODEL_ID": bedrock_model_id,
-                "BEDROCK_SERVICE_ROLE_ARN": self.bedrock_service_role.role_arn,
-                "LLM_TEMPERATURE": SHARED["LLM_TEMPERATURE"],
-                "LLM_MAX_TOKENS": SHARED["LLM_MAX_TOKENS"],
-                "SQS_JOBS_TABLE": jobs_table.table_name,
-                "BATCH_THRESHOLD": str(batch_threshold),
-            },
+            environment=batcher_env,
             log_group=batcher_log_group,
         )
 
@@ -353,6 +369,21 @@ class BatchInferenceStack(Stack):
             ),
         )
 
+        result_processor_env: dict[str, str] = {
+            "BATCH_BUCKET": self.batch_bucket.bucket_name,
+            "VALIDATOR_QUEUE_URL": validator_queue.queue_url,
+            "RECONCILER_QUEUE_URL": reconciler_queue.queue_url,
+            "RECORDER_QUEUE_URL": recorder_queue.queue_url,
+            "LLM_QUEUE_URL": llm_queue.queue_url,
+            "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
+            "SQS_JOBS_TABLE": jobs_table.table_name,
+            "BEDROCK_MODEL_ID": bedrock_model_id,
+        }
+        if self.submarine_extraction_queue:
+            result_processor_env["SUBMARINE_EXTRACTION_QUEUE_URL"] = (
+                self.submarine_extraction_queue.queue_url
+            )
+
         fn = _lambda.DockerImageFunction(
             self,
             "ResultProcessorLambda",
@@ -366,16 +397,7 @@ class BatchInferenceStack(Stack):
             tracing=_lambda.Tracing.ACTIVE,
             dead_letter_queue_enabled=True,
             dead_letter_queue=result_processor_dlq,
-            environment={
-                "BATCH_BUCKET": self.batch_bucket.bucket_name,
-                "VALIDATOR_QUEUE_URL": validator_queue.queue_url,
-                "RECONCILER_QUEUE_URL": reconciler_queue.queue_url,
-                "RECORDER_QUEUE_URL": recorder_queue.queue_url,
-                "LLM_QUEUE_URL": llm_queue.queue_url,
-                "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
-                "SQS_JOBS_TABLE": jobs_table.table_name,
-                "BEDROCK_MODEL_ID": bedrock_model_id,
-            },
+            environment=result_processor_env,
             log_group=result_processor_log_group,
         )
 
@@ -430,6 +452,12 @@ class BatchInferenceStack(Stack):
         self.batch_bucket.grant_read_write(self.batcher_lambda)
         jobs_table.grant_read_write_data(self.batcher_lambda)
 
+        # Batcher Lambda: submarine queue permissions (optional)
+        if self.submarine_staging_queue:
+            self.submarine_staging_queue.grant_consume_messages(self.batcher_lambda)
+        if self.submarine_extraction_queue:
+            self.submarine_extraction_queue.grant_send_messages(self.batcher_lambda)
+
         # Result Processor Lambda permissions
         self.batch_bucket.grant_read(self.result_processor_lambda)
         validator_queue.grant_send_messages(self.result_processor_lambda)
@@ -437,3 +465,9 @@ class BatchInferenceStack(Stack):
         recorder_queue.grant_send_messages(self.result_processor_lambda)
         llm_queue.grant_send_messages(self.result_processor_lambda)
         jobs_table.grant_read_write_data(self.result_processor_lambda)
+
+        # Result Processor Lambda: submarine extraction queue (optional)
+        if self.submarine_extraction_queue:
+            self.submarine_extraction_queue.grant_send_messages(
+                self.result_processor_lambda
+            )
