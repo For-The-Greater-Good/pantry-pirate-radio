@@ -4,17 +4,12 @@ Used by batcher.py and batch_result_processor.py when source="submarine".
 Keeps submarine logic isolated so the main Lambda handlers stay under 600 lines.
 """
 
-import json
 import os
 import structlog
 from datetime import UTC, datetime
 from typing import Any
 
-from app.llm.providers.bedrock import build_messages_api_request
 from app.pipeline.sqs_sender import send_to_sqs
-from app.submarine.extractor import EXTRACTION_SYSTEM_PROMPT, SubmarineExtractor
-from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
-from app.submarine.result_builder import SubmarineResultBuilder
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +29,8 @@ def extract_submarine_record(record: dict[str, Any]) -> tuple[str, dict[str, Any
     Returns:
         (job_id, messages_api_request_body)
     """
+    from app.llm.providers.bedrock import build_messages_api_request
+
     job_id = record.get("job_id", "")
     prompt = record.get("prompt", [])
 
@@ -75,6 +72,9 @@ def route_submarine_success(
     Submarine bypasses the validator (Constitution v1.5.1).
     """
     from app.llm.providers.bedrock import parse_messages_api_response
+    from app.submarine.extractor import SubmarineExtractor
+    from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
+    from app.submarine.result_builder import SubmarineResultBuilder
 
     # Parse Bedrock response
     llm_response = parse_messages_api_response(
@@ -142,7 +142,7 @@ def route_submarine_success(
     )
 
 
-def _update_location_status(location_id: str, status: SubmarineStatus | str) -> None:
+def _update_location_status(location_id: str, status: Any) -> None:
     """Update submarine tracking columns on the location record."""
     try:
         from sqlalchemy import create_engine, text
