@@ -66,6 +66,7 @@ class TestProcessSubmarineJob:
         assert result is None
         mock_update.assert_called_once_with("loc-123", "error")
 
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "sqs"}, clear=False)
     def test_returns_job_result_for_success(self, sample_job_data):
         """Worker returns JobResult dict when extraction succeeds."""
         from app.submarine.worker import process_submarine_job
@@ -91,6 +92,7 @@ class TestProcessSubmarineJob:
         assert result["status"] == "completed"
         mock_update.assert_called_once_with("loc-123", "success")
 
+    @patch.dict(os.environ, {"QUEUE_BACKEND": "sqs"}, clear=False)
     def test_returns_job_result_for_partial(self, sample_job_data):
         """Worker returns JobResult for partial extraction."""
         from app.submarine.worker import process_submarine_job
