@@ -325,12 +325,13 @@ class ServicesStack(Stack):
                 queue=submarine_queue,
                 name="Submarine",
                 min_capacity=0,
-                max_capacity=4,
+                max_capacity=20,
                 scaling_steps=[
                     appscaling.ScalingInterval(upper=0, change=-1),
-                    appscaling.ScalingInterval(lower=0, upper=10, change=1),
-                    appscaling.ScalingInterval(lower=10, upper=50, change=2),
-                    appscaling.ScalingInterval(lower=50, change=3),
+                    appscaling.ScalingInterval(lower=0, upper=50, change=2),
+                    appscaling.ScalingInterval(lower=50, upper=200, change=5),
+                    appscaling.ScalingInterval(lower=200, upper=1000, change=10),
+                    appscaling.ScalingInterval(lower=1000, change=15),
                 ],
             )
 
