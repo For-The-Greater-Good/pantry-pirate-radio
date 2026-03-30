@@ -68,7 +68,6 @@ This document summarizes the comprehensive documentation review conducted across
    - pantry_net_oh_scraper
    - project_bread_ma_scraper
    - regional_food_bank_ne_scraper
-   - rutgers_against_hunger_nj_scraper
    - saint_mary_food_bank_az_scraper
    - second_harvest_food_bank_metrolina_nc_scraper
 
