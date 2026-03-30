@@ -2652,6 +2652,27 @@ print(json.dumps(l))
                     output warning "Could not update Lambda API (may not exist yet)"
                 fi
 
+                # Force Batcher and Result Processor Lambdas to pull new batch-lambda image
+                # These have CDK-auto-generated names, so discover them via list-functions
+                BATCH_LAMBDA_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-batch-lambda-${DEPLOY_ENV}"
+                BATCH_STACK_PREFIX="BatchStack-${DEPLOY_ENV}"
+                for lambda_id in "BatcherLambda:Batcher" "ResultProcessorLambda:Result Processor"; do
+                    LAMBDA_PATTERN="${lambda_id%%:*}"
+                    LAMBDA_LABEL="${lambda_id#*:}"
+                    FOUND_NAME=$(aws lambda list-functions --no-cli-pager \
+                        --query "Functions[?starts_with(FunctionName, '${BATCH_STACK_PREFIX}') && contains(FunctionName, '${LAMBDA_PATTERN}')].FunctionName | [0]" \
+                        --output text 2>/dev/null)
+                    if [ -n "$FOUND_NAME" ] && [ "$FOUND_NAME" != "None" ]; then
+                        if aws lambda update-function-code --function-name "$FOUND_NAME" --image-uri "${BATCH_LAMBDA_REPO}:${IMAGE_TAG}" --no-cli-pager > /dev/null 2>&1; then
+                            output success "Updated ${LAMBDA_LABEL} Lambda image"
+                        else
+                            output warning "Could not update ${LAMBDA_LABEL} Lambda image"
+                        fi
+                    else
+                        output warning "Could not find ${LAMBDA_LABEL} Lambda (may not exist yet)"
+                    fi
+                done
+
                 # Build, push, and redeploy plugin images
                 build_and_push_plugin_images
                 redeploy_plugin_services
@@ -2714,6 +2735,26 @@ print(json.dumps(l))
                 else
                     output warning "Could not update Lambda API (may not exist yet)"
                 fi
+
+                # Force Batcher and Result Processor Lambdas to pull new batch-lambda image
+                BATCH_LAMBDA_REPO="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/pantry-pirate-radio-batch-lambda-${DEPLOY_ENV}"
+                BATCH_STACK_PREFIX="BatchStack-${DEPLOY_ENV}"
+                for lambda_id in "BatcherLambda:Batcher" "ResultProcessorLambda:Result Processor"; do
+                    LAMBDA_PATTERN="${lambda_id%%:*}"
+                    LAMBDA_LABEL="${lambda_id#*:}"
+                    FOUND_NAME=$(aws lambda list-functions --no-cli-pager \
+                        --query "Functions[?starts_with(FunctionName, '${BATCH_STACK_PREFIX}') && contains(FunctionName, '${LAMBDA_PATTERN}')].FunctionName | [0]" \
+                        --output text 2>/dev/null)
+                    if [ -n "$FOUND_NAME" ] && [ "$FOUND_NAME" != "None" ]; then
+                        if aws lambda update-function-code --function-name "$FOUND_NAME" --image-uri "${BATCH_LAMBDA_REPO}:${IMAGE_TAG}" --no-cli-pager > /dev/null 2>&1; then
+                            output success "Updated ${LAMBDA_LABEL} Lambda image"
+                        else
+                            output warning "Could not update ${LAMBDA_LABEL} Lambda image"
+                        fi
+                    else
+                        output warning "Could not find ${LAMBDA_LABEL} Lambda (may not exist yet)"
+                    fi
+                done
 
                 # Redeploy plugin services
                 redeploy_plugin_services
