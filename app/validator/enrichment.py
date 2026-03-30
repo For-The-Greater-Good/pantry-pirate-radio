@@ -224,7 +224,7 @@ class GeocodingEnricher:
                                             if not addr.get(
                                                 "state_province"
                                             ) and reverse_addr.get("state"):
-                                                state_value = reverse_addr["state"]
+                                                state_value = reverse_addr["state"] or ""
                                                 normalized = normalize_state_to_code(
                                                     state_value
                                                 )
@@ -276,7 +276,7 @@ class GeocodingEnricher:
                         )
                         logger.info(f"✅ ENRICHER: Address data: {address_data}")
                         # Normalize state to 2-letter code
-                        state_value = address_data.get("state", "")
+                        state_value = address_data.get("state") or ""
                         normalized_state = normalize_state_to_code(state_value)
                         if not normalized_state and state_value:
                             logger.warning(

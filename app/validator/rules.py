@@ -159,12 +159,12 @@ class ValidationRules:
         # State might be in the address array in HSDS format
         state = ""
         if location.get("state"):
-            state = location.get("state", "").upper()
+            state = (location.get("state") or "").upper()
         elif location.get("state_province"):
-            state = location.get("state_province", "").upper()
+            state = (location.get("state_province") or "").upper()
         elif location.get("address") and isinstance(location["address"], list):
             if len(location["address"]) > 0:
-                state = location["address"][0].get("state_province", "").upper()
+                state = (location["address"][0].get("state_province") or "").upper()
 
         # Special handling for Alaska and Hawaii
         if state == "AK":
@@ -197,12 +197,12 @@ class ValidationRules:
         # State might be in the address array in HSDS format
         state = None
         if location.get("state"):
-            state = location.get("state", "").upper()
+            state = (location.get("state") or "").upper()
         elif location.get("state_province"):
-            state = location.get("state_province", "").upper()
+            state = (location.get("state_province") or "").upper()
         elif location.get("address") and isinstance(location["address"], list):
             if len(location["address"]) > 0:
-                state = location["address"][0].get("state_province", "").upper()
+                state = (location["address"][0].get("state_province") or "").upper()
 
         if lat is None or lon is None or lat == "" or lon == "":
             return (True, 0, "Coordinates not available for verification")
