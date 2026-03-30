@@ -31,8 +31,10 @@ def extract_submarine_record(record: dict[str, Any]) -> tuple[str, dict[str, Any
     """
     from app.llm.providers.bedrock import build_messages_api_request
 
-    job_id = record.get("job_id", "")
-    prompt = record.get("prompt", [])
+    # SQS envelope wraps the staging message in a "data" field
+    data = record.get("data", record)
+    job_id = data.get("job_id", record.get("job_id", ""))
+    prompt = data.get("prompt", [])
 
     # Build Bedrock Converse API request from the pre-built prompt
     messages_body = build_messages_api_request(
@@ -48,7 +50,8 @@ def requeue_submarine_on_demand(
     extraction_queue_url: str,
 ) -> None:
     """Re-enqueue a submarine staging message for on-demand extraction."""
-    job_id = record.get("job_id", "")
+    data = record.get("data", record)
+    job_id = data.get("job_id", record.get("job_id", ""))
     send_to_sqs(
         queue_url=extraction_queue_url,
         message_body=record,
@@ -82,9 +85,11 @@ def route_submarine_success(
         model_id=model_id,
     )
 
-    missing_fields = original_record.get("missing_fields", [])
-    crawl_metadata = original_record.get("crawl_metadata", {})
-    submarine_job_data = original_record.get("submarine_job", {})
+    # Unwrap SQS envelope if present
+    data = original_record.get("data", original_record)
+    missing_fields = data.get("missing_fields", [])
+    crawl_metadata = data.get("crawl_metadata", {})
+    submarine_job_data = data.get("submarine_job", {})
 
     # Extract structured fields from the LLM text output
     extracted = SubmarineExtractor.parse_response(
