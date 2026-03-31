@@ -11,6 +11,7 @@ from aws_cdk import Stack
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_sns as sns
+from aws_cdk import aws_sns_subscriptions as subs
 from constructs import Construct
 
 from stacks.monitoring_alarms import create_alarms
@@ -211,5 +212,5 @@ class MonitoringStack(Stack):
             display_name=f"Pantry Pirate Radio Alerts ({self.environment_name})",
         )
         if alert_email:
-            topic.add_subscription(sns.subscriptions.EmailSubscription(alert_email))
+            topic.add_subscription(subs.EmailSubscription(alert_email))
         return topic
