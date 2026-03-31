@@ -228,7 +228,7 @@ class DatabaseStack(Stack):
         """
         # Settings (unified across environments for cost parity)
         min_capacity = 0.5
-        max_capacity = 2
+        max_capacity = 8 if is_prod else 2
         backup_retention = Duration.days(30)
         deletion_protection = is_prod
         removal_policy = RemovalPolicy.RETAIN if is_prod else RemovalPolicy.DESTROY
