@@ -4,9 +4,10 @@ Creates Route 53 records and an ACM wildcard certificate for
 services under the delegated subdomain (e.g. lighthouse.plentiful.org).
 
 Records created:
-  - api.{domain}       → API Gateway HTTP API
-  - metabase.{domain}  → NLB for Metabase Cloud access
-  - exports.{domain}   → S3 exports bucket (website redirect)
+  - api.{domain}              → API Gateway HTTP API
+  - report-webhook.{domain}  → Helm webhook API Gateway
+  - metabase.{domain}        → NLB for Metabase Cloud access
+  - exports.{domain}         → S3 exports bucket (website redirect)
 
 Amplify (portal) manages its own custom domain outside this stack.
 
@@ -35,6 +36,7 @@ class DnsStack(Stack):
         hosted_zone_id: str,
         domain_name: str,
         http_api_id: str,
+        webhook_api_id: str | None = None,
         nlb: elbv2.INetworkLoadBalancer | None = None,
         exports_bucket_name: str | None = None,
         **kwargs,
@@ -92,6 +94,36 @@ class DnsStack(Stack):
             domain_name=custom_domain.attr_regional_domain_name,
             ttl=Duration.minutes(5),
         )
+
+        # report-webhook.{domain} → Helm webhook API Gateway
+        if webhook_api_id:
+            webhook_domain_name = f"report-webhook.{domain_name}"
+            webhook_custom_domain = apigwv2.CfnDomainName(
+                self, "WebhookCustomDomain",
+                domain_name=webhook_domain_name,
+                domain_name_configurations=[
+                    apigwv2.CfnDomainName.DomainNameConfigurationProperty(
+                        certificate_arn=self.certificate.certificate_arn,
+                        endpoint_type="REGIONAL",
+                        security_policy="TLS_1_2",
+                    )
+                ],
+            )
+
+            apigwv2.CfnApiMapping(
+                self, "WebhookApiMapping",
+                api_id=webhook_api_id,
+                domain_name=webhook_domain_name,
+                stage="$default",
+            ).add_dependency(webhook_custom_domain)
+
+            route53.CnameRecord(
+                self, "WebhookRecord",
+                zone=zone,
+                record_name="report-webhook",
+                domain_name=webhook_custom_domain.attr_regional_domain_name,
+                ttl=Duration.minutes(5),
+            )
 
         # metabase.{domain} → NLB
         if nlb:

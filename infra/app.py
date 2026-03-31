@@ -576,6 +576,9 @@ if hosted_zone_id and domain_name:
         hosted_zone_id=hosted_zone_id,
         domain_name=domain_name,
         http_api_id=lambda_api_stack.http_api.ref,
+        webhook_api_id=cdk.Fn.import_value(
+            f"ppr-helm-webhook-api-id-{environment_name}"
+        ),
         nlb=metabase_stack.nlb,
         exports_bucket_name=storage_stack.exports_bucket.bucket_name,
         env=env,
