@@ -569,18 +569,13 @@ ec2.CfnSecurityGroupIngress(
 if hosted_zone_id and domain_name:
     from stacks.dns_stack import DnsStack
 
-    # Extract API Gateway domain from the full URL
-    api_gw_domain = (
-        f"{lambda_api_stack.http_api.ref}.execute-api.{region}.amazonaws.com"
-    )
-
     dns_stack = DnsStack(
         app,
         f"DnsStack-{environment_name}",
         environment_name=environment_name,
         hosted_zone_id=hosted_zone_id,
         domain_name=domain_name,
-        api_gateway_domain=api_gw_domain,
+        http_api_id=lambda_api_stack.http_api.ref,
         nlb=metabase_stack.nlb,
         exports_bucket_name=storage_stack.exports_bucket.bucket_name,
         env=env,
