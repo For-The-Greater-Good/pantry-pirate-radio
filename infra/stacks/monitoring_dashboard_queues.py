@@ -30,11 +30,12 @@ def derive_dlq_name(queue_name: str, env: str) -> str:
     (e.g. ``pantry-pirate-radio-staging-dev-dlq.fifo``), so we
     append ``-dlq`` before ``.fifo`` for that queue.
     """
-    staging_suffix = f"-staging-{env}.fifo"
+    # Exact BatchStack staging queue name (not submarine-staging)
+    batch_staging_name = f"pantry-pirate-radio-staging-{env}.fifo"
     env_suffix = f"-{env}.fifo"
 
     # Staging queue (BatchStack): DLQ is ``...-staging-{env}-dlq.fifo``
-    if queue_name.endswith(staging_suffix):
+    if queue_name == batch_staging_name:
         return queue_name.replace(".fifo", "-dlq.fifo")
 
     # QueueStack queues: DLQ is ``...-{name}-dlq-{env}.fifo``

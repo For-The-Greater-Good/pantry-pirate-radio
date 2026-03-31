@@ -121,9 +121,9 @@ class SubmarineDispatcher:
             if row and row[0]:
                 return row[0]
 
-        # Check location website (may be set via write API)
+        # Check location URL (may be set via write API)
         row = self.db.execute(
-            text("SELECT website FROM location WHERE id = :id"),
+            text("SELECT url FROM location WHERE id = :id"),  # nosec B608
             {"id": location_id},
         ).first()
         if row and row[0]:
