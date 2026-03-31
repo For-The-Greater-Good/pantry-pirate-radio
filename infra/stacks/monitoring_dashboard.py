@@ -83,7 +83,7 @@ def scaling_widget(
                 "AWS/SQS",
                 "ApproximateNumberOfMessagesVisible",
                 {"QueueName": queue_name},
-                "Sum",
+                "Maximum",
                 p1,
             )
         ],
@@ -493,13 +493,13 @@ def _add_service_section(
             f"{title} Queue",
             left=[
                 metric(sqs_ns, "ApproximateNumberOfMessagesVisible",
-                       {"QueueName": queue_name}, "Sum", p1),
+                       {"QueueName": queue_name}, "Maximum", p1),
                 metric(sqs_ns, "ApproximateNumberOfMessagesNotVisible",
-                       {"QueueName": queue_name}, "Sum", p1),
+                       {"QueueName": queue_name}, "Maximum", p1),
             ],
             right=[
                 metric(sqs_ns, "ApproximateNumberOfMessagesVisible",
-                       {"QueueName": dlq_name}, "Sum", p1),
+                       {"QueueName": dlq_name}, "Maximum", p1),
             ],
         ),
         graph(
@@ -510,7 +510,7 @@ def _add_service_section(
             ],
             right=[
                 metric(sqs_ns, "ApproximateNumberOfMessagesVisible",
-                       {"QueueName": queue_name}, "Sum", p1),
+                       {"QueueName": queue_name}, "Maximum", p1),
             ],
         ),
         graph(
