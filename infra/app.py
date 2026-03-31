@@ -18,10 +18,24 @@ Environment Configuration:
 
 import os
 import warnings
+from pathlib import Path
 
 import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
+
+# Load .env as fallback for env vars not passed explicitly to the CDK container
+try:
+    from dotenv import dotenv_values
+
+    for _p in [Path(__file__).parent.parent / ".env", Path("/app/.env")]:
+        if _p.exists():
+            for _k, _v in dotenv_values(_p).items():
+                if _v and _k not in os.environ:
+                    os.environ[_k] = _v
+            break
+except ImportError:
+    pass
 
 from stacks.bastion_stack import BastionStack
 from stacks.batch_stack import BatchInferenceStack
@@ -44,7 +58,8 @@ environment_name = os.environ.get("CDK_DEPLOY_ENVIRONMENT", "dev")
 account = os.environ.get("CDK_DEPLOY_ACCOUNT", os.environ.get("CDK_DEFAULT_ACCOUNT"))
 region = os.environ.get("CDK_DEPLOY_REGION", os.environ.get("CDK_DEFAULT_REGION"))
 certificate_arn = os.environ.get("CDK_CERTIFICATE_ARN")
-domain_name = os.environ.get("CDK_DOMAIN_NAME")
+domain_name = os.environ.get("CDK_DOMAIN_NAME", os.environ.get("DOMAIN_NAME"))
+hosted_zone_id = os.environ.get("HOSTED_ZONE_ID")
 alert_email = os.environ.get("CDK_ALERT_EMAIL")
 if not account:
     warnings.warn(
@@ -550,6 +565,32 @@ ec2.CfnSecurityGroupIngress(
     description="Allow NLB to reach RDS Proxy for Metabase Cloud",
 )
 
+# DNS Stack — Route 53 records + ACM wildcard cert (optional, needs HOSTED_ZONE_ID)
+if hosted_zone_id and domain_name:
+    from stacks.dns_stack import DnsStack
+
+    # Extract API Gateway domain from the full URL
+    api_gw_domain = (
+        f"{lambda_api_stack.http_api.ref}.execute-api.{region}.amazonaws.com"
+    )
+
+    dns_stack = DnsStack(
+        app,
+        f"DnsStack-{environment_name}",
+        environment_name=environment_name,
+        hosted_zone_id=hosted_zone_id,
+        domain_name=domain_name,
+        api_gateway_domain=api_gw_domain,
+        nlb=metabase_stack.nlb,
+        exports_bucket_name=storage_stack.exports_bucket.bucket_name,
+        env=env,
+        description=f"Pantry Pirate Radio DNS records ({environment_name})",
+    )
+    dns_stack.add_dependency(lambda_api_stack)
+    dns_stack.add_dependency(metabase_stack)
+    dns_stack.add_dependency(storage_stack)
+    cdk.Tags.of(dns_stack).add("Stack", f"DnsStack-{environment_name}")
+
 # Monitoring depends on all other stacks
 monitoring_stack.add_dependency(compute_stack)
 monitoring_stack.add_dependency(database_stack)
@@ -574,6 +615,9 @@ _plugin_context = {
     "proxy_endpoint": database_stack.proxy_endpoint,
     "proxy_security_group": database_stack.proxy_security_group,
     "database_credentials_secret": database_stack.database_credentials_secret,
+    # DNS — custom domain for Amplify apps
+    "domain_name": domain_name,
+    "hosted_zone_id": hosted_zone_id,
 }
 
 discover_and_load_plugins(
