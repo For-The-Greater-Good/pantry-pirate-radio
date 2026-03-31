@@ -136,7 +136,7 @@ class BatchInferenceStack(Stack):
 
     def _create_staging_dlq(self) -> sqs.Queue:
         """Create dead-letter queue for staging queue."""
-        return sqs.Queue(
+        dlq = sqs.Queue(
             self,
             "StagingDLQ",
             queue_name=f"pantry-pirate-radio-staging-{self.environment_name}-dlq.fifo",
@@ -145,13 +145,17 @@ class BatchInferenceStack(Stack):
             retention_period=Duration.days(14),
             encryption=sqs.QueueEncryption.SQS_MANAGED,
         )
+        cfn_dlq = dlq.node.default_child
+        cfn_dlq.add_property_override("DeduplicationScope", "messageGroup")
+        cfn_dlq.add_property_override("FifoThroughputLimit", "perMessageGroupId")
+        return dlq
 
     def _create_staging_queue(self) -> sqs.Queue:
         """Create SQS FIFO staging queue for scraper output.
 
         Matches the existing queue patterns (FIFO, content-based dedup).
         """
-        return sqs.Queue(
+        queue = sqs.Queue(
             self,
             "StagingQueue",
             queue_name=f"pantry-pirate-radio-staging-{self.environment_name}.fifo",
@@ -165,6 +169,10 @@ class BatchInferenceStack(Stack):
                 max_receive_count=3,
             ),
         )
+        cfn_queue = queue.node.default_child
+        cfn_queue.add_property_override("DeduplicationScope", "messageGroup")
+        cfn_queue.add_property_override("FifoThroughputLimit", "perMessageGroupId")
+        return queue
 
     def _create_batch_bucket(self) -> s3.Bucket:
         """Create S3 bucket for batch JSONL I/O.
