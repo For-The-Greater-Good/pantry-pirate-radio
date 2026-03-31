@@ -1361,6 +1361,17 @@ case "$1" in
                 }
                 AWS_REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
 
+                # Parse --prod/--dev flag for deploy environment and strip from args
+                REMAINING_ARGS=()
+                for arg in "$@"; do
+                    case $arg in
+                        --prod) DEPLOY_ENV="prod" ;;
+                        --dev) DEPLOY_ENV="dev" ;;
+                        *) REMAINING_ARGS+=("$arg") ;;
+                    esac
+                done
+                set -- "${REMAINING_ARGS[@]}"
+
                 # Get state machine ARN
                 DEPLOY_ENV="${DEPLOY_ENV:-dev}"
                 SM_NAME="pantry-pirate-scraper-pipeline-${DEPLOY_ENV}"
