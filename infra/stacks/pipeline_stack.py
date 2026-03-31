@@ -264,7 +264,10 @@ class PipelineStack(Stack):
             },
         }
 
-        # Add BatchOrForward step when batcher Lambda is configured
+        # Add BatchOrForward loop when batcher Lambda is configured.
+        # The batcher drains as many messages as it can within its time
+        # budget and returns queue_empty: true/false. Step Functions loops
+        # until the staging queue is fully drained.
         if batcher_lambda_arn:
             definition["States"]["BatchOrForward"] = {
                 "Type": "Task",
@@ -276,8 +279,13 @@ class PipelineStack(Stack):
                         "scrapers.$": "$.results",
                     },
                 },
+                "ResultSelector": {
+                    "queue_empty.$": "$.Payload.queue_empty",
+                    "mode.$": "$.Payload.mode",
+                    "record_count.$": "$.Payload.record_count",
+                },
                 "ResultPath": "$.batchResult",
-                "Next": "PipelineSummary",
+                "Next": "CheckQueueDrained",
                 "Retry": [
                     {
                         "ErrorEquals": [
@@ -297,6 +305,17 @@ class PipelineStack(Stack):
                         "Next": "PipelineSummary",
                     }
                 ],
+            }
+            definition["States"]["CheckQueueDrained"] = {
+                "Type": "Choice",
+                "Choices": [
+                    {
+                        "Variable": "$.batchResult.queue_empty",
+                        "BooleanEquals": True,
+                        "Next": "PipelineSummary",
+                    }
+                ],
+                "Default": "BatchOrForward",
             }
 
         # Create state machine with JSON definition
