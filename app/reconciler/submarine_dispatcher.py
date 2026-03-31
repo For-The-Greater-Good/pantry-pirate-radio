@@ -245,7 +245,7 @@ class SubmarineDispatcher:
                 send_to_sqs(
                     queue_url=queue_url,
                     message_body=job_data,
-                    message_group_id=job.source_scraper_id,
+                    message_group_id=job.location_id,
                     deduplication_id=job.id,
                     source="submarine-dispatcher",
                 )
