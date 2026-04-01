@@ -92,6 +92,7 @@ class BatchInferenceStack(Stack):
         self.ecr_repository = ecr_repository
         self.submarine_staging_queue = submarine_staging_queue
         self.submarine_extraction_queue = submarine_extraction_queue
+        self._vpc = vpc
         self._database_proxy_endpoint = database_proxy_endpoint
         self._database_secret = database_secret
         self._proxy_security_group = proxy_security_group
@@ -418,7 +419,7 @@ class BatchInferenceStack(Stack):
                 vpc=vpc,
                 description="Result processor Lambda - DB access",
             )
-            vpc_kwargs["vpc"] = vpc
+            vpc_kwargs["vpc"] = self._vpc
             vpc_kwargs["vpc_subnets"] = ec2.SubnetSelection(
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
             )
