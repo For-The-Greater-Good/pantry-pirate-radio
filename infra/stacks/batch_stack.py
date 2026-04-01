@@ -61,6 +61,9 @@ class BatchInferenceStack(Stack):
         ecr_repository: ecr.IRepository | None = None,
         submarine_staging_queue: sqs.IQueue | None = None,
         submarine_extraction_queue: sqs.IQueue | None = None,
+        database_proxy_endpoint: str | None = None,
+        database_secret: object | None = None,
+        proxy_security_group: ec2.ISecurityGroup | None = None,
         **kwargs,
     ) -> None:
         """Initialize BatchInferenceStack.
@@ -89,6 +92,9 @@ class BatchInferenceStack(Stack):
         self.ecr_repository = ecr_repository
         self.submarine_staging_queue = submarine_staging_queue
         self.submarine_extraction_queue = submarine_extraction_queue
+        self._database_proxy_endpoint = database_proxy_endpoint
+        self._database_secret = database_secret
+        self._proxy_security_group = proxy_security_group
 
         # Create staging queue
         self.staging_dlq = self._create_staging_dlq()
@@ -392,6 +398,32 @@ class BatchInferenceStack(Stack):
                 self.submarine_extraction_queue.queue_url
             )
 
+        # Database access for submarine cooldown updates
+        if self._database_proxy_endpoint:
+            result_processor_env["DATABASE_PROXY_ENDPOINT"] = (
+                self._database_proxy_endpoint
+            )
+            result_processor_env["DATABASE_NAME"] = "pantry_pirate_radio"
+            result_processor_env["DATABASE_USER"] = "pantry_pirate"
+        if self._database_secret:
+            result_processor_env["DATABASE_SECRET_ARN"] = (
+                self._database_secret.secret_arn
+            )
+
+        # VPC config for RDS Proxy access
+        vpc_kwargs = {}
+        if self._proxy_security_group:
+            rp_sg = ec2.SecurityGroup(
+                self, "ResultProcessorSG",
+                vpc=vpc,
+                description="Result processor Lambda - DB access",
+            )
+            vpc_kwargs["vpc"] = vpc
+            vpc_kwargs["vpc_subnets"] = ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            )
+            vpc_kwargs["security_groups"] = [rp_sg]
+
         fn = _lambda.DockerImageFunction(
             self,
             "ResultProcessorLambda",
@@ -407,6 +439,16 @@ class BatchInferenceStack(Stack):
             dead_letter_queue=result_processor_dlq,
             environment=result_processor_env,
             log_group=result_processor_log_group,
+            **vpc_kwargs,
+        )
+
+        # Grant DB secret read access
+        if self._database_secret:
+            self._database_secret.grant_read(fn)
+
+        # Store SG for cross-stack ingress rule
+        self.result_processor_security_group = (
+            rp_sg if self._proxy_security_group else None
         )
 
         return fn
@@ -426,7 +468,10 @@ class BatchInferenceStack(Stack):
                 detail_type=["Batch Inference Job State Change"],
                 detail={
                     "status": ["Completed", "PartiallyCompleted", "Failed"],
-                    "batchJobName": [{"prefix": "ppr-batch-"}],
+                    "batchJobName": [
+                        {"prefix": "ppr-batch-"},
+                        {"prefix": "ppr-sub-batch-"},
+                    ],
                 },
             ),
         )
