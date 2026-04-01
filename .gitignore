@@ -1,6 +1,10 @@
 # MCP config (contains API keys)
 .mcp.json
 
+# Database dumps
+*.sql
+prod_dump*
+
 # Legal / sensitive documents
 FTGG-SLG-*
 .~lock.FTGG-SLG-*
