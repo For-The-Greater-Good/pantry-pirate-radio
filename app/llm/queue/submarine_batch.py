@@ -147,15 +147,47 @@ def route_submarine_success(
     )
 
 
+def _get_database_url() -> str:
+    """Build DATABASE_URL from env vars or Secrets Manager."""
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        return db_url
+
+    # Lambda: construct from secret ARN + proxy endpoint
+    import boto3
+    import json as _json
+
+    secret_arn = os.environ.get("DATABASE_SECRET_ARN", "")
+    proxy_host = os.environ.get("DATABASE_PROXY_ENDPOINT", "")
+    db_name = os.environ.get("DATABASE_NAME", "pantry_pirate_radio")
+    db_user = os.environ.get("DATABASE_USER", "pantry_pirate")
+
+    if secret_arn and proxy_host:
+        client = boto3.client("secretsmanager")
+        secret = _json.loads(
+            client.get_secret_value(SecretId=secret_arn)["SecretString"]
+        )
+        password = secret.get("password", "")
+        return f"postgresql+psycopg2://{db_user}:{password}@{proxy_host}:5432/{db_name}"
+
+    return ""
+
+
 def _update_location_status(location_id: str, status: Any) -> None:
     """Update submarine tracking columns on the location record."""
     try:
         from sqlalchemy import create_engine, text
         from sqlalchemy.orm import sessionmaker
 
-        from app.core.config import settings
+        db_url = _get_database_url()
+        if not db_url:
+            logger.warning(
+                "submarine_batch_no_database_url",
+                location_id=location_id,
+                note="DATABASE_URL not set and no secret ARN — skipping cooldown update",
+            )
+            return
 
-        db_url = os.environ.get("DATABASE_URL", "") or settings.DATABASE_URL
         engine = create_engine(db_url)
         session_factory = sessionmaker(bind=engine)
         with session_factory() as session:

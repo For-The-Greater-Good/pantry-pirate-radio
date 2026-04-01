@@ -172,6 +172,9 @@ batch_stack = BatchInferenceStack(
     ecr_repository=ecr_stack.repositories.get("batch-lambda"),
     submarine_staging_queue=queue_stack.submarine_staging_queue,
     submarine_extraction_queue=queue_stack.submarine_extraction_queue,
+    database_proxy_endpoint=database_stack.proxy_endpoint,
+    database_secret=database_stack.database_credentials_secret,
+    proxy_security_group=database_stack.proxy_security_group,
     env=env,
     description=f"Pantry Pirate Radio batch inference infrastructure ({environment_name})",
 )
@@ -501,6 +504,20 @@ batch_stack.add_dependency(compute_stack)
 batch_stack.add_dependency(storage_stack)
 batch_stack.add_dependency(queue_stack)
 batch_stack.add_dependency(ecr_stack)
+batch_stack.add_dependency(database_stack)
+
+# Allow result processor Lambda to reach RDS Proxy
+if batch_stack.result_processor_security_group:
+    ec2.CfnSecurityGroupIngress(
+        batch_stack,
+        "ResultProcessorToProxyIngress",
+        group_id=database_stack.proxy_security_group.security_group_id,
+        source_security_group_id=batch_stack.result_processor_security_group.security_group_id,
+        ip_protocol="tcp",
+        from_port=5432,
+        to_port=5432,
+        description="Allow result processor Lambda to connect to RDS Proxy",
+    )
 
 # Pipeline depends on compute (needs cluster), services (task def), and batch (staging queue + Lambda)
 pipeline_stack.add_dependency(compute_stack)
