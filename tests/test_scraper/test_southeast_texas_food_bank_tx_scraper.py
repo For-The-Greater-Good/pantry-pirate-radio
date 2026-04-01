@@ -2,11 +2,13 @@
 
 import json
 
+import httpx
 import pytest
 from unittest.mock import patch, AsyncMock
 
 from app.scraper.scrapers.southeast_texas_food_bank_tx_scraper import (
     SoutheastTexasFoodBankTxScraper,
+    KNOWN_AGENCIES,
 )
 
 
@@ -175,20 +177,34 @@ async def test_scrape_falls_back_to_html():
     """Test scrape falls back to HTML when no WP plugin found."""
     scraper = SoutheastTexasFoodBankTxScraper(test_mode=True)
 
-    mock_response = AsyncMock()
-    mock_response.text = MOCK_HTML
-    mock_response.raise_for_status = lambda: None
-
-    with patch.object(scraper, "_try_wpsl", new_callable=AsyncMock, return_value=None):
+    with patch.object(
+        scraper,
+        "_try_wpsl",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
         with patch.object(
-            scraper, "_try_slp", new_callable=AsyncMock, return_value=None
+            scraper,
+            "_try_slp",
+            new_callable=AsyncMock,
+            return_value=None,
         ):
             with patch.object(
-                scraper, "_try_asl", new_callable=AsyncMock, return_value=None
+                scraper,
+                "_try_asl",
+                new_callable=AsyncMock,
+                return_value=None,
             ):
-                with patch("httpx.AsyncClient.get", return_value=mock_response):
+                with patch.object(
+                    scraper,
+                    "_fetch_html_with_retry",
+                    new_callable=AsyncMock,
+                    return_value=MOCK_HTML,
+                ):
                     with patch.object(
-                        scraper, "submit_to_queue", return_value="job_123"
+                        scraper,
+                        "submit_to_queue",
+                        return_value="job_123",
                     ):
                         result = await scraper.scrape()
 
@@ -223,10 +239,74 @@ async def test_deduplication():
     duplicated = MOCK_WP_RESPONSE + MOCK_WP_RESPONSE
 
     with patch.object(
-        scraper, "_try_wpsl", new_callable=AsyncMock, return_value=duplicated
+        scraper,
+        "_try_wpsl",
+        new_callable=AsyncMock,
+        return_value=duplicated,
     ):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+        with patch.object(
+            scraper, "submit_to_queue", return_value="job_123"
+        ):
             result = await scraper.scrape()
 
     summary = json.loads(result)
     assert summary["total_locations_found"] == 3
+
+
+@pytest.mark.asyncio
+async def test_scrape_fallback_to_known_agencies():
+    """Test fallback to known agencies when all methods fail."""
+    scraper = SoutheastTexasFoodBankTxScraper(test_mode=True)
+    submitted: list[dict] = []
+
+    def capture(data: str) -> str:
+        submitted.append(json.loads(data))
+        return "job_123"
+
+    with patch.object(
+        scraper,
+        "_try_wpsl",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        with patch.object(
+            scraper,
+            "_try_slp",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with patch.object(
+                scraper,
+                "_try_asl",
+                new_callable=AsyncMock,
+                return_value=None,
+            ):
+                with patch.object(
+                    scraper,
+                    "_fetch_html_with_retry",
+                    new_callable=AsyncMock,
+                    side_effect=httpx.HTTPStatusError(
+                        "403 Forbidden",
+                        request=httpx.Request(
+                            "GET", scraper.url
+                        ),
+                        response=httpx.Response(403),
+                    ),
+                ):
+                    with patch.object(
+                        scraper,
+                        "submit_to_queue",
+                        side_effect=capture,
+                    ):
+                        result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] == len(KNOWN_AGENCIES)
+    assert (
+        submitted[0]["source"]
+        == "southeast_texas_food_bank_tx"
+    )
+    assert (
+        submitted[0]["food_bank"]
+        == "Southeast Texas Food Bank"
+    )

@@ -2,11 +2,13 @@
 
 import json
 
+import httpx
 import pytest
 from unittest.mock import patch, AsyncMock
 
 from app.scraper.scrapers.south_plains_food_bank_tx_scraper import (
     SouthPlainsFoodBankTxScraper,
+    KNOWN_AGENCIES,
 )
 
 
@@ -62,7 +64,10 @@ async def test_parse_locations():
 
     assert len(locations) >= 2
     names = [loc["name"] for loc in locations]
-    assert any("Salvation" in n or "Community" in n or "Plainview" in n for n in names)
+    assert any(
+        "Salvation" in n or "Community" in n or "Plainview" in n
+        for n in names
+    )
 
 
 @pytest.mark.asyncio
@@ -89,7 +94,9 @@ async def test_parse_locations_sets_state():
 async def test_parse_locations_empty_html():
     """Test parsing handles empty HTML gracefully."""
     scraper = SouthPlainsFoodBankTxScraper()
-    locations = scraper._parse_locations("<html><body></body></html>")
+    locations = scraper._parse_locations(
+        "<html><body></body></html>"
+    )
     assert isinstance(locations, list)
 
 
@@ -104,9 +111,14 @@ async def test_scrape_metadata():
         return "job_123"
 
     with patch.object(
-        scraper, "_fetch_page", new_callable=AsyncMock, return_value=MOCK_HTML
+        scraper,
+        "_fetch_page",
+        new_callable=AsyncMock,
+        return_value=MOCK_HTML,
     ):
-        with patch.object(scraper, "submit_to_queue", side_effect=capture):
+        with patch.object(
+            scraper, "submit_to_queue", side_effect=capture
+        ):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -119,14 +131,53 @@ async def test_scrape_metadata():
 
 
 @pytest.mark.asyncio
+async def test_scrape_fallback_to_known_agencies():
+    """Test fallback to known agencies when site returns 403."""
+    scraper = SouthPlainsFoodBankTxScraper(test_mode=True)
+    submitted: list[dict] = []
+
+    def capture(data: str) -> str:
+        submitted.append(json.loads(data))
+        return "job_123"
+
+    async def mock_fetch_fail(client):
+        raise httpx.HTTPStatusError(
+            "403 Forbidden",
+            request=httpx.Request("GET", scraper.url),
+            response=httpx.Response(403),
+        )
+
+    with patch.object(
+        scraper,
+        "_fetch_page",
+        new_callable=AsyncMock,
+        side_effect=mock_fetch_fail,
+    ):
+        with patch.object(
+            scraper, "submit_to_queue", side_effect=capture
+        ):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] >= 5
+    assert submitted[0]["source"] == "south_plains_food_bank_tx"
+    assert submitted[0]["food_bank"] == "South Plains Food Bank"
+
+
+@pytest.mark.asyncio
 async def test_scrape_returns_valid_summary():
     """Test that scrape returns a valid JSON summary."""
     scraper = SouthPlainsFoodBankTxScraper(test_mode=True)
 
     with patch.object(
-        scraper, "_fetch_page", new_callable=AsyncMock, return_value=MOCK_HTML
+        scraper,
+        "_fetch_page",
+        new_callable=AsyncMock,
+        return_value=MOCK_HTML,
     ):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+        with patch.object(
+            scraper, "submit_to_queue", return_value="job_123"
+        ):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -143,7 +194,6 @@ async def test_text_fallback_parser():
     scraper = SouthPlainsFoodBankTxScraper()
     seen: set[str] = set()
 
-    # Simulate a simple content element
     from bs4 import BeautifulSoup
 
     html = """<div>
