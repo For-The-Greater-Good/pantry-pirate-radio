@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from app.scraper.scrapers.columbia_pacific_food_bank_or_scraper import (
+    KNOWN_LOCATIONS,
     ColumbiaPacificFoodBankOrScraper,
 )
 
@@ -44,8 +45,45 @@ def test_parse_locations():
         assert loc["state"] == "OR"
 
 
+def test_known_locations_populated():
+    """Test that KNOWN_LOCATIONS fallback has entries."""
+    assert len(KNOWN_LOCATIONS) >= 6
+    for loc in KNOWN_LOCATIONS:
+        assert loc["state"] == "OR"
+        assert loc["name"]
+        assert loc["city"]
+
+
+@pytest.mark.asyncio
+async def test_scrape_uses_fallback_on_error(monkeypatch: pytest.MonkeyPatch):
+    """Test scraper uses known locations when site returns 403."""
+    scraper = ColumbiaPacificFoodBankOrScraper()
+
+    async def mock_fetch(client: Any, url: str) -> str:
+        raise Exception("403 Forbidden")
+
+    submitted: list[dict[str, Any]] = []
+
+    def mock_submit(content: str) -> str:
+        submitted.append(json.loads(content))
+        return "job-1"
+
+    monkeypatch.setattr(scraper, "_fetch_page", mock_fetch)
+    monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
+
+    result = await scraper.scrape()
+    summary = json.loads(result)
+
+    assert summary["scraper_id"] == "columbia_pacific_food_bank_or"
+    assert summary["food_bank"] == "Columbia Pacific Food Bank"
+    assert summary["total_jobs_created"] >= 6
+    assert len(submitted) >= 6
+    assert submitted[0]["source"] == "columbia_pacific_food_bank_or"
+
+
 @pytest.mark.asyncio
 async def test_scrape_workflow(monkeypatch: pytest.MonkeyPatch):
+    """Test complete scrape workflow with HTML."""
     scraper = ColumbiaPacificFoodBankOrScraper()
 
     async def mock_fetch(client: Any, url: str) -> str:
@@ -71,6 +109,7 @@ async def test_scrape_workflow(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.asyncio
 async def test_scrape_handles_error(monkeypatch: pytest.MonkeyPatch):
+    """Test scraper handles errors gracefully with fallback."""
     scraper = ColumbiaPacificFoodBankOrScraper()
 
     async def mock_fetch(client: Any, url: str) -> str:
@@ -81,4 +120,5 @@ async def test_scrape_handles_error(monkeypatch: pytest.MonkeyPatch):
 
     result = await scraper.scrape()
     summary = json.loads(result)
-    assert summary["total_jobs_created"] == 0
+    # Should still have results from fallback
+    assert summary["total_jobs_created"] >= 6

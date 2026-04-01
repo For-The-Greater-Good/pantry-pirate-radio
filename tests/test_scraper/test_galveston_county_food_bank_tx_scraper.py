@@ -1,61 +1,62 @@
 """Tests for Galveston County Food Bank scraper."""
 
 import json
+import urllib.parse
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 from app.scraper.scrapers.galveston_county_food_bank_tx_scraper import (
     GalvestonCountyFoodBankTxScraper,
 )
 
 
-MOCK_HOMEPAGE = """
-<html>
-<body>
-<nav>
-<a href="/find-food/">Find Food</a>
-<a href="/about/">About</a>
-<a href="/donate/">Donate</a>
-</nav>
-<main>
-<h1>Galveston County Food Bank</h1>
-<p>Serving Galveston County since 1985</p>
-</main>
-</body>
-</html>
-"""
+def _build_elfsight_html(markers: list[dict]) -> str:
+    """Build mock HTML with an Elfsight Google Maps widget."""
+    config = {
+        "markers": markers,
+        "categories": [],
+        "mapType": "roadmap",
+    }
+    encoded = urllib.parse.quote(json.dumps(config))
+    return (
+        '<html><body><main>'
+        f'<div data-elfsight-google-maps-options="{encoded}"></div>'
+        '</main></body></html>'
+    )
 
-MOCK_FOOD_PAGE = """
-<html>
-<body>
-<main>
-<h2>Partner Agencies</h2>
-<table>
-<tr><th>Agency</th><th>Address</th><th>Phone</th><th>Hours</th></tr>
-<tr>
-<td>Island Community Center</td>
-<td>4700 Broadway, Galveston, TX 77551</td>
-<td>(409) 762-1234</td>
-<td>Monday and Wednesday 10:00 AM - 2:00 PM</td>
-</tr>
-<tr>
-<td>Texas City Food Pantry</td>
-<td>2005 9th Ave N, Texas City, TX 77590</td>
-<td>(409) 945-5678</td>
-<td>Tuesday and Thursday 9:00 AM - 12:00 PM</td>
-</tr>
-<tr>
-<td>Dickinson Community Church</td>
-<td>300 FM 517 Rd E, Dickinson, TX 77539</td>
-<td>(281) 337-9012</td>
-<td>Friday 1:00 PM - 3:00 PM</td>
-</tr>
-</table>
-</main>
-</body>
-</html>
-"""
+
+MOCK_MARKERS = [
+    {
+        "position": "800 Grand Ave., Bacliff, TX",
+        "coordinates": "29.5035924, -94.98879529999999",
+        "infoTitle": "Lighthouse Christian Ministries",
+        "category": "food-pantry",
+        "infoDescription": "",
+        "infoPhone": "281-339-3033",
+        "infoWorkingHours": "",
+    },
+    {
+        "position": "805 9th Street, San Leon, TX",
+        "coordinates": "29.484838, -94.9222362",
+        "infoTitle": "San Leon Community Church",
+        "category": "food-pantry",
+        "infoDescription": "Pantry &amp; Kidz Pacz host site",
+        "infoPhone": "281-339-1347",
+        "infoWorkingHours": "",
+    },
+    {
+        "position": "1020 Diamond Rd., Crystal Beach, TX",
+        "coordinates": "29.4587704, -94.6388514",
+        "infoTitle": "Crystal Beach Community Church",
+        "category": "food-pantry",
+        "infoDescription": "",
+        "infoPhone": "409-543-4087",
+        "infoWorkingHours": "",
+    },
+]
+
+MOCK_ELFSIGHT_PAGE = _build_elfsight_html(MOCK_MARKERS)
 
 
 @pytest.mark.asyncio
@@ -75,51 +76,57 @@ async def test_scraper_test_mode():
 
 
 @pytest.mark.asyncio
-async def test_find_agency_page_url():
-    """Test finding the food/agency page URL from homepage."""
+async def test_parse_elfsight_markers():
+    """Test parsing markers from Elfsight widget data."""
     scraper = GalvestonCountyFoodBankTxScraper()
-    url = scraper._find_agency_page_url(MOCK_HOMEPAGE)
-    assert url is not None
-    assert "find-food" in url
+    locations = scraper._parse_elfsight_markers(MOCK_ELFSIGHT_PAGE)
 
-
-@pytest.mark.asyncio
-async def test_find_agency_page_url_returns_none():
-    """Test returns None when no agency page link found."""
-    scraper = GalvestonCountyFoodBankTxScraper()
-    url = scraper._find_agency_page_url(
-        "<html><body><a href='/about/'>About</a></body></html>"
-    )
-    assert url is None
-
-
-@pytest.mark.asyncio
-async def test_parse_locations_from_tables():
-    """Test parsing locations from HTML tables."""
-    scraper = GalvestonCountyFoodBankTxScraper()
-    locations = scraper._parse_locations(MOCK_FOOD_PAGE)
-
-    assert len(locations) >= 3
+    assert len(locations) == 3
     names = [loc["name"] for loc in locations]
-    assert "Island Community Center" in names
-    assert "Texas City Food Pantry" in names
+    assert "Lighthouse Christian Ministries" in names
+    assert "San Leon Community Church" in names
+    assert "Crystal Beach Community Church" in names
 
 
 @pytest.mark.asyncio
-async def test_parse_locations_extracts_phones():
-    """Test that phone numbers are extracted."""
+async def test_parse_elfsight_extracts_phones():
+    """Test that phone numbers are extracted from markers."""
     scraper = GalvestonCountyFoodBankTxScraper()
-    locations = scraper._parse_locations(MOCK_FOOD_PAGE)
+    locations = scraper._parse_elfsight_markers(MOCK_ELFSIGHT_PAGE)
 
     phones = [loc.get("phone", "") for loc in locations]
+    assert any("281" in p for p in phones)
     assert any("409" in p for p in phones)
+
+
+@pytest.mark.asyncio
+async def test_parse_elfsight_extracts_addresses():
+    """Test that addresses are extracted from position field."""
+    scraper = GalvestonCountyFoodBankTxScraper()
+    locations = scraper._parse_elfsight_markers(MOCK_ELFSIGHT_PAGE)
+
+    addresses = [loc.get("address", "") for loc in locations]
+    assert any("Grand Ave" in a for a in addresses)
+    assert any("Diamond Rd" in a for a in addresses)
+
+
+@pytest.mark.asyncio
+async def test_parse_elfsight_extracts_cities():
+    """Test that cities are parsed from position field."""
+    scraper = GalvestonCountyFoodBankTxScraper()
+    locations = scraper._parse_elfsight_markers(MOCK_ELFSIGHT_PAGE)
+
+    cities = [loc.get("city", "") for loc in locations]
+    assert "Bacliff" in cities
+    assert "San Leon" in cities
+    assert "Crystal Beach" in cities
 
 
 @pytest.mark.asyncio
 async def test_parse_locations_sets_state():
     """Test that state defaults to TX."""
     scraper = GalvestonCountyFoodBankTxScraper()
-    locations = scraper._parse_locations(MOCK_FOOD_PAGE)
+    locations = scraper._parse_locations(MOCK_ELFSIGHT_PAGE)
 
     for loc in locations:
         assert loc["state"] == "TX"
@@ -134,6 +141,27 @@ async def test_parse_locations_empty_html():
 
 
 @pytest.mark.asyncio
+async def test_parse_elfsight_no_widget():
+    """Test returns empty list when no Elfsight widget found."""
+    scraper = GalvestonCountyFoodBankTxScraper()
+    locations = scraper._parse_elfsight_markers(
+        "<html><body><p>No map</p></body></html>"
+    )
+    assert locations == []
+
+
+@pytest.mark.asyncio
+async def test_parse_elfsight_deduplicates():
+    """Test that duplicate markers are deduplicated."""
+    dup_markers = [MOCK_MARKERS[0], MOCK_MARKERS[0]]
+    html = _build_elfsight_html(dup_markers)
+
+    scraper = GalvestonCountyFoodBankTxScraper()
+    locations = scraper._parse_elfsight_markers(html)
+    assert len(locations) == 1
+
+
+@pytest.mark.asyncio
 async def test_scrape_metadata():
     """Test that scraped locations include correct metadata."""
     scraper = GalvestonCountyFoodBankTxScraper(test_mode=True)
@@ -144,9 +172,7 @@ async def test_scrape_metadata():
         return "job_123"
 
     async def mock_fetch(client, url):
-        if "find-food" in url:
-            return MOCK_FOOD_PAGE
-        return MOCK_HOMEPAGE
+        return MOCK_ELFSIGHT_PAGE
 
     with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
         with patch.object(scraper, "submit_to_queue", side_effect=capture):
@@ -167,7 +193,7 @@ async def test_scrape_returns_valid_summary():
     scraper = GalvestonCountyFoodBankTxScraper(test_mode=True)
 
     async def mock_fetch(client, url):
-        return MOCK_FOOD_PAGE
+        return MOCK_ELFSIGHT_PAGE
 
     with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
         with patch.object(scraper, "submit_to_queue", return_value="job_123"):
