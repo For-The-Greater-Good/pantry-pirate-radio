@@ -92,9 +92,10 @@ def _drain_staging_queue(
     sqs_client: Any,
     queue_url: str,
     dlq_url: str = "",
-    max_iterations: int = 1000,
-) -> tuple[int, str]:
-    """Drain all messages from the staging queue to a temp file.
+    remaining_time_fn: Any = None,
+    drain_budget_ms: int = 720_000,
+) -> tuple[int, str, bool]:
+    """Drain messages from the staging queue to a temp file.
 
     **DATA LOSS RISK**: Messages are deleted from SQS during drain to unlock
     the FIFO message group. If this Lambda crashes after drain but before the
@@ -111,15 +112,28 @@ def _drain_staging_queue(
 
     Malformed (unparseable) messages are forwarded to the DLQ for inspection.
 
+    Uses a time-based budget rather than an iteration cap so the drain adapts
+    to Lambda timeout and queue depth. Reserves time for the batch submission
+    step that follows.
+
     Args:
         sqs_client: boto3 SQS client
         queue_url: SQS queue URL
         dlq_url: DLQ URL for poison pill forwarding
-        max_iterations: Safety limit on receive_message calls
+        remaining_time_fn: Callable returning remaining Lambda time in ms
+            (typically context.get_remaining_time_in_millis)
+        drain_budget_ms: Fallback time budget in ms if remaining_time_fn
+            is not provided (default: 720s = 12 min, leaving 3 min for
+            batch submission on a 15 min Lambda)
 
     Returns:
-        (record_count, temp_file_path) — caller must delete the temp file.
+        (record_count, temp_file_path, queue_empty) — caller must delete
+        the temp file. queue_empty indicates whether the queue was fully
+        drained or if more records remain.
     """
+    # Reserve 120s (2 min) for batch build + S3 upload + Bedrock submission
+    _RESERVE_MS = 120_000
+
     logger.warning(
         "staging_queue_drain_starting",
         queue_url=queue_url,
@@ -133,9 +147,24 @@ def _drain_staging_queue(
     )
     record_count = 0
     poison_pill_count = 0
+    queue_empty = False
 
     try:
-        for _ in range(max_iterations):
+        while True:
+            # Time budget check
+            if remaining_time_fn:
+                remaining = remaining_time_fn()
+                if remaining < _RESERVE_MS:
+                    logger.info(
+                        "drain_time_budget_exhausted",
+                        remaining_ms=remaining,
+                        reserve_ms=_RESERVE_MS,
+                        records_so_far=record_count,
+                    )
+                    break
+            elif record_count >= (drain_budget_ms // 100) * 10:
+                # Rough fallback: ~100ms per receive of 10 msgs
+                break
             response = sqs_client.receive_message(
                 QueueUrl=queue_url,
                 MaxNumberOfMessages=10,
@@ -145,6 +174,7 @@ def _drain_staging_queue(
 
             messages = response.get("Messages", [])
             if not messages:
+                queue_empty = True
                 break
 
             batch_delete_entries: list[dict[str, str]] = []
@@ -216,8 +246,12 @@ def _drain_staging_queue(
             count=poison_pill_count,
         )
 
-    logger.info("staging_queue_drained", total_messages=record_count)
-    return record_count, tmp.name
+    logger.info(
+        "staging_queue_drained",
+        total_messages=record_count,
+        queue_empty=queue_empty,
+    )
+    return record_count, tmp.name, queue_empty
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -263,9 +297,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     # Extract the UUID portion from the Step Functions ARN for S3-safe paths.
     # ARN format: arn:aws:states:...:execution:name:uuid
-    s3_safe_id = (
+    # Append a timestamp so re-invocations within the same execution
+    # (drain loop) get unique S3 prefixes and Bedrock job names.
+    base_id = (
         execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
     )
+    batch_ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    s3_safe_id = f"{base_id}_{batch_ts}"
 
     # Source-specific queue routing
     if source == "submarine":
@@ -299,8 +337,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     # 1. Drain staging queue to a temp file — messages are deleted immediately
     #    per batch to unlock FIFO message groups for subsequent receives
-    record_count, staging_file = _drain_staging_queue(
-        sqs, staging_queue_url, dlq_url=staging_dlq_url
+    remaining_time_fn = (
+        context.get_remaining_time_in_millis if context else None
+    )
+    record_count, staging_file, queue_empty = _drain_staging_queue(
+        sqs, staging_queue_url, dlq_url=staging_dlq_url,
+        remaining_time_fn=remaining_time_fn,
     )
 
     try:
@@ -316,7 +358,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         )
 
         if record_count == 0:
-            return {"mode": "on-demand", "count": 0}
+            return {"mode": "on-demand", "count": 0, "queue_empty": True}
 
         if decision == "on-demand":
             # Re-enqueue each job to the appropriate on-demand queue.
@@ -369,6 +411,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "mode": "on-demand",
                 "count": succeeded,
                 "failed": failed_count,
+                "queue_empty": queue_empty,
             }
 
         # 3. Build JSONL + original_jobs to temp files (constant memory)
@@ -515,6 +558,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "mode": "batch",
                 "job_arn": job_arn,
                 "record_count": record_count,
+                "queue_empty": queue_empty,
             }
 
         finally:

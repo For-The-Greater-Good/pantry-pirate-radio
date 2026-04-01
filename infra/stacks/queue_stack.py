@@ -151,6 +151,11 @@ class QueueStack(Stack):
             encryption=sqs.QueueEncryption.SQS_MANAGED,
         )
 
+        # Enable high-throughput FIFO mode
+        cfn_dlq = dlq.node.default_child
+        cfn_dlq.add_property_override("DeduplicationScope", "messageGroup")
+        cfn_dlq.add_property_override("FifoThroughputLimit", "perMessageGroupId")
+
         return dlq
 
     def _create_queue(
@@ -189,6 +194,11 @@ class QueueStack(Stack):
                 max_receive_count=self.max_receive_count,
             ),
         )
+
+        # Enable high-throughput FIFO mode
+        cfn_queue = queue.node.default_child
+        cfn_queue.add_property_override("DeduplicationScope", "messageGroup")
+        cfn_queue.add_property_override("FifoThroughputLimit", "perMessageGroupId")
 
         return queue
 

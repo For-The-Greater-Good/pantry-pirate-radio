@@ -18,10 +18,24 @@ Environment Configuration:
 
 import os
 import warnings
+from pathlib import Path
 
 import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
+
+# Load .env as fallback for env vars not passed explicitly to the CDK container
+try:
+    from dotenv import dotenv_values
+
+    for _p in [Path(__file__).parent.parent / ".env", Path("/app/.env")]:
+        if _p.exists():
+            for _k, _v in dotenv_values(_p).items():
+                if _v and _k not in os.environ:
+                    os.environ[_k] = _v
+            break
+except ImportError:
+    pass
 
 from stacks.bastion_stack import BastionStack
 from stacks.batch_stack import BatchInferenceStack
@@ -44,7 +58,8 @@ environment_name = os.environ.get("CDK_DEPLOY_ENVIRONMENT", "dev")
 account = os.environ.get("CDK_DEPLOY_ACCOUNT", os.environ.get("CDK_DEFAULT_ACCOUNT"))
 region = os.environ.get("CDK_DEPLOY_REGION", os.environ.get("CDK_DEFAULT_REGION"))
 certificate_arn = os.environ.get("CDK_CERTIFICATE_ARN")
-domain_name = os.environ.get("CDK_DOMAIN_NAME")
+domain_name = os.environ.get("CDK_DOMAIN_NAME", os.environ.get("DOMAIN_NAME"))
+hosted_zone_id = os.environ.get("HOSTED_ZONE_ID")
 alert_email = os.environ.get("CDK_ALERT_EMAIL")
 if not account:
     warnings.warn(
@@ -157,6 +172,9 @@ batch_stack = BatchInferenceStack(
     ecr_repository=ecr_stack.repositories.get("batch-lambda"),
     submarine_staging_queue=queue_stack.submarine_staging_queue,
     submarine_extraction_queue=queue_stack.submarine_extraction_queue,
+    database_proxy_endpoint=database_stack.proxy_endpoint,
+    database_secret=database_stack.database_credentials_secret,
+    proxy_security_group=database_stack.proxy_security_group,
     env=env,
     description=f"Pantry Pirate Radio batch inference infrastructure ({environment_name})",
 )
@@ -486,6 +504,20 @@ batch_stack.add_dependency(compute_stack)
 batch_stack.add_dependency(storage_stack)
 batch_stack.add_dependency(queue_stack)
 batch_stack.add_dependency(ecr_stack)
+batch_stack.add_dependency(database_stack)
+
+# Allow result processor Lambda to reach RDS Proxy
+if batch_stack.result_processor_security_group:
+    ec2.CfnSecurityGroupIngress(
+        batch_stack,
+        "ResultProcessorToProxyIngress",
+        group_id=database_stack.proxy_security_group.security_group_id,
+        source_security_group_id=batch_stack.result_processor_security_group.security_group_id,
+        ip_protocol="tcp",
+        from_port=5432,
+        to_port=5432,
+        description="Allow result processor Lambda to connect to RDS Proxy",
+    )
 
 # Pipeline depends on compute (needs cluster), services (task def), and batch (staging queue + Lambda)
 pipeline_stack.add_dependency(compute_stack)
@@ -550,6 +582,30 @@ ec2.CfnSecurityGroupIngress(
     description="Allow NLB to reach RDS Proxy for Metabase Cloud",
 )
 
+# DNS Stack — Route 53 records + ACM wildcard cert (optional, needs HOSTED_ZONE_ID)
+if hosted_zone_id and domain_name:
+    from stacks.dns_stack import DnsStack
+
+    dns_stack = DnsStack(
+        app,
+        f"DnsStack-{environment_name}",
+        environment_name=environment_name,
+        hosted_zone_id=hosted_zone_id,
+        domain_name=domain_name,
+        http_api_id=lambda_api_stack.http_api.ref,
+        webhook_api_id=cdk.Fn.import_value(
+            f"ppr-helm-webhook-api-id-{environment_name}"
+        ),
+        nlb=metabase_stack.nlb,
+        exports_bucket_name=storage_stack.exports_bucket.bucket_name,
+        env=env,
+        description=f"Pantry Pirate Radio DNS records ({environment_name})",
+    )
+    dns_stack.add_dependency(lambda_api_stack)
+    dns_stack.add_dependency(metabase_stack)
+    dns_stack.add_dependency(storage_stack)
+    cdk.Tags.of(dns_stack).add("Stack", f"DnsStack-{environment_name}")
+
 # Monitoring depends on all other stacks
 monitoring_stack.add_dependency(compute_stack)
 monitoring_stack.add_dependency(database_stack)
@@ -574,6 +630,9 @@ _plugin_context = {
     "proxy_endpoint": database_stack.proxy_endpoint,
     "proxy_security_group": database_stack.proxy_security_group,
     "database_credentials_secret": database_stack.database_credentials_secret,
+    # DNS — custom domain for Amplify apps
+    "domain_name": domain_name,
+    "hosted_zone_id": hosted_zone_id,
 }
 
 discover_and_load_plugins(

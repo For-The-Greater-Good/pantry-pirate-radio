@@ -4,3 +4,6 @@ boto3>=1.42.0
 structlog>=24.1.0
 pydantic[email]>=2.6.0
 pydantic-settings>=2.1.0
+# Result processor needs DB access for submarine cooldown updates
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
