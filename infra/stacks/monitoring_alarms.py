@@ -113,17 +113,29 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
         "API Lambda function is being throttled",
     )
 
-    # ── 3. LLM queue depth ────────────────────────────────────────
-    alarm(
-        stack,
-        "QueueDepthAlarm",
-        f"{ppr}-queue-depth-{env}",
-        metric("AWS/SQS", sqs_visible, {"QueueName": stack.queue_name}, "Average"),
-        100,
-        3,
-        GT,
-        "SQS queue depth is high - jobs are backing up",
-    )
+    # ── 3. Queue stall detection (oldest message age) ──────────────
+    # Alert when messages sit too long — means the service is stuck,
+    # not just busy. Much more actionable than queue depth.
+    sqs_age = "ApproximateAgeOfOldestMessage"
+    for cid, label, qname, max_age_sec in [
+        ("LLMQueueStallAlarm", "llm", stack.queue_name, 3600),
+        ("ValidatorQueueStallAlarm", "validator", stack.validator_queue_name, 3600),
+        ("ReconcilerQueueStallAlarm", "reconciler", stack.reconciler_queue_name, 7200),
+        ("RecorderQueueStallAlarm", "recorder", stack.recorder_queue_name, 3600),
+        ("StagingQueueStallAlarm", "staging", stack.staging_queue_name, 3600),
+        ("SubmarineQueueStallAlarm", "submarine", stack.submarine_queue_name, 7200),
+    ]:
+        alarm(
+            stack,
+            cid,
+            f"{ppr}-{label}-queue-stall-{env}",
+            metric("AWS/SQS", sqs_age, {"QueueName": qname}, "Maximum",
+                   Duration.minutes(5)),
+            max_age_sec,
+            3,
+            GT,
+            f"{label} queue stalled - oldest message is over {max_age_sec // 60}min old",
+        )
 
     # ── 4-5. DLQ alarms (LLM + staging + validator + reconciler + recorder + submarine)
     for cid, label, qname in [
@@ -336,23 +348,9 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
             f"DynamoDB {label} table has system errors",
         )
 
-    # ── H17-H20: Queue depth (validator, reconciler, recorder, staging)
-    for label, qname in [
-        ("Validator", stack.validator_queue_name),
-        ("Reconciler", stack.reconciler_queue_name),
-        ("Recorder", stack.recorder_queue_name),
-        ("Staging", stack.staging_queue_name),
-    ]:
-        alarm(
-            stack,
-            f"{label}QueueDepthAlarm",
-            f"ppr-{env}-{label.lower()}-queue-depth",
-            metric("AWS/SQS", sqs_visible, {"QueueName": qname}, "Average"),
-            100,
-            3,
-            GT,
-            f"{label} queue depth is high - jobs are backing up",
-        )
+    # Queue depth alarms removed — replaced by queue stall detection
+    # (oldest message age) in section 3 above. Queue depth is normal
+    # during pipeline runs; stalled queues are the real problem.
 
     # ================================================================
     # NEW ALARMS
