@@ -195,8 +195,8 @@ class ServicesStack(Stack):
             self.submarine_task_role,
         ) = self._create_service(
             name="submarine",
-            cpu=512,
-            memory_mib=1024,  # crawl4ai + Chromium needs memory
+            cpu=1024,
+            memory_mib=2048,  # crawl4ai + Chromium needs CPU and memory
             desired_count=1,
             log_retention=log_retention,
             cluster=cluster,

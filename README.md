@@ -137,6 +137,7 @@ The system consists of the following containerized services:
 - **app**: FastAPI server providing HSDS-compliant API endpoints
 - **worker**: LLM processing workers (scalable)
 - **reconciler**: Data reconciliation and deduplication service
+- **submarine**: Post-reconciler web crawling enrichment (fills missing hours, phone, email, description)
 - **recorder**: Job result archival service
 - **haarrrvest-publisher**: GitHub repository synchronization
 - **db**: PostgreSQL with PostGIS extensions
@@ -170,6 +171,10 @@ flowchart TB
     Reconciler --> DB[(PostgreSQL)]
     Recorder --> Files[(JSON Files)]
     
+    %% Submarine Enrichment
+    Reconciler -.->|missing fields| Submarine[Submarine<br/>Web Crawler]
+    Submarine -.-> ReconcilerQ
+    
     %% Output
     DB --> API[FastAPI]
     DB --> Publisher[Publisher]
@@ -182,7 +187,7 @@ flowchart TB
     classDef external fill:#f0f0f0,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5
     classDef queue fill:#e8f4f8,stroke:#0288d1,stroke-width:1px
     
-    class Scrapers,Workers,Validator,Reconciler,Recorder,API,Publisher service
+    class Scrapers,Workers,Validator,Reconciler,Recorder,API,Publisher,Submarine service
     class ContentStore,DB,Files storage
     class LLM,GitHub external
     class Queue,ReconcilerQ,RecorderQ,Jobs queue
@@ -279,6 +284,14 @@ flowchart TB
 - **Service Creator**: Processes service information and relationships
 - **Merge Strategy**: Handles source-specific records with canonical merging
 - **Geocoding Corrector**: Validates and corrects address coordinates with 0,0 detection and multi-provider fallback
+
+#### **Submarine Service** (`app/submarine/`)
+- **Post-Reconciler Enrichment**: Crawls food bank websites to fill missing phone, hours, email, and description fields
+- **Two-Phase Architecture**: Crawl (Fargate, real-time) then extract (Bedrock batch at 50% cost, or on-demand fallback)
+- **Content Relevance Filtering**: Keyword gate + LLM `is_food_related` signal to avoid non-food content
+- **Selective Field Updates**: Only overwrites fields that were actually missing at dispatch time
+- **Adaptive Cooldown**: success=30d, no_data=90d, error=14d to avoid re-crawling unnecessarily
+- **Step Functions Orchestration**: Weekly scans on AWS (prod), manual via `./bouy submarine --aws` (dev)
 
 #### **Worker Pool** (`app/llm/queue/`)
 - **Scalable Processing**: Horizontally scalable worker instances
@@ -774,9 +787,10 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 3. **Workers** → Process with LLM → **Validator** (quality checks & enrichment)
 4. **Validator** → High-confidence data only → **Database** (source-specific records)
 5. **Reconciler** → Create canonical records → **Database** (merged HSDS data)
-6. **Recorder** → Archive results → **Compressed archives**
-7. **API** → Serve HSDS-compliant data → **Client applications**
-8. **HAARRRvest Publisher** → Sync content store → **Durable backup**
+6. **Submarine** → Crawl websites for missing fields → **Reconciler** (selective update)
+7. **Recorder** → Archive results → **Compressed archives**
+8. **API** → Serve HSDS-compliant data → **Client applications**
+9. **HAARRRvest Publisher** → Sync content store → **Durable backup**
 
 ## 🔍 Explore the Data
 
@@ -804,6 +818,7 @@ Our comprehensive documentation is organized in the **[Documentation Index](docs
 - **[Quick Start Guide](docs/quickstart.md)** - Get up and running in minutes
 - **[Architecture Overview](docs/architecture.md)** - System design and components
 - **[HSDS Specification](docs/hsds_index.md)** - Human Services Data Specification overview
+- **[Submarine Service](docs/submarine.md)** - Post-reconciler web crawling enrichment
 - **[Test Environment Setup](docs/test-environment-setup.md)** - ⚠️ Critical: Configure test isolation
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 

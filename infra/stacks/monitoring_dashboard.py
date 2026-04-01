@@ -83,7 +83,7 @@ def scaling_widget(
                 "AWS/SQS",
                 "ApproximateNumberOfMessagesVisible",
                 {"QueueName": queue_name},
-                "Sum",
+                "Maximum",
                 p1,
             )
         ],
@@ -470,6 +470,74 @@ def add_submarine_section(
     )
 
 
+def _add_service_section(
+    stack: MonitoringStack,
+    db: cloudwatch.Dashboard,
+    title: str,
+    service_name: str,
+    queue_name: str,
+    env: str,
+) -> None:
+    """Add a per-service dashboard section with queue + ECS metrics."""
+    p1 = Duration.minutes(1)
+    sqs_ns = "AWS/SQS"
+    ecs_ns = "AWS/ECS"
+    ecs_dims = {"ClusterName": stack.cluster_name, "ServiceName": service_name}
+    from stacks.monitoring_dashboard_queues import derive_dlq_name
+
+    dlq_name = derive_dlq_name(queue_name, env)
+
+    db.add_widgets(section(title))
+    db.add_widgets(
+        graph(
+            f"{title} Queue",
+            left=[
+                metric(sqs_ns, "ApproximateNumberOfMessagesVisible",
+                       {"QueueName": queue_name}, "Maximum", p1),
+                metric(sqs_ns, "ApproximateNumberOfMessagesNotVisible",
+                       {"QueueName": queue_name}, "Maximum", p1),
+            ],
+            right=[
+                metric(sqs_ns, "ApproximateNumberOfMessagesVisible",
+                       {"QueueName": dlq_name}, "Maximum", p1),
+            ],
+        ),
+        graph(
+            f"{title} Tasks vs Queue",
+            left=[
+                metric(ecs_ns, "DesiredCount", ecs_dims, "Average", p1),
+                metric(ecs_ns, "RunningCount", ecs_dims, "Average", p1),
+            ],
+            right=[
+                metric(sqs_ns, "ApproximateNumberOfMessagesVisible",
+                       {"QueueName": queue_name}, "Maximum", p1),
+            ],
+        ),
+        graph(
+            f"{title} CPU %",
+            [metric(ecs_ns, "CPUUtilization", ecs_dims, "Average", p1)],
+        ),
+        graph(
+            f"{title} Memory %",
+            [metric(ecs_ns, "MemoryUtilization", ecs_dims, "Average", p1)],
+        ),
+    )
+
+
+def add_service_sections(
+    stack: MonitoringStack, db: cloudwatch.Dashboard
+) -> None:
+    """Per-service operational sections for Validator, Reconciler, Recorder."""
+    env = stack.environment_name
+    services = [
+        ("Validator", stack.validator_service_name, stack.validator_queue_name),
+        ("Reconciler", stack.reconciler_service_name, stack.reconciler_queue_name),
+        ("Recorder", stack.recorder_service_name, stack.recorder_queue_name),
+    ]
+    for title, svc_name, q_name in services:
+        _add_service_section(stack, db, title, svc_name, q_name, env)
+
+
 def add_s3_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
@@ -527,6 +595,7 @@ def build_dashboard(stack: MonitoringStack) -> cloudwatch.Dashboard:
 
     add_lambda_api_section(stack, db)
     add_worker_section(stack, db)
+    add_service_sections(stack, db)
     add_sqs_queues_section(stack, db)
     add_pipeline_section(stack, db)
     add_aurora_section(stack, db)

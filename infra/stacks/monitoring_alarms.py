@@ -132,6 +132,7 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
         ("ValidatorDLQAlarm", "validator-dlq", stack.validator_queue_name),
         ("ReconcilerDLQAlarm", "reconciler-dlq", stack.reconciler_queue_name),
         ("RecorderDLQAlarm", "recorder-dlq", stack.recorder_queue_name),
+        ("SubmarineDLQAlarm", "submarine-dlq", stack.submarine_queue_name),
         ("SubmarineStagingDLQAlarm", "submarine-staging-dlq", stack.submarine_staging_queue_name),
         ("SubmarineExtractionDLQAlarm", "submarine-extraction-dlq", stack.submarine_extraction_queue_name),
     ]:

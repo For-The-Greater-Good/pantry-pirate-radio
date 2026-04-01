@@ -30,11 +30,12 @@ def derive_dlq_name(queue_name: str, env: str) -> str:
     (e.g. ``pantry-pirate-radio-staging-dev-dlq.fifo``), so we
     append ``-dlq`` before ``.fifo`` for that queue.
     """
-    staging_suffix = f"-staging-{env}.fifo"
+    # Exact BatchStack staging queue name (not submarine-staging)
+    batch_staging_name = f"pantry-pirate-radio-staging-{env}.fifo"
     env_suffix = f"-{env}.fifo"
 
     # Staging queue (BatchStack): DLQ is ``...-staging-{env}-dlq.fifo``
-    if queue_name.endswith(staging_suffix):
+    if queue_name == batch_staging_name:
         return queue_name.replace(".fifo", "-dlq.fifo")
 
     # QueueStack queues: DLQ is ``...-{name}-dlq-{env}.fifo``
@@ -72,7 +73,9 @@ def add_sqs_queues_section(
 
     db.add_widgets(section("SQS Queues"))
 
-    # Per-queue depth graphs: visible + not-visible, DLQ on right axis
+    # Per-queue depth graphs: visible + not-visible, DLQ on right axis.
+    # SQS queue-depth metrics are gauges (point-in-time), not counters —
+    # use Maximum to see peak depth within each period.
     queue_widgets = []
     for label, qname in queues:
         dlq_name = derive_dlq_name(qname, stack.environment_name)
@@ -84,14 +87,14 @@ def add_sqs_queues_section(
                         ns,
                         "ApproximateNumberOfMessagesVisible",
                         {"QueueName": qname},
-                        "Sum",
+                        "Maximum",
                         p1,
                     ),
                     metric(
                         ns,
                         "ApproximateNumberOfMessagesNotVisible",
                         {"QueueName": qname},
-                        "Sum",
+                        "Maximum",
                         p1,
                     ),
                 ],
@@ -100,7 +103,7 @@ def add_sqs_queues_section(
                         ns,
                         "ApproximateNumberOfMessagesVisible",
                         {"QueueName": dlq_name},
-                        "Sum",
+                        "Maximum",
                         p1,
                     ),
                 ],
@@ -131,6 +134,7 @@ def add_pipeline_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
     """Section 4 -- Pipeline Overview."""
+    p1 = Duration.minutes(1)
     env = stack.environment_name
     queues = [
         stack.queue_name,
@@ -149,7 +153,8 @@ def add_pipeline_section(
             "AWS/SQS",
             "ApproximateNumberOfMessagesVisible",
             {"QueueName": q},
-            "Sum",
+            "Maximum",
+            p1,
         )
         for q in queues
     ]
@@ -158,7 +163,8 @@ def add_pipeline_section(
             "AWS/SQS",
             "ApproximateNumberOfMessagesVisible",
             {"QueueName": d},
-            "Sum",
+            "Maximum",
+            p1,
         )
         for d in dlqs
     ]
