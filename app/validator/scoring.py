@@ -1,7 +1,7 @@
 """Confidence scoring for validated location data — build-up model.
 
 Scraped data starts at a base score and earns points for quality signals.
-Hard cap of 90 for scraped data; only human corrections (Tightbeam) reach 91-100.
+Hard cap of 90 for scraped data; only human corrections (Write API) reach 91-100.
 """
 
 import logging
