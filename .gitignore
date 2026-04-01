@@ -42,6 +42,9 @@ ENV/
 .claude/settings.local.json
 .claude/worktrees/
 
+# Serena AI agent memories
+.serena/
+
 # Environment variables
 .env
 .env.local
