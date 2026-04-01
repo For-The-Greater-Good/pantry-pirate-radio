@@ -1,12 +1,15 @@
 """Tests for Harvest Regional Food Bank scraper."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
+import httpx
 import pytest
 
 from app.scraper.scrapers.harvest_regional_food_bank_ar_scraper import (
     HarvestRegionalFoodBankArScraper,
+    FOOD_BANK_NAME,
+    KNOWN_AGENCIES,
 )
 
 
@@ -47,7 +50,9 @@ async def test_parse_locations_from_table():
 async def test_parse_locations_empty_html():
     """Test parsing returns empty list for empty HTML."""
     scraper = HarvestRegionalFoodBankArScraper()
-    locations = scraper._parse_locations("<html><body></body></html>")
+    locations = scraper._parse_locations(
+        "<html><body></body></html>"
+    )
     assert locations == []
 
 
@@ -61,18 +66,53 @@ async def test_scrape_metadata():
         submitted.append(json.loads(data))
         return "j"
 
-    async def mock_fetch(client):
+    async def mock_fetch(client, url):
         return MOCK_HTML
 
-    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
-        with patch.object(scraper, "submit_to_queue", side_effect=capture):
+    with patch.object(
+        scraper, "_fetch_page", side_effect=mock_fetch
+    ):
+        with patch.object(
+            scraper, "submit_to_queue", side_effect=capture
+        ):
             result = await scraper.scrape()
 
     summary = json.loads(result)
     assert summary["scraper_id"] == "harvest_regional_food_bank_ar"
     assert len(submitted) == 3
     assert submitted[0]["source"] == "harvest_regional_food_bank_ar"
-    assert submitted[0]["food_bank"] == "Harvest Regional Food Bank"
+    assert submitted[0]["food_bank"] == FOOD_BANK_NAME
+
+
+@pytest.mark.asyncio
+async def test_scrape_fallback_to_known_agencies():
+    """Test fallback to known agencies when site is blocked."""
+    scraper = HarvestRegionalFoodBankArScraper(test_mode=True)
+    submitted = []
+
+    def capture(data):
+        submitted.append(json.loads(data))
+        return "j"
+
+    async def mock_fetch_fail(client, url):
+        raise httpx.HTTPStatusError(
+            "403 Forbidden",
+            request=httpx.Request("GET", url),
+            response=httpx.Response(403),
+        )
+
+    with patch.object(
+        scraper, "_fetch_page", side_effect=mock_fetch_fail
+    ):
+        with patch.object(
+            scraper, "submit_to_queue", side_effect=capture
+        ):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] == len(KNOWN_AGENCIES)
+    assert submitted[0]["source"] == "harvest_regional_food_bank_ar"
+    assert submitted[0]["food_bank"] == FOOD_BANK_NAME
 
 
 @pytest.mark.asyncio
@@ -88,11 +128,15 @@ async def test_scrape_deduplication():
     </table></body></html>
     """
 
-    async def mock_fetch(client):
+    async def mock_fetch(client, url):
         return dupe_html
 
-    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
-        with patch.object(scraper, "submit_to_queue", return_value="j"):
+    with patch.object(
+        scraper, "_fetch_page", side_effect=mock_fetch
+    ):
+        with patch.object(
+            scraper, "submit_to_queue", return_value="j"
+        ):
             result = await scraper.scrape()
 
     assert json.loads(result)["unique_locations"] == 1

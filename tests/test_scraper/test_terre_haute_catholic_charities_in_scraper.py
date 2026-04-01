@@ -1,79 +1,85 @@
 """Tests for Terre Haute Catholic Charities Foodbank scraper."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
+import httpx
 import pytest
 
 from app.scraper.scrapers.terre_haute_catholic_charities_in_scraper import (
     TerreHauteCatholicCharitiesInScraper,
+    FOOD_BANK_NAME,
+    KNOWN_VENUES,
 )
+
+
+MOCK_EVENTS_API_RESPONSE = {
+    "events": [
+        {
+            "title": "St. Joseph Food Distribution",
+            "description": "<p>Monthly food distribution</p>",
+            "start_date": "2026-03-15 09:00:00",
+            "start_date_details": {
+                "year": "2026",
+                "month": "03",
+                "day": "15",
+            },
+            "end_date_details": {},
+            "all_day": False,
+            "venue": {
+                "venue": "St. Joseph University Parish",
+                "address": "113 S 5th St",
+                "city": "Terre Haute",
+                "state": "IN",
+                "zip": "47807",
+                "phone": "812-232-7011",
+            },
+        },
+        {
+            "title": "Sacred Heart Food Pantry",
+            "description": "<p>Weekly pantry hours</p>",
+            "start_date": "2026-03-20 10:00:00",
+            "start_date_details": {
+                "year": "2026",
+                "month": "03",
+                "day": "20",
+            },
+            "end_date_details": {},
+            "all_day": False,
+            "venue": {
+                "venue": "Sacred Heart Church",
+                "address": "575 Poplar St",
+                "city": "Terre Haute",
+                "state": "IN",
+                "zip": "47803",
+                "phone": "",
+            },
+        },
+        {
+            "title": "Duplicate Event at St. Joseph",
+            "description": "",
+            "start_date": "2026-04-12 09:00:00",
+            "start_date_details": {},
+            "end_date_details": {},
+            "all_day": False,
+            "venue": {
+                "venue": "St. Joseph University Parish",
+                "address": "113 S 5th St",
+                "city": "Terre Haute",
+                "state": "IN",
+                "zip": "47807",
+                "phone": "812-232-7011",
+            },
+        },
+    ],
+    "total_pages": 1,
+}
 
 
 @pytest.fixture
 def mock_events_response():
     """Mock WordPress Events Calendar API response."""
-    return {
-        "events": [
-            {
-                "title": "St. Joseph Food Distribution",
-                "description": "<p>Monthly food distribution</p>",
-                "start_date": "2026-03-15 09:00:00",
-                "start_date_details": {
-                    "year": "2026",
-                    "month": "03",
-                    "day": "15",
-                },
-                "end_date_details": {},
-                "all_day": False,
-                "venue": {
-                    "venue": "St. Joseph University Parish",
-                    "address": "113 S 5th St",
-                    "city": "Terre Haute",
-                    "state": "IN",
-                    "zip": "47807",
-                    "phone": "812-232-7011",
-                },
-            },
-            {
-                "title": "Sacred Heart Food Pantry",
-                "description": "<p>Weekly pantry hours</p>",
-                "start_date": "2026-03-20 10:00:00",
-                "start_date_details": {
-                    "year": "2026",
-                    "month": "03",
-                    "day": "20",
-                },
-                "end_date_details": {},
-                "all_day": False,
-                "venue": {
-                    "venue": "Sacred Heart Church",
-                    "address": "575 Poplar St",
-                    "city": "Terre Haute",
-                    "state": "IN",
-                    "zip": "47803",
-                    "phone": "",
-                },
-            },
-            {
-                "title": "Duplicate Event at St. Joseph",
-                "description": "",
-                "start_date": "2026-04-12 09:00:00",
-                "start_date_details": {},
-                "end_date_details": {},
-                "all_day": False,
-                "venue": {
-                    "venue": "St. Joseph University Parish",
-                    "address": "113 S 5th St",
-                    "city": "Terre Haute",
-                    "state": "IN",
-                    "zip": "47807",
-                    "phone": "812-232-7011",
-                },
-            },
-        ],
-        "total_pages": 1,
-    }
+    return MOCK_EVENTS_API_RESPONSE
 
 
 @pytest.mark.asyncio
@@ -151,21 +157,32 @@ async def test_parse_venue_empty_state_defaults():
 
 
 @pytest.mark.asyncio
-async def test_scrape_deduplication(mock_events_response):
-    """Test that duplicate venues from multiple events are removed."""
+async def test_scrape_from_api(mock_events_response):
+    """Test scrape via API deduplicates venues."""
     scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
 
-    import httpx
+    async def mock_api(client):
+        return mock_events_response["events"]
 
-    mock_resp = httpx.Response(
-        200,
-        json=mock_events_response,
-        request=httpx.Request("GET", scraper.events_api_url),
-    )
+    async def mock_html(client):
+        return []
 
-    with patch("httpx.AsyncClient.get", return_value=mock_resp):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
-            result = await scraper.scrape()
+    with patch.object(
+        scraper,
+        "_fetch_events_api",
+        side_effect=mock_api,
+    ):
+        with patch.object(
+            scraper,
+            "_fetch_events_html",
+            side_effect=mock_html,
+        ):
+            with patch.object(
+                scraper,
+                "submit_to_queue",
+                return_value="job_123",
+            ):
+                result = await scraper.scrape()
 
     summary = json.loads(result)
     # 3 events but only 2 unique venues
@@ -185,40 +202,101 @@ async def test_scrape_metadata(mock_events_response):
         submitted.append(json.loads(data))
         return "job_123"
 
-    import httpx
+    async def mock_api(client):
+        return mock_events_response["events"]
 
-    mock_resp = httpx.Response(
-        200,
-        json=mock_events_response,
-        request=httpx.Request("GET", scraper.events_api_url),
-    )
+    async def mock_html(client):
+        return []
 
-    with patch("httpx.AsyncClient.get", return_value=mock_resp):
-        with patch.object(scraper, "submit_to_queue", side_effect=capture):
-            await scraper.scrape()
+    with patch.object(
+        scraper, "_fetch_events_api", side_effect=mock_api
+    ):
+        with patch.object(
+            scraper, "_fetch_events_html", side_effect=mock_html
+        ):
+            with patch.object(
+                scraper, "submit_to_queue", side_effect=capture
+            ):
+                await scraper.scrape()
 
     assert len(submitted) >= 1
-    assert submitted[0]["source"] == "terre_haute_catholic_charities_in"
-    assert submitted[0]["food_bank"] == "Terre Haute Catholic Charities Foodbank"
+    assert (
+        submitted[0]["source"]
+        == "terre_haute_catholic_charities_in"
+    )
+    assert submitted[0]["food_bank"] == FOOD_BANK_NAME
+
+
+@pytest.mark.asyncio
+async def test_scrape_fallback_to_known_venues():
+    """Test fallback to known venues when API and HTML fail."""
+    scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
+    submitted = []
+
+    def capture(data):
+        submitted.append(json.loads(data))
+        return "job_123"
+
+    async def mock_api_empty(client):
+        return []
+
+    async def mock_html_empty(client):
+        return []
+
+    with patch.object(
+        scraper,
+        "_fetch_events_api",
+        side_effect=mock_api_empty,
+    ):
+        with patch.object(
+            scraper,
+            "_fetch_events_html",
+            side_effect=mock_html_empty,
+        ):
+            with patch.object(
+                scraper, "submit_to_queue", side_effect=capture
+            ):
+                result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] >= 5
+    assert (
+        submitted[0]["source"]
+        == "terre_haute_catholic_charities_in"
+    )
+    assert submitted[0]["food_bank"] == FOOD_BANK_NAME
 
 
 @pytest.mark.asyncio
 async def test_scrape_empty_response():
-    """Test scrape handles empty API response gracefully."""
+    """Test scrape handles empty API and HTML with fallback."""
     scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
 
-    import httpx
+    async def mock_api_empty(client):
+        return []
 
-    mock_resp = httpx.Response(
-        200,
-        json={"events": [], "total_pages": 0},
-        request=httpx.Request("GET", scraper.events_api_url),
-    )
+    async def mock_html_empty(client):
+        return []
 
-    with patch("httpx.AsyncClient.get", return_value=mock_resp):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
-            result = await scraper.scrape()
+    with patch.object(
+        scraper,
+        "_fetch_events_api",
+        side_effect=mock_api_empty,
+    ):
+        with patch.object(
+            scraper,
+            "_fetch_events_html",
+            side_effect=mock_html_empty,
+        ):
+            with patch.object(
+                scraper,
+                "submit_to_queue",
+                return_value="job_123",
+            ):
+                result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert summary["unique_locations"] == 0
-    assert summary["total_jobs_created"] == 0
+    # Falls back to known venues (test_mode limits to 5)
+    expected = min(len(KNOWN_VENUES), 5)
+    assert summary["unique_locations"] == expected
+    assert summary["total_jobs_created"] == expected

@@ -11,16 +11,44 @@ from app.scraper.scrapers.food_share_lincoln_county_or_scraper import (
 
 SAMPLE_HTML = """
 <html><body><main>
-  <h3>Newport Food Pantry</h3>
-  <p>210 SE Avery Street<br>
-  Newport, OR 97365<br>
-  (541) 555-1234<br>
-  Hours: Mon-Fri 9am-4pm</p>
-
-  <h3>Lincoln City Pantry</h3>
-  <p>4555 SE Hwy 101<br>
-  Lincoln City, OR 97367<br>
-  (541) 555-5678</p>
+<div class="sow-accordion">
+  <div class="sow-accordion-panel" data-anchor-id="newport-food-pantry">
+    <div class="sow-accordion-panel-header-container">
+      <div class="sow-accordion-panel-header">
+        <div class="sow-accordion-title sow-accordion-title-icon-left">
+          Newport Food Pantry
+        </div>
+      </div>
+    </div>
+    <div class="sow-accordion-panel-content">
+      <div class="sow-accordion-panel-border">
+        <p style="text-align: center;">
+          541-555-1234<br>210 SE Avery Street, Newport
+        </p>
+        <p style="text-align: center;">Tuesday 2:30 pm - 4:00 pm</p>
+      </div>
+    </div>
+  </div>
+  <div class="sow-accordion-panel" data-anchor-id="lincoln-city-pantry">
+    <div class="sow-accordion-panel-header-container">
+      <div class="sow-accordion-panel-header">
+        <div class="sow-accordion-title sow-accordion-title-icon-left">
+          Lincoln City Pantry
+        </div>
+      </div>
+    </div>
+    <div class="sow-accordion-panel-content">
+      <div class="sow-accordion-panel-border">
+        <p style="text-align: center;">
+          541-555-5678<br>4555 SE Hwy 101, Lincoln City
+        </p>
+        <p style="text-align: center;">
+          Tuesday 2:00 pm - 6:00 pm<br>Thursday 2:00 pm - 6:00 pm
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
 </main></body></html>
 """
 
