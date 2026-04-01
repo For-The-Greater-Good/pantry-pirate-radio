@@ -29,10 +29,10 @@ class TestMonitoringStackResources:
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
 
     def test_creates_alarms(self, template):
-        # 39 alarms without conditional params (no api_gateway_id, no batcher):
-        # 30 original + 1 Lambda error rate % + 2 Aurora/Proxy connections + 4 S3 4xx/5xx
-        # + 3 submarine main/staging/extraction DLQ alarms
-        template.resource_count_is("AWS::CloudWatch::Alarm", 40)
+        # Removed 5 queue depth alarms, added 6 queue stall (oldest message age) alarms
+        # 8 DLQ + 6 stall + 6 ECS CPU/mem + 5 DynamoDB + 4 S3 + 3 Lambda +
+        # 2 Aurora/Proxy + 2 Bedrock + 1 StepFn + 1 error rate + 1 location svc + 1 geocoding = 41
+        template.resource_count_is("AWS::CloudWatch::Alarm", 41)
 
     def test_sns_topic_has_name(self, template):
         template.has_resource_properties(
@@ -82,12 +82,13 @@ class TestMonitoringStackAlarms:
             },
         )
 
-    def test_queue_depth_alarm_exists(self, template):
+    def test_queue_stall_alarm_exists(self, template):
+        """Queue stall alarms use oldest message age, not depth."""
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
             {
-                "AlarmName": "pantry-pirate-radio-queue-depth-dev",
-                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "AlarmName": "pantry-pirate-radio-llm-queue-stall-dev",
+                "MetricName": "ApproximateAgeOfOldestMessage",
                 "Namespace": "AWS/SQS",
             },
         )
@@ -273,20 +274,18 @@ class TestMonitoringStackAlarms:
             },
         )
 
-    # --- H17-H20: Queue depth alarms ---
+    # --- Queue stall alarms (oldest message age) ---
 
     @pytest.mark.parametrize(
-        "queue_slug", ["validator", "reconciler", "recorder", "staging"]
+        "queue_slug", ["validator", "reconciler", "recorder", "staging", "submarine"]
     )
-    def test_service_queue_depth_alarm_exists(self, template, queue_slug):
+    def test_queue_stall_alarm_exists_for_service(self, template, queue_slug):
         template.has_resource_properties(
             "AWS::CloudWatch::Alarm",
             {
-                "AlarmName": f"ppr-dev-{queue_slug}-queue-depth",
-                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "AlarmName": f"pantry-pirate-radio-{queue_slug}-queue-stall-dev",
+                "MetricName": "ApproximateAgeOfOldestMessage",
                 "Namespace": "AWS/SQS",
-                "Threshold": 100,
-                "EvaluationPeriods": 3,
             },
         )
 
@@ -380,7 +379,7 @@ class TestMonitoringStackConfiguration:
             app_without, "NoLambdaAlarmStack", environment_name="dev"
         )
         tmpl_without = assertions.Template.from_stack(stack_without)
-        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 40)
+        tmpl_without.resource_count_is("AWS::CloudWatch::Alarm", 41)
 
         app_with = cdk.App()
         stack_with = MonitoringStack(
@@ -391,8 +390,8 @@ class TestMonitoringStackConfiguration:
             result_processor_function_name="my-processor",
         )
         tmpl_with = assertions.Template.from_stack(stack_with)
-        # 40 base + 4 Lambda alarms (2 per function)
-        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 44)
+        # 41 base + 4 Lambda alarms (2 per function)
+        tmpl_with.resource_count_is("AWS::CloudWatch::Alarm", 45)
 
     def test_batcher_lambda_error_alarm(self, app):
         stack = MonitoringStack(
