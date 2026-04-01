@@ -1,0 +1,224 @@
+"""Tests for Terre Haute Catholic Charities Foodbank scraper."""
+
+import json
+from unittest.mock import patch
+
+import pytest
+
+from app.scraper.scrapers.terre_haute_catholic_charities_in_scraper import (
+    TerreHauteCatholicCharitiesInScraper,
+)
+
+
+@pytest.fixture
+def mock_events_response():
+    """Mock WordPress Events Calendar API response."""
+    return {
+        "events": [
+            {
+                "title": "St. Joseph Food Distribution",
+                "description": "<p>Monthly food distribution</p>",
+                "start_date": "2026-03-15 09:00:00",
+                "start_date_details": {
+                    "year": "2026",
+                    "month": "03",
+                    "day": "15",
+                },
+                "end_date_details": {},
+                "all_day": False,
+                "venue": {
+                    "venue": "St. Joseph University Parish",
+                    "address": "113 S 5th St",
+                    "city": "Terre Haute",
+                    "state": "IN",
+                    "zip": "47807",
+                    "phone": "812-232-7011",
+                },
+            },
+            {
+                "title": "Sacred Heart Food Pantry",
+                "description": "<p>Weekly pantry hours</p>",
+                "start_date": "2026-03-20 10:00:00",
+                "start_date_details": {
+                    "year": "2026",
+                    "month": "03",
+                    "day": "20",
+                },
+                "end_date_details": {},
+                "all_day": False,
+                "venue": {
+                    "venue": "Sacred Heart Church",
+                    "address": "575 Poplar St",
+                    "city": "Terre Haute",
+                    "state": "IN",
+                    "zip": "47803",
+                    "phone": "",
+                },
+            },
+            {
+                "title": "Duplicate Event at St. Joseph",
+                "description": "",
+                "start_date": "2026-04-12 09:00:00",
+                "start_date_details": {},
+                "end_date_details": {},
+                "all_day": False,
+                "venue": {
+                    "venue": "St. Joseph University Parish",
+                    "address": "113 S 5th St",
+                    "city": "Terre Haute",
+                    "state": "IN",
+                    "zip": "47807",
+                    "phone": "812-232-7011",
+                },
+            },
+        ],
+        "total_pages": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_scraper_initialization():
+    """Test scraper initializes with correct parameters."""
+    scraper = TerreHauteCatholicCharitiesInScraper()
+    assert scraper.scraper_id == "terre_haute_catholic_charities_in"
+    assert "ccthin.org" in scraper.base_url
+    assert scraper.test_mode is False
+
+
+@pytest.mark.asyncio
+async def test_scraper_test_mode():
+    """Test scraper initializes correctly in test mode."""
+    scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
+    assert scraper.test_mode is True
+
+
+@pytest.mark.asyncio
+async def test_parse_venue():
+    """Test parsing venue from event data."""
+    scraper = TerreHauteCatholicCharitiesInScraper()
+
+    event = {
+        "title": "Food Distribution",
+        "description": "<p>Monthly event</p>",
+        "start_date": "2026-03-15 09:00:00",
+        "start_date_details": {"year": "2026"},
+        "all_day": False,
+        "venue": {
+            "venue": "Test Church",
+            "address": "123 Main St",
+            "city": "Terre Haute",
+            "state": "IN",
+            "zip": "47807",
+            "phone": "812-555-1234",
+        },
+    }
+    loc = scraper._parse_venue(event)
+    assert loc is not None
+    assert loc["name"] == "Test Church"
+    assert loc["address"] == "123 Main St"
+    assert loc["city"] == "Terre Haute"
+    assert loc["state"] == "IN"
+    assert loc["phone"] == "812-555-1234"
+
+
+@pytest.mark.asyncio
+async def test_parse_venue_no_venue():
+    """Test parsing event with no venue returns None."""
+    scraper = TerreHauteCatholicCharitiesInScraper()
+    event = {"title": "Event", "venue": {}}
+    loc = scraper._parse_venue(event)
+    assert loc is None
+
+
+@pytest.mark.asyncio
+async def test_parse_venue_empty_state_defaults():
+    """Test parsing defaults empty state to IN."""
+    scraper = TerreHauteCatholicCharitiesInScraper()
+    event = {
+        "title": "Event",
+        "venue": {
+            "venue": "Test",
+            "address": "123 Main",
+            "city": "Terre Haute",
+            "state": "",
+            "zip": "47807",
+            "phone": "",
+        },
+    }
+    loc = scraper._parse_venue(event)
+    assert loc is not None
+    assert loc["state"] == "IN"
+
+
+@pytest.mark.asyncio
+async def test_scrape_deduplication(mock_events_response):
+    """Test that duplicate venues from multiple events are removed."""
+    scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
+
+    import httpx
+
+    mock_resp = httpx.Response(
+        200,
+        json=mock_events_response,
+        request=httpx.Request("GET", scraper.events_api_url),
+    )
+
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    # 3 events but only 2 unique venues
+    assert summary["total_events"] == 3
+    assert summary["unique_locations"] == 2
+    assert summary["total_jobs_created"] == 2
+
+
+@pytest.mark.asyncio
+async def test_scrape_metadata(mock_events_response):
+    """Test that scraped locations include correct metadata."""
+    scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
+
+    submitted = []
+
+    def capture(data):
+        submitted.append(json.loads(data))
+        return "job_123"
+
+    import httpx
+
+    mock_resp = httpx.Response(
+        200,
+        json=mock_events_response,
+        request=httpx.Request("GET", scraper.events_api_url),
+    )
+
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
+            await scraper.scrape()
+
+    assert len(submitted) >= 1
+    assert submitted[0]["source"] == "terre_haute_catholic_charities_in"
+    assert submitted[0]["food_bank"] == "Terre Haute Catholic Charities Foodbank"
+
+
+@pytest.mark.asyncio
+async def test_scrape_empty_response():
+    """Test scrape handles empty API response gracefully."""
+    scraper = TerreHauteCatholicCharitiesInScraper(test_mode=True)
+
+    import httpx
+
+    mock_resp = httpx.Response(
+        200,
+        json={"events": [], "total_pages": 0},
+        request=httpx.Request("GET", scraper.events_api_url),
+    )
+
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["unique_locations"] == 0
+    assert summary["total_jobs_created"] == 0
