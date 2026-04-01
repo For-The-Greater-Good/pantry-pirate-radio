@@ -11,16 +11,28 @@ from app.scraper.scrapers.cca_regional_food_bank_or_scraper import (
 
 SAMPLE_HTML = """
 <html><body><main>
-  <h3>CCA Food Pantry - Warrenton</h3>
-  <p>2010 SE Chokeberry Avenue<br>
-  Warrenton, OR 97146<br>
-  (503) 555-1234<br>
-  Hours: Mon-Fri 9am-4pm</p>
+  <h1>Food Pantries in Clatsop County</h1>
+  <p>CCA Regional Food Bank distributes food to our Partner Agencies.</p>
+  <p>Please visit a Food pantry in the city you live in.</p>
 
-  <h3>Astoria Community Pantry</h3>
-  <p>100 Marine Drive<br>
-  Astoria, OR 97103<br>
-  (503) 555-5678</p>
+  <p><strong>St. Vincent de Paul Food Pantry (Astoria)</strong><br />
+  Location: Saint Mary's Star of the Sea Church<br />
+  <a href="https://www.google.com/maps/place/1465+Grand+Ave">1465 Grand Ave., Astoria, OR 97103</a><br />
+  Phone: <a href="tel:15033252007">(503) 325-2007</a><br />
+  Hours of Operation:<br>Tuesdays - 1:00 p.m. to 3:00 p.m.,<br>
+  Fridays - 10:00 a.m. to 12:00 p.m.</p><hr>
+
+  <p><strong>Clatsop Community Action Food Pantry</strong><br />
+  Location: CCA Regional Food Bank<br />
+  <a href="https://www.google.com/maps/place/CCA+Regional+Food+Bank">2010 SE Chokeberry Ave. Warrenton, OR 97146</a><br />
+  Phone: <a href="tel:15038613663">503-861-FOOD (3663)</a><br />
+  Hours of Operation: Tuesdays - 1:00 p.m to 3:00 p.m.</p><hr>
+
+  <p><strong>Grace Food Pantry</strong><br />
+  Location: Grace Episcopal Church<br />
+  <a href="https://www.google.com/maps/place/1545+Franklin+Ave">1545 Franklin Ave, Astoria OR 97103</a><br />
+  Phone: <a href="tel:15033254691">(503) 325-4691</a><br />
+  Hours of Operation: Tuesdays and Thursdays - 9:00 a.m. to 11:00 a.m.</p>
 </main></body></html>
 """
 
@@ -41,12 +53,32 @@ def test_scraper_init_test_mode():
 
 
 def test_parse_locations():
-    """Test parsing locations from HTML."""
+    """Test parsing locations from HTML with strong-tag structure."""
     scraper = CcaRegionalFoodBankOrScraper()
     locations = scraper._parse_locations(SAMPLE_HTML)
-    assert len(locations) >= 1
+    assert len(locations) >= 3
+    names = [loc["name"] for loc in locations]
+    assert "St. Vincent de Paul Food Pantry (Astoria)" in names
+    assert "Clatsop Community Action Food Pantry" in names
+    assert "Grace Food Pantry" in names
     for loc in locations:
         assert loc["state"] == "OR"
+
+
+def test_parse_locations_extracts_phones():
+    """Test that phone numbers are extracted from tel: links."""
+    scraper = CcaRegionalFoodBankOrScraper()
+    locations = scraper._parse_locations(SAMPLE_HTML)
+    phones = [loc.get("phone", "") for loc in locations]
+    assert any("503" in p or "325" in p for p in phones)
+
+
+def test_parse_locations_extracts_addresses():
+    """Test that addresses are extracted from Google Maps links."""
+    scraper = CcaRegionalFoodBankOrScraper()
+    locations = scraper._parse_locations(SAMPLE_HTML)
+    addresses = [loc.get("address", "") for loc in locations]
+    assert any("Grand Ave" in a or "Chokeberry" in a for a in addresses)
 
 
 def test_parse_empty_html():
@@ -78,6 +110,7 @@ async def test_scrape_workflow(monkeypatch: pytest.MonkeyPatch):
 
     assert summary["scraper_id"] == "cca_regional_food_bank_or"
     assert summary["food_bank"] == "CCA Regional Food Bank"
+    assert summary["total_jobs_created"] >= 3
     if submitted:
         assert submitted[0]["source"] == "cca_regional_food_bank_or"
         assert submitted[0]["food_bank"] == "CCA Regional Food Bank"
