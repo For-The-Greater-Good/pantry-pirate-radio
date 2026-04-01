@@ -416,7 +416,7 @@ class BatchInferenceStack(Stack):
         if self._proxy_security_group:
             rp_sg = ec2.SecurityGroup(
                 self, "ResultProcessorSG",
-                vpc=vpc,
+                vpc=self._vpc,
                 description="Result processor Lambda - DB access",
             )
             vpc_kwargs["vpc"] = self._vpc
