@@ -6,7 +6,6 @@ import pytest
 from unittest.mock import patch
 
 from app.scraper.scrapers.montgomery_county_food_bank_tx_scraper import (
-    KNOWN_LOCATIONS,
     MontgomeryCountyFoodBankTxScraper,
 )
 
@@ -69,15 +68,6 @@ async def test_scraper_test_mode():
     assert scraper.test_mode is True
 
 
-def test_known_locations_populated():
-    """Test that KNOWN_LOCATIONS fallback has entries."""
-    assert len(KNOWN_LOCATIONS) >= 15
-    for loc in KNOWN_LOCATIONS:
-        assert loc["state"] == "TX"
-        assert loc["name"]
-        assert loc["city"]
-
-
 @pytest.mark.asyncio
 async def test_find_food_page_urls():
     """Test finding food page URLs from homepage."""
@@ -127,8 +117,8 @@ async def test_parse_locations_empty_html():
 
 
 @pytest.mark.asyncio
-async def test_scrape_uses_fallback_on_error():
-    """Test scraper uses known locations when site returns 403."""
+async def test_scrape_with_browser_fallback():
+    """Test scraper uses browser fallback and parses results."""
     scraper = MontgomeryCountyFoodBankTxScraper()
     submitted: list[dict] = []
 
@@ -136,17 +126,39 @@ async def test_scrape_uses_fallback_on_error():
         submitted.append(json.loads(data))
         return "job_123"
 
-    async def mock_fetch(client, url):
-        raise Exception("403 Forbidden")
+    async def mock_fetch(url, client=None, headers=None, timeout=30):
+        if "find-food" in url:
+            return MOCK_FOOD_PAGE
+        return MOCK_HOMEPAGE
 
-    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
+    with patch(
+        "app.scraper.scrapers.montgomery_county_food_bank_tx_scraper.fetch_with_browser_fallback",
+        side_effect=mock_fetch,
+    ):
         with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert summary["total_jobs_created"] >= 15
-    assert len(submitted) >= 15
+    assert summary["total_jobs_created"] >= 2
+    assert len(submitted) >= 2
     assert submitted[0]["source"] == "montgomery_county_food_bank_tx"
+    assert submitted[0]["food_bank"] == "Montgomery County Food Bank"
+
+
+@pytest.mark.asyncio
+async def test_scrape_handles_none_response():
+    """Test scraper handles None from browser fallback gracefully."""
+    scraper = MontgomeryCountyFoodBankTxScraper()
+
+    with patch(
+        "app.scraper.scrapers.montgomery_county_food_bank_tx_scraper.fetch_with_browser_fallback",
+        return_value=None,
+    ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] == 0
 
 
 @pytest.mark.asyncio
@@ -159,12 +171,15 @@ async def test_scrape_metadata():
         submitted.append(json.loads(data))
         return "job_123"
 
-    async def mock_fetch(client, url):
+    async def mock_fetch(url, client=None, headers=None, timeout=30):
         if "find-food" in url:
             return MOCK_FOOD_PAGE
         return MOCK_HOMEPAGE
 
-    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
+    with patch(
+        "app.scraper.scrapers.montgomery_county_food_bank_tx_scraper.fetch_with_browser_fallback",
+        side_effect=mock_fetch,
+    ):
         with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
@@ -182,10 +197,13 @@ async def test_scrape_returns_valid_summary():
     """Test that scrape returns a valid JSON summary."""
     scraper = MontgomeryCountyFoodBankTxScraper(test_mode=True)
 
-    async def mock_fetch(client, url):
+    async def mock_fetch(url, client=None, headers=None, timeout=30):
         return MOCK_FOOD_PAGE
 
-    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
+    with patch(
+        "app.scraper.scrapers.montgomery_county_food_bank_tx_scraper.fetch_with_browser_fallback",
+        side_effect=mock_fetch,
+    ):
         with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
