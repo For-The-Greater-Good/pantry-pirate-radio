@@ -444,20 +444,21 @@ class MergeStrategy(BaseReconciler):
         # Apply merging strategy to create canonical record
         merged_data = self._merge_organization_data(valid_records)
 
-        # Update canonical record
+        # Update canonical record — COALESCE preserves existing non-null
+        # values when no source provides a replacement
         update_query = text(
             """
         UPDATE organization
         SET
             name = :name,
             description = :description,
-            website = :website,
-            email = :email,
-            year_incorporated = :year_incorporated,
-            legal_status = :legal_status,
-            tax_status = :tax_status,
-            tax_id = :tax_id,
-            uri = :uri
+            website = COALESCE(:website, website),
+            email = COALESCE(:email, email),
+            year_incorporated = COALESCE(:year_incorporated, year_incorporated),
+            legal_status = COALESCE(:legal_status, legal_status),
+            tax_status = COALESCE(:tax_status, tax_status),
+            tax_id = COALESCE(:tax_id, tax_id),
+            uri = COALESCE(:uri, uri)
         WHERE id = :id
         """
         )
