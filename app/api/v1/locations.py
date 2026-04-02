@@ -104,8 +104,16 @@ async def get_location_sources(
             ls.created_at as first_seen,
             ls.updated_at as last_updated,
             p.number as phone,
-            o.website,
-            o.email,
+            COALESCE(o.website, (
+                SELECT os.website FROM organization_source os
+                WHERE os.organization_id = o.id AND os.website IS NOT NULL
+                ORDER BY os.updated_at DESC LIMIT 1
+            )) as website,
+            COALESCE(o.email, (
+                SELECT os.email FROM organization_source os
+                WHERE os.organization_id = o.id AND os.email IS NOT NULL
+                ORDER BY os.updated_at DESC LIMIT 1
+            )) as email,
             CONCAT_WS(', ',
                 NULLIF(a.address_1, ''),
                 NULLIF(a.city, ''),

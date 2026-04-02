@@ -166,8 +166,14 @@ class SubmarineResultBuilder:
             if email:
                 organization["email"] = email
 
-        return {
-            "organization": [organization],
+        # Only include org if submarine actually has org-level data to contribute.
+        # A bare name-only org creates noise in the merge strategy.
+        has_org_data = len(organization) > 1  # More than just "name"
+        result: dict[str, Any] = {
             "service": [],
             "location": [location],
         }
+        if has_org_data:
+            result["organization"] = [organization]
+
+        return result
