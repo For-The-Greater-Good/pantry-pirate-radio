@@ -4,9 +4,9 @@ import json
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from app.scraper.scrapers.columbia_pacific_food_bank_or_scraper import (
-    KNOWN_LOCATIONS,
     ColumbiaPacificFoodBankOrScraper,
 )
 
@@ -45,22 +45,10 @@ def test_parse_locations():
         assert loc["state"] == "OR"
 
 
-def test_known_locations_populated():
-    """Test that KNOWN_LOCATIONS fallback has entries."""
-    assert len(KNOWN_LOCATIONS) >= 6
-    for loc in KNOWN_LOCATIONS:
-        assert loc["state"] == "OR"
-        assert loc["name"]
-        assert loc["city"]
-
-
 @pytest.mark.asyncio
-async def test_scrape_uses_fallback_on_error(monkeypatch: pytest.MonkeyPatch):
-    """Test scraper uses known locations when site returns 403."""
+async def test_scrape_with_browser_fallback():
+    """Test scraper uses browser fallback and parses results."""
     scraper = ColumbiaPacificFoodBankOrScraper()
-
-    async def mock_fetch(client: Any, url: str) -> str:
-        raise Exception("403 Forbidden")
 
     submitted: list[dict[str, Any]] = []
 
@@ -68,17 +56,35 @@ async def test_scrape_uses_fallback_on_error(monkeypatch: pytest.MonkeyPatch):
         submitted.append(json.loads(content))
         return "job-1"
 
-    monkeypatch.setattr(scraper, "_fetch_page", mock_fetch)
-    monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
+    with patch(
+        "app.scraper.scrapers.columbia_pacific_food_bank_or_scraper.fetch_with_browser_fallback",
+        return_value=SAMPLE_HTML,
+    ):
+        with patch.object(scraper, "submit_to_queue", side_effect=mock_submit):
+            result = await scraper.scrape()
 
-    result = await scraper.scrape()
     summary = json.loads(result)
-
     assert summary["scraper_id"] == "columbia_pacific_food_bank_or"
     assert summary["food_bank"] == "Columbia Pacific Food Bank"
-    assert summary["total_jobs_created"] >= 6
-    assert len(submitted) >= 6
+    assert summary["total_jobs_created"] >= 1
+    assert len(submitted) >= 1
     assert submitted[0]["source"] == "columbia_pacific_food_bank_or"
+
+
+@pytest.mark.asyncio
+async def test_scrape_handles_none_response():
+    """Test scraper handles None from browser fallback gracefully."""
+    scraper = ColumbiaPacificFoodBankOrScraper()
+
+    with patch(
+        "app.scraper.scrapers.columbia_pacific_food_bank_or_scraper.fetch_with_browser_fallback",
+        return_value=None,
+    ):
+        with patch.object(scraper, "submit_to_queue", return_value="job-1"):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] == 0
 
 
 @pytest.mark.asyncio
@@ -86,39 +92,21 @@ async def test_scrape_workflow(monkeypatch: pytest.MonkeyPatch):
     """Test complete scrape workflow with HTML."""
     scraper = ColumbiaPacificFoodBankOrScraper()
 
-    async def mock_fetch(client: Any, url: str) -> str:
-        return SAMPLE_HTML
-
     submitted: list[dict[str, Any]] = []
 
     def mock_submit(content: str) -> str:
         submitted.append(json.loads(content))
         return "job-1"
 
-    monkeypatch.setattr(scraper, "_fetch_page", mock_fetch)
-    monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
+    with patch(
+        "app.scraper.scrapers.columbia_pacific_food_bank_or_scraper.fetch_with_browser_fallback",
+        return_value=SAMPLE_HTML,
+    ):
+        monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
+        result = await scraper.scrape()
 
-    result = await scraper.scrape()
     summary = json.loads(result)
-
     assert summary["scraper_id"] == "columbia_pacific_food_bank_or"
     assert summary["food_bank"] == "Columbia Pacific Food Bank"
     if submitted:
         assert submitted[0]["source"] == "columbia_pacific_food_bank_or"
-
-
-@pytest.mark.asyncio
-async def test_scrape_handles_error(monkeypatch: pytest.MonkeyPatch):
-    """Test scraper handles errors gracefully with fallback."""
-    scraper = ColumbiaPacificFoodBankOrScraper()
-
-    async def mock_fetch(client: Any, url: str) -> str:
-        raise Exception("Network error")
-
-    monkeypatch.setattr(scraper, "_fetch_page", mock_fetch)
-    monkeypatch.setattr(scraper, "submit_to_queue", lambda c: "job-1")
-
-    result = await scraper.scrape()
-    summary = json.loads(result)
-    # Should still have results from fallback
-    assert summary["total_jobs_created"] >= 6

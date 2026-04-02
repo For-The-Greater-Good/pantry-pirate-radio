@@ -9,7 +9,6 @@ import pytest
 from app.scraper.scrapers.harvest_regional_food_bank_ar_scraper import (
     HarvestRegionalFoodBankArScraper,
     FOOD_BANK_NAME,
-    KNOWN_AGENCIES,
 )
 
 
@@ -85,8 +84,8 @@ async def test_scrape_metadata():
 
 
 @pytest.mark.asyncio
-async def test_scrape_fallback_to_known_agencies():
-    """Test fallback to known agencies when site is blocked."""
+async def test_scrape_with_browser_fallback():
+    """Test scrape uses browser fallback and parses locations."""
     scraper = HarvestRegionalFoodBankArScraper(test_mode=True)
     submitted = []
 
@@ -94,15 +93,10 @@ async def test_scrape_fallback_to_known_agencies():
         submitted.append(json.loads(data))
         return "j"
 
-    async def mock_fetch_fail(client, url):
-        raise httpx.HTTPStatusError(
-            "403 Forbidden",
-            request=httpx.Request("GET", url),
-            response=httpx.Response(403),
-        )
-
-    with patch.object(
-        scraper, "_fetch_page", side_effect=mock_fetch_fail
+    with patch(
+        "app.scraper.scrapers.harvest_regional_food_bank_ar_scraper.fetch_with_browser_fallback",
+        new_callable=AsyncMock,
+        return_value=MOCK_HTML,
     ):
         with patch.object(
             scraper, "submit_to_queue", side_effect=capture
@@ -110,9 +104,29 @@ async def test_scrape_fallback_to_known_agencies():
             result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert summary["total_jobs_created"] == len(KNOWN_AGENCIES)
+    assert summary["total_jobs_created"] == 3
     assert submitted[0]["source"] == "harvest_regional_food_bank_ar"
     assert submitted[0]["food_bank"] == FOOD_BANK_NAME
+
+
+@pytest.mark.asyncio
+async def test_scrape_empty_when_all_fail():
+    """Test scrape returns zero jobs when browser fallback fails."""
+    scraper = HarvestRegionalFoodBankArScraper(test_mode=True)
+
+    async def mock_fetch_none(client, url):
+        return None
+
+    with patch.object(
+        scraper, "_fetch_page", side_effect=mock_fetch_none
+    ):
+        with patch.object(
+            scraper, "submit_to_queue", return_value="j"
+        ):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] == 0
 
 
 @pytest.mark.asyncio

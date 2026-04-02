@@ -131,9 +131,10 @@ FROM base AS production-base
 # Install all dependencies (including dev for full functionality)
 RUN poetry install --no-interaction --no-ansi
 
-# Install Playwright browsers after poetry install
+# Install Playwright browsers and crawl4ai for browser-based scraping
 RUN playwright install chromium
 RUN playwright install-deps chromium
+RUN pip install crawl4ai
 
 # Copy everything
 COPY . .

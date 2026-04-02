@@ -3,10 +3,9 @@
 import json
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 from app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper import (
-    KNOWN_LOCATIONS,
     FoodBankOfTheGoldenCrescentTxScraper,
 )
 
@@ -58,15 +57,6 @@ async def test_scraper_test_mode():
     assert scraper.test_mode is True
 
 
-def test_known_locations_populated():
-    """Test that KNOWN_LOCATIONS fallback has entries."""
-    assert len(KNOWN_LOCATIONS) >= 12
-    for loc in KNOWN_LOCATIONS:
-        assert loc["state"] == "TX"
-        assert loc["name"]
-        assert loc["city"]
-
-
 @pytest.mark.asyncio
 async def test_parse_locations():
     """Test parsing locations from HTML content."""
@@ -109,8 +99,8 @@ async def test_parse_locations_empty_html():
 
 
 @pytest.mark.asyncio
-async def test_scrape_uses_fallback_on_empty_parse():
-    """Test scraper uses known locations when Wix returns no data."""
+async def test_scrape_with_browser():
+    """Test scraper uses browser rendering and parses results."""
     scraper = FoodBankOfTheGoldenCrescentTxScraper()
     submitted: list[dict] = []
 
@@ -118,42 +108,33 @@ async def test_scrape_uses_fallback_on_empty_parse():
         submitted.append(json.loads(data))
         return "job_123"
 
-    # Wix HTML with no parseable content (typical response)
-    wix_html = "<html><body><div>Loading...</div></body></html>"
-
-    with patch.object(
-        scraper, "_fetch_page", new_callable=AsyncMock, return_value=wix_html
+    with patch(
+        "app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper.fetch_html_with_browser",
+        return_value=MOCK_HTML,
     ):
         with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert summary["total_jobs_created"] >= 12
-    assert len(submitted) >= 12
+    assert summary["total_jobs_created"] >= 1
     assert submitted[0]["source"] == "food_bank_of_the_golden_crescent_tx"
+    assert submitted[0]["food_bank"] == "Food Bank of the Golden Crescent"
 
 
 @pytest.mark.asyncio
-async def test_scrape_uses_fallback_on_error():
-    """Test scraper uses known locations when fetch fails."""
+async def test_scrape_handles_none_response():
+    """Test scraper handles None from browser gracefully."""
     scraper = FoodBankOfTheGoldenCrescentTxScraper()
-    submitted: list[dict] = []
 
-    def capture(data: str) -> str:
-        submitted.append(json.loads(data))
-        return "job_123"
-
-    with patch.object(
-        scraper,
-        "_fetch_page",
-        new_callable=AsyncMock,
-        side_effect=Exception("Network error"),
+    with patch(
+        "app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper.fetch_html_with_browser",
+        return_value=None,
     ):
-        with patch.object(scraper, "submit_to_queue", side_effect=capture):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert summary["total_jobs_created"] >= 12
+    assert summary["total_jobs_created"] == 0
 
 
 @pytest.mark.asyncio
@@ -166,8 +147,9 @@ async def test_scrape_metadata():
         submitted.append(json.loads(data))
         return "job_123"
 
-    with patch.object(
-        scraper, "_fetch_page", new_callable=AsyncMock, return_value=MOCK_HTML
+    with patch(
+        "app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper.fetch_html_with_browser",
+        return_value=MOCK_HTML,
     ):
         with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
@@ -186,8 +168,9 @@ async def test_scrape_returns_valid_summary():
     """Test that scrape returns a valid JSON summary."""
     scraper = FoodBankOfTheGoldenCrescentTxScraper(test_mode=True)
 
-    with patch.object(
-        scraper, "_fetch_page", new_callable=AsyncMock, return_value=MOCK_HTML
+    with patch(
+        "app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper.fetch_html_with_browser",
+        return_value=MOCK_HTML,
     ):
         with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
@@ -205,12 +188,21 @@ async def test_scrape_test_mode_limits_results():
     """Test that test mode limits the number of locations submitted."""
     scraper = FoodBankOfTheGoldenCrescentTxScraper(test_mode=True)
 
-    # Use empty HTML so it falls back to 12 known locations
-    with patch.object(
-        scraper,
-        "_fetch_page",
-        new_callable=AsyncMock,
-        return_value="<html><body></body></html>",
+    # Create HTML with many locations to trigger limit
+    many_locations_html = "<html><body><main>"
+    for i in range(10):
+        many_locations_html += f"""
+        <div>
+        <p><strong>Pantry {i}</strong></p>
+        <p>{100 + i} Main St, City, TX {77900 + i}</p>
+        <p>361-555-{1000 + i}</p>
+        </div>
+        """
+    many_locations_html += "</main></body></html>"
+
+    with patch(
+        "app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper.fetch_html_with_browser",
+        return_value=many_locations_html,
     ):
         with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()

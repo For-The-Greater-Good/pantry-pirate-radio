@@ -2,13 +2,11 @@
 
 import json
 
-import httpx
 import pytest
 from unittest.mock import patch, AsyncMock
 
 from app.scraper.scrapers.southeast_texas_food_bank_tx_scraper import (
     SoutheastTexasFoodBankTxScraper,
-    KNOWN_AGENCIES,
 )
 
 
@@ -173,8 +171,8 @@ async def test_scrape_with_wpsl():
 
 
 @pytest.mark.asyncio
-async def test_scrape_falls_back_to_html():
-    """Test scrape falls back to HTML when no WP plugin found."""
+async def test_scrape_falls_back_to_html_with_browser():
+    """Test scrape falls back to HTML with browser fallback when no WP plugin found."""
     scraper = SoutheastTexasFoodBankTxScraper(test_mode=True)
 
     with patch.object(
@@ -195,10 +193,8 @@ async def test_scrape_falls_back_to_html():
                 new_callable=AsyncMock,
                 return_value=None,
             ):
-                with patch.object(
-                    scraper,
-                    "_fetch_html_with_retry",
-                    new_callable=AsyncMock,
+                with patch(
+                    "app.scraper.scrapers.southeast_texas_food_bank_tx_scraper.fetch_with_browser_fallback",
                     return_value=MOCK_HTML,
                 ):
                     with patch.object(
@@ -254,14 +250,9 @@ async def test_deduplication():
 
 
 @pytest.mark.asyncio
-async def test_scrape_fallback_to_known_agencies():
-    """Test fallback to known agencies when all methods fail."""
+async def test_scrape_handles_none_response():
+    """Test scraper handles None from all methods gracefully."""
     scraper = SoutheastTexasFoodBankTxScraper(test_mode=True)
-    submitted: list[dict] = []
-
-    def capture(data: str) -> str:
-        submitted.append(json.loads(data))
-        return "job_123"
 
     with patch.object(
         scraper,
@@ -281,32 +272,16 @@ async def test_scrape_fallback_to_known_agencies():
                 new_callable=AsyncMock,
                 return_value=None,
             ):
-                with patch.object(
-                    scraper,
-                    "_fetch_html_with_retry",
-                    new_callable=AsyncMock,
-                    side_effect=httpx.HTTPStatusError(
-                        "403 Forbidden",
-                        request=httpx.Request(
-                            "GET", scraper.url
-                        ),
-                        response=httpx.Response(403),
-                    ),
+                with patch(
+                    "app.scraper.scrapers.southeast_texas_food_bank_tx_scraper.fetch_with_browser_fallback",
+                    return_value=None,
                 ):
                     with patch.object(
                         scraper,
                         "submit_to_queue",
-                        side_effect=capture,
+                        return_value="job_123",
                     ):
                         result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert summary["total_jobs_created"] == len(KNOWN_AGENCIES)
-    assert (
-        submitted[0]["source"]
-        == "southeast_texas_food_bank_tx"
-    )
-    assert (
-        submitted[0]["food_bank"]
-        == "Southeast Texas Food Bank"
-    )
+    assert summary["total_jobs_created"] == 0

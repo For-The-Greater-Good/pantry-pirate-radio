@@ -2,7 +2,7 @@
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -10,7 +10,6 @@ import pytest
 from app.scraper.scrapers.merced_county_food_bank_ca_scraper import (
     MercedCountyFoodBankCaScraper,
     FOOD_BANK_NAME,
-    KNOWN_SITES,
 )
 
 
@@ -77,10 +76,10 @@ async def test_scrape_submits_jobs(
     assert first_job["food_bank"] == FOOD_BANK_NAME
 
 
-async def test_scrape_fallback_to_known_sites(
+async def test_scrape_with_browser_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test fallback to known sites when website is blocked."""
+    """Test scrape uses browser fallback and parses locations."""
     scraper = MercedCountyFoodBankCaScraper()
 
     submitted: list[str] = []
@@ -91,25 +90,44 @@ async def test_scrape_fallback_to_known_sites(
 
     monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
 
-    async def mock_fetch_403(client: Any, url: str) -> str:
-        raise httpx.HTTPStatusError(
-            "403 Forbidden",
-            request=httpx.Request("GET", url),
-            response=httpx.Response(403),
-        )
+    with patch(
+        "app.scraper.scrapers.merced_county_food_bank_ca_scraper.fetch_with_browser_fallback",
+        new_callable=AsyncMock,
+        return_value=SAMPLE_HTML,
+    ):
+        result = await scraper.scrape()
 
-    monkeypatch.setattr(scraper, "_fetch_page", mock_fetch_403)
+    summary = json.loads(result)
+    assert summary["total_jobs_created"] >= 1
+    first_job = json.loads(submitted[0])
+    assert first_job["source"] == "merced_county_food_bank_ca"
+    assert first_job["food_bank"] == FOOD_BANK_NAME
+
+
+async def test_scrape_empty_when_all_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test scrape returns zero jobs when browser fallback fails."""
+    scraper = MercedCountyFoodBankCaScraper()
+
+    submitted: list[str] = []
+
+    def mock_submit(content: str) -> str:
+        submitted.append(content)
+        return "job-1"
+
+    monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
+
+    async def mock_fetch_none(client: Any, url: str) -> None:
+        return None
+
+    monkeypatch.setattr(scraper, "_fetch_page", mock_fetch_none)
 
     result = await scraper.scrape()
     summary = json.loads(result)
 
-    assert summary["total_jobs_created"] == len(KNOWN_SITES)
-    assert len(submitted) == len(KNOWN_SITES)
-
-    first_job = json.loads(submitted[0])
-    assert first_job["source"] == "merced_county_food_bank_ca"
-    assert first_job["food_bank"] == FOOD_BANK_NAME
-    assert first_job["name"] == "Merced County Food Bank"
+    assert summary["total_jobs_created"] == 0
+    assert len(submitted) == 0
 
 
 async def test_scrape_deduplication(
