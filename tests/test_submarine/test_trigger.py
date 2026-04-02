@@ -228,7 +228,7 @@ class TestEnqueueRedis:
         assert (
             call_kwargs.kwargs["queue_url"] == "https://sqs.example.com/submarine.fifo"
         )
-        assert call_kwargs.kwargs["message_group_id"] == "test_scraper"
+        assert call_kwargs.kwargs["message_group_id"] == "loc-123"
 
     @patch.dict(os.environ, {"QUEUE_BACKEND": "sqs"}, clear=False)
     def test_enqueue_sqs_missing_url_logs_error(self, dispatcher, sample_job):
