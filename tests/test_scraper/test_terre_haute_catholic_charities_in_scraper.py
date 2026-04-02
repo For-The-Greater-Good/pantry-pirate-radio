@@ -316,3 +316,20 @@ async def test_scrape_empty_response():
     summary = json.loads(result)
     assert summary["unique_locations"] == 0
     assert summary["total_jobs_created"] == 0
+
+
+def test_cloudflare_detection():
+    """Test Cloudflare challenge page detection."""
+    scraper = TerreHauteCatholicCharitiesInScraper()
+
+    cf_html = (
+        '<html><head><title>Just a moment...</title></head>'
+        "<body>cf_chl_opt challenge</body></html>"
+    )
+    assert scraper._is_cloudflare_challenge(cf_html) is True
+
+    normal_html = (
+        "<html><head><title>Events</title></head>"
+        "<body><h1>Food Distribution</h1></body></html>"
+    )
+    assert scraper._is_cloudflare_challenge(normal_html) is False

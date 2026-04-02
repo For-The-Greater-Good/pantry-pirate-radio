@@ -16,22 +16,15 @@ MOCK_HTML = """
 <body>
 <main>
 <article class="entry-content">
-<h2>Lubbock County</h2>
-<h3>South Plains Community Action</h3>
-<p>1611 Broadway, Lubbock, TX 79401</p>
-<p>(806) 894-2207</p>
-<p>Monday - Friday 8:00 AM - 5:00 PM</p>
-
-<h3>Salvation Army Lubbock</h3>
-<p>1500 Crickets Ave, Lubbock, TX 79401</p>
-<p>(806) 765-9434</p>
-<p>Tuesday and Thursday 9:00 AM - 12:00 PM</p>
-
-<h2>Hale County</h2>
-<h3>Plainview Community Pantry</h3>
-<p>200 N Broadway, Plainview, TX 79072</p>
-<p>(806) 296-1234</p>
-<p>Wednesday 10:00 AM - 2:00 PM</p>
+<h2>Mobile Pantry Sites</h2>
+<p>Cochran</p>
+<p>404 N Fillmore St (City Hall), Whiteface, 3rd Thursday at 10:00am</p>
+<p>202 SE 1st St (First Baptist Church), Morton, 3rd Thursday at 10:30am</p>
+<p>Crosby</p>
+<p>211 Tyler Ave (First Baptist Church), Lorenzo, 1st Monday at 10:00am</p>
+<p>Hale</p>
+<p>306 W 6th St (First Baptist Church), Hale Center, 1st Thursday at 10:00am</p>
+<p>201 S I-27 (Trinity Life Church), Plainview, 1st Thursday at 11:30am</p>
 </article>
 </main>
 </body>
@@ -44,7 +37,7 @@ async def test_scraper_initialization():
     """Test scraper initializes with correct parameters."""
     scraper = SouthPlainsFoodBankTxScraper()
     assert scraper.scraper_id == "south_plains_food_bank_tx"
-    assert scraper.url == "https://www.spfb.org/get_help"
+    assert scraper.url == "https://www.spfb.org/mobile-pantry/"
     assert scraper.test_mode is False
 
 
@@ -57,26 +50,24 @@ async def test_scraper_test_mode():
 
 @pytest.mark.asyncio
 async def test_parse_locations():
-    """Test parsing locations from HTML content."""
+    """Test parsing locations from mobile pantry HTML content."""
     scraper = SouthPlainsFoodBankTxScraper()
     locations = scraper._parse_locations(MOCK_HTML)
 
-    assert len(locations) >= 2
+    assert len(locations) >= 3
     names = [loc["name"] for loc in locations]
-    assert any(
-        "Salvation" in n or "Community" in n or "Plainview" in n
-        for n in names
-    )
+    assert any("City Hall" in n for n in names)
+    assert any("First Baptist Church" in n for n in names)
 
 
 @pytest.mark.asyncio
-async def test_parse_locations_extracts_phone():
-    """Test that phone numbers are extracted."""
+async def test_parse_locations_extracts_schedule():
+    """Test that schedules are extracted as hours."""
     scraper = SouthPlainsFoodBankTxScraper()
     locations = scraper._parse_locations(MOCK_HTML)
 
-    phones = [loc.get("phone", "") for loc in locations]
-    assert any("806" in p for p in phones)
+    hours = [loc.get("hours", "") for loc in locations]
+    assert any("Thursday" in h or "Monday" in h for h in hours)
 
 
 @pytest.mark.asyncio
