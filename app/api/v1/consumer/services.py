@@ -290,8 +290,16 @@ class ConsumerLocationService:
                 a.postal_code,
                 a.country,
                 p.number as phone,
-                o.email,
-                o.website
+                COALESCE(o.email, (
+                    SELECT os.email FROM organization_source os
+                    WHERE os.organization_id = o.id AND os.email IS NOT NULL
+                    ORDER BY os.updated_at DESC LIMIT 1
+                )) as email,
+                COALESCE(o.website, (
+                    SELECT os.website FROM organization_source os
+                    WHERE os.organization_id = o.id AND os.website IS NOT NULL
+                    ORDER BY os.updated_at DESC LIMIT 1
+                )) as website
             FROM location l
             LEFT JOIN address a ON a.location_id = l.id
             LEFT JOIN organization o ON o.id = l.organization_id

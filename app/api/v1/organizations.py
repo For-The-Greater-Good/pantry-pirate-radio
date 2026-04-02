@@ -4,6 +4,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.utils import create_pagination_links
@@ -13,6 +14,30 @@ from app.models.hsds.organization import Organization
 from app.models.hsds.response import OrganizationResponse, Page, ServiceResponse
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
+
+
+async def _enrich_org_from_sources(
+    org_id: str, org_dict: dict, session: AsyncSession
+) -> dict:
+    """Fill null contact fields from organization_source records."""
+    if org_dict.get("website") and org_dict.get("email"):
+        return org_dict  # Nothing to fill
+
+    result = await session.execute(
+        text(
+            "SELECT website, email FROM organization_source "
+            "WHERE organization_id = :id AND (website IS NOT NULL OR email IS NOT NULL) "
+            "ORDER BY updated_at DESC LIMIT 1"
+        ),
+        {"id": org_id},
+    )
+    row = result.first()
+    if row:
+        if not org_dict.get("website") and row.website:
+            org_dict["website"] = row.website
+        if not org_dict.get("email") and row.email:
+            org_dict["email"] = row.email
+    return org_dict
 
 
 @router.get("/", response_model=Page[OrganizationResponse])
