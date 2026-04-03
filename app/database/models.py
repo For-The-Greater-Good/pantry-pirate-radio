@@ -123,6 +123,10 @@ class LocationModel(Base):
     )
     geocoding_source = Column(Text, nullable=True)
 
+    # Verification tracking (ppr-beacon quality gate)
+    verified_by = Column(Text, nullable=True)  # 'auto', 'admin', 'source'
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+
     # PostGIS geometry column for spatial queries (if GeoAlchemy2 is available)
     if HAS_GEOALCHEMY2:
         geometry: Optional[Geometry] = Column(

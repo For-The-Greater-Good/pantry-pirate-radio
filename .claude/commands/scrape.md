@@ -127,9 +127,18 @@ If user chooses C:
 - Exit workflow
 - Suggest running `/scrape next` or `/scrape [different-issue-number]`
 
-**If Vivery NOT detected:**
+**IMPORTANT: Dynamic Vivery Detection**
+The HTML-based check (`check_vivery_usage.py`) can miss Vivery widgets that load dynamically via JavaScript. If the HTML check says "not detected", also verify by:
+1. Opening the Find Food URL in a browser
+2. Checking the rendered page for "AccessFood" or "Vivery" branding
+3. Checking browser DevTools Network tab for requests to `api.accessfood.org`
+4. Running in browser console: `document.querySelector('.accessfood-widget') || document.querySelector('[data-map]')`
+
+East Texas Food Bank (#303) was missed by the initial HTML scan because its widget loaded dynamically.
+
+**If Vivery NOT detected (both HTML and browser check):**
 ```
-✓ Vivery check: Not detected
+✓ Vivery check: Not detected (HTML + browser verified)
 ✓ This site requires a custom scraper
 ✓ Proceeding to analysis...
 ```
@@ -469,12 +478,21 @@ Display final summary:
 2. **Investigate API Endpoints** - Check network tab for JSON APIs
 3. **Use Browser Automation Last** - Playwright only when HTML/API methods fail
 
-### Use Existing Scrapers as Templates
-- Don't reinvent the wheel - find similar scrapers
-- Copy patterns that work
-- HTML table scraping? Look at `food_bank_of_alaska_ak`
-- API endpoint? Look at `vivery_api_scraper`
-- Complex JavaScript? Look at browser-automation examples
+### Use the Scraper Pattern Catalog
+Before writing any scraper, read `app/scraper/scrapers/docs/scraper-patterns.md`. It contains:
+- A decision tree for picking the right approach based on what you see on the website
+- Detection commands to identify which WordPress plugin or data source is in use
+- Reference scrapers for each pattern with field mappings
+- Common pitfalls and implementation notes
+
+**Pattern quick reference (most common first):**
+- **Store Locator Plus (SLP):** `treasure_coast_food_bank_fl_scraper.py` (REST), `food_bank_of_north_alabama_al_scraper.py` (AJAX)
+- **WP Store Locator (WPSL):** `forgotten_harvest_mi_scraper.py` (grid), `good_shepherd_food_bank_me_scraper.py`
+- **Agile Store Locator (ASL):** `fulfill_nj_scraper.py`
+- **Google My Maps KML:** `inter_faith_food_shuttle_nc_scraper.py`, `food_bank_for_new_york_city_ny_scraper.py`
+- **Google Sheets JSON:** `food_bank_of_iowa_ia_scraper.py`
+- **Simple JSON API:** `second_harvest_nw_nc_scraper.py`, `food_oasis_la_scraper.py`
+- **ArcGIS FeatureServer:** `capital_area_food_bank_dc_scraper.py`
 
 ### GitHub Issue Management
 - The `create_scraper_from_issue.py` script automatically adds `in-progress` label

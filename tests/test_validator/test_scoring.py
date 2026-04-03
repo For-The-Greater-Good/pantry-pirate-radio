@@ -3,7 +3,14 @@
 import pytest
 from typing import Dict, Any
 
-from app.validator.scoring import ConfidenceScorer
+from app.validator.scoring import (
+    BASE_SCORE,
+    SCRAPED_DATA_CAP,
+    VERIFICATION_TIER_ADMIN,
+    VERIFICATION_TIER_SOURCE_CONFIRM,
+    VERIFICATION_TIER_SOURCE_CORRECT,
+    ConfidenceScorer,
+)
 
 
 class TestConfidenceScorer:
@@ -483,3 +490,37 @@ class TestConfidenceScorer:
         score = self.scorer.calculate_score(self.good_location, validation_results)
         assert isinstance(score, int)
         assert 0 <= score <= 90
+
+
+class TestVerificationTierConstants:
+    """Test verification tier constants for the scoring hierarchy.
+
+    Hierarchy: source (Lighthouse) > admin (Helm) > automated (pipeline).
+    """
+
+    def test_verification_tiers_exist(self):
+        """Verification tier constants are defined."""
+        assert VERIFICATION_TIER_ADMIN == 93
+        assert VERIFICATION_TIER_SOURCE_CONFIRM == 95
+        assert VERIFICATION_TIER_SOURCE_CORRECT == 98
+
+    def test_verification_tiers_above_scraped_cap(self):
+        """All verification tiers exceed the scraped data cap."""
+        assert VERIFICATION_TIER_ADMIN > SCRAPED_DATA_CAP
+        assert VERIFICATION_TIER_SOURCE_CONFIRM > SCRAPED_DATA_CAP
+        assert VERIFICATION_TIER_SOURCE_CORRECT > SCRAPED_DATA_CAP
+
+    def test_verification_tier_hierarchy(self):
+        """Source verification > admin > scraped cap."""
+        assert VERIFICATION_TIER_SOURCE_CORRECT > VERIFICATION_TIER_SOURCE_CONFIRM
+        assert VERIFICATION_TIER_SOURCE_CONFIRM > VERIFICATION_TIER_ADMIN
+        assert VERIFICATION_TIER_ADMIN > SCRAPED_DATA_CAP
+
+    def test_verification_tiers_within_valid_range(self):
+        """All tiers are valid confidence scores (0-100)."""
+        for tier in [
+            VERIFICATION_TIER_ADMIN,
+            VERIFICATION_TIER_SOURCE_CONFIRM,
+            VERIFICATION_TIER_SOURCE_CORRECT,
+        ]:
+            assert 0 <= tier <= 100

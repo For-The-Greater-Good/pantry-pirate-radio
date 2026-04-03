@@ -224,7 +224,9 @@ class GeocodingEnricher:
                                             if not addr.get(
                                                 "state_province"
                                             ) and reverse_addr.get("state"):
-                                                state_value = reverse_addr["state"] or ""
+                                                state_value = (
+                                                    reverse_addr["state"] or ""
+                                                )
                                                 normalized = normalize_state_to_code(
                                                     state_value
                                                 )

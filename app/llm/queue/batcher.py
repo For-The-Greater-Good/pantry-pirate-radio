@@ -299,9 +299,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # ARN format: arn:aws:states:...:execution:name:uuid
     # Append a timestamp so re-invocations within the same execution
     # (drain loop) get unique S3 prefixes and Bedrock job names.
-    base_id = (
-        execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
-    )
+    base_id = execution_id.rsplit(":", 1)[-1] if ":" in execution_id else execution_id
     batch_ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     s3_safe_id = f"{base_id}_{batch_ts}"
 
@@ -337,11 +335,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     # 1. Drain staging queue to a temp file — messages are deleted immediately
     #    per batch to unlock FIFO message groups for subsequent receives
-    remaining_time_fn = (
-        context.get_remaining_time_in_millis if context else None
-    )
+    remaining_time_fn = context.get_remaining_time_in_millis if context else None
     record_count, staging_file, queue_empty = _drain_staging_queue(
-        sqs, staging_queue_url, dlq_url=staging_dlq_url,
+        sqs,
+        staging_queue_url,
+        dlq_url=staging_dlq_url,
         remaining_time_fn=remaining_time_fn,
     )
 
