@@ -281,6 +281,7 @@ submarine_stack = SubmarineStack(
     submarine_queue_url=queue_stack.submarine_queue.queue_url,
     batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
     schedule_enabled=(environment_name == "prod"),
+    schedule_expression="cron(0 2 ? * THU *)",  # Thursdays 2 AM UTC (scrapers run Mondays)
     env=env,
     description=f"Pantry Pirate Radio submarine enrichment ({environment_name})",
 )
