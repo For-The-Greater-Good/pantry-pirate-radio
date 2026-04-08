@@ -72,4 +72,6 @@ def build_database_url_from_env() -> str:
     password = os.environ.get("DATABASE_PASSWORD", "")
     port = os.environ.get("DATABASE_PORT", "5432")
 
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
+    from urllib.parse import quote_plus
+
+    return f"postgresql://{user}:{quote_plus(password)}@{host}:{port}/{name}"
