@@ -401,10 +401,11 @@ class PipelineStack(Stack):
             self,
             "DailyScraperSchedule",
             rule_name=f"pantry-pirate-scraper-schedule-{self.environment_name}",
-            description=f"Daily scraper pipeline schedule for {self.environment_name}",
+            description=f"Weekly scraper pipeline — Mondays 2 AM UTC",
             schedule=events.Schedule.cron(
                 minute="0",
                 hour="2",  # 2 AM UTC
+                week_day="MON",
             ),
             enabled=enabled,
         )
