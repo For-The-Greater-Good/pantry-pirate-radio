@@ -93,9 +93,7 @@ async def test_fetch_with_browser_fallback_non_403_raises():
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        await fetch_with_browser_fallback(
-            "https://broken-site.com", client=mock_client
-        )
+        await fetch_with_browser_fallback("https://broken-site.com", client=mock_client)
 
 
 @pytest.mark.asyncio
