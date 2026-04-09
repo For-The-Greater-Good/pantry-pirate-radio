@@ -146,13 +146,15 @@ def filter_website(url: Optional[str]) -> Optional[str]:
 def format_schedule(rows: list[Any]) -> Optional[str]:
     """Format schedule DB rows into human-readable string.
 
-    Output: "Monday: 9:00 AM - 5:00 PM; Tuesday: 10:00 AM - 2:00 PM"
+    Output: "Monday: 9:00 AM - 5:00 PM; 1st Friday: 10:00 AM - 2:00 PM"
+    Handles ordinal day patterns like "1FR" (1st Friday), "2WE" (2nd Wednesday).
     Falls back to description field if no structured times available.
     """
     if not rows:
         return None
 
     parts: list[str] = []
+    seen: set[str] = set()
 
     for row in rows:
         byday = getattr(row, "byday", None)
@@ -163,13 +165,18 @@ def format_schedule(rows: list[Any]) -> Optional[str]:
         if byday:
             days = [d.strip() for d in byday.split(",")]
             for day_code in days:
-                day_name = _DAY_NAMES.get(day_code.upper(), day_code)
+                label = _parse_day_label(day_code)
+                if not label:
+                    continue
+                if label in seen:
+                    continue
+                seen.add(label)
                 if opens_at and closes_at:
                     open_fmt = _format_time(opens_at)
                     close_fmt = _format_time(closes_at)
-                    parts.append(f"{day_name}: {open_fmt} - {close_fmt}")
+                    parts.append(f"{label}: {open_fmt} - {close_fmt}")
                 elif description:
-                    parts.append(f"{day_name}: {description}")
+                    parts.append(f"{label}: {description}")
         elif description:
             parts.append(description)
 
@@ -177,6 +184,32 @@ def format_schedule(rows: list[Any]) -> Optional[str]:
         return None
 
     return "; ".join(parts)
+
+
+_ORDINAL_SUFFIXES = {1: "st", 2: "nd", 3: "rd"}
+
+
+def _parse_day_label(code: str) -> Optional[str]:
+    """Parse a byday code like 'MO', '1FR', '2WE' into a human-readable label.
+
+    Returns e.g. 'Monday', '1st Friday', '2nd Wednesday', or None if invalid.
+    """
+    code = code.strip().upper()
+    match = re.match(r"^(\d+)?([A-Z]{2})$", code)
+    if not match:
+        return None
+
+    ordinal_str, day_code = match.groups()
+    day_name = _DAY_NAMES.get(day_code)
+    if not day_name:
+        return None
+
+    if ordinal_str:
+        n = int(ordinal_str)
+        suffix = _ORDINAL_SUFFIXES.get(n, "th")
+        return f"{n}{suffix} {day_name}"
+
+    return day_name
 
 
 def _format_time(time_str: str) -> str:
