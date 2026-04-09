@@ -127,6 +127,44 @@ class TestFormatSchedule:
         result = format_schedule(rows)
         assert result == "Monday: By appointment only"
 
+    def test_ordinal_first_friday(self):
+        rows = [_schedule_row(byday="1FR", opens_at="09:00:00", closes_at="11:00:00")]
+        result = format_schedule(rows)
+        assert result == "1st Friday: 9:00 AM - 11:00 AM"
+
+    def test_ordinal_second_wednesday(self):
+        rows = [_schedule_row(byday="2WE", opens_at="09:30:00", closes_at="14:00:00")]
+        result = format_schedule(rows)
+        assert result == "2nd Wednesday: 9:30 AM - 2:00 PM"
+
+    def test_ordinal_third_saturday(self):
+        rows = [_schedule_row(byday="3SA", opens_at="10:00:00", closes_at="12:00:00")]
+        result = format_schedule(rows)
+        assert result == "3rd Saturday: 10:00 AM - 12:00 PM"
+
+    def test_ordinal_fourth_thursday(self):
+        rows = [_schedule_row(byday="4TH", opens_at="10:00:00", closes_at="12:00:00")]
+        result = format_schedule(rows)
+        assert result == "4th Thursday: 10:00 AM - 12:00 PM"
+
+    def test_ordinal_multi_day(self):
+        rows = [
+            _schedule_row(byday="2SU,4SU", opens_at="13:00:00", closes_at="15:00:00")
+        ]
+        result = format_schedule(rows)
+        assert "2nd Sunday" in result
+        assert "4th Sunday" in result
+
+    def test_mixed_ordinal_and_regular(self):
+        rows = [
+            _schedule_row(byday="MO,WE", opens_at="09:00:00", closes_at="14:00:00"),
+            _schedule_row(byday="3SA", opens_at="10:00:00", closes_at="12:00:00"),
+        ]
+        result = format_schedule(rows)
+        assert "Monday" in result
+        assert "Wednesday" in result
+        assert "3rd Saturday" in result
+
 
 class TestStateToTimezone:
     """Test state to IANA timezone mapping."""
