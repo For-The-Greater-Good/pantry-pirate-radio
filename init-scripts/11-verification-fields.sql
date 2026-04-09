@@ -49,15 +49,15 @@ SELECT
     l.validation_notes,
     l.validation_status,
     l.geocoding_source,
-    l.verified_by,
-    l.verified_at,
     o.name as organization_name,
     a.address_1,
     a.address_2,
     a.city,
     a.state_province,
     a.postal_code,
-    a.country
+    a.country,
+    l.verified_by,
+    l.verified_at
 FROM location l
 LEFT JOIN organization o ON l.organization_id = o.id
 LEFT JOIN address a ON a.location_id = l.id AND a.address_type = 'physical';

@@ -233,7 +233,7 @@ class TestDatabaseStackEnvironments:
             {
                 "ServerlessV2ScalingConfiguration": {
                     "MinCapacity": 0.5,
-                    "MaxCapacity": 2,
+                    "MaxCapacity": 8,
                 }
             },
         )
