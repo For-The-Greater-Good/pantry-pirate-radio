@@ -120,7 +120,7 @@ class TestBatchInferenceStackResources:
             {
                 "PackageType": "Image",
                 "Timeout": 900,
-                "MemorySize": 1024,
+                "MemorySize": 3008,
                 "EphemeralStorage": {"Size": 4096},
             },
         )
@@ -146,7 +146,7 @@ class TestBatchInferenceStackResources:
             {
                 "PackageType": "Image",
                 "Timeout": 900,
-                "MemorySize": 1024,
+                "MemorySize": 3008,
                 "EphemeralStorage": {"Size": 4096},
             },
         )
@@ -281,7 +281,7 @@ class TestBatchInferenceStackTracing:
             {
                 "PackageType": "Image",
                 "Timeout": 900,
-                "MemorySize": 1024,
+                "MemorySize": 3008,
                 "EphemeralStorage": {"Size": 4096},
                 "TracingConfig": {"Mode": "Active"},
             },

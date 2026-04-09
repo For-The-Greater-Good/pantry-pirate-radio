@@ -87,7 +87,9 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(
+            mock_sqs, "https://sqs/staging.fifo"
+        )
         try:
             assert count == 3
             records = _read_drain_file(filepath)
@@ -103,7 +105,9 @@ class TestDrainStagingQueue:
         mock_sqs = MagicMock()
         mock_sqs.receive_message.return_value = {"Messages": []}
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(
+            mock_sqs, "https://sqs/staging.fifo"
+        )
         try:
             assert count == 0
             assert _read_drain_file(filepath) == []
@@ -119,7 +123,9 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(
+            mock_sqs, "https://sqs/staging.fifo"
+        )
         try:
             mock_sqs.delete_message_batch.assert_called_once()
             entries = mock_sqs.delete_message_batch.call_args[1]["Entries"]
@@ -142,7 +148,9 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(
+            mock_sqs, "https://sqs/staging.fifo"
+        )
         try:
             assert count == 1
             records = _read_drain_file(filepath)
@@ -157,14 +165,14 @@ class TestDrainStagingQueue:
             os.unlink(filepath)
 
 
-def _make_drain_file(count: int) -> tuple[int, str]:
+def _make_drain_file(count: int) -> tuple[int, str, bool]:
     """Build a temp staging file simulating _drain_staging_queue output."""
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
     for i in range(count):
         body = json.loads(_make_sqs_message(f"job-{i}")["Body"])
         tmp.write(json.dumps(body) + "\n")
     tmp.close()
-    return count, tmp.name
+    return count, tmp.name, True
 
 
 class TestHandlerBatchPath:

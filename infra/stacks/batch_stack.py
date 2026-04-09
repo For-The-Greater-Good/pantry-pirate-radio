@@ -320,7 +320,7 @@ class BatchInferenceStack(Stack):
                 cmd=["app.llm.queue.batcher.handler"],
             ),
             timeout=Duration.seconds(900),
-            memory_size=1024,
+            memory_size=3008,
             ephemeral_storage_size=Size.gibibytes(4),
             tracing=_lambda.Tracing.ACTIVE,
             environment=batcher_env,
