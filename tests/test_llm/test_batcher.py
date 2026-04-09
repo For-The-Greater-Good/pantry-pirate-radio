@@ -165,14 +165,14 @@ class TestDrainStagingQueue:
             os.unlink(filepath)
 
 
-def _make_drain_file(count: int) -> tuple[int, str]:
+def _make_drain_file(count: int) -> tuple[int, str, bool]:
     """Build a temp staging file simulating _drain_staging_queue output."""
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
     for i in range(count):
         body = json.loads(_make_sqs_message(f"job-{i}")["Body"])
         tmp.write(json.dumps(body) + "\n")
     tmp.close()
-    return count, tmp.name
+    return count, tmp.name, True
 
 
 class TestHandlerBatchPath:

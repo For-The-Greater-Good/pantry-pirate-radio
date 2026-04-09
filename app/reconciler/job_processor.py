@@ -225,7 +225,7 @@ class JobProcessor:
             return None
 
         # Convert invalid frequency values to valid ones
-        if "freq" in transformed and transformed["freq"]:
+        if transformed.get("freq"):
             freq_value = transformed["freq"].upper()
             if freq_value == "ONCE":
                 # Convert ONCE to a proper one-time event representation per HSDS spec

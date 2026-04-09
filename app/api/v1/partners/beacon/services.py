@@ -129,7 +129,7 @@ class BeaconSyncService:
             LEFT JOIN address a ON a.location_id = l.id
                 AND a.address_type = 'physical'
             WHERE {clauses}
-        """  # nosec B608
+        """  # nosec B608  # noqa: S608
         result = await self._session.execute(text(sql), params)
         row = result.fetchone()
         raw = f"{row[0]}:{row[1]}" if row else "none:0"
@@ -154,7 +154,7 @@ class BeaconSyncService:
             LEFT JOIN address a ON a.location_id = l.id
                 AND a.address_type = 'physical'
             WHERE {clauses}
-        """  # nosec B608
+        """  # nosec B608  # noqa: S608
         result = await self._session.execute(text(sql), params)
         return result.scalar_one()
 
@@ -202,7 +202,7 @@ class BeaconSyncService:
             WHERE {clauses} {cursor_clause}
             ORDER BY l.confidence_score DESC, l.id DESC
             LIMIT :page_size
-        """  # nosec B608
+        """  # nosec B608  # noqa: S608
         result = await self._session.execute(text(sql), params)
         return result.fetchall()
 
@@ -335,7 +335,7 @@ class BeaconSyncService:
             for s in schedules.get(lid, [])
         ]
         lang_list = [
-            BeaconLanguage(name=l.name, code=l.code) for l in languages.get(lid, [])
+            BeaconLanguage(name=lang.name, code=lang.code) for lang in languages.get(lid, [])
         ]
         acc_row = accessibility.get(lid)
         acc = (
