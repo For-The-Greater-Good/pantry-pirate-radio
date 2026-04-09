@@ -255,6 +255,8 @@ class MergeStrategy(BaseReconciler):
                 )
 
         # Update canonical record
+        # Never downgrade a human-verified score (verified_by IN ('admin','source'))
+        # Never overwrite verified_by or verified_at with NULL from scraped data
         update_query = text(
             """
         UPDATE location
@@ -264,8 +266,12 @@ class MergeStrategy(BaseReconciler):
             latitude = :latitude,
             longitude = :longitude,
             is_canonical = TRUE,
-            confidence_score = COALESCE(:confidence_score, confidence_score),
+            confidence_score = CASE
+                WHEN verified_by IN ('admin', 'source') THEN confidence_score
+                ELSE COALESCE(:confidence_score, confidence_score)
+            END,
             validation_status = CASE
+                WHEN verified_by IN ('admin', 'source') THEN validation_status
                 WHEN :confidence_score IS NOT NULL AND :confidence_score >= 80 THEN 'verified'
                 WHEN :confidence_score IS NOT NULL AND :confidence_score >= 10 THEN 'needs_review'
                 WHEN :confidence_score IS NOT NULL THEN 'rejected'

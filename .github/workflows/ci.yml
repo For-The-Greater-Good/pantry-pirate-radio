@@ -504,7 +504,8 @@ jobs:
         # Ignore GHSA-4xh5-x5gv-qwph (pip CVE-2025-8869) - pip upgraded in Dockerfile
         # Ignore GHSA-3936-cmfr-pm3m (black ReDoS) - dev-only tool, not in production
         # Ignore GHSA-5239-wwwm-4pmq (pygments ReDoS in ADL lexer) - dev-only, no fix available (2.19.2 is latest)
-        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq
+        # Ignore GHSA-p423-j2cm-9vmq (cryptography) - fix is 46.0.7, pending poetry update
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq
 
   xenon:
     needs: setup

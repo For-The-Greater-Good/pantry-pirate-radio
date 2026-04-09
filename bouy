@@ -180,12 +180,12 @@ usage() {
     echo "  scraper --all               Run all scrapers sequentially (local)"
     echo "  scraper full-broadside      Run all scrapers in parallel (max firepower!)"
     echo "  scraper NAME                Run specific scraper by name (local)"
-    echo "  scraper --aws NAME          Run scraper on AWS via Step Functions"
-    echo "  scraper --aws NAME1 NAME2   Run multiple scrapers on AWS"
-    echo "  scraper --aws --all         Run all default scrapers on AWS"
-    echo "  scraper --aws scouting-party Run all scrapers on AWS (parallel)"
-    echo "  scraper --aws --status [ARN] Check AWS pipeline execution status"
-    echo "  scraper --aws --logs        Tail AWS scraper CloudWatch logs"
+    echo "  scraper --aws [--prod|--dev] NAME          Run scraper on AWS via Step Functions"
+    echo "  scraper --aws [--prod|--dev] NAME1 NAME2   Run multiple scrapers on AWS"
+    echo "  scraper --aws [--prod|--dev] --all         Run all default scrapers on AWS"
+    echo "  scraper --aws [--prod|--dev] scouting-party Run all scrapers on AWS (parallel)"
+    echo "  scraper --aws [--prod|--dev] --status [ARN] Check AWS pipeline execution status"
+    echo "  scraper --aws [--prod|--dev] --logs        Tail AWS scraper CloudWatch logs"
     echo ""
     echo "Claude auth options:"
     echo "  claude-auth         Interactive Claude authentication"
@@ -1348,6 +1348,14 @@ case "$1" in
             --aws)
                 shift  # consume --aws
 
+                # Parse environment flag (--dev, --prod, --staging)
+                DEPLOY_ENV="${DEPLOY_ENV:-dev}"
+                case "${1:-}" in
+                    --dev)  DEPLOY_ENV="dev"; shift ;;
+                    --prod) DEPLOY_ENV="prod"; shift ;;
+                    --staging) DEPLOY_ENV="staging"; shift ;;
+                esac
+
                 # Verify AWS CLI is available
                 if ! command -v aws &>/dev/null; then
                     output error "AWS CLI not found. Install it first: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
@@ -1373,7 +1381,6 @@ case "$1" in
                 set -- "${REMAINING_ARGS[@]}"
 
                 # Get state machine ARN
-                DEPLOY_ENV="${DEPLOY_ENV:-dev}"
                 SM_NAME="pantry-pirate-scraper-pipeline-${DEPLOY_ENV}"
                 SM_ARN=$(aws stepfunctions list-state-machines \
                     --query "stateMachines[?name=='${SM_NAME}'].stateMachineArn" \
@@ -1415,11 +1422,11 @@ case "$1" in
                         ;;
                     "")
                         output error "No scraper specified."
-                        echo "Usage: ./bouy scraper --aws NAME [NAME2 ...]"
-                        echo "       ./bouy scraper --aws --all"
-                        echo "       ./bouy scraper --aws scouting-party"
-                        echo "       ./bouy scraper --aws --status [EXEC_ARN]"
-                        echo "       ./bouy scraper --aws --logs"
+                        echo "Usage: ./bouy scraper --aws [--prod|--dev] NAME [NAME2 ...]"
+                        echo "       ./bouy scraper --aws [--prod|--dev] --all"
+                        echo "       ./bouy scraper --aws [--prod|--dev] scouting-party"
+                        echo "       ./bouy scraper --aws [--prod|--dev] --status [EXEC_ARN]"
+                        echo "       ./bouy scraper --aws [--prod|--dev] --logs"
                         exit 1
                         ;;
                     *)
@@ -2365,6 +2372,7 @@ print(json.dumps(l))
                 -e AWS_SECRET_ACCESS_KEY="$CDK_AWS_SECRET_ACCESS_KEY" \
                 -e AWS_SESSION_TOKEN="$CDK_AWS_SESSION_TOKEN" \
                 -e AWS_DEFAULT_REGION="$AWS_REGION" \
+                ${CDK_ALERT_EMAIL:+-e CDK_ALERT_EMAIL="$CDK_ALERT_EMAIL"} \
                 "$CDK_IMAGE" cdk "$@"
         }
 

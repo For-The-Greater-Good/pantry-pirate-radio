@@ -1,7 +1,7 @@
 """Confidence scoring for validated location data — build-up model.
 
 Scraped data starts at a base score and earns points for quality signals.
-Hard cap of 90 for scraped data; only human corrections (Tightbeam) reach 91-100.
+Hard cap of 90 for scraped data; only human corrections (Write API) reach 91-100.
 """
 
 import logging
@@ -12,6 +12,12 @@ logger = logging.getLogger(__name__)
 # Scoring constants
 BASE_SCORE = 60
 SCRAPED_DATA_CAP = 90
+
+# Verification tier constants (above SCRAPED_DATA_CAP)
+# Hierarchy: source (Lighthouse) > admin (Helm) > automated pipeline
+VERIFICATION_TIER_ADMIN = 93  # Admin edit via Helm
+VERIFICATION_TIER_SOURCE_CONFIRM = 95  # Source confirmed via Lighthouse, no changes
+VERIFICATION_TIER_SOURCE_CORRECT = 98  # Source corrected via Lighthouse, with edits
 
 
 class ConfidenceScorer:

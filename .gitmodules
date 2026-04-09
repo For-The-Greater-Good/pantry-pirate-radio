@@ -13,3 +13,6 @@
 [submodule "plugins/ppr-write-api"]
 	path = plugins/ppr-write-api
 	url = https://github.com/For-The-Greater-Good/ppr-write-api.git
+[submodule "plugins/ppr-beacon"]
+	path = plugins/ppr-beacon
+	url = https://github.com/For-The-Greater-Good/ppr-beacon.git
