@@ -9,7 +9,6 @@ from app.scraper.scrapers.food_bank_of_the_golden_crescent_tx_scraper import (
     FoodBankOfTheGoldenCrescentTxScraper,
 )
 
-
 # Mock HTML matching the real Wix-rendered food-assistance page structure.
 # The real page lists agencies grouped under county headers with the
 # pattern: COUNTY HEADER -> Agency Name -> Address (TX) -> Phone -> Hours.
@@ -172,17 +171,13 @@ async def test_scrape_with_browser():
         ".fetch_html_with_browser",
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
     assert summary["total_jobs_created"] >= 4
     assert submitted[0]["source"] == "food_bank_of_the_golden_crescent_tx"
-    assert (
-        submitted[0]["food_bank"] == "Food Bank of the Golden Crescent"
-    )
+    assert submitted[0]["food_bank"] == "Food Bank of the Golden Crescent"
 
 
 @pytest.mark.asyncio
@@ -195,9 +190,7 @@ async def test_scrape_handles_none_response():
         ".fetch_html_with_browser",
         return_value=None,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -219,29 +212,16 @@ async def test_scrape_metadata():
         ".fetch_html_with_browser",
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
-    assert (
-        summary["scraper_id"]
-        == "food_bank_of_the_golden_crescent_tx"
-    )
-    assert (
-        summary["food_bank"] == "Food Bank of the Golden Crescent"
-    )
+    assert summary["scraper_id"] == "food_bank_of_the_golden_crescent_tx"
+    assert summary["food_bank"] == "Food Bank of the Golden Crescent"
 
     if submitted:
-        assert (
-            submitted[0]["source"]
-            == "food_bank_of_the_golden_crescent_tx"
-        )
-        assert (
-            submitted[0]["food_bank"]
-            == "Food Bank of the Golden Crescent"
-        )
+        assert submitted[0]["source"] == "food_bank_of_the_golden_crescent_tx"
+        assert submitted[0]["food_bank"] == "Food Bank of the Golden Crescent"
 
 
 @pytest.mark.asyncio
@@ -254,9 +234,7 @@ async def test_scrape_returns_valid_summary():
         ".fetch_html_with_browser",
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -288,9 +266,7 @@ async def test_scrape_test_mode_limits_results():
         ".fetch_html_with_browser",
         return_value=many_html,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)

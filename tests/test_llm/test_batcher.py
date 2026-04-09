@@ -87,7 +87,7 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
         try:
             assert count == 3
             records = _read_drain_file(filepath)
@@ -103,7 +103,7 @@ class TestDrainStagingQueue:
         mock_sqs = MagicMock()
         mock_sqs.receive_message.return_value = {"Messages": []}
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
         try:
             assert count == 0
             assert _read_drain_file(filepath) == []
@@ -119,7 +119,7 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
         try:
             mock_sqs.delete_message_batch.assert_called_once()
             entries = mock_sqs.delete_message_batch.call_args[1]["Entries"]
@@ -142,7 +142,7 @@ class TestDrainStagingQueue:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
+        count, filepath, _queue_empty = _drain_staging_queue(mock_sqs, "https://sqs/staging.fifo")
         try:
             assert count == 1
             records = _read_drain_file(filepath)

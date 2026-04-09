@@ -262,9 +262,10 @@ class TestSelectiveFieldUpdate:
         )
 
         job_result = builder.build(job, result)
-        org = job_result.data["organization"][0]
 
-        assert "email" not in org
+        # When email is not in missing_fields, organization key is omitted entirely
+        # (bare name-only org is excluded to avoid merge noise)
+        assert "organization" not in job_result.data
 
     def test_includes_all_fields_when_all_missing(self, builder):
         """When all four fields are missing, all should be present."""

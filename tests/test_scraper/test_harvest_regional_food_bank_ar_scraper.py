@@ -11,7 +11,6 @@ from app.scraper.scrapers.harvest_regional_food_bank_ar_scraper import (
     FOOD_BANK_NAME,
 )
 
-
 MOCK_HTML = """
 <html><body>
 <table>
@@ -49,9 +48,7 @@ async def test_parse_locations_from_table():
 async def test_parse_locations_empty_html():
     """Test parsing returns empty list for empty HTML."""
     scraper = HarvestRegionalFoodBankArScraper()
-    locations = scraper._parse_locations(
-        "<html><body></body></html>"
-    )
+    locations = scraper._parse_locations("<html><body></body></html>")
     assert locations == []
 
 
@@ -68,12 +65,8 @@ async def test_scrape_metadata():
     async def mock_fetch(client, url):
         return MOCK_HTML
 
-    with patch.object(
-        scraper, "_fetch_page", side_effect=mock_fetch
-    ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -98,9 +91,7 @@ async def test_scrape_with_browser_fallback():
         new_callable=AsyncMock,
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -117,12 +108,8 @@ async def test_scrape_empty_when_all_fail():
     async def mock_fetch_none(client, url):
         return None
 
-    with patch.object(
-        scraper, "_fetch_page", side_effect=mock_fetch_none
-    ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="j"
-        ):
+    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch_none):
+        with patch.object(scraper, "submit_to_queue", return_value="j"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -145,12 +132,8 @@ async def test_scrape_deduplication():
     async def mock_fetch(client, url):
         return dupe_html
 
-    with patch.object(
-        scraper, "_fetch_page", side_effect=mock_fetch
-    ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="j"
-        ):
+    with patch.object(scraper, "_fetch_page", side_effect=mock_fetch):
+        with patch.object(scraper, "submit_to_queue", return_value="j"):
             result = await scraper.scrape()
 
     assert json.loads(result)["unique_locations"] == 1

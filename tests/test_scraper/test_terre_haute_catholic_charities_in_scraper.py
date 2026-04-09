@@ -11,7 +11,6 @@ from app.scraper.scrapers.terre_haute_catholic_charities_in_scraper import (
     FOOD_BANK_NAME,
 )
 
-
 MOCK_EVENTS_API_RESPONSE = {
     "events": [
         {
@@ -233,22 +232,13 @@ async def test_scrape_metadata(mock_events_response):
     async def mock_html(client):
         return []
 
-    with patch.object(
-        scraper, "_fetch_events_api", side_effect=mock_api
-    ):
-        with patch.object(
-            scraper, "_fetch_events_html", side_effect=mock_html
-        ):
-            with patch.object(
-                scraper, "submit_to_queue", side_effect=capture
-            ):
+    with patch.object(scraper, "_fetch_events_api", side_effect=mock_api):
+        with patch.object(scraper, "_fetch_events_html", side_effect=mock_html):
+            with patch.object(scraper, "submit_to_queue", side_effect=capture):
                 await scraper.scrape()
 
     assert len(submitted) >= 1
-    assert (
-        submitted[0]["source"]
-        == "terre_haute_catholic_charities_in"
-    )
+    assert submitted[0]["source"] == "terre_haute_catholic_charities_in"
     assert submitted[0]["food_bank"] == FOOD_BANK_NAME
 
 
@@ -275,9 +265,7 @@ async def test_scrape_with_browser_fallback_html():
             new_callable=AsyncMock,
             return_value=MOCK_EVENTS_HTML,
         ):
-            with patch.object(
-                scraper, "submit_to_queue", side_effect=capture
-            ):
+            with patch.object(scraper, "submit_to_queue", side_effect=capture):
                 result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -323,7 +311,7 @@ def test_cloudflare_detection():
     scraper = TerreHauteCatholicCharitiesInScraper()
 
     cf_html = (
-        '<html><head><title>Just a moment...</title></head>'
+        "<html><head><title>Just a moment...</title></head>"
         "<body>cf_chl_opt challenge</body></html>"
     )
     assert scraper._is_cloudflare_challenge(cf_html) is True

@@ -138,7 +138,7 @@ def test_parse_address_html():
     """Test parsing address HTML field."""
     scraper = MarionPolkFoodShareOrScraper()
     addr_html = (
-        '<p>152 Arthur St.<br>Woodburn, OR 97071<br>'
+        "<p>152 Arthur St.<br>Woodburn, OR 97071<br>"
         '<a href="tel:+15039815828">(503) 981-5828</a></p>'
     )
     address, city, zip_code, phone = scraper._parse_address_html(addr_html)

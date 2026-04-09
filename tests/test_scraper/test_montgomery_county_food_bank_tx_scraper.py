@@ -9,7 +9,6 @@ from app.scraper.scrapers.montgomery_county_food_bank_tx_scraper import (
     MontgomeryCountyFoodBankTxScraper,
 )
 
-
 # Mock HTML with embedded JSON matching the real page structure.
 # The real page has ``var locations = [...]`` inside a <script> tag.
 MOCK_PARTNER_PAGE = """
@@ -222,9 +221,7 @@ async def test_scrape_with_browser():
         ".fetch_html_with_browser",
         return_value=MOCK_PARTNER_PAGE,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -244,9 +241,7 @@ async def test_scrape_handles_none_response():
         ".fetch_html_with_browser",
         return_value=None,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -268,9 +263,7 @@ async def test_scrape_metadata():
         ".fetch_html_with_browser",
         return_value=MOCK_PARTNER_PAGE,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -292,9 +285,7 @@ async def test_scrape_returns_valid_summary():
         ".fetch_html_with_browser",
         return_value=MOCK_PARTNER_PAGE,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -327,7 +318,7 @@ async def test_scrape_test_mode_limits():
             }
         )
     big_html = (
-        '<html><body><script>var locations = '
+        "<html><body><script>var locations = "
         + json.dumps(items)
         + ";</script></body></html>"
     )
@@ -337,9 +328,7 @@ async def test_scrape_test_mode_limits():
         ".fetch_html_with_browser",
         return_value=big_html,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)

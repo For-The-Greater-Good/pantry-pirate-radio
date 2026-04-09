@@ -20,9 +20,9 @@ def _build_elfsight_html(markers: list[dict]) -> str:
     }
     encoded = urllib.parse.quote(json.dumps(config))
     return (
-        '<html><body><main>'
+        "<html><body><main>"
         f'<div data-elfsight-google-maps-options="{encoded}"></div>'
-        '</main></body></html>'
+        "</main></body></html>"
     )
 
 
