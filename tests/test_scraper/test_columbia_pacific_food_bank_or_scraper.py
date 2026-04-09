@@ -164,9 +164,7 @@ async def test_scrape_with_subpages():
         "app.scraper.scrapers.columbia_pacific_food_bank_or_scraper.fetch_with_browser_fallback",
         side_effect=mock_fetch,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=mock_submit
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=mock_submit):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -186,9 +184,7 @@ async def test_scrape_handles_none_response():
         "app.scraper.scrapers.columbia_pacific_food_bank_or_scraper.fetch_with_browser_fallback",
         return_value=None,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job-1"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job-1"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -215,9 +211,7 @@ async def test_scrape_workflow(monkeypatch: pytest.MonkeyPatch):
         "app.scraper.scrapers.columbia_pacific_food_bank_or_scraper.fetch_with_browser_fallback",
         side_effect=mock_fetch,
     ):
-        monkeypatch.setattr(
-            scraper, "submit_to_queue", mock_submit
-        )
+        monkeypatch.setattr(scraper, "submit_to_queue", mock_submit)
         result = await scraper.scrape()
 
     summary = json.loads(result)

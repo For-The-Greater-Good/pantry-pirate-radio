@@ -9,7 +9,6 @@ from app.scraper.scrapers.southeast_texas_food_bank_tx_scraper import (
     SoutheastTexasFoodBankTxScraper,
 )
 
-
 MOCK_WP_RESPONSE = [
     {
         "id": "201",
@@ -240,9 +239,7 @@ async def test_deduplication():
         new_callable=AsyncMock,
         return_value=duplicated,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)

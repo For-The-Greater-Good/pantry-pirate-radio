@@ -10,7 +10,6 @@ from app.scraper.scrapers.south_plains_food_bank_tx_scraper import (
     SouthPlainsFoodBankTxScraper,
 )
 
-
 MOCK_HTML = """
 <html>
 <body>
@@ -84,9 +83,7 @@ async def test_parse_locations_sets_state():
 async def test_parse_locations_empty_html():
     """Test parsing handles empty HTML gracefully."""
     scraper = SouthPlainsFoodBankTxScraper()
-    locations = scraper._parse_locations(
-        "<html><body></body></html>"
-    )
+    locations = scraper._parse_locations("<html><body></body></html>")
     assert isinstance(locations, list)
 
 
@@ -105,9 +102,7 @@ async def test_scrape_with_browser_fallback():
         new_callable=AsyncMock,
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -136,9 +131,7 @@ async def test_scrape_metadata():
         new_callable=AsyncMock,
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", side_effect=capture
-        ):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -161,9 +154,7 @@ async def test_scrape_returns_valid_summary():
         new_callable=AsyncMock,
         return_value=MOCK_HTML,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
@@ -185,9 +176,7 @@ async def test_scrape_empty_when_all_fail():
         new_callable=AsyncMock,
         return_value=None,
     ):
-        with patch.object(
-            scraper, "submit_to_queue", return_value="job_123"
-        ):
+        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
