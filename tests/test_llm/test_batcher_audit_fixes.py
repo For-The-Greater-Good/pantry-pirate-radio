@@ -32,7 +32,7 @@ class TestC2PoisonPillDlqForwarding:
         ]
 
         dlq_url = "https://sqs.../staging-dlq.fifo"
-        count, filepath = _drain_staging_queue(
+        count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
             dlq_url=dlq_url,
@@ -71,7 +71,7 @@ class TestC2PoisonPillDlqForwarding:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(
+        count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
             dlq_url="",  # No DLQ
@@ -103,7 +103,7 @@ class TestC2PoisonPillDlqForwarding:
             {"Messages": []},
         ]
 
-        count, filepath = _drain_staging_queue(
+        count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
             dlq_url="https://sqs.../staging-dlq.fifo",
@@ -138,7 +138,7 @@ class TestC2PoisonPillDlqForwarding:
         mock_sqs.send_message.side_effect = Exception("DLQ unavailable")
 
         # Should not raise
-        count, filepath = _drain_staging_queue(
+        count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
             dlq_url="https://sqs.../staging-dlq.fifo",
@@ -177,7 +177,7 @@ class TestM4BatchThresholdPerInvocation:
         # Create an empty temp file for the drain mock
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
         tmp.close()
-        mock_drain.return_value = (0, tmp.name)
+        mock_drain.return_value = (0, tmp.name, True)
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
 
         result = handler({"execution_id": "test-exec"}, None)
@@ -266,7 +266,7 @@ class TestOriginalJobsJsonlFormat:
         staging_tmp.write(json.dumps(record2) + "\n")
         staging_tmp.close()
 
-        mock_drain.return_value = (2, staging_tmp.name)
+        mock_drain.return_value = (2, staging_tmp.name, True)
 
         mock_sqs = MagicMock()
         mock_s3 = MagicMock()

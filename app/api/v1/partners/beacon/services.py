@@ -335,7 +335,8 @@ class BeaconSyncService:
             for s in schedules.get(lid, [])
         ]
         lang_list = [
-            BeaconLanguage(name=lang.name, code=lang.code) for lang in languages.get(lid, [])
+            BeaconLanguage(name=lang.name, code=lang.code)
+            for lang in languages.get(lid, [])
         ]
         acc_row = accessibility.get(lid)
         acc = (
