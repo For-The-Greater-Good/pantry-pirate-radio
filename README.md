@@ -1032,3 +1032,8 @@ For The Greater Good (FTGG) specializes in making public resources truly accessi
 *Breaking down information barriers in food security through AI-powered data unification and HSDS-compliant APIs.*
 
 [Website](https://www.for-the-gg.org) | [HAARRRvest Data Explorer](https://datasette.for-the-gg.org) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](https://api.for-the-gg.org/docs)
+
+<!-- Disco Theme (Animated) -->
+<a href="https://github.com/unclecode/crawl4ai">
+  <img src="https://raw.githubusercontent.com/unclecode/crawl4ai/main/docs/assets/powered-by-disco.svg" alt="(partially) Powered by Crawl4AI" width="200"/>
+</a>

@@ -238,7 +238,7 @@ pipeline_stack = PipelineStack(
     publisher_task_role_arn=services_stack.publisher_task_role.role_arn,
     environment_name=environment_name,
     schedule_enabled=environment_name == "prod",  # Daily scrapers in prod only
-    publisher_schedule_enabled=False,
+    publisher_schedule_enabled=environment_name == "prod",
     staging_queue_url=batch_stack.staging_queue.queue_url,
     batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
     env=env,
