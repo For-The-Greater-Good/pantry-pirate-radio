@@ -221,7 +221,7 @@ def test_parse_kml_missing_coordinates():
     locations = scraper.parse_kml(SAMPLE_PANTRY_KML, "Food Pantries")
 
     # Hope Community Church has no <Point>/<coordinates>
-    hope = [loc for loc in locations if "Hope" in loc["name"]][0]
+    hope = next(loc for loc in locations if "Hope" in loc["name"])
     assert "latitude" not in hope
     assert "longitude" not in hope
     # But still has address and other fields
