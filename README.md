@@ -794,13 +794,11 @@ Pantry Pirate Radio implements the complete **OpenReferral Human Services Data S
 
 ## 🔍 Explore the Data
 
-### [**HAARRRvest - Interactive Data Explorer**](https://datasette.for-the-gg.org)
+> **Note:** The HAARRRvest data pipeline is **temporarily suspended** due to the cost of running it at scale (~$1,600 per dataset build). The [HAARRRvest repository](https://github.com/For-The-Greater-Good/HAARRRvest) has been archived. Pantry Pirate Radio itself remains actively maintained — we hope to find a sustainable home for public data access soon.
 
-Explore our harvested food resource data directly in your browser! HAARRRvest provides:
-- 🌐 Interactive SQL queries via Datasette-Lite
-- 📊 Daily updated SQLite database
-- 📁 Organized JSON archives
-- 🏴‍☠️ No installation required
+### ~~[HAARRRvest - Interactive Data Explorer](https://datasette.for-the-gg.org)~~ *Temporarily offline*
+
+The last published dataset (November 2025) contained 350,512 records from 94 data sources.
 
 ## 📚 Documentation
 
@@ -1031,7 +1029,7 @@ For The Greater Good (FTGG) specializes in making public resources truly accessi
 
 *Breaking down information barriers in food security through AI-powered data unification and HSDS-compliant APIs.*
 
-[Website](https://www.for-the-gg.org) | [HAARRRvest Data Explorer](https://datasette.for-the-gg.org) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](https://api.for-the-gg.org/docs)
+[Website](https://www.for-the-gg.org) | [HAARRRvest Data (Archived)](https://github.com/For-The-Greater-Good/HAARRRvest) | [API Documentation](API_DOCUMENTATION.md) | [Interactive API Docs](https://api.for-the-gg.org/docs)
 
 <!-- Disco Theme (Animated) -->
 <a href="https://github.com/unclecode/crawl4ai">
