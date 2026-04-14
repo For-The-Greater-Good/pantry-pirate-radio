@@ -16,3 +16,6 @@
 [submodule "plugins/ppr-beacon"]
 	path = plugins/ppr-beacon
 	url = https://github.com/For-The-Greater-Good/ppr-beacon.git
+[submodule "plugins/ppr-lighthouse"]
+	path = plugins/ppr-lighthouse
+	url = https://github.com/For-The-Greater-Good/ppr-lighthouse.git
