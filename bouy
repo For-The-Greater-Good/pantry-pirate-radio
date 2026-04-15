@@ -1417,8 +1417,17 @@ case "$1" in
                         ;;
                     --all|scouting-party)
                         output info "Starting all scrapers on AWS via Step Functions..."
-                        # Default scraper list for AWS runs
-                        SCRAPERS_JSON='{"scrapers": ["vivery_api", "feeding_america", "the_food_pantries_org"]}'
+                        # Enumerate every scraper in app/scraper/scrapers/, excluding manual-only ones.
+                        # Keep the exclusion list in sync with MANUAL_ONLY_SCRAPERS in app/scraper/__main__.py.
+                        SCRAPER_DIR="$SCRIPT_DIR/app/scraper/scrapers"
+                        if [ ! -d "$SCRAPER_DIR" ]; then
+                            output error "Scrapers directory not found: $SCRAPER_DIR"
+                            exit 1
+                        fi
+                        SCRAPERS_JSON=$(ls "$SCRAPER_DIR"/*_scraper.py 2>/dev/null \
+                            | xargs -I{} basename {} _scraper.py \
+                            | grep -vxE 'helm_portal' \
+                            | python3 -c "import sys, json; print(json.dumps({'scrapers': sorted(l.strip() for l in sys.stdin if l.strip())}))")
                         ;;
                     "")
                         output error "No scraper specified."
@@ -2362,6 +2371,10 @@ print(json.dumps(l))
             # Mount plugins so CDK synth can discover plugin stacks
             if [ -d "$(pwd)/plugins" ]; then
                 mount_args+=(-v "$(pwd)/plugins:/plugins:ro")
+            fi
+            # Mount scrapers so CDK synth can enumerate the full scraper list
+            if [ -d "$(pwd)/app/scraper/scrapers" ]; then
+                mount_args+=(-v "$(pwd)/app/scraper/scrapers:/scrapers:ro")
             fi
             docker run --rm \
                 "${mount_args[@]}" \

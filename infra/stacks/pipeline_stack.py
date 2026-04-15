@@ -35,7 +35,6 @@ class PipelineStack(Stack):
     # List of scrapers to run - can be customized per environment
     DEFAULT_SCRAPERS = [
         "vivery_api",
-        "feeding_america",
         # Add more scrapers as they're created
     ]
 

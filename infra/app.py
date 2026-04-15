@@ -83,6 +83,30 @@ bedrock_model_id = os.environ.get(
     "CDK_BEDROCK_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 )
 
+
+def _discover_scrapers() -> list[str] | None:
+    """Discover all scraper names from the mounted scrapers directory.
+
+    The scrapers directory is mounted into the CDK container by bouy at /scrapers.
+    Returns a sorted list of scraper short names (e.g. 'the_food_pantries_org'),
+    excluding manual-only scrapers. Returns None if the mount is unavailable so
+    PipelineStack falls back to DEFAULT_SCRAPERS.
+    """
+    # Must match MANUAL_ONLY_SCRAPERS in app/scraper/__main__.py
+    manual_only = {"helm_portal"}
+    scrapers_dir = Path("/scrapers")
+    if not scrapers_dir.is_dir():
+        return None
+    names = sorted(
+        f.stem.removesuffix("_scraper")
+        for f in scrapers_dir.glob("*_scraper.py")
+        if f.stem.removesuffix("_scraper") not in manual_only
+    )
+    return names or None
+
+
+discovered_scrapers = _discover_scrapers()
+
 app = cdk.App()
 
 # --- Resource Tags ---
@@ -241,6 +265,7 @@ pipeline_stack = PipelineStack(
     publisher_schedule_enabled=environment_name == "prod",
     staging_queue_url=batch_stack.staging_queue.queue_url,
     batcher_lambda_arn=batch_stack.batcher_lambda.function_arn,
+    scrapers=discovered_scrapers,  # None falls back to DEFAULT_SCRAPERS
     env=env,
     description=f"Pantry Pirate Radio scraper pipeline ({environment_name})",
 )
