@@ -61,6 +61,7 @@ class BatchInferenceStack(Stack):
         ecr_repository: ecr.IRepository | None = None,
         submarine_staging_queue: sqs.IQueue | None = None,
         submarine_extraction_queue: sqs.IQueue | None = None,
+        content_index_table: dynamodb.ITable | None = None,
         database_proxy_endpoint: str | None = None,
         database_secret: object | None = None,
         proxy_security_group: ec2.ISecurityGroup | None = None,
@@ -93,6 +94,7 @@ class BatchInferenceStack(Stack):
         self.submarine_staging_queue = submarine_staging_queue
         self.submarine_extraction_queue = submarine_extraction_queue
         self._vpc = vpc
+        self._content_index_table = content_index_table
         self._database_proxy_endpoint = database_proxy_endpoint
         self._database_secret = database_secret
         self._proxy_security_group = proxy_security_group
@@ -393,7 +395,14 @@ class BatchInferenceStack(Stack):
             "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
             "SQS_JOBS_TABLE": jobs_table.table_name,
             "BEDROCK_MODEL_ID": bedrock_model_id,
+            "CONTENT_STORE_BACKEND": "s3",
+            "CONTENT_STORE_ENABLED": "true",
+            "CONTENT_STORE_S3_BUCKET": content_bucket.bucket_name,
         }
+        if self._content_index_table:
+            result_processor_env["CONTENT_STORE_DYNAMODB_TABLE"] = (
+                self._content_index_table.table_name
+            )
         if self.submarine_extraction_queue:
             result_processor_env["SUBMARINE_EXTRACTION_QUEUE_URL"] = (
                 self.submarine_extraction_queue.queue_url
@@ -519,6 +528,12 @@ class BatchInferenceStack(Stack):
         recorder_queue.grant_send_messages(self.result_processor_lambda)
         llm_queue.grant_send_messages(self.result_processor_lambda)
         jobs_table.grant_read_write_data(self.result_processor_lambda)
+        # Content store: write results back to prevent re-processing
+        content_bucket.grant_read_write(self.result_processor_lambda)
+        if self._content_index_table:
+            self._content_index_table.grant_read_write_data(
+                self.result_processor_lambda
+            )
 
         # Result Processor Lambda: submarine extraction queue (optional)
         if self.submarine_extraction_queue:

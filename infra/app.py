@@ -166,6 +166,8 @@ compute_stack = ComputeStack(
     llm_queue_url=queue_stack.llm_queue.queue_url,
     sqs_jobs_table_name=storage_stack.jobs_table.table_name,
     validator_queue_url=queue_stack.validator_queue.queue_url,
+    content_bucket_name=storage_stack.content_bucket.bucket_name,
+    content_index_table_name=storage_stack.content_index_table.table_name,
     env=env,
     description=f"Pantry Pirate Radio compute infrastructure ({environment_name})",
 )
@@ -196,6 +198,7 @@ batch_stack = BatchInferenceStack(
     ecr_repository=ecr_stack.repositories.get("batch-lambda"),
     submarine_staging_queue=queue_stack.submarine_staging_queue,
     submarine_extraction_queue=queue_stack.submarine_extraction_queue,
+    content_index_table=storage_stack.content_index_table,
     database_proxy_endpoint=database_stack.proxy_endpoint,
     database_secret=database_stack.database_credentials_secret,
     proxy_security_group=database_stack.proxy_security_group,

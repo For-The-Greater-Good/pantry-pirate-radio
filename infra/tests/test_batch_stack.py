@@ -343,3 +343,121 @@ class TestBatchInferenceStackAttributes:
     def test_exposes_staging_queue_url(self, stack):
         """Stack should expose staging queue URL."""
         assert stack.staging_queue.queue_url is not None
+
+
+class TestBatchInferenceStackContentStore:
+    """Tests for content store configuration on the result processor Lambda."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def dependent_stacks(self, app):
+        storage = StorageStack(app, "CSStorageStack", environment_name="dev")
+        queues = QueueStack(app, "CSQueueStack", environment_name="dev")
+        compute = ComputeStack(app, "CSComputeStack", environment_name="dev")
+        ecr = ECRStack(app, "CSECRStack", environment_name="dev")
+        return storage, queues, compute, ecr
+
+    @pytest.fixture
+    def stack_with_content_store(self, app, dependent_stacks):
+        """Create BatchInferenceStack with content_index_table."""
+        storage, queues, compute, ecr = dependent_stacks
+        return BatchInferenceStack(
+            app,
+            "CSBatchStack",
+            environment_name="dev",
+            content_bucket=storage.content_bucket,
+            jobs_table=storage.jobs_table,
+            llm_queue=queues.llm_queue,
+            validator_queue=queues.validator_queue,
+            reconciler_queue=queues.reconciler_queue,
+            recorder_queue=queues.recorder_queue,
+            vpc=compute.vpc,
+            ecr_repository=ecr.repositories.get("batch-lambda"),
+            content_index_table=storage.content_index_table,
+        )
+
+    @pytest.fixture
+    def template(self, stack_with_content_store):
+        return assertions.Template.from_stack(stack_with_content_store)
+
+    def test_result_processor_has_content_store_backend(self, template):
+        """Result processor Lambda should have CONTENT_STORE_BACKEND env var."""
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "Environment": {
+                    "Variables": assertions.Match.object_like(
+                        {"CONTENT_STORE_BACKEND": "s3"}
+                    ),
+                },
+            },
+        )
+
+    def test_result_processor_has_content_store_bucket(self, template):
+        """Result processor Lambda should have CONTENT_STORE_S3_BUCKET env var."""
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "Environment": {
+                    "Variables": assertions.Match.object_like(
+                        {"CONTENT_STORE_S3_BUCKET": assertions.Match.any_value()}
+                    ),
+                },
+            },
+        )
+
+    def test_result_processor_has_content_store_dynamodb(self, template):
+        """Result processor Lambda should have CONTENT_STORE_DYNAMODB_TABLE env var."""
+        template.has_resource_properties(
+            "AWS::Lambda::Function",
+            {
+                "Environment": {
+                    "Variables": assertions.Match.object_like(
+                        {"CONTENT_STORE_DYNAMODB_TABLE": assertions.Match.any_value()}
+                    ),
+                },
+            },
+        )
+
+    def test_result_processor_has_content_bucket_access(self, template):
+        """Result processor Lambda should have S3 read/write on content bucket."""
+        template.has_resource_properties(
+            "AWS::IAM::Policy",
+            {
+                "PolicyDocument": {
+                    "Statement": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Action": assertions.Match.array_with(
+                                        ["s3:GetObject*"]
+                                    ),
+                                    "Effect": "Allow",
+                                }
+                            ),
+                        ]
+                    ),
+                },
+            },
+        )
+
+    def test_without_content_index_table_omits_dynamodb_var(self, app, dependent_stacks):
+        """Stack without content_index_table should not have CONTENT_STORE_DYNAMODB_TABLE."""
+        storage, queues, compute, ecr = dependent_stacks
+        stack = BatchInferenceStack(
+            app,
+            "NoCIBatchStack",
+            environment_name="dev",
+            content_bucket=storage.content_bucket,
+            jobs_table=storage.jobs_table,
+            llm_queue=queues.llm_queue,
+            validator_queue=queues.validator_queue,
+            reconciler_queue=queues.reconciler_queue,
+            recorder_queue=queues.recorder_queue,
+            vpc=compute.vpc,
+        )
+        # Should still synth without error
+        assertions.Template.from_stack(stack)

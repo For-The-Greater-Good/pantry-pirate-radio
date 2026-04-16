@@ -519,3 +519,128 @@ class TestComputeStackAutoScaling:
                 ),
             },
         )
+
+
+class TestComputeStackContentStore:
+    """Tests for content store configuration on the worker."""
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def stack(self, app):
+        return ComputeStack(
+            app,
+            "ContentStoreStack",
+            environment_name="dev",
+            content_bucket_name="test-content-bucket",
+            content_index_table_name="test-content-index",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+
+    @pytest.fixture
+    def template(self, stack):
+        return assertions.Template.from_stack(stack)
+
+    def test_worker_has_content_store_backend(self, template):
+        """Worker container should have CONTENT_STORE_BACKEND env var."""
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Name": "worker",
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        {"Name": "CONTENT_STORE_BACKEND", "Value": "s3"},
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                ),
+            },
+        )
+
+    def test_worker_has_content_store_bucket(self, template):
+        """Worker container should have CONTENT_STORE_S3_BUCKET env var."""
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Name": "worker",
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        {
+                                            "Name": "CONTENT_STORE_S3_BUCKET",
+                                            "Value": "test-content-bucket",
+                                        },
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                ),
+            },
+        )
+
+    def test_worker_has_content_store_dynamodb_table(self, template):
+        """Worker container should have CONTENT_STORE_DYNAMODB_TABLE env var."""
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Name": "worker",
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        {
+                                            "Name": "CONTENT_STORE_DYNAMODB_TABLE",
+                                            "Value": "test-content-index",
+                                        },
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                ),
+            },
+        )
+
+    def test_worker_without_content_store_omits_vars(self, app):
+        """Worker without content store params should not have content store env vars."""
+        stack = ComputeStack(
+            app,
+            "NoContentStoreStack",
+            environment_name="dev",
+            env=cdk.Environment(account="123456789012", region="us-east-1"),
+        )
+        template = assertions.Template.from_stack(stack)
+        # Should still create task def but without content store vars
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Name": "worker",
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        {"Name": "QUEUE_BACKEND", "Value": "sqs"},
+                                    ]
+                                ),
+                            }
+                        )
+                    ]
+                ),
+            },
+        )

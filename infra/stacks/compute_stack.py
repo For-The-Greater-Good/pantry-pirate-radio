@@ -47,6 +47,8 @@ class ComputeStack(Stack):
         llm_queue_url: str | None = None,
         sqs_jobs_table_name: str | None = None,
         validator_queue_url: str | None = None,
+        content_bucket_name: str | None = None,
+        content_index_table_name: str | None = None,
         **kwargs,
     ) -> None:
         """Initialize ComputeStack.
@@ -81,6 +83,8 @@ class ComputeStack(Stack):
         self.image_tag = image_tag
         self.llm_queue_url = llm_queue_url
         self.sqs_jobs_table_name = sqs_jobs_table_name
+        self.content_bucket_name = content_bucket_name
+        self.content_index_table_name = content_index_table_name
         self.validator_queue_url = validator_queue_url
 
         # Create VPC
@@ -339,6 +343,10 @@ class ComputeStack(Stack):
                     "SQS_QUEUE_URL": self.llm_queue_url,
                     "SQS_JOBS_TABLE": self.sqs_jobs_table_name,
                     "VALIDATOR_QUEUE_URL": self.validator_queue_url,
+                    "CONTENT_STORE_BACKEND": "s3",
+                    "CONTENT_STORE_ENABLED": "true",
+                    "CONTENT_STORE_S3_BUCKET": self.content_bucket_name,
+                    "CONTENT_STORE_DYNAMODB_TABLE": self.content_index_table_name,
                 }.items()
                 if v is not None
             },
