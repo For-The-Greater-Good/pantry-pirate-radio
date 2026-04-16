@@ -125,6 +125,7 @@ class BatchInferenceStack(Stack):
             recorder_queue=recorder_queue,
             jobs_table=jobs_table,
             bedrock_model_id=bedrock_model_id,
+            content_bucket=content_bucket,
         )
 
         # Service-level tags for cost attribution
@@ -141,6 +142,7 @@ class BatchInferenceStack(Stack):
             reconciler_queue=reconciler_queue,
             recorder_queue=recorder_queue,
             jobs_table=jobs_table,
+            content_bucket=content_bucket,
         )
 
     def _create_staging_dlq(self) -> sqs.Queue:
@@ -361,6 +363,7 @@ class BatchInferenceStack(Stack):
         recorder_queue: sqs.IQueue,
         jobs_table: dynamodb.ITable,
         bedrock_model_id: str,
+        content_bucket: s3.IBucket | None = None,
     ) -> _lambda.DockerImageFunction:
         """Create Result Processor Lambda function.
 
@@ -395,10 +398,11 @@ class BatchInferenceStack(Stack):
             "VALIDATOR_ENABLED": SHARED["VALIDATOR_ENABLED"],
             "SQS_JOBS_TABLE": jobs_table.table_name,
             "BEDROCK_MODEL_ID": bedrock_model_id,
-            "CONTENT_STORE_BACKEND": "s3",
-            "CONTENT_STORE_ENABLED": "true",
-            "CONTENT_STORE_S3_BUCKET": content_bucket.bucket_name,
         }
+        if content_bucket:
+            result_processor_env["CONTENT_STORE_BACKEND"] = "s3"
+            result_processor_env["CONTENT_STORE_ENABLED"] = "true"
+            result_processor_env["CONTENT_STORE_S3_BUCKET"] = content_bucket.bucket_name
         if self._content_index_table:
             result_processor_env["CONTENT_STORE_DYNAMODB_TABLE"] = (
                 self._content_index_table.table_name
@@ -498,6 +502,7 @@ class BatchInferenceStack(Stack):
         reconciler_queue: sqs.IQueue,
         recorder_queue: sqs.IQueue,
         jobs_table: dynamodb.ITable,
+        content_bucket: s3.IBucket | None = None,
     ) -> None:
         """Grant cross-resource permissions.
 
@@ -529,7 +534,8 @@ class BatchInferenceStack(Stack):
         llm_queue.grant_send_messages(self.result_processor_lambda)
         jobs_table.grant_read_write_data(self.result_processor_lambda)
         # Content store: write results back to prevent re-processing
-        content_bucket.grant_read_write(self.result_processor_lambda)
+        if content_bucket:
+            content_bucket.grant_read_write(self.result_processor_lambda)
         if self._content_index_table:
             self._content_index_table.grant_read_write_data(
                 self.result_processor_lambda
