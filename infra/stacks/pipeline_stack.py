@@ -218,6 +218,9 @@ class PipelineStack(Stack):
                                         ]
                                     },
                                 },
+                                "ResultSelector": {
+                                    "exitCode.$": "$.Containers[0].ExitCode",
+                                },
                                 "ResultPath": "$.taskResult",
                                 "Retry": [
                                     {
@@ -241,12 +244,24 @@ class PipelineStack(Stack):
                             },
                             "RecordFailure": {
                                 "Type": "Pass",
-                                "Result": {"status": "FAILED"},
-                                "ResultPath": "$.taskResult",
+                                "Parameters": {
+                                    "scraper_name.$": "$.scraper_name",
+                                    "execution_id.$": "$.execution_id",
+                                    "errorInfo": {
+                                        "Error.$": "$.errorInfo.Error",
+                                    },
+                                    "taskResult": {"status": "FAILED"},
+                                },
                                 "End": True,
                             },
                             "TaskComplete": {
-                                "Type": "Succeed",
+                                "Type": "Pass",
+                                "Parameters": {
+                                    "scraper_name.$": "$.scraper_name",
+                                    "execution_id.$": "$.execution_id",
+                                    "taskResult.$": "$.taskResult",
+                                },
+                                "End": True,
                             },
                         },
                     },
