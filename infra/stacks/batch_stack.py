@@ -403,6 +403,7 @@ class BatchInferenceStack(Stack):
             result_processor_env["CONTENT_STORE_BACKEND"] = "s3"
             result_processor_env["CONTENT_STORE_ENABLED"] = "true"
             result_processor_env["CONTENT_STORE_S3_BUCKET"] = content_bucket.bucket_name
+            result_processor_env["CONTENT_STORE_PATH"] = "/tmp/content_store"
         if self._content_index_table:
             result_processor_env["CONTENT_STORE_DYNAMODB_TABLE"] = (
                 self._content_index_table.table_name

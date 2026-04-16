@@ -345,6 +345,7 @@ class ComputeStack(Stack):
                     "VALIDATOR_QUEUE_URL": self.validator_queue_url,
                     "CONTENT_STORE_BACKEND": "s3",
                     "CONTENT_STORE_ENABLED": "true",
+                    "CONTENT_STORE_PATH": "/tmp/content_store",
                     "CONTENT_STORE_S3_BUCKET": self.content_bucket_name,
                     "CONTENT_STORE_DYNAMODB_TABLE": self.content_index_table_name,
                 }.items()
