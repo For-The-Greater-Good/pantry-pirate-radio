@@ -455,7 +455,8 @@ jobs:
         # Ignore 79883 (pip CVE-2025-8869) - pip upgraded to >=26.0 in Dockerfile
         # Ignore 84961 (wheel CVE-2026-24049) - wheel pinned >=0.46.2 in Dockerfile; CI runner system wheel uncontrolled
         # Ignore 89047 (black CVE-2026-32274) - path-traversal in cache file name; dev-only tool, not exposed to untrusted input
-        run: poetry run safety check --ignore 79883 --ignore 84961 --ignore 89047
+        # Ignore SFTY-20260122-20373 (pytest /tmp race) - dev-only, CI runner is single-tenant, no untrusted local users
+        run: poetry run safety check --ignore 79883 --ignore 84961 --ignore 89047 --ignore SFTY-20260122-20373
 
   pip-audit:
     needs: setup
