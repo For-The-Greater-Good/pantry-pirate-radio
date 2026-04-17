@@ -137,3 +137,4 @@ infra/cdk.context.json
 
 # Superpowers brainstorming artifacts (local only)
 .superpowers/
+.pirate/
