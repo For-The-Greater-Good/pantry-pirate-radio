@@ -391,6 +391,7 @@ class BatchInferenceStack(Stack):
 
         result_processor_env: dict[str, str] = {
             "BATCH_BUCKET": self.batch_bucket.bucket_name,
+            "QUEUE_BACKEND": "sqs",
             "VALIDATOR_QUEUE_URL": validator_queue.queue_url,
             "RECONCILER_QUEUE_URL": reconciler_queue.queue_url,
             "RECORDER_QUEUE_URL": recorder_queue.queue_url,
