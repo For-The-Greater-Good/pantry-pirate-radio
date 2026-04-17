@@ -20,10 +20,17 @@ VERIFICATION_TIER_SOURCE_CONFIRM = 95  # Source confirmed via Lighthouse, no cha
 VERIFICATION_TIER_SOURCE_CORRECT = 98  # Source corrected via Lighthouse, with edits
 
 # Claim ownership tiers (Lighthouse claim flow).
-# Fresh = just approved or re-confirmed by the owner. Decays toward floor
-# over time via a future scheduled job (out of scope for v1).
+# Fresh = just approved or re-confirmed by the owner. Floor represents a
+# dormant claim (ties source-confirm by design); the decay policy between
+# them is tracked in a follow-up.
 VERIFICATION_TIER_CLAIMED_FRESH = 100  # Owner-authoritative, recently active
 VERIFICATION_TIER_CLAIMED_FLOOR = 95  # Dormant claim — still trusted, but stale
+
+# Authoritative human-writer values for the `location.verified_by` column.
+# Any reconciler / scraper / submarine write path that mutates canonical
+# location columns MUST guard against these so owner data is never silently
+# overwritten. Kept as a tuple so it can be bound as a SQL array parameter.
+HUMAN_VERIFIED_SOURCES: tuple[str, ...] = ("admin", "source", "claimed")
 
 
 class ConfidenceScorer:
