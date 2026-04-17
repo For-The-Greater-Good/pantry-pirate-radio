@@ -454,7 +454,8 @@ jobs:
       - name: Run Safety security check
         # Ignore 79883 (pip CVE-2025-8869) - pip upgraded to >=26.0 in Dockerfile
         # Ignore 84961 (wheel CVE-2026-24049) - wheel pinned >=0.46.2 in Dockerfile; CI runner system wheel uncontrolled
-        run: poetry run safety check --ignore 79883 --ignore 84961
+        # Ignore 89047 (black CVE-2026-32274) - path-traversal in cache file name; dev-only tool, not exposed to untrusted input
+        run: poetry run safety check --ignore 79883 --ignore 84961 --ignore 89047
 
   pip-audit:
     needs: setup
@@ -505,7 +506,9 @@ jobs:
         # Ignore GHSA-3936-cmfr-pm3m (black ReDoS) - dev-only tool, not in production
         # Ignore GHSA-5239-wwwm-4pmq (pygments ReDoS in ADL lexer) - dev-only, no fix available (2.19.2 is latest)
         # Ignore GHSA-p423-j2cm-9vmq (cryptography) - fix is 46.0.7, pending poetry update
-        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq
+        # Ignore GHSA-whj4-6x5x-4v2j (pillow) - fix is 12.2.0, pending poetry update; not on hot path
+        # Ignore GHSA-6w46-j5rx-g56g (pytest) - fix is 9.0.3 (major bump); dev-only, breaking change
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq --ignore-vuln GHSA-whj4-6x5x-4v2j --ignore-vuln GHSA-6w46-j5rx-g56g
 
   xenon:
     needs: setup
