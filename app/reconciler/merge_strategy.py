@@ -8,6 +8,7 @@ from sqlalchemy.engine.row import Row
 from sqlalchemy.orm import Session
 
 from app.reconciler.base import BaseReconciler
+from app.validator.scoring import HUMAN_VERIFIED_SOURCES
 
 
 # Define a Protocol to represent any SQLAlchemy result object with keys method
@@ -26,6 +27,20 @@ class MergeStrategy(BaseReconciler):
         """
         super().__init__(db)
         self.logger = logging.getLogger(__name__)
+
+    def _fetch_existing_verification(self, location_id: str) -> dict[str, Any] | None:
+        """Return the current verified_by value for a location, or None.
+
+        Used by merge/update paths to skip canonical writes that would
+        silently overwrite data curated by an authoritative human writer.
+        """
+        result = self.db.execute(
+            text("SELECT verified_by FROM location WHERE id = :id"),
+            {"id": location_id},
+        ).first()
+        if result is None:
+            return None
+        return {"verified_by": result[0]}
 
     def _row_to_dict(self, row: Any, result: HasKeys) -> dict[str, Any]:
         """Convert a SQLAlchemy row to a dictionary regardless of result format.
@@ -254,9 +269,36 @@ class MergeStrategy(BaseReconciler):
                     f"score {current_confidence_score} -> {updated_score}"
                 )
 
-        # Update canonical record
-        # Never downgrade a human-verified score (verified_by IN ('admin','source'))
-        # Never overwrite verified_by or verified_at with NULL from scraped data
+        # Update canonical record.
+        # When verified_by identifies an authoritative human writer
+        # (admin/source/claimed), preserve every canonical field — name,
+        # description, coordinates, score, status — from the existing row so
+        # scraper merges never silently overwrite owner-curated data.
+        # Scraper-origin changes still land in `location_source` for
+        # provenance; the delta is surfaced to claim owners separately.
+        # See app/validator/scoring.py:HUMAN_VERIFIED_SOURCES.
+        existing = self._fetch_existing_verification(location_id)
+        if existing and existing["verified_by"] in HUMAN_VERIFIED_SOURCES:
+            self.logger.info(
+                "merge_location_owner_protected",
+                extra={
+                    "location_id": location_id,
+                    "verified_by": existing["verified_by"],
+                    "scraper_count": len(valid_records),
+                },
+            )
+            # Only keep the is_canonical=TRUE housekeeping; skip content writes.
+            self.db.execute(
+                text("UPDATE location SET is_canonical = TRUE WHERE id = :id"),
+                {"id": location_id},
+            )
+            self.db.commit()
+            self.logger.info(
+                f"Merged {len(valid_records)} source records for location "
+                f"{location_id} (owner-protected — canonical untouched)"
+            )
+            return
+
         update_query = text(
             """
         UPDATE location
@@ -266,12 +308,8 @@ class MergeStrategy(BaseReconciler):
             latitude = :latitude,
             longitude = :longitude,
             is_canonical = TRUE,
-            confidence_score = CASE
-                WHEN verified_by IN ('admin', 'source') THEN confidence_score
-                ELSE COALESCE(:confidence_score, confidence_score)
-            END,
+            confidence_score = COALESCE(:confidence_score, confidence_score),
             validation_status = CASE
-                WHEN verified_by IN ('admin', 'source') THEN validation_status
                 WHEN :confidence_score IS NOT NULL AND :confidence_score >= 80 THEN 'verified'
                 WHEN :confidence_score IS NOT NULL AND :confidence_score >= 10 THEN 'needs_review'
                 WHEN :confidence_score IS NOT NULL THEN 'rejected'

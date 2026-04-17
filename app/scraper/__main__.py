@@ -116,8 +116,7 @@ def list_available_scrapers() -> list[str]:
             scrapers.append(f"scrapers.{name}")
 
     return sorted(
-        s for s in scrapers
-        if s.replace("scrapers.", "") not in MANUAL_ONLY_SCRAPERS
+        s for s in scrapers if s.replace("scrapers.", "") not in MANUAL_ONLY_SCRAPERS
     )
 
 

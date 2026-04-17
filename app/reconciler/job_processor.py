@@ -883,6 +883,11 @@ class JobProcessor:
                                     f"Missing description for location update {location['name']}, using generated description"
                                 )
 
+                            # Guard: skip canonical writes when the row is
+                            # curated by an authoritative human writer. The
+                            # scraper's data still lands in location_source
+                            # for provenance; the canonical row stays owned.
+                            # See app/validator/scoring.py:HUMAN_VERIFIED_SOURCES.
                             query = text(
                                 """
                                 UPDATE location
@@ -892,10 +897,13 @@ class JobProcessor:
                                     longitude=:longitude,
                                     organization_id=:organization_id
                                 WHERE id=:id
+                                    AND (verified_by IS NULL
+                                         OR verified_by NOT IN
+                                            ('admin', 'source', 'claimed'))
                                 """
                             )
 
-                            self.db.execute(
+                            result = self.db.execute(
                                 query,
                                 {
                                     "id": str(location_id),
@@ -906,6 +914,14 @@ class JobProcessor:
                                     "organization_id": str(org_id) if org_id else None,
                                 },
                             )
+                            if result.rowcount == 0:
+                                logger.info(
+                                    "location_update_owner_protected",
+                                    extra={
+                                        "location_id": str(location_id),
+                                        "scraper_name": location.get("name"),
+                                    },
+                                )
                             self.db.commit()
 
                         # For version tracking, use update_description if set,

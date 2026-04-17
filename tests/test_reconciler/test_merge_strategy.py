@@ -98,13 +98,14 @@ def test_merge_location(
     # Call the merge method
     merge_strategy.merge_location(location_id)
 
-    # Verify SQL execution - should have two calls:
+    # Verify SQL execution - should have three calls:
     # 1. Query to get source records
-    # 2. Update to canonical record
-    assert mock_db.execute.call_count == 2
+    # 2. _fetch_existing_verification (returns None from fixture, so no guard)
+    # 3. Update to canonical record
+    assert mock_db.execute.call_count == 3
 
-    # Verify the update query parameters
-    update_call = mock_db.execute.call_args_list[1]
+    # The last call is the canonical content UPDATE.
+    update_call = mock_db.execute.call_args_list[2]
     assert isinstance(update_call[0][0], TextClause)
     assert update_call[0][1]["id"] == location_id
     assert update_call[0][1]["name"] == "Location 1"
@@ -112,6 +113,88 @@ def test_merge_location(
 
     # Verify commit was called
     mock_db.commit.assert_called_once()
+
+
+@pytest.mark.parametrize("verified_by", ["admin", "source", "claimed"])
+def test_merge_location_preserves_canonical_for_human_writers(
+    mock_db: MagicMock,
+    test_location_sources: List[Dict[str, str]],
+    verified_by: str,
+) -> None:
+    """Human-curated rows must keep canonical content untouched on merge.
+
+    When a scraper merge fires against a location whose verified_by marks it
+    as owner-curated (admin via Helm, source via Lighthouse portal, or
+    claimed via Lighthouse claim), merge_location must only refresh the
+    is_canonical housekeeping flag. Name, description, coordinates, score,
+    and validation_status must all stay as the human wrote them.
+    """
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    # First call: fetch source records (list of sources merged).
+    sources_result = MagicMock()
+    sources_result.fetchall.return_value = test_location_sources
+    # Second call: _fetch_existing_verification → returns the human tier.
+    verify_result = MagicMock()
+    verify_result.first.return_value = (verified_by,)
+    # Third call: housekeeping UPDATE (no content change).
+    housekeeping_result = MagicMock()
+    mock_db.execute.side_effect = [
+        sources_result,
+        verify_result,
+        housekeeping_result,
+    ]
+
+    merge_strategy.merge_location(location_id)
+
+    # Expect exactly three DB calls and NO full-content UPDATE.
+    assert mock_db.execute.call_count == 3
+    content_updates = [
+        c
+        for c in mock_db.execute.call_args_list
+        if "name = :name" in str(c[0][0])
+        or "description = :description" in str(c[0][0])
+    ]
+    assert content_updates == [], (
+        f"Expected no content UPDATE for verified_by='{verified_by}', got "
+        f"{[str(c[0][0]) for c in content_updates]}"
+    )
+    # The single UPDATE that does fire is the is_canonical=TRUE housekeeping.
+    housekeeping_updates = [
+        c
+        for c in mock_db.execute.call_args_list
+        if "is_canonical = TRUE" in str(c[0][0]) and "name = :name" not in str(c[0][0])
+    ]
+    assert len(housekeeping_updates) == 1
+
+
+def test_merge_location_still_updates_when_not_human_curated(
+    mock_db: MagicMock, test_location_sources: List[Dict[str, str]]
+) -> None:
+    """Rows with verified_by=NULL or 'auto' follow the normal merge path."""
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    sources_result = MagicMock()
+    sources_result.fetchall.return_value = test_location_sources
+    verify_result = MagicMock()
+    verify_result.first.return_value = (None,)  # no human writer
+    content_update_result = MagicMock()
+    mock_db.execute.side_effect = [
+        sources_result,
+        verify_result,
+        content_update_result,
+    ]
+
+    merge_strategy.merge_location(location_id)
+
+    # The third call must be the full-content UPDATE with merged fields.
+    content_update = mock_db.execute.call_args_list[2]
+    update_sql = str(content_update[0][0])
+    assert "name = :name" in update_sql
+    assert "description = :description" in update_sql
+    assert "latitude = :latitude" in update_sql
 
 
 def test_get_field_sources(mock_db: MagicMock) -> None:

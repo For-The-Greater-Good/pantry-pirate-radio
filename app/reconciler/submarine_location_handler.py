@@ -100,12 +100,22 @@ class SubmarineLocationHandler:
             params["description"] = update_description
 
         set_clause = ", ".join(set_clauses)
-        # set_clauses are hardcoded column names, not user input
+        # set_clauses are hardcoded column names, not user input.
+        # WHERE guard skips rows curated by a human writer (admin, Lighthouse
+        # source, or claim owner) so submarine enrichment can't overwrite
+        # owner-set fields. See app/validator/scoring.py:HUMAN_VERIFIED_SOURCES.
         query = text(
-            f"UPDATE location SET {set_clause} WHERE id=:id"  # noqa: S608  # nosec B608
+            f"UPDATE location SET {set_clause} "  # noqa: S608  # nosec B608
+            "WHERE id=:id AND (verified_by IS NULL "
+            "OR verified_by NOT IN ('admin', 'source', 'claimed'))"
         )
 
-        self.db.execute(query, params)
+        result = self.db.execute(query, params)
+        if result.rowcount == 0:
+            logger.info(
+                "submarine_update_owner_protected",
+                extra={"location_id": str(location_id)},
+            )
         self.db.commit()
 
         return update_description
