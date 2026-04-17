@@ -43,9 +43,7 @@ class MergeStrategy(BaseReconciler):
             return None
         return {"verified_by": result[0]}
 
-    def _fetch_canonical_for_drift(
-        self, location_id: str
-    ) -> dict[str, Any] | None:
+    def _fetch_canonical_for_drift(self, location_id: str) -> dict[str, Any] | None:
         """Fetch the current canonical fields we compare against for drift.
 
         Kept narrow: only the fields a scraper can realistically diverge
@@ -97,9 +95,7 @@ class MergeStrategy(BaseReconciler):
                 scraper_name=scraper_name,
                 field_name=field,
                 scraper_value="" if merged_val is None else str(merged_val),
-                canonical_value=(
-                    "" if canonical_val is None else str(canonical_val)
-                ),
+                canonical_value=("" if canonical_val is None else str(canonical_val)),
             )
 
     def _row_to_dict(self, row: Any, result: HasKeys) -> dict[str, Any]:

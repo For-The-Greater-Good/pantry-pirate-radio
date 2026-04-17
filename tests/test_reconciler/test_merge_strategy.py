@@ -138,18 +138,29 @@ def test_merge_location_preserves_canonical_for_human_writers(
     # Second call: _fetch_existing_verification → returns the human tier.
     verify_result = MagicMock()
     verify_result.first.return_value = (verified_by,)
-    # Third call: housekeeping UPDATE (no content change).
+    # Third call: _fetch_canonical_for_drift → returns the canonical
+    # name/description so drift-event emission can compare against the
+    # scraper-merged values. Matching the merged values here keeps the
+    # diff empty and avoids emitting SNS traffic from this test.
+    canonical_result = MagicMock()
+    canonical_result.first.return_value = (
+        "Merged Location",
+        "Merged description",
+    )
+    # Fourth call: housekeeping UPDATE (no content change).
     housekeeping_result = MagicMock()
     mock_db.execute.side_effect = [
         sources_result,
         verify_result,
+        canonical_result,
         housekeeping_result,
     ]
 
     merge_strategy.merge_location(location_id)
 
-    # Expect exactly three DB calls and NO full-content UPDATE.
-    assert mock_db.execute.call_count == 3
+    # Expect four DB calls: sources → verify → canonical-for-drift →
+    # housekeeping. None of them should be a content UPDATE.
+    assert mock_db.execute.call_count == 4
     content_updates = [
         c
         for c in mock_db.execute.call_args_list

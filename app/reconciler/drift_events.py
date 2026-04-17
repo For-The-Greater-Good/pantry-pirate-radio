@@ -37,9 +37,7 @@ def _get_client() -> Any:
     """Return a process-cached SNS client. Created on first use."""
     global _sns_client
     if _sns_client is None:
-        region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get(
-            "AWS_REGION"
-        )
+        region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
         if region:
             _sns_client = boto3.client("sns", region_name=region)
         else:
