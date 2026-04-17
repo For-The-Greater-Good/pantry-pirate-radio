@@ -134,3 +134,6 @@ infra/cdk.context.json
 
 # Claude
 .claude/settings.local.json
+
+# Superpowers brainstorming artifacts (local only)
+.superpowers/
