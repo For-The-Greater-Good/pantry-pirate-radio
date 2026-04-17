@@ -8,6 +8,7 @@ from sqlalchemy.engine.row import Row
 from sqlalchemy.orm import Session
 
 from app.reconciler.base import BaseReconciler
+from app.reconciler.drift_events import publish_drift_event
 from app.validator.scoring import HUMAN_VERIFIED_SOURCES
 
 
@@ -41,6 +42,65 @@ class MergeStrategy(BaseReconciler):
         if result is None:
             return None
         return {"verified_by": result[0]}
+
+    def _fetch_canonical_for_drift(
+        self, location_id: str
+    ) -> dict[str, Any] | None:
+        """Fetch the current canonical fields we compare against for drift.
+
+        Kept narrow: only the fields a scraper can realistically diverge
+        on in a way a claimant would want to see (name, description).
+        Coordinates drift every scrape due to geocoder noise — we skip
+        those to avoid alarm fatigue.
+        """
+        result = self.db.execute(
+            text(
+                "SELECT name, description FROM location WHERE id = :id",
+            ),
+            {"id": location_id},
+        ).first()
+        if result is None:
+            return None
+        return {"name": result[0], "description": result[1]}
+
+    def _emit_drift_events(
+        self,
+        *,
+        location_id: str,
+        merged: dict[str, Any],
+        canonical: dict[str, Any],
+        valid_records: list[dict[str, Any]],
+    ) -> None:
+        """Emit one drift event per field that diverges between the
+        scraper-merged data and the canonical owner-curated data.
+
+        The scraper name is inferred from the first source record with
+        a populated scraper_id — good enough for the "which source
+        disagreed" message without threading scraper metadata through
+        the whole merge path.
+        """
+        scraper_name = "unknown"
+        for r in valid_records:
+            sid = r.get("scraper_id") or r.get("scraper_name")
+            if sid:
+                scraper_name = str(sid)
+                break
+
+        for field in ("name", "description"):
+            merged_val = merged.get(field)
+            canonical_val = canonical.get(field)
+            # Treat "nothing vs nothing" and matching strings as no-drift.
+            if (merged_val or "") == (canonical_val or ""):
+                continue
+            publish_drift_event(
+                location_id=str(location_id),
+                scraper_name=scraper_name,
+                field_name=field,
+                scraper_value="" if merged_val is None else str(merged_val),
+                canonical_value=(
+                    "" if canonical_val is None else str(canonical_val)
+                ),
+            )
 
     def _row_to_dict(self, row: Any, result: HasKeys) -> dict[str, Any]:
         """Convert a SQLAlchemy row to a dictionary regardless of result format.
@@ -287,6 +347,18 @@ class MergeStrategy(BaseReconciler):
                     "scraper_count": len(valid_records),
                 },
             )
+            # Emit source-drift events for the fields the scraper merge
+            # would have changed had protection not been in place. The
+            # ppr-lighthouse owner dashboard reads these off SNS →
+            # DriftEvents and renders a per-location callout.
+            canonical = self._fetch_canonical_for_drift(location_id)
+            if canonical:
+                self._emit_drift_events(
+                    location_id=str(location_id),
+                    merged=merged_data,
+                    canonical=canonical,
+                    valid_records=valid_records,
+                )
             # Only keep the is_canonical=TRUE housekeeping; skip content writes.
             self.db.execute(
                 text("UPDATE location SET is_canonical = TRUE WHERE id = :id"),
