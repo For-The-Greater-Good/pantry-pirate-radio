@@ -254,9 +254,13 @@ class MergeStrategy(BaseReconciler):
                     f"score {current_confidence_score} -> {updated_score}"
                 )
 
-        # Update canonical record
-        # Never downgrade a human-verified score (verified_by IN ('admin','source'))
-        # Never overwrite verified_by or verified_at with NULL from scraped data
+        # Update canonical record.
+        # Never downgrade a human-verified score or validation status when
+        # verified_by identifies an authoritative human writer:
+        #   - 'admin'   : Helm admin edit
+        #   - 'source'  : Lighthouse portal confirm/correct
+        #   - 'claimed' : Lighthouse claim owner (provider self-manages)
+        # Never overwrite verified_by or verified_at with NULL from scraped data.
         update_query = text(
             """
         UPDATE location
@@ -267,11 +271,11 @@ class MergeStrategy(BaseReconciler):
             longitude = :longitude,
             is_canonical = TRUE,
             confidence_score = CASE
-                WHEN verified_by IN ('admin', 'source') THEN confidence_score
+                WHEN verified_by IN ('admin', 'source', 'claimed') THEN confidence_score
                 ELSE COALESCE(:confidence_score, confidence_score)
             END,
             validation_status = CASE
-                WHEN verified_by IN ('admin', 'source') THEN validation_status
+                WHEN verified_by IN ('admin', 'source', 'claimed') THEN validation_status
                 WHEN :confidence_score IS NOT NULL AND :confidence_score >= 80 THEN 'verified'
                 WHEN :confidence_score IS NOT NULL AND :confidence_score >= 10 THEN 'needs_review'
                 WHEN :confidence_score IS NOT NULL THEN 'rejected'

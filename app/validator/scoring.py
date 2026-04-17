@@ -14,10 +14,16 @@ BASE_SCORE = 60
 SCRAPED_DATA_CAP = 90
 
 # Verification tier constants (above SCRAPED_DATA_CAP)
-# Hierarchy: source (Lighthouse) > admin (Helm) > automated pipeline
+# Hierarchy: claimed (owner) > source (Lighthouse confirm) > admin (Helm) > auto
 VERIFICATION_TIER_ADMIN = 93  # Admin edit via Helm
 VERIFICATION_TIER_SOURCE_CONFIRM = 95  # Source confirmed via Lighthouse, no changes
 VERIFICATION_TIER_SOURCE_CORRECT = 98  # Source corrected via Lighthouse, with edits
+
+# Claim ownership tiers (Lighthouse claim flow).
+# Fresh = just approved or re-confirmed by the owner. Decays toward floor
+# over time via a future scheduled job (out of scope for v1).
+VERIFICATION_TIER_CLAIMED_FRESH = 100  # Owner-authoritative, recently active
+VERIFICATION_TIER_CLAIMED_FLOOR = 95  # Dormant claim — still trusted, but stale
 
 
 class ConfidenceScorer:

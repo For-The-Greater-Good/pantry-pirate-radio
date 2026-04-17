@@ -114,6 +114,35 @@ def test_merge_location(
     mock_db.commit.assert_called_once()
 
 
+def test_merge_location_protects_claimed_records(
+    mock_db: MagicMock, test_location_sources: List[Dict[str, str]]
+) -> None:
+    """merge_location's UPDATE must guard 'claimed' rows alongside 'admin'/'source'.
+
+    A location owned by a claimant (verified_by='claimed') is an authoritative
+    human record. Its confidence_score and validation_status must never be
+    recomputed from incoming scraper source rows.
+    """
+    merge_strategy = MergeStrategy(mock_db)
+    location_id = str(uuid.uuid4())
+
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = test_location_sources
+    mock_db.execute.return_value = mock_result
+
+    merge_strategy.merge_location(location_id)
+
+    # Second execute call is the canonical UPDATE — inspect its SQL.
+    update_call = mock_db.execute.call_args_list[1]
+    update_sql = str(update_call[0][0])
+
+    # Confidence score guard: must include 'claimed'.
+    assert "verified_by IN ('admin', 'source', 'claimed')" in update_sql, (
+        "merge_location UPDATE must protect verified_by='claimed' rows "
+        "alongside 'admin'/'source'. Got SQL:\n" + update_sql
+    )
+
+
 def test_get_field_sources(mock_db: MagicMock) -> None:
     """Test getting source attribution for fields."""
     merge_strategy = MergeStrategy(mock_db)
