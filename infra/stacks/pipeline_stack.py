@@ -181,6 +181,7 @@ class PipelineStack(Stack):
         # with imported/cross-stack task definitions)
         definition = {
             "Comment": f"Scraper pipeline for {self.environment_name}",
+            "TimeoutSeconds": 43200,  # 12 hours — vivery paginates 117 regions
             "StartAt": "RunAllScrapers",
             "States": {
                 "RunAllScrapers": {
