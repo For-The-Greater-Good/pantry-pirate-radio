@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 import boto3
@@ -73,7 +73,7 @@ def publish_drift_event(
         )
         return False
 
-    event_time = (detected_at or datetime.now(timezone.utc)).isoformat()
+    event_time = (detected_at or datetime.now(UTC)).isoformat()
     payload = {
         "event_type": "source_drift_detected",
         "event_id": str(uuid.uuid4()),
