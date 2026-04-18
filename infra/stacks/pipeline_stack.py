@@ -444,7 +444,7 @@ class PipelineStack(Stack):
     ) -> events.Rule:
         """Create EventBridge rule for daily publisher (SQLite export) schedule.
 
-        Runs daily at 4 AM UTC (after scrapers complete at 2 AM).
+        Runs daily at midnight UTC.
 
         Args:
             cluster: ECS cluster for running publisher task
@@ -462,7 +462,7 @@ class PipelineStack(Stack):
             description=f"Daily SQLite export schedule for {self.environment_name}",
             schedule=events.Schedule.cron(
                 minute="0",
-                hour="4",  # 4 AM UTC (after scrapers at 2 AM)
+                hour="0",  # Midnight UTC
             ),
             enabled=enabled,
         )
