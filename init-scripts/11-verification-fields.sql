@@ -7,12 +7,15 @@
 -- Automated scoring (pipeline) can set 'auto' at score >= 80.
 -- These fields are operational metadata, not HSDS data fields.
 
--- 1. Add verified_by field to location table
+-- 1. Add verified_by field to location table.
+-- NOTE: 'claimed' was added in 12-claimed-verified-by.sql for the
+-- self-service claim flow. Keeping both values here so fresh installs
+-- land with the full set without needing a follow-up migration.
 ALTER TABLE location
 ADD COLUMN IF NOT EXISTS verified_by TEXT
-CONSTRAINT location_verified_by_check CHECK (verified_by IN ('auto', 'admin', 'source'));
+CONSTRAINT location_verified_by_check CHECK (verified_by IN ('auto', 'admin', 'source', 'claimed'));
 
-COMMENT ON COLUMN location.verified_by IS 'Who verified: auto (score>=80), admin (Helm), source (Lighthouse portal), NULL (unverified)';
+COMMENT ON COLUMN location.verified_by IS 'Who verified: auto (score>=80), admin (Helm), source (Lighthouse portal), claimed (Lighthouse claimant), NULL (unverified)';
 
 -- 2. Add verified_at timestamp
 ALTER TABLE location
@@ -28,7 +31,7 @@ WHERE verified_by IS NOT NULL;
 -- Composite index for the beacon quality gate query
 CREATE INDEX IF NOT EXISTS location_beacon_eligible_idx
 ON location(confidence_score, verified_by)
-WHERE verified_by IN ('admin', 'source') AND confidence_score >= 93;
+WHERE verified_by IN ('admin', 'source', 'claimed') AND confidence_score >= 93;
 
 -- 4. Update location_master view to include verification fields
 CREATE OR REPLACE VIEW location_master AS
