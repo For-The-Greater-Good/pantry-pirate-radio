@@ -157,12 +157,16 @@ class TestPublisherSchedule:
         # Only the scraper schedule should exist
         template.resource_count_is("AWS::Events::Rule", 1)
 
-    def test_publisher_schedule_runs_at_4am_utc(self, app):
-        """Publisher schedule should run daily at 4 AM UTC."""
-        compute_stack = ComputeStack(app, "Pub4AMCompute", environment_name="dev")
+    def test_publisher_schedule_runs_at_midnight_utc(self, app):
+        """Publisher schedule should run daily at midnight UTC.
+
+        Was 4 AM UTC until 2054275; moved to midnight so the export
+        lands before morning US traffic.
+        """
+        compute_stack = ComputeStack(app, "PubMidnightCompute", environment_name="dev")
         stack = PipelineStack(
             app,
-            "Pub4AMPipeline",
+            "PubMidnightPipeline",
             environment_name="dev",
             cluster=compute_stack.cluster,
             scraper_task_family="pantry-pirate-radio-scraper-dev",
@@ -174,7 +178,7 @@ class TestPublisherSchedule:
         template.has_resource_properties(
             "AWS::Events::Rule",
             {
-                "ScheduleExpression": "cron(0 4 * * ? *)",
+                "ScheduleExpression": "cron(0 0 * * ? *)",
                 "State": "ENABLED",
             },
         )
