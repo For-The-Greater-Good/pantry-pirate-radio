@@ -24,15 +24,15 @@ from app.core.geocoding.corrector import GeocodingCorrector
 from app.core.geocoding.constants import US_BOUNDS, STATE_BOUNDS
 
 __all__ = [
+    "STATE_BOUNDS",
+    "US_BOUNDS",
     "GeocodingCacheBackend",
+    "GeocodingCorrector",
+    "GeocodingService",
+    "GeocodingValidator",
+    "_geocoding_service",
     "get_geocoding_cache_backend",
+    "get_geocoding_service",
     "make_geocoding_cache_key",
     "make_reverse_geocoding_cache_key",
-    "GeocodingService",
-    "get_geocoding_service",
-    "GeocodingValidator",
-    "GeocodingCorrector",
-    "US_BOUNDS",
-    "STATE_BOUNDS",
-    "_geocoding_service",
 ]

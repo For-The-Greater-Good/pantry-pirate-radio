@@ -64,13 +64,13 @@ __all__ = [
     # Core classes
     "ValidationService",
     "ValidatorConfig",
-    # Configuration
-    "is_validator_enabled",
-    "get_validator_config",
-    "should_log_data_flow",
-    "get_validation_thresholds",
+    "get_enqueue_to_reconciler",
     "get_feature_flags",
     # Lazy import factories (M6)
     "get_process_validation_job",
-    "get_enqueue_to_reconciler",
+    "get_validation_thresholds",
+    "get_validator_config",
+    # Configuration
+    "is_validator_enabled",
+    "should_log_data_flow",
 ]

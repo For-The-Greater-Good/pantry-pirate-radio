@@ -45,8 +45,8 @@ class ClaudeAuthManager:
     """Manages Claude authentication within the container."""
 
     def __init__(self) -> None:
-        self.config: Optional["ClaudeConfig"] = None
-        self.provider: Optional["ClaudeProvider"] = None
+        self.config: Optional[ClaudeConfig] = None
+        self.provider: Optional[ClaudeProvider] = None
 
         if ClaudeProvider is None or ClaudeConfig is None:
             # Running outside container without full dependencies

@@ -12,16 +12,16 @@ from .service_at_location import (
 
 __all__ = [
     "HSDSBaseModel",
-    "Service",
-    "ServiceCreate",
-    "ServiceUpdate",
-    "Organization",
-    "OrganizationCreate",
-    "OrganizationUpdate",
     "Location",
     "LocationCreate",
     "LocationUpdate",
+    "Organization",
+    "OrganizationCreate",
+    "OrganizationUpdate",
+    "Service",
     "ServiceAtLocation",
     "ServiceAtLocationCreate",
     "ServiceAtLocationUpdate",
+    "ServiceCreate",
+    "ServiceUpdate",
 ]

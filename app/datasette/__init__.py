@@ -1,3 +1,3 @@
 """Datasette export module for Pantry Pirate Radio."""
 
-__all__ = ["exporter", "scheduler", "cli"]
+__all__ = ["cli", "exporter", "scheduler"]
