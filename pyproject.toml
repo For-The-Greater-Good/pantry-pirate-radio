@@ -244,7 +244,12 @@ target-version = "py311"
 exclude = [
     "docs",
     "docs/*",
-    "tests/hsds/strategies/example_data.py"
+    "tests/hsds/strategies/example_data.py",
+    # app/scraper/scrapers is a separately-maintained git submodule with
+    # its own CI. Parallel to the [tool.black] force-exclude — parent
+    # repo's linting shouldn't be blocked by scraper-side drift.
+    "app/scraper/scrapers",
+    "app/scraper/scrapers/*",
 ]
 
 [tool.ruff.lint]
