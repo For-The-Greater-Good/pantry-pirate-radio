@@ -95,7 +95,12 @@ class DnsStack(Stack):
             ttl=Duration.minutes(5),
         )
 
-        # report-webhook.{domain} → Helm webhook API Gateway
+        # report-webhook.{domain} → Typeform webhook API Gateway.
+        # Originally Helm's, folded into ppr-lighthouse's admin
+        # surface (AdminWebhook) in ppr-lighthouse PR #61. The
+        # webhook_api_id import in infra/app.py still reads from
+        # Helm's CloudFormation export until the cutover retires
+        # that stack; app.py carries the TODO for the switch.
         if webhook_api_id:
             webhook_domain_name = f"report-webhook.{domain_name}"
             webhook_custom_domain = apigwv2.CfnDomainName(

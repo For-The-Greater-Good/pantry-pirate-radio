@@ -622,6 +622,12 @@ if hosted_zone_id and domain_name:
         hosted_zone_id=hosted_zone_id,
         domain_name=domain_name,
         http_api_id=lambda_api_stack.http_api.ref,
+        # TODO(helm-retirement): Switch to
+        # `ppr-lighthouse-admin-webhook-api-id-{env}` once the
+        # Lighthouse admin-surface stack exports that value (folded
+        # in via ppr-lighthouse PR #61). This import still resolves
+        # against Helm's live CloudFormation stack until the
+        # ppr-helm Amplify + CDK are torn down during the cutover.
         webhook_api_id=cdk.Fn.import_value(
             f"ppr-helm-webhook-api-id-{environment_name}"
         ),
