@@ -226,6 +226,10 @@ disallow_untyped_decorators = false
 
 [tool.black]
 line-length = 88
+# app/scraper/scrapers is a git submodule with its own CI/formatting
+# cadence. Excluding keeps the parent repo's black check decoupled from
+# scraper-side drift when the submodule pointer bumps.
+force-exclude = 'app/scraper/scrapers/'
 exclude = '''
 (
   /(
