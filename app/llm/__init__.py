@@ -14,12 +14,12 @@ from app.llm.hsds_aligner.type_defs import (
 from app.llm.providers.base import BaseLLMProvider
 
 __all__ = [
-    "LLMConfig",
     "AlignmentInput",
     "AlignmentOutput",
     "BaseLLMProvider",
     "BedrockConfig",
     "BedrockProvider",
+    "LLMConfig",
     "OpenAIConfig",
     "OpenAIProvider",
 ]

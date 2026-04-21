@@ -135,7 +135,7 @@ def get_validator_config() -> ValidatorConfig:
         env_value = os.environ.get(env_key)
         if env_value is not None:
             try:
-                if converter == bool:
+                if converter is bool:
                     return env_value.lower() not in ("false", "0", "no", "off")
                 return converter(env_value)
             except (ValueError, TypeError):

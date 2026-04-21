@@ -17,7 +17,7 @@ def test_prometheus_counter_signature() -> None:
     assert "labelnames" in runtime_params
     assert runtime_params["labelnames"].annotation == Iterable[str]
     assert "namespace" in runtime_params
-    assert runtime_params["namespace"].annotation == str
+    assert runtime_params["namespace"].annotation is str
     assert runtime_params["namespace"].default == ""
 
 
@@ -29,7 +29,7 @@ def test_prometheus_gauge_signature() -> None:
     assert "labelnames" in runtime_params
     assert runtime_params["labelnames"].annotation == Iterable[str]
     assert "namespace" in runtime_params
-    assert runtime_params["namespace"].annotation == str
+    assert runtime_params["namespace"].annotation is str
     assert runtime_params["namespace"].default == ""
 
 
@@ -42,9 +42,9 @@ def test_prometheus_gauge_methods() -> None:
     assert hasattr(gauge, "set_to_current_time")
 
     # Test method signatures
-    assert inspect.signature(gauge.inc).parameters["amount"].annotation == float
-    assert inspect.signature(gauge.dec).parameters["amount"].annotation == float
-    assert inspect.signature(gauge.set).parameters["value"].annotation == float
+    assert inspect.signature(gauge.inc).parameters["amount"].annotation is float
+    assert inspect.signature(gauge.dec).parameters["amount"].annotation is float
+    assert inspect.signature(gauge.set).parameters["value"].annotation is float
 
 
 def test_structlog_boundlogger_signature() -> None:
