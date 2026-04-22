@@ -24,7 +24,15 @@ from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_route53_targets as targets
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
+
+
+def exports_cloudfront_distribution_id_parameter_name(environment_name: str) -> str:
+    """SSM parameter path that DnsStack writes and ServicesStack reads."""
+    return (
+        f"/pantry-pirate-radio/{environment_name}" "/exports-cloudfront-distribution-id"
+    )
 
 
 class DnsStack(Stack):
@@ -50,14 +58,16 @@ class DnsStack(Stack):
 
         # Import the hosted zone (created outside CDK)
         zone = route53.HostedZone.from_hosted_zone_attributes(
-            self, "HostedZone",
+            self,
+            "HostedZone",
             hosted_zone_id=hosted_zone_id,
             zone_name=domain_name,
         )
 
         # Wildcard ACM certificate with DNS validation
         self.certificate = acm.Certificate(
-            self, "WildcardCert",
+            self,
+            "WildcardCert",
             domain_name=f"*.{domain_name}",
             subject_alternative_names=[domain_name],
             validation=acm.CertificateValidation.from_dns(zone),
@@ -70,7 +80,8 @@ class DnsStack(Stack):
         # maps it to the HTTP API, then points DNS at it.
         api_domain_name = f"api.{domain_name}"
         custom_domain = apigwv2.CfnDomainName(
-            self, "ApiCustomDomain",
+            self,
+            "ApiCustomDomain",
             domain_name=api_domain_name,
             domain_name_configurations=[
                 apigwv2.CfnDomainName.DomainNameConfigurationProperty(
@@ -83,7 +94,8 @@ class DnsStack(Stack):
 
         # Map the custom domain to the HTTP API ($default stage)
         apigwv2.CfnApiMapping(
-            self, "ApiMapping",
+            self,
+            "ApiMapping",
             api_id=http_api_id,
             domain_name=api_domain_name,
             stage="$default",
@@ -91,7 +103,8 @@ class DnsStack(Stack):
 
         # Point DNS at the API Gateway custom domain's target
         route53.CnameRecord(
-            self, "ApiRecord",
+            self,
+            "ApiRecord",
             zone=zone,
             record_name="api",
             domain_name=custom_domain.attr_regional_domain_name,
@@ -107,7 +120,8 @@ class DnsStack(Stack):
         if webhook_api_id:
             webhook_domain_name = f"report-webhook.{domain_name}"
             webhook_custom_domain = apigwv2.CfnDomainName(
-                self, "WebhookCustomDomain",
+                self,
+                "WebhookCustomDomain",
                 domain_name=webhook_domain_name,
                 domain_name_configurations=[
                     apigwv2.CfnDomainName.DomainNameConfigurationProperty(
@@ -119,14 +133,16 @@ class DnsStack(Stack):
             )
 
             apigwv2.CfnApiMapping(
-                self, "WebhookApiMapping",
+                self,
+                "WebhookApiMapping",
                 api_id=webhook_api_id,
                 domain_name=webhook_domain_name,
                 stage="$default",
             ).add_dependency(webhook_custom_domain)
 
             route53.CnameRecord(
-                self, "WebhookRecord",
+                self,
+                "WebhookRecord",
                 zone=zone,
                 record_name="report-webhook",
                 domain_name=webhook_custom_domain.attr_regional_domain_name,
@@ -136,12 +152,11 @@ class DnsStack(Stack):
         # metabase.{domain} → NLB
         if nlb:
             route53.ARecord(
-                self, "MetabaseRecord",
+                self,
+                "MetabaseRecord",
                 zone=zone,
                 record_name="metabase",
-                target=route53.RecordTarget.from_alias(
-                    targets.LoadBalancerTarget(nlb)
-                ),
+                target=route53.RecordTarget.from_alias(targets.LoadBalancerTarget(nlb)),
             )
 
         # exports.{domain} → CloudFront distribution fronting the S3 exports bucket.
@@ -156,7 +171,8 @@ class DnsStack(Stack):
         # read on sqlite-exports/*, so CloudFront can fetch anonymously.
         if exports_bucket is not None:
             exports_distribution = cloudfront.Distribution(
-                self, "ExportsDistribution",
+                self,
+                "ExportsDistribution",
                 domain_names=[f"exports.{domain_name}"],
                 certificate=self.certificate,
                 price_class=cloudfront.PriceClass.PRICE_CLASS_100,
@@ -166,9 +182,7 @@ class DnsStack(Stack):
                 default_behavior=cloudfront.BehaviorOptions(
                     origin=origins.HttpOrigin(
                         exports_bucket.bucket_regional_domain_name,
-                        protocol_policy=(
-                            cloudfront.OriginProtocolPolicy.HTTPS_ONLY
-                        ),
+                        protocol_policy=(cloudfront.OriginProtocolPolicy.HTTPS_ONLY),
                     ),
                     viewer_protocol_policy=(
                         cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
@@ -181,7 +195,8 @@ class DnsStack(Stack):
             )
 
             route53.ARecord(
-                self, "ExportsRecord",
+                self,
+                "ExportsRecord",
                 zone=zone,
                 record_name="exports",
                 target=route53.RecordTarget.from_alias(
@@ -189,7 +204,8 @@ class DnsStack(Stack):
                 ),
             )
             route53.AaaaRecord(
-                self, "ExportsRecordAAAA",
+                self,
+                "ExportsRecordAAAA",
                 zone=zone,
                 record_name="exports",
                 target=route53.RecordTarget.from_alias(
@@ -198,13 +214,33 @@ class DnsStack(Stack):
             )
 
             CfnOutput(
-                self, "ExportsDistributionDomainName",
+                self,
+                "ExportsDistributionDomainName",
                 value=exports_distribution.distribution_domain_name,
                 description="CloudFront domain for exports.{domain}",
             )
 
+            # Publish the distribution ID via SSM so the publisher task
+            # (in ServicesStack) can read it without a CDK cross-stack
+            # dependency — Services ↔ Dns would cycle because DnsStack
+            # already depends on ServicesStack for http_api_id.
+            ssm.StringParameter(
+                self,
+                "ExportsDistributionIdParameter",
+                parameter_name=exports_cloudfront_distribution_id_parameter_name(
+                    environment_name
+                ),
+                string_value=exports_distribution.distribution_id,
+                description=(
+                    f"CloudFront distribution fronting exports bucket "
+                    f"({environment_name}). Read by publisher task to "
+                    "invalidate latest/* after SQLite upload."
+                ),
+            )
+
         CfnOutput(
-            self, "DomainName",
+            self,
+            "DomainName",
             value=domain_name,
             description="Base domain for all services",
         )
