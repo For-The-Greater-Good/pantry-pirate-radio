@@ -294,11 +294,13 @@ TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
         "format": "email",
         "description": "Service-specific email address",
     },
-    # Schedule day validation
+    # Schedule day validation — RFC 5545 BYDAY, optional ±1..±5 ordinal
+    # prefix per token (e.g. 1FR, 3TU, -1MO, +1WE) for monthly schedules.
+    # Keep in sync with app/utils/ical.py::BYDAY_TOKEN_PATTERN.
     "schedule.byday": {
         "type": "string",
-        "pattern": r"^(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*$",
-        "description": "Days of week in RRULE format (e.g., MO,WE,FR)",
+        "pattern": r"^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)(,[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU))*$",
+        "description": "Days of week in RFC 5545 BYDAY format (e.g., MO,WE,FR; 1FR; -1MO; 2WE,-1MO)",
     },
     # Address field flexibility
     "address.city": {
@@ -892,8 +894,8 @@ class SchemaConverter:
                     "closes_at": {"type": "string"},
                     "byday": {
                         "type": "string",
-                        "pattern": r"^(MO|TU|WE|TH|FR|SA|SU)(,(MO|TU|WE|TH|FR|SA|SU))*$",
-                        "description": "Days of week in RRULE format (e.g., MO,WE,FR for Monday, Wednesday, Friday)",
+                        "pattern": r"^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)(,[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU))*$",
+                        "description": "Days of week in RFC 5545 BYDAY format. Simple: MO,WE,FR. Monthly ordinals: 1FR (1st Friday), 3TU (3rd Tuesday), -1MO (last Monday), 2WE,-1MO (2nd Wednesday + last Monday).",
                     },
                     "bymonthday": {"type": "string"},
                     "byweekno": {"type": "string"},

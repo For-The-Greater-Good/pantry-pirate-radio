@@ -171,6 +171,46 @@ def test_schema_converter_applies_patterns():
     assert TYPE_CONSTRAINTS["address.postal_code"]["pattern"] == r"^\d{5}(-\d{4})?$"
 
 
+def test_byday_pattern_accepts_rfc5545():
+    """schedule.byday pattern mirrors app/utils/ical.py::BYDAY_TOKEN_PATTERN.
+
+    The prompt (food_pantry_mapper.prompt) teaches ordinal prefixes like
+    1SA,3SA — the JSON schema must accept them so the two don't drift.
+    """
+    import re
+
+    pattern = TYPE_CONSTRAINTS["schedule.byday"]["pattern"]
+    regex = re.compile(pattern)
+
+    # Simple single + multi weekday
+    assert regex.match("MO")
+    assert regex.match("MO,TU,WE,TH,FR")
+
+    # Positive ordinal (Nth-of-month)
+    assert regex.match("1FR")
+    assert regex.match("3TU")
+    assert regex.match("+1WE")
+    assert regex.match("5SA")
+
+    # Negative ordinal (Nth-from-end-of-month)
+    assert regex.match("-1MO")
+    assert regex.match("-5SA")
+
+    # Mixed compound tokens from real prod data
+    assert regex.match("2WE,-1MO")
+    assert regex.match("1TU,-1TU")
+    assert regex.match("3SA,+1WE")
+
+    # Rejections — drift patterns Plentiful flagged
+    assert not regex.match("today")
+    assert not regex.match("Third Tuesday")
+    assert not regex.match("LTU")
+    assert not regex.match("3F")
+    assert not regex.match("15")
+    assert not regex.match("10MO")  # ordinal out of range (1..5)
+    assert not regex.match("mo")  # lowercase — LLM must emit canonical case
+
+
 def test_format_requirements_in_prompt():
     """Test that format requirements are documented in the prompt."""
     prompt_path = Path("app/llm/hsds_aligner/prompts/food_pantry_mapper.prompt")
