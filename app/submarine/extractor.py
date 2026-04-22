@@ -33,7 +33,13 @@ FIELD_DESCRIPTIONS = {
     "phone": '"phone": "main phone number as a string, e.g. (555) 234-5678"',
     "hours": (
         '"hours": [list of schedule objects with '
-        '{"day": "weekday name", "opens_at": "HH:MM", "closes_at": "HH:MM"}] '
+        '{"day": "RFC 5545 BYDAY code: MO, TU, WE, TH, FR, SA, or SU. '
+        "Prefix with 1-5 for Nth-of-month (e.g. 1FR = first Friday, "
+        "3TU = third Tuesday) or -1 for last-of-month (-1MO = last Monday). "
+        "Do NOT use full weekday names, prose like 'Third Tuesday', or "
+        "relative dates like 'today' — omit the entry if the day cannot be "
+        'encoded.", '
+        '"opens_at": "HH:MM", "closes_at": "HH:MM"}] '
         "or null if not found"
     ),
     "email": '"email": "primary contact email address"',

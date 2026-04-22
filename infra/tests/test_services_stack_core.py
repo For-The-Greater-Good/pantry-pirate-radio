@@ -596,6 +596,86 @@ class TestPublisherTaskDefinition:
             },
         )
 
+    def test_publisher_has_cloudfront_distribution_env_from_ssm(
+        self, app, compute_stack
+    ):
+        """Publisher container sets EXPORT_CLOUDFRONT_DISTRIBUTION_ID from an
+        SSM dynamic reference — the value is resolved by CloudFormation at
+        deploy time from the SSM parameter DnsStack publishes."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig()
+        stack = ServicesStack(
+            app,
+            "PubCfEnvStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        # The env var exists, and its value is a CFN dynamic SSM reference
+        # to the parameter DnsStack writes.
+        template.has_resource_properties(
+            "AWS::ECS::TaskDefinition",
+            {
+                "ContainerDefinitions": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Environment": assertions.Match.array_with(
+                                    [
+                                        assertions.Match.object_like(
+                                            {
+                                                "Name": (
+                                                    "EXPORT_CLOUDFRONT_"
+                                                    "DISTRIBUTION_ID"
+                                                ),
+                                            }
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                    ]
+                )
+            },
+        )
+
+    def test_publisher_task_role_can_invalidate_cloudfront(self, app, compute_stack):
+        """Publisher task role grants cloudfront:CreateInvalidation so the
+        upload path can bust the edge cache after a fresh SQLite lands."""
+        from stacks.services_stack import ServiceConfig
+
+        config = ServiceConfig()
+        stack = ServicesStack(
+            app,
+            "PubCfPolicyStack",
+            environment_name="dev",
+            vpc=compute_stack.vpc,
+            cluster=compute_stack.cluster,
+            config=config,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        # The publisher task role policy should include CreateInvalidation.
+        found_cf_policy = False
+        for policy in template.find_resources("AWS::IAM::Policy").values():
+            doc = policy["Properties"]["PolicyDocument"]
+            for stmt in doc.get("Statement", []):
+                actions = stmt.get("Action", [])
+                if isinstance(actions, str):
+                    actions = [actions]
+                if "cloudfront:CreateInvalidation" in actions:
+                    found_cf_policy = True
+                    break
+            if found_cf_policy:
+                break
+        assert (
+            found_cf_policy
+        ), "Publisher task role should have cloudfront:CreateInvalidation"
+
     def test_publisher_has_database_env_vars(self, app, compute_stack):
         """Publisher container should have DATABASE_HOST env var when configured."""
         from stacks.services_stack import ServiceConfig

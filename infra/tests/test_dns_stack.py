@@ -19,10 +19,14 @@ def exports_bucket(env):
     # without owning the bucket resource.
     app = cdk.App()
     stack = cdk.Stack(app, "ExportsBucketStack", env=env)
-    return app, stack, s3.Bucket(
+    return (
+        app,
         stack,
-        "ExportsBucket",
-        bucket_name="pantry-pirate-radio-exports-test",
+        s3.Bucket(
+            stack,
+            "ExportsBucket",
+            bucket_name="pantry-pirate-radio-exports-test",
+        ),
     )
 
 
@@ -102,3 +106,46 @@ class TestExportsCloudFront:
         # No exports.* record either
         for record in template.find_resources("AWS::Route53::RecordSet").values():
             assert not record["Properties"]["Name"].startswith("exports.")
+
+    def test_publishes_cloudfront_distribution_id_to_ssm(self, env, exports_bucket):
+        """DnsStack writes the distribution ID to SSM so the publisher
+        task in ServicesStack can read it without a CDK cross-stack cycle."""
+        app, _bucket_stack, bucket = exports_bucket
+        dns = DnsStack(
+            app,
+            "DnsStackSsmParam",
+            environment_name="dev",
+            hosted_zone_id="Z0123456789ABCDEFGHIJ",
+            domain_name="example.com",
+            http_api_id="abc123",
+            exports_bucket=bucket,
+            env=env,
+        )
+        template = assertions.Template.from_stack(dns)
+
+        template.has_resource_properties(
+            "AWS::SSM::Parameter",
+            {
+                "Name": (
+                    "/pantry-pirate-radio/dev" "/exports-cloudfront-distribution-id"
+                ),
+                "Type": "String",
+            },
+        )
+
+    def test_no_ssm_param_without_cloudfront_distribution(self, env):
+        """SSM parameter is only written when the CloudFront distribution
+        is actually created (i.e. when exports_bucket was provided)."""
+        app = cdk.App()
+        dns = DnsStack(
+            app,
+            "DnsStackNoSsmParam",
+            environment_name="dev",
+            hosted_zone_id="Z0123456789ABCDEFGHIJ",
+            domain_name="example.com",
+            http_api_id="abc123",
+            exports_bucket=None,
+            env=env,
+        )
+        template = assertions.Template.from_stack(dns)
+        template.resource_count_is("AWS::SSM::Parameter", 0)

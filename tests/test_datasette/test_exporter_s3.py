@@ -82,6 +82,110 @@ class TestUploadToS3:
         assert mock_client.upload_file.call_count == 2
 
 
+class TestCloudFrontInvalidation:
+    """Tests for the CloudFront invalidation triggered after /latest upload."""
+
+    @patch.dict("os.environ", {"EXPORT_CLOUDFRONT_DISTRIBUTION_ID": "EABC123DEF"})
+    @patch("app.datasette.s3_upload.boto3")
+    def test_invalidates_after_upload(self, mock_boto3):
+        """upload_to_s3 should invalidate CF after the latest/ copy is uploaded."""
+        from app.datasette.s3_upload import upload_to_s3
+
+        s3_client = MagicMock()
+        cf_client = MagicMock()
+        cf_client.create_invalidation.return_value = {
+            "Invalidation": {"Id": "I-123ABC", "Status": "InProgress"}
+        }
+        mock_boto3.client.side_effect = lambda svc: {
+            "s3": s3_client,
+            "cloudfront": cf_client,
+        }[svc]
+
+        with patch("app.datasette.s3_upload._today_str", return_value="2026-04-22"):
+            upload_to_s3("/data/test.sqlite", "my-bucket")
+
+        cf_client.create_invalidation.assert_called_once()
+        kwargs = cf_client.create_invalidation.call_args.kwargs
+        assert kwargs["DistributionId"] == "EABC123DEF"
+        paths = kwargs["InvalidationBatch"]["Paths"]["Items"]
+        assert "/sqlite-exports/latest/test.sqlite" in paths
+        assert "/sqlite-exports/latest/*" in paths
+
+    @patch.dict("os.environ", {}, clear=True)
+    @patch("app.datasette.s3_upload.boto3")
+    def test_no_distribution_id_skips_invalidation(self, mock_boto3):
+        """Missing EXPORT_CLOUDFRONT_DISTRIBUTION_ID env var → skip, don't raise."""
+        from app.datasette.s3_upload import upload_to_s3
+
+        s3_client = MagicMock()
+        cf_client = MagicMock()
+        mock_boto3.client.side_effect = lambda svc: {
+            "s3": s3_client,
+            "cloudfront": cf_client,
+        }[svc]
+
+        with patch("app.datasette.s3_upload._today_str", return_value="2026-04-22"):
+            upload_to_s3("/data/test.sqlite", "my-bucket")
+
+        cf_client.create_invalidation.assert_not_called()
+        # S3 uploads still happen
+        assert s3_client.upload_file.call_count == 2
+
+    @patch.dict("os.environ", {"EXPORT_CLOUDFRONT_DISTRIBUTION_ID": "EABC123DEF"})
+    @patch("app.datasette.s3_upload.boto3")
+    def test_invalidation_failure_does_not_break_upload(self, mock_boto3, caplog):
+        """CF errors are logged as warnings — publisher must not fail the run."""
+        import logging
+
+        from app.datasette.s3_upload import upload_to_s3
+
+        s3_client = MagicMock()
+        cf_client = MagicMock()
+        cf_client.create_invalidation.side_effect = RuntimeError("AccessDenied")
+        mock_boto3.client.side_effect = lambda svc: {
+            "s3": s3_client,
+            "cloudfront": cf_client,
+        }[svc]
+
+        with caplog.at_level(logging.WARNING):
+            with patch("app.datasette.s3_upload._today_str", return_value="2026-04-22"):
+                # Must not raise
+                upload_to_s3("/data/test.sqlite", "my-bucket")
+
+        # S3 uploads still succeeded
+        assert s3_client.upload_file.call_count == 2
+        # Failure surfaced in logs
+        assert any(
+            "cloudfront_invalidation_failed" in rec.message
+            or "cloudfront_invalidation_failed" in str(rec.args)
+            for rec in caplog.records
+        )
+
+    @patch.dict("os.environ", {"EXPORT_CLOUDFRONT_DISTRIBUTION_ID": "EABC123DEF"})
+    @patch("app.datasette.s3_upload.boto3")
+    def test_custom_prefix_paths(self, mock_boto3):
+        """Custom prefix is reflected in invalidation paths."""
+        from app.datasette.s3_upload import upload_to_s3
+
+        s3_client = MagicMock()
+        cf_client = MagicMock()
+        cf_client.create_invalidation.return_value = {
+            "Invalidation": {"Id": "I-456", "Status": "InProgress"}
+        }
+        mock_boto3.client.side_effect = lambda svc: {
+            "s3": s3_client,
+            "cloudfront": cf_client,
+        }[svc]
+
+        with patch("app.datasette.s3_upload._today_str", return_value="2026-04-22"):
+            upload_to_s3("/data/test.sqlite", "my-bucket", prefix="custom-prefix")
+
+        kwargs = cf_client.create_invalidation.call_args.kwargs
+        paths = kwargs["InvalidationBatch"]["Paths"]["Items"]
+        assert "/custom-prefix/latest/test.sqlite" in paths
+        assert "/custom-prefix/latest/*" in paths
+
+
 class TestBuildDatabaseUrlFromEnv:
     """Tests for building DATABASE_URL from component env vars."""
 

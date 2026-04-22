@@ -170,3 +170,87 @@ class TestScheduleBydayExtraction:
             results.append(byday)
 
         assert results == ["MO,TU,WE", None, None]
+
+
+class TestTransformScheduleBydayNormalization:
+    """_transform_schedule enforces RFC 5545 on byday before DB write."""
+
+    @pytest.fixture
+    def processor(self):
+        # _transform_schedule is pure — a MagicMock DB session is fine.
+        return JobProcessor(MagicMock())
+
+    def test_valid_byday_passes_through(self, processor):
+        schedule = {
+            "freq": "WEEKLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "byday": "MO,TU,WE",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert transformed["byday"] == "MO,TU,WE"
+
+    def test_l_prefix_coerced_to_minus_one(self, processor):
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "12:00",
+            "byday": "LTU",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert transformed["byday"] == "-1TU"
+
+    def test_today_hallucination_dropped(self, processor, caplog):
+        import logging
+
+        schedule = {
+            "freq": "WEEKLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "byday": "today",
+        }
+        with caplog.at_level(logging.WARNING):
+            transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert "byday" not in transformed
+        assert any("reconciler_byday_dropped" in rec.message for rec in caplog.records)
+
+    def test_unicode_minus_normalized(self, processor):
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "12:00",
+            "byday": "2WE,−1MO",  # U+2212 minus
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert transformed["byday"] == "2WE,-1MO"
+
+    def test_bare_integer_dropped(self, processor, caplog):
+        import logging
+
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "byday": "15",
+        }
+        with caplog.at_level(logging.WARNING):
+            transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert "byday" not in transformed
+        assert any("reconciler_byday_dropped" in rec.message for rec in caplog.records)
+
+    def test_empty_byday_stays_absent(self, processor):
+        schedule = {
+            "freq": "WEEKLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "byday": "",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        # empty string is not a valid byday; treat as absent
+        assert transformed.get("byday") in (None, "")

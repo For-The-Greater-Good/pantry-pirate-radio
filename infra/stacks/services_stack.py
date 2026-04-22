@@ -17,6 +17,7 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_sqs as sqs
+from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 from stacks.service_env import (
     get_publisher_environment,
@@ -208,8 +209,10 @@ class ServicesStack(Stack):
 
         # Create submarine scanner task definition (one-shot, triggered by Step Functions)
         # Reuses the submarine image and security group for DB access
-        self.submarine_scanner_task_definition = self._create_submarine_scanner_task_definition(
-            log_retention=log_retention,
+        self.submarine_scanner_task_definition = (
+            self._create_submarine_scanner_task_definition(
+                log_retention=log_retention,
+            )
         )
 
         # Create scraper task definition (one-shot, triggered by Step Functions)
@@ -457,6 +460,19 @@ class ServicesStack(Stack):
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
 
+        # Allow the publisher to invalidate the exports CloudFront
+        # distribution after uploading a fresh SQLite to the `latest/`
+        # prefix. Scoped to any distribution in this account — CF
+        # doesn't let us target a specific distribution via resource
+        # ARN on CreateInvalidation without knowing the ID at synth
+        # time, and we deliberately avoid a Services ↔ Dns CDK cycle.
+        publisher_task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["cloudfront:CreateInvalidation"],
+                resources=["*"],
+            )
+        )
+
         task_definition = ecs.FargateTaskDefinition(
             self,
             "PublisherTaskDef",
@@ -468,6 +484,26 @@ class ServicesStack(Stack):
 
         publisher_env = get_publisher_environment(self.config, self.environment_name)
         publisher_secrets = get_publisher_secrets(self.config)
+
+        # Resolve the exports CloudFront distribution ID from the SSM
+        # parameter written by DnsStack. Using value_for_string_parameter
+        # gives us a CloudFormation dynamic reference (`{{resolve:ssm:...}}`)
+        # that is resolved at deploy time — no CDK cross-stack dependency,
+        # so Services ↔ Dns stays a DAG. If the parameter is missing (fresh
+        # env where DnsStack hasn't deployed), the deploy will fail loudly
+        # at CFN time rather than silently skipping.
+        from stacks.dns_stack import (
+            exports_cloudfront_distribution_id_parameter_name,
+        )
+
+        publisher_env["EXPORT_CLOUDFRONT_DISTRIBUTION_ID"] = (
+            ssm.StringParameter.value_for_string_parameter(
+                self,
+                exports_cloudfront_distribution_id_parameter_name(
+                    self.environment_name
+                ),
+            )
+        )
 
         # Build command for the exporter
         command = [

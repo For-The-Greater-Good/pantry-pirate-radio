@@ -135,7 +135,13 @@ def get_reconciler_secrets(config: ServiceConfig) -> dict[str, ecs.Secret]:
 def get_publisher_environment(
     config: ServiceConfig, environment_name: str
 ) -> dict[str, str]:
-    """Get environment variables for the Publisher task."""
+    """Get environment variables for the Publisher task.
+
+    Note: EXPORT_CLOUDFRONT_DISTRIBUTION_ID is injected separately inside
+    ServicesStack via an SSM-resolved CFN dynamic reference (kept out of
+    ServiceConfig to avoid turning the env-var dict into a leaky bag of
+    cross-stack tokens that other services don't need).
+    """
     env = {
         "ENVIRONMENT": environment_name,
         "SERVICE_NAME": "publisher",

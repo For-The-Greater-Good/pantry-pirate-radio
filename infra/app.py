@@ -422,9 +422,13 @@ ec2.CfnSecurityGroupIngress(
 # - Read database credentials
 queue_stack.validator_queue.grant_consume_messages(services_stack.validator_task_role)
 queue_stack.reconciler_queue.grant_send_messages(services_stack.validator_task_role)
-database_stack.geocoding_cache_table.grant_read_write_data(services_stack.validator_task_role)
+database_stack.geocoding_cache_table.grant_read_write_data(
+    services_stack.validator_task_role
+)
 storage_stack.content_bucket.grant_read(services_stack.validator_task_role)
-database_stack.database_credentials_secret.grant_read(services_stack.validator_task_role)
+database_stack.database_credentials_secret.grant_read(
+    services_stack.validator_task_role
+)
 
 # Validator: Amazon Location Service geocoding permissions
 services_stack.validator_task_role.add_to_policy(
@@ -439,20 +443,26 @@ services_stack.validator_task_role.add_to_policy(
 # - Read database credentials
 queue_stack.reconciler_queue.grant_consume_messages(services_stack.reconciler_task_role)
 queue_stack.recorder_queue.grant_send_messages(services_stack.reconciler_task_role)
-database_stack.database_credentials_secret.grant_read(services_stack.reconciler_task_role)
+database_stack.database_credentials_secret.grant_read(
+    services_stack.reconciler_task_role
+)
 
 # Publisher permissions:
 # - Write to exports bucket (upload SQLite)
 # - Read database credentials
 storage_stack.exports_bucket.grant_write(services_stack.publisher_task_role)
-database_stack.database_credentials_secret.grant_read(services_stack.publisher_task_role)
+database_stack.database_credentials_secret.grant_read(
+    services_stack.publisher_task_role
+)
 
 # Recorder permissions:
 # - Consume from recorder queue
 # - Read/write content bucket and content index table
 queue_stack.recorder_queue.grant_consume_messages(services_stack.recorder_task_role)
 storage_stack.content_bucket.grant_read_write(services_stack.recorder_task_role)
-storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_task_role)
+storage_stack.content_index_table.grant_read_write_data(
+    services_stack.recorder_task_role
+)
 
 # Submarine permissions:
 # - Consume from submarine queue, send to reconciler queue
@@ -460,7 +470,9 @@ storage_stack.content_index_table.grant_read_write_data(services_stack.recorder_
 # - Invoke Bedrock models (for LLM extraction)
 queue_stack.submarine_queue.grant_consume_messages(services_stack.submarine_task_role)
 queue_stack.reconciler_queue.grant_send_messages(services_stack.submarine_task_role)
-database_stack.database_credentials_secret.grant_read(services_stack.submarine_task_role)
+database_stack.database_credentials_secret.grant_read(
+    services_stack.submarine_task_role
+)
 services_stack.submarine_task_role.add_to_policy(
     iam.PolicyStatement(
         effect=iam.Effect.ALLOW,
@@ -484,7 +496,9 @@ database_stack.database_credentials_secret.grant_read(
 )
 
 # Submarine worker: send to submarine staging queue (crawled content for batch extraction)
-queue_stack.submarine_staging_queue.grant_send_messages(services_stack.submarine_task_role)
+queue_stack.submarine_staging_queue.grant_send_messages(
+    services_stack.submarine_task_role
+)
 
 # Scraper permissions:
 # - Send messages to LLM queue and staging queue (batch inference)
@@ -494,7 +508,9 @@ queue_stack.submarine_staging_queue.grant_send_messages(services_stack.submarine
 queue_stack.llm_queue.grant_send_messages(services_stack.scraper_task_role)
 batch_stack.staging_queue.grant_send_messages(services_stack.scraper_task_role)
 storage_stack.content_bucket.grant_read_write(services_stack.scraper_task_role)
-storage_stack.content_index_table.grant_read_write_data(services_stack.scraper_task_role)
+storage_stack.content_index_table.grant_read_write_data(
+    services_stack.scraper_task_role
+)
 storage_stack.jobs_table.grant_read_write_data(services_stack.scraper_task_role)
 database_stack.database_credentials_secret.grant_read(services_stack.scraper_task_role)
 
