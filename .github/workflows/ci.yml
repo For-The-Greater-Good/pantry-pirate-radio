@@ -456,7 +456,8 @@ jobs:
         # Ignore 84961 (wheel CVE-2026-24049) - wheel pinned >=0.46.2 in Dockerfile; CI runner system wheel uncontrolled
         # Ignore 89047 (black CVE-2026-32274) - path-traversal in cache file name; dev-only tool, not exposed to untrusted input
         # Ignore SFTY-20260122-20373 (pytest /tmp race) - dev-only, CI runner is single-tenant, no untrusted local users
-        run: poetry run safety check --ignore 79883 --ignore 84961 --ignore 89047 --ignore SFTY-20260122-20373
+        # Ignore SFTY-20260322-35073 (pygments CVE-2026-4539) - dev-only tool (syntax highlighter in docs build); matches the parallel GHSA-5239-wwwm-4pmq pip-audit ignore, no fix available in 2.19.2
+        run: poetry run safety check --ignore 79883 --ignore 84961 --ignore 89047 --ignore SFTY-20260122-20373 --ignore SFTY-20260322-35073
 
   pip-audit:
     needs: setup
@@ -509,7 +510,8 @@ jobs:
         # Ignore GHSA-p423-j2cm-9vmq (cryptography) - fix is 46.0.7, pending poetry update
         # Ignore GHSA-whj4-6x5x-4v2j (pillow) - fix is 12.2.0, pending poetry update; not on hot path
         # Ignore GHSA-6w46-j5rx-g56g (pytest) - fix is 9.0.3 (major bump); dev-only, breaking change
-        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq --ignore-vuln GHSA-whj4-6x5x-4v2j --ignore-vuln GHSA-6w46-j5rx-g56g
+        # Ignore GHSA-mf9w-mj56-hr94 (python-dotenv) - fix is 1.2.2, pending poetry update; .env parser, no runtime exposure to untrusted input
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq --ignore-vuln GHSA-whj4-6x5x-4v2j --ignore-vuln GHSA-6w46-j5rx-g56g --ignore-vuln GHSA-mf9w-mj56-hr94
 
   xenon:
     needs: setup
