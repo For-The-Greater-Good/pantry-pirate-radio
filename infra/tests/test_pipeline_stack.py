@@ -214,6 +214,44 @@ class TestPublisherSchedule:
             "role (this was the bug that broke the nightly publisher)"
         )
 
+    def test_publisher_schedule_uses_provided_security_group(self, app):
+        """Events target must use ServicesStack's publisher SG, not a fresh one.
+
+        Regression: when security_groups is not explicitly passed to
+        targets.EcsTask, CDK auto-creates a new SG. ServicesStack only grants
+        RDS Proxy ingress to its own publisher SG, so the task can't reach the
+        DB and times out. This was the second cause of the nightly publisher
+        being broken (in addition to the PassRole bug).
+        """
+        compute_stack = ComputeStack(app, "PubSgCompute", environment_name="dev")
+        stack = PipelineStack(
+            app,
+            "PubSgPipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+            publisher_task_family="pantry-pirate-radio-publisher-dev",
+            publisher_security_group_id="sg-0abc1234567890abc",
+            publisher_schedule_enabled=True,
+        )
+        template = assertions.Template.from_stack(stack)
+
+        # The EventBridge rule's publisher target must reference the provided SG.
+        rules = template.find_resources("AWS::Events::Rule")
+        publisher_rules = [
+            r for r in rules.values()
+            if r["Properties"].get("ScheduleExpression") == "cron(0 0 * * ? *)"
+        ]
+        assert len(publisher_rules) == 1
+        targets_list = publisher_rules[0]["Properties"]["Targets"]
+        sgs = (
+            targets_list[0]["EcsParameters"]["NetworkConfiguration"]
+            ["AwsVpcConfiguration"]["SecurityGroups"]
+        )
+        assert "sg-0abc1234567890abc" in sgs, (
+            "Publisher events target should use the ServicesStack publisher SG"
+        )
+
     def test_publisher_schedule_runs_at_midnight_utc(self, app):
         """Publisher schedule should run daily at midnight UTC.
 

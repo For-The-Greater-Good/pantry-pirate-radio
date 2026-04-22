@@ -268,6 +268,9 @@ pipeline_stack = PipelineStack(
         if services_stack.publisher_task_definition.execution_role
         else None
     ),
+    publisher_security_group_id=(
+        services_stack.publisher_security_group.security_group_id
+    ),
     environment_name=environment_name,
     schedule_enabled=environment_name == "prod",  # Daily scrapers in prod only
     publisher_schedule_enabled=environment_name == "prod",

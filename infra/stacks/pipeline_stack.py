@@ -54,6 +54,7 @@ class PipelineStack(Stack):
         publisher_task_family: str | None = None,
         publisher_task_role_arn: str | None = None,
         publisher_execution_role_arn: str | None = None,
+        publisher_security_group_id: str | None = None,
         publisher_schedule_enabled: bool = False,
         staging_queue_url: str | None = None,
         batcher_lambda_arn: str | None = None,
@@ -77,6 +78,10 @@ class PipelineStack(Stack):
             publisher_execution_role_arn: IAM execution role ARN for the publisher task
                 definition. Required so EventBridge can iam:PassRole on both task and
                 execution roles when starting the scheduled ECS task.
+            publisher_security_group_id: Security group ID for the publisher task.
+                Required so the scheduled task uses the same SG that ServicesStack
+                grants RDS Proxy ingress to — without it, EventBridge auto-creates a
+                new SG that can't reach the DB.
             publisher_schedule_enabled: Whether to enable the daily publisher schedule
             staging_queue_url: SQS staging queue URL (overrides SQS_QUEUE_URL in scraper containers)
             batcher_lambda_arn: Batcher Lambda ARN (adds BatchOrForward step after scrapers)
@@ -124,6 +129,7 @@ class PipelineStack(Stack):
                 publisher_task_family=publisher_task_family,
                 publisher_task_role_arn=publisher_task_role_arn,
                 publisher_execution_role_arn=publisher_execution_role_arn,
+                publisher_security_group_id=publisher_security_group_id,
                 enabled=publisher_schedule_enabled,
             )
 
@@ -446,6 +452,7 @@ class PipelineStack(Stack):
         publisher_task_family: str,
         publisher_task_role_arn: str | None,
         publisher_execution_role_arn: str | None,
+        publisher_security_group_id: str | None,
         enabled: bool,
     ) -> events.Rule:
         """Create EventBridge rule for daily publisher (SQLite export) schedule.
@@ -515,6 +522,22 @@ class PipelineStack(Stack):
             )
         )
 
+        # Import the publisher security group so the scheduled task uses the same
+        # SG that ServicesStack grants RDS Proxy ingress to. Without this,
+        # targets.EcsTask auto-creates a fresh SG per stack, the Proxy SG never
+        # sees ingress from it, and the task times out trying to connect to the
+        # database.
+        imported_security_groups: list[ec2.ISecurityGroup] | None = None
+        if publisher_security_group_id:
+            imported_security_groups = [
+                ec2.SecurityGroup.from_security_group_id(
+                    self,
+                    "ImportedPublisherSecurityGroup",
+                    security_group_id=publisher_security_group_id,
+                    mutable=False,
+                )
+            ]
+
         rule.add_target(
             targets.EcsTask(
                 cluster=cluster,
@@ -522,6 +545,7 @@ class PipelineStack(Stack):
                 subnet_selection=ec2.SubnetSelection(
                     subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
                 ),
+                security_groups=imported_security_groups,
             )
         )
 
