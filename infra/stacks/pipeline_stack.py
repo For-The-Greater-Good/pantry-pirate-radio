@@ -53,6 +53,7 @@ class PipelineStack(Stack):
         scrapers: list[str] | None = None,
         publisher_task_family: str | None = None,
         publisher_task_role_arn: str | None = None,
+        publisher_execution_role_arn: str | None = None,
         publisher_schedule_enabled: bool = False,
         staging_queue_url: str | None = None,
         batcher_lambda_arn: str | None = None,
@@ -73,6 +74,9 @@ class PipelineStack(Stack):
             scrapers: List of scraper names to run (defaults to DEFAULT_SCRAPERS)
             publisher_task_family: Publisher task definition family name for SQLite export
             publisher_task_role_arn: IAM role ARN for the publisher task (cross-stack reference)
+            publisher_execution_role_arn: IAM execution role ARN for the publisher task
+                definition. Required so EventBridge can iam:PassRole on both task and
+                execution roles when starting the scheduled ECS task.
             publisher_schedule_enabled: Whether to enable the daily publisher schedule
             staging_queue_url: SQS staging queue URL (overrides SQS_QUEUE_URL in scraper containers)
             batcher_lambda_arn: Batcher Lambda ARN (adds BatchOrForward step after scrapers)
@@ -119,6 +123,7 @@ class PipelineStack(Stack):
                 cluster=cluster,
                 publisher_task_family=publisher_task_family,
                 publisher_task_role_arn=publisher_task_role_arn,
+                publisher_execution_role_arn=publisher_execution_role_arn,
                 enabled=publisher_schedule_enabled,
             )
 
@@ -440,6 +445,7 @@ class PipelineStack(Stack):
         cluster: ecs.ICluster,
         publisher_task_family: str,
         publisher_task_role_arn: str | None,
+        publisher_execution_role_arn: str | None,
         enabled: bool,
     ) -> events.Rule:
         """Create EventBridge rule for daily publisher (SQLite export) schedule.
@@ -480,6 +486,21 @@ class PipelineStack(Stack):
                 "ImportedPublisherTaskRole",
                 role_name=f"pantry-pirate-publisher-task-role-{self.environment_name}",
             )
+
+        # Import the execution role so CDK grants iam:PassRole on it to the events
+        # target role. Without this, EventBridge's RunTask call is denied because the
+        # events role can't PassRole the auto-created execution role. Root cause of
+        # the publisher schedule being broken.
+        imported_execution_role = (
+            iam.Role.from_role_arn(
+                self,
+                "ImportedPublisherExecutionRole",
+                role_arn=publisher_execution_role_arn,
+            )
+            if publisher_execution_role_arn
+            else None
+        )
+
         imported_task_def = (
             ecs.FargateTaskDefinition.from_fargate_task_definition_attributes(
                 self,
@@ -490,6 +511,7 @@ class PipelineStack(Stack):
                 ),
                 network_mode=ecs.NetworkMode.AWS_VPC,
                 task_role=imported_task_role,
+                execution_role=imported_execution_role,
             )
         )
 

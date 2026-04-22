@@ -157,6 +157,63 @@ class TestPublisherSchedule:
         # Only the scraper schedule should exist
         template.resource_count_is("AWS::Events::Rule", 1)
 
+    def test_publisher_schedule_grants_passrole_on_execution_role(self, app):
+        """Events role must be able to PassRole on the publisher execution role.
+
+        Regression: without an explicit execution_role on the imported task def,
+        CDK only granted iam:PassRole on the task role. EventBridge's RunTask
+        call was then denied by IAM because ECS requires PassRole on both the
+        task role and the execution role. That broke the nightly publisher for
+        13 days in prod.
+        """
+        compute_stack = ComputeStack(app, "PubPassRoleCompute", environment_name="dev")
+        task_role_arn = (
+            "arn:aws:iam::123456789012:role/publisher-task-role-dev"
+        )
+        execution_role_arn = (
+            "arn:aws:iam::123456789012:role/publisher-exec-role-dev"
+        )
+        stack = PipelineStack(
+            app,
+            "PubPassRolePipeline",
+            environment_name="dev",
+            cluster=compute_stack.cluster,
+            scraper_task_family="pantry-pirate-radio-scraper-dev",
+            publisher_task_family="pantry-pirate-radio-publisher-dev",
+            publisher_task_role_arn=task_role_arn,
+            publisher_execution_role_arn=execution_role_arn,
+            publisher_schedule_enabled=True,
+        )
+        template = assertions.Template.from_stack(stack)
+        raw = template.to_json()
+
+        # Find the events-target role policy and confirm both role ARNs are listed
+        # as PassRole resources.
+        pass_role_resources: list[str] = []
+        for resource in raw["Resources"].values():
+            if resource["Type"] != "AWS::IAM::Policy":
+                continue
+            for statement in resource["Properties"]["PolicyDocument"]["Statement"]:
+                actions = statement.get("Action")
+                actions = actions if isinstance(actions, list) else [actions]
+                if "iam:PassRole" not in actions:
+                    continue
+                resources = statement.get("Resource")
+                resources = (
+                    resources if isinstance(resources, list) else [resources]
+                )
+                pass_role_resources.extend(
+                    r for r in resources if isinstance(r, str)
+                )
+
+        assert task_role_arn in pass_role_resources, (
+            "Events role should be granted iam:PassRole on the publisher task role"
+        )
+        assert execution_role_arn in pass_role_resources, (
+            "Events role should be granted iam:PassRole on the publisher execution "
+            "role (this was the bug that broke the nightly publisher)"
+        )
+
     def test_publisher_schedule_runs_at_midnight_utc(self, app):
         """Publisher schedule should run daily at midnight UTC.
 
@@ -179,6 +236,7 @@ class TestPublisherSchedule:
             "AWS::Events::Rule",
             {
                 "ScheduleExpression": "cron(0 0 * * ? *)",
+                "Description": "Daily SQLite export schedule for dev",
                 "State": "ENABLED",
             },
         )

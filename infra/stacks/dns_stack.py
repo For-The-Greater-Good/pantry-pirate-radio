@@ -7,7 +7,7 @@ Records created:
   - api.{domain}              → API Gateway HTTP API
   - report-webhook.{domain}  → Helm webhook API Gateway
   - metabase.{domain}        → NLB for Metabase Cloud access
-  - exports.{domain}         → S3 exports bucket (website redirect)
+  - exports.{domain}         → CloudFront distribution fronting S3 exports bucket
 
 Amplify (portal) manages its own custom domain outside this stack.
 
@@ -19,8 +19,11 @@ All configuration comes from environment variables:
 from aws_cdk import CfnOutput, Duration, Stack
 from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_certificatemanager as acm
+from aws_cdk import aws_cloudfront as cloudfront
+from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_route53_targets as targets
+from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 
 
@@ -38,7 +41,7 @@ class DnsStack(Stack):
         http_api_id: str,
         webhook_api_id: str | None = None,
         nlb: elbv2.INetworkLoadBalancer | None = None,
-        exports_bucket_name: str | None = None,
+        exports_bucket: s3.IBucket | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -141,16 +144,63 @@ class DnsStack(Stack):
                 ),
             )
 
-        # exports.{domain} → S3 bucket website
-        # S3 website hosting requires bucket name to match the domain,
-        # which ours doesn't. Use a CNAME to the S3 website endpoint instead.
-        if exports_bucket_name:
-            route53.CnameRecord(
+        # exports.{domain} → CloudFront distribution fronting the S3 exports bucket.
+        # Direct S3 virtual-hosted addressing requires bucket name == hostname, and
+        # S3's default certificate only covers *.s3.amazonaws.com, so a raw CNAME
+        # breaks on both fronts. CloudFront + the wildcard ACM cert gives us HTTPS,
+        # edge caching, and keeps the raw S3 URL working for anyone already using it.
+        #
+        # Uses HttpOrigin (not S3BucketOrigin) so we don't mutate the bucket's
+        # resource policy from this stack — that would create a cross-stack
+        # dependency cycle with StorageStack. The bucket already grants public
+        # read on sqlite-exports/*, so CloudFront can fetch anonymously.
+        if exports_bucket is not None:
+            exports_distribution = cloudfront.Distribution(
+                self, "ExportsDistribution",
+                domain_names=[f"exports.{domain_name}"],
+                certificate=self.certificate,
+                price_class=cloudfront.PriceClass.PRICE_CLASS_100,
+                comment=(
+                    f"pantry-pirate-radio SQLite exports CDN ({environment_name})"
+                ),
+                default_behavior=cloudfront.BehaviorOptions(
+                    origin=origins.HttpOrigin(
+                        exports_bucket.bucket_regional_domain_name,
+                        protocol_policy=(
+                            cloudfront.OriginProtocolPolicy.HTTPS_ONLY
+                        ),
+                    ),
+                    viewer_protocol_policy=(
+                        cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
+                    ),
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                    cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                    # SQLite is already a binary format; skip CF compression overhead.
+                    compress=False,
+                ),
+            )
+
+            route53.ARecord(
                 self, "ExportsRecord",
                 zone=zone,
                 record_name="exports",
-                domain_name=f"{exports_bucket_name}.s3.amazonaws.com",
-                ttl=Duration.minutes(5),
+                target=route53.RecordTarget.from_alias(
+                    targets.CloudFrontTarget(exports_distribution)
+                ),
+            )
+            route53.AaaaRecord(
+                self, "ExportsRecordAAAA",
+                zone=zone,
+                record_name="exports",
+                target=route53.RecordTarget.from_alias(
+                    targets.CloudFrontTarget(exports_distribution)
+                ),
+            )
+
+            CfnOutput(
+                self, "ExportsDistributionDomainName",
+                value=exports_distribution.distribution_domain_name,
+                description="CloudFront domain for exports.{domain}",
             )
 
         CfnOutput(

@@ -263,6 +263,11 @@ pipeline_stack = PipelineStack(
     scraper_task_family=f"pantry-pirate-radio-scraper-{environment_name}",
     publisher_task_family=f"pantry-pirate-radio-publisher-{environment_name}",
     publisher_task_role_arn=services_stack.publisher_task_role.role_arn,
+    publisher_execution_role_arn=(
+        services_stack.publisher_task_definition.execution_role.role_arn
+        if services_stack.publisher_task_definition.execution_role
+        else None
+    ),
     environment_name=environment_name,
     schedule_enabled=environment_name == "prod",  # Daily scrapers in prod only
     publisher_schedule_enabled=environment_name == "prod",
@@ -631,7 +636,7 @@ if hosted_zone_id and domain_name:
         # webhook_api_id (report-webhook.{domain} is simply not
         # created).
         nlb=metabase_stack.nlb,
-        exports_bucket_name=storage_stack.exports_bucket.bucket_name,
+        exports_bucket=storage_stack.exports_bucket,
         env=env,
         description=f"Pantry Pirate Radio DNS records ({environment_name})",
     )
