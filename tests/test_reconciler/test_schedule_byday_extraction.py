@@ -215,9 +215,7 @@ class TestTransformScheduleBydayNormalization:
             transformed = processor._transform_schedule(schedule)
         assert transformed is not None
         assert "byday" not in transformed
-        assert any(
-            "reconciler_byday_dropped" in rec.message for rec in caplog.records
-        )
+        assert any("reconciler_byday_dropped" in rec.message for rec in caplog.records)
 
     def test_unicode_minus_normalized(self, processor):
         schedule = {
@@ -243,9 +241,7 @@ class TestTransformScheduleBydayNormalization:
             transformed = processor._transform_schedule(schedule)
         assert transformed is not None
         assert "byday" not in transformed
-        assert any(
-            "reconciler_byday_dropped" in rec.message for rec in caplog.records
-        )
+        assert any("reconciler_byday_dropped" in rec.message for rec in caplog.records)
 
     def test_empty_byday_stays_absent(self, processor):
         schedule = {

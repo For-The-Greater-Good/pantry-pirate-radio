@@ -379,8 +379,7 @@ class TestBydayNormalization:
         assert len(schedules) == 1
         assert schedules[0]["byday"] == "MO"
         assert any(
-            "submarine_unrecognized_byday" in rec.message
-            for rec in caplog.records
+            "submarine_unrecognized_byday" in rec.message for rec in caplog.records
         )
 
     def test_today_hallucination_dropped(self, builder, caplog):
@@ -397,8 +396,7 @@ class TestBydayNormalization:
         location = job_result.data["location"][0]
         assert "schedules" not in location
         assert any(
-            "submarine_unrecognized_byday" in rec.message
-            for rec in caplog.records
+            "submarine_unrecognized_byday" in rec.message for rec in caplog.records
         )
 
     def test_prose_ordinal_coerced(self, builder):
