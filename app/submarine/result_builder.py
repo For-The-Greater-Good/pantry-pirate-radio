@@ -18,24 +18,9 @@ from app.llm.queue.job import LLMJob
 from app.llm.queue.types import JobResult, JobStatus
 from app.models.hsds.response import PhoneInfo, ScheduleInfo
 from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
+from app.utils.ical import normalize_byday
 
 logger = structlog.get_logger(__name__)
-
-# Day name → RRULE two-letter abbreviation (RFC 5545)
-_DAY_ABBREV = {
-    "monday": "MO",
-    "tuesday": "TU",
-    "wednesday": "WE",
-    "thursday": "TH",
-    "friday": "FR",
-    "saturday": "SA",
-    "sunday": "SU",
-}
-
-
-def _normalize_byday(day: str) -> str:
-    """Convert full day name to RRULE abbreviation. Pass through if already short."""
-    return _DAY_ABBREV.get(day.lower(), day)
 
 
 class SubmarineResultBuilder:
@@ -133,8 +118,19 @@ class SubmarineResultBuilder:
                 for entry in hours:
                     if not isinstance(entry, dict):
                         continue
+                    raw_day = entry.get("day", "")
+                    byday = normalize_byday(raw_day)
+                    if byday is None:
+                        logger.warning(
+                            "submarine_unrecognized_byday",
+                            extra={
+                                "location_id": job.location_id,
+                                "raw_day": raw_day,
+                            },
+                        )
+                        continue
                     sched = {
-                        "byday": _normalize_byday(entry.get("day", "")),
+                        "byday": byday,
                         "opens_at": entry.get("opens_at", ""),
                         "closes_at": entry.get("closes_at", ""),
                         "freq": "WEEKLY",

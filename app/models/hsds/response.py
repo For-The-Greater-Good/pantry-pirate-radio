@@ -3,7 +3,9 @@
 from typing import Generic, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+from app.utils.ical import normalize_byday
 
 from .base import HSDSBaseModel
 
@@ -156,6 +158,24 @@ class ScheduleInfo(BaseModel):
     notes: str | None = Field(None, description="Additional notes")
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("byday", mode="before")
+    @classmethod
+    def _coerce_byday_rfc5545(cls, value: str | None) -> str | None:
+        """Coerce byday to RFC 5545 via the canonical normalizer, or reject.
+
+        Empty / whitespace-only / None values pass through as None. A
+        non-empty string that normalize_byday cannot map raises ValueError
+        so the source path is caught in tests and in CloudWatch.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        normalized = normalize_byday(value)
+        if normalized is None:
+            raise ValueError(f"byday does not match RFC 5545 format: {value!r}")
+        return normalized
 
 
 class SourceInfo(BaseModel):

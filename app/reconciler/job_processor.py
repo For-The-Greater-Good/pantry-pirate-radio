@@ -25,6 +25,7 @@ from app.reconciler.organization_creator import OrganizationCreator
 from app.reconciler.service_creator import ServiceCreator
 from app.reconciler.submarine_location_handler import SubmarineLocationHandler
 from app.reconciler.version_tracker import VersionTracker
+from app.utils.ical import normalize_byday
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -260,6 +261,20 @@ class JobProcessor:
         # Default wkst to Monday (RFC 5545 standard) if not provided
         if "wkst" not in transformed:
             transformed["wkst"] = "MO"
+
+        # Enforce RFC 5545 byday — coerce known-benign variants, drop the rest
+        # to NULL with a warning so CloudWatch surfaces upstream drift.
+        raw_byday = transformed.get("byday")
+        if raw_byday is not None and str(raw_byday).strip():
+            normalized_byday = normalize_byday(raw_byday)
+            if normalized_byday is None:
+                logger.warning(
+                    "reconciler_byday_dropped",
+                    extra={"original": raw_byday},
+                )
+                transformed.pop("byday", None)
+            else:
+                transformed["byday"] = normalized_byday
 
         return transformed
 

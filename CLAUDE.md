@@ -690,6 +690,13 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **Enrichment**: Enhances incomplete data using geocoding services
 - **Rejection**: Filters out test data and low-quality records
 - **Caching**: Redis-based caching for performance optimization
+- **RFC 5545 `schedule.byday` enforcement**: Canonical normalizer at `app/utils/ical.py` (duplicated verbatim to `plugins/ppr-write-api/app/ical.py`) is the single source of truth. Enforced at four seams:
+  1. Submarine result builder (`app/submarine/result_builder.py`) — drops unrecognized day entries with `submarine_unrecognized_byday` warn log.
+  2. Reconciler `_transform_schedule` (`app/reconciler/job_processor.py`) — coerces or drops to NULL with `reconciler_byday_dropped` warn log.
+  3. `ScheduleInfo` Pydantic model (`app/models/hsds/response.py`) — `@field_validator("byday", mode="before")` normalizes or raises.
+  4. Write API `ScheduleUpdate` (`plugins/ppr-write-api/app/models.py`) — same validator for authenticated edits.
+
+  Coerces: Unicode minus (U+2212) → ASCII `-`; `L<DAY>` → `-1<DAY>`; prose (`Third Tuesday` → `3TU`, whitelist of `first..fifth,last` × weekdays); full day names → 2-letter codes. Rejects: `today`/relative dates, truncated codes (`3F`), bare integers, any token that doesn't match `^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)$`. Grep CloudWatch for `ical_byday_unrecognized` / `submarine_unrecognized_byday` / `reconciler_byday_dropped` to find new drift patterns.
 
 ## Troubleshooting Common Issues
 

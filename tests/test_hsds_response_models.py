@@ -11,6 +11,7 @@ from app.models.hsds.response import (
     MetadataResponse,
     OrganizationResponse,
     Page,
+    ScheduleInfo,
     ServiceAtLocationResponse,
     ServiceResponse,
 )
@@ -237,3 +238,49 @@ def test_response_model_defaults():
     assert location.longitude is None
     assert location.services is None
     assert location.metadata is None
+
+
+class TestScheduleInfoBydayValidation:
+    """ScheduleInfo enforces RFC 5545 byday via the shared ical normalizer."""
+
+    @pytest.mark.parametrize(
+        "byday,expected",
+        [
+            ("MO", "MO"),
+            ("MO,TU,WE,TH,FR", "MO,TU,WE,TH,FR"),
+            ("1FR", "1FR"),
+            ("3TU,-1MO", "3TU,-1MO"),
+            ("+1WE", "+1WE"),
+        ],
+    )
+    def test_valid_byday_passes(self, byday: str, expected: str) -> None:
+        schedule = ScheduleInfo(byday=byday, freq="WEEKLY")
+        assert schedule.byday == expected
+
+    @pytest.mark.parametrize(
+        "byday,expected",
+        [
+            ("Third Tuesday", "3TU"),
+            ("third tuesday", "3TU"),
+            ("LTU", "-1TU"),
+            ("2TU,LTU", "2TU,-1TU"),
+            ("Monday", "MO"),
+            ("−1MO", "-1MO"),  # Unicode minus
+        ],
+    )
+    def test_coerced_byday_normalized(self, byday: str, expected: str) -> None:
+        schedule = ScheduleInfo(byday=byday, freq="WEEKLY")
+        assert schedule.byday == expected
+
+    @pytest.mark.parametrize(
+        "bad_byday",
+        ["today", "tomorrow", "3F", "2F,3F", "15", "20,28", "random text"],
+    )
+    def test_invalid_byday_raises(self, bad_byday: str) -> None:
+        with pytest.raises(ValidationError):
+            ScheduleInfo(byday=bad_byday, freq="WEEKLY")
+
+    @pytest.mark.parametrize("empty", [None, "", "   "])
+    def test_empty_byday_becomes_none(self, empty: str | None) -> None:
+        schedule = ScheduleInfo(byday=empty, freq="WEEKLY")
+        assert schedule.byday is None

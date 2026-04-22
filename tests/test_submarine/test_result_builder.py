@@ -361,15 +361,65 @@ class TestBydayNormalization:
         schedules = job_result.data["location"][0]["schedules"]
         assert schedules[0]["byday"] == "FR"
 
-    def test_unknown_day_kept_as_is(self, builder):
-        """Unknown day values should be kept as-is (no crash)."""
+    def test_unknown_day_dropped(self, builder, caplog):
+        """Unknown day values (RFC 5545 incompatible) drop the entry with a warning."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            job_result = self._build_with_hours(
+                builder,
+                [
+                    {"day": "Everyday", "opens_at": "09:00", "closes_at": "17:00"},
+                    {"day": "Monday", "opens_at": "10:00", "closes_at": "14:00"},
+                ],
+            )
+
+        # Only the Monday entry should survive; Everyday dropped with warning.
+        schedules = job_result.data["location"][0]["schedules"]
+        assert len(schedules) == 1
+        assert schedules[0]["byday"] == "MO"
+        assert any(
+            "submarine_unrecognized_byday" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_today_hallucination_dropped(self, builder, caplog):
+        """LLM hallucinations like 'today' drop the entry rather than pass through."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            job_result = self._build_with_hours(
+                builder,
+                [{"day": "today", "opens_at": "09:00", "closes_at": "17:00"}],
+            )
+
+        # No schedules should be attached when the only hours entry is rejected.
+        location = job_result.data["location"][0]
+        assert "schedules" not in location
+        assert any(
+            "submarine_unrecognized_byday" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_prose_ordinal_coerced(self, builder):
+        """'Third Tuesday' should coerce to '3TU' (RFC 5545 ordinal)."""
         job_result = self._build_with_hours(
             builder,
-            [{"day": "Everyday", "opens_at": "09:00", "closes_at": "17:00"}],
+            [{"day": "Third Tuesday", "opens_at": "09:00", "closes_at": "12:00"}],
         )
 
         schedules = job_result.data["location"][0]["schedules"]
-        assert schedules[0]["byday"] == "Everyday"
+        assert schedules[0]["byday"] == "3TU"
+
+    def test_l_prefix_coerced(self, builder):
+        """'LTU' should coerce to '-1TU' (last Tuesday of month)."""
+        job_result = self._build_with_hours(
+            builder,
+            [{"day": "LTU", "opens_at": "09:00", "closes_at": "12:00"}],
+        )
+
+        schedules = job_result.data["location"][0]["schedules"]
+        assert schedules[0]["byday"] == "-1TU"
 
 
 class TestHsdsValidation:
