@@ -254,3 +254,70 @@ class TestTransformScheduleBydayNormalization:
         assert transformed is not None
         # empty string is not a valid byday; treat as absent
         assert transformed.get("byday") in (None, "")
+
+
+class TestTransformScheduleBymonthdayNormalization:
+    """_transform_schedule enforces RFC 5545 on bymonthday, mirroring byday."""
+
+    @pytest.fixture
+    def processor(self):
+        return JobProcessor(MagicMock())
+
+    def test_valid_bymonthday_passes_through(self, processor):
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "bymonthday": "15",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert transformed["bymonthday"] == "15"
+
+    def test_compound_bymonthday_passes_through(self, processor):
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "bymonthday": "1,-1",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed["bymonthday"] == "1,-1"
+
+    def test_invalid_bymonthday_dropped(self, processor, caplog):
+        import logging
+
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "bymonthday": "32",
+        }
+        with caplog.at_level(logging.WARNING):
+            transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert "bymonthday" not in transformed
+        assert any(
+            "reconciler_bymonthday_dropped" in rec.message for rec in caplog.records
+        )
+
+    def test_whitespace_bymonthday_normalized(self, processor):
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "bymonthday": "  1 , 15  ",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed["bymonthday"] == "1,15"
+
+    def test_empty_bymonthday_stays_absent(self, processor):
+        schedule = {
+            "freq": "MONTHLY",
+            "opens_at": "09:00",
+            "closes_at": "17:00",
+            "bymonthday": "",
+        }
+        transformed = processor._transform_schedule(schedule)
+        assert transformed is not None
+        assert transformed.get("bymonthday") in (None, "")

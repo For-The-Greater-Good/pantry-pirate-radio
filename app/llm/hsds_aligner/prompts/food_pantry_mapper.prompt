@@ -141,22 +141,46 @@ STATE VALIDATION:
 - Common city/state relationships should be respected (e.g., "New York City" → NY, "Los Angeles" → CA)
 
 RRULE SCHEDULE PATTERNS (RFC 5545):
+
 Use these fields for recurring schedules:
 - freq: "WEEKLY" or "MONTHLY" (required for patterns)
-- byday: Day codes (MO,TU,WE,TH,FR,SA,SU) with optional position prefix for monthly - ALWAYS POPULATE THIS!
+- byday: Weekday codes (MO,TU,WE,TH,FR,SA,SU), optionally prefixed with
+         1-5 or -1..-5 for monthly ordinals (1FR = 1st Friday,
+         3TU = 3rd Tuesday, -1MO = last Monday, +1WE also OK).
+- bymonthday: Day-of-month numbers 1..31 or -1..-31, comma-separated.
+              Use for "the 15th of the month", NEVER put a number in byday.
 - interval: Frequency interval (e.g., 2 for bi-weekly)
 - dtstart: First occurrence date (YYYY-MM-DD)
 - until: End date for recurrence (YYYY-MM-DD)
 - opens_at/closes_at: Time range (HH:MM format)
 
-Examples (ALWAYS include byday when days are mentioned, ALWAYS include wkst: "MO"):
+CHOOSING byday vs bymonthday (critical):
+- "Monday"/"Tuesday"              → byday ("MO", "TU", ...)
+- "1st Saturday"                  → byday ("1SA")
+- "last Monday of month"          → byday ("-1MO")
+- "the 15th" / "1st and 15th"     → bymonthday ("15" / "1,15")
+- "last day of month"             → bymonthday ("-1")
+
+If a recurrence cannot be encoded in the vocabulary above, OMIT the
+field — do NOT invent values, do NOT use prose (e.g., "Third Tuesday"),
+do NOT use relative dates (e.g., "today"). Leave byday/bymonthday null.
+
+Examples (ALWAYS include wkst: "MO"):
 - "Every Tuesday 10am-2pm":
   {freq: "WEEKLY", wkst: "MO", byday: "TU", opens_at: "10:00", closes_at: "14:00"}
-- "1st and 3rd Saturday of each month":
-  {freq: "MONTHLY", wkst: "MO", byday: "1SA,3SA"}
 - "Monday through Friday":
   {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,FR"}
-- "Monday, Tuesday, Wednesday, Thursday, Sunday hours":
+- "1st and 3rd Saturday of each month":
+  {freq: "MONTHLY", wkst: "MO", byday: "1SA,3SA"}
+- "Last Thursday of each month 5-7pm":
+  {freq: "MONTHLY", wkst: "MO", byday: "-1TH", opens_at: "17:00", closes_at: "19:00"}
+- "The 15th of each month":
+  {freq: "MONTHLY", wkst: "MO", bymonthday: "15"}
+- "1st and 15th of each month":
+  {freq: "MONTHLY", wkst: "MO", bymonthday: "1,15"}
+- "Last day of each month":
+  {freq: "MONTHLY", wkst: "MO", bymonthday: "-1"}
+- "Monday, Tuesday, Wednesday, Thursday, Sunday 9-12":
   {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,SU", opens_at: "09:00", closes_at: "12:00"}
 - "Open weekdays 9-5":
   {freq: "WEEKLY", wkst: "MO", byday: "MO,TU,WE,TH,FR", opens_at: "09:00", closes_at: "17:00"}

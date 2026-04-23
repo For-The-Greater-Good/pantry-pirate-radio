@@ -32,14 +32,21 @@ Return JSON only:"""
 FIELD_DESCRIPTIONS = {
     "phone": '"phone": "main phone number as a string, e.g. (555) 234-5678"',
     "hours": (
-        '"hours": [list of schedule objects with '
-        '{"day": "RFC 5545 BYDAY code: MO, TU, WE, TH, FR, SA, or SU. '
-        "Prefix with 1-5 for Nth-of-month (e.g. 1FR = first Friday, "
-        "3TU = third Tuesday) or -1 for last-of-month (-1MO = last Monday). "
-        "Do NOT use full weekday names, prose like 'Third Tuesday', or "
-        "relative dates like 'today' — omit the entry if the day cannot be "
-        'encoded.", '
-        '"opens_at": "HH:MM", "closes_at": "HH:MM"}] '
+        '"hours": [list of recurring schedule objects. Each entry MUST '
+        'include "freq" ("WEEKLY" or "MONTHLY"), "opens_at" and "closes_at" '
+        '("HH:MM" 24-hour), plus exactly ONE of "byday" or "bymonthday":\n'
+        '  - freq="WEEKLY": set byday, e.g. "TU" or "MO,TU,WE,TH,FR". '
+        "NEVER set bymonthday.\n"
+        '  - freq="MONTHLY" + weekday mentioned (e.g. "1st Friday", '
+        '"last Monday"): set byday with ordinal prefix 1-5 or -1..-5, '
+        'e.g. "1FR", "3TU", "-1MO", "2WE,-1MO".\n'
+        '  - freq="MONTHLY" + day-of-month mentioned (e.g. "the 15th", '
+        '"1st and 15th", "last day"): set bymonthday as comma-separated '
+        '1..31 or -1..-31, e.g. "15", "1,15", "-1".\n'
+        'NEVER put a number in byday. NEVER use prose like "Third Tuesday" '
+        '(use "3TU"). NEVER use "today" or any relative date. If the '
+        "schedule cannot be encoded in this vocabulary, OMIT the entry "
+        "entirely.] "
         "or null if not found"
     ),
     "email": '"email": "primary contact email address"',

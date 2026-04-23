@@ -1,13 +1,18 @@
-"""RFC 5545 iCalendar helpers — canonical normalization for schedule.byday.
+"""RFC 5545 iCalendar helpers — canonical normalization for schedule fields.
 
 Used by the submarine result builder, the reconciler, and Pydantic
 validators so every write path converges on the same format before
 the value reaches the database.
 
-Spec: https://datatracker.ietf.org/doc/html/rfc5545#section-3.3.10
-BYDAY token = [<weekdaynum>]<weekday>, where weekdaynum = [plus/minus] ordwk
-(1..5). Comma-separates a list. Anything else is dropped to NULL with a
-warning so CloudWatch can surface new drift.
+Handles two RFC 5545 recurrence sub-fields:
+- BYDAY (§3.3.10): `[<weekdaynum>]<weekday>`, weekdaynum = `[+/-] 1..5`
+  e.g. "MO", "1FR", "-1MO", "2WE,-1MO". See normalize_byday.
+- BYMONTHDAY (§3.3.10): `1..31` or `-1..-31`, comma-separated.
+  e.g. "15", "1,15", "-1" (last day). See normalize_bymonthday.
+
+Both fail-soft: None for empty/None input, None + warn log for
+unrecognized non-empty input. Neither raises. CloudWatch surfaces
+new drift patterns via structlog warning keys.
 """
 
 from __future__ import annotations
@@ -114,5 +119,50 @@ def normalize_byday(raw: str | None) -> str | None:
             logger.warning("ical_byday_unrecognized", raw=raw)
             return None
         normalized.append(coerced)
+
+    return ",".join(normalized)
+
+
+BYMONTHDAY_TOKEN_PATTERN = re.compile(r"^-?([1-9]|[12][0-9]|3[01])$")
+"""Matches one valid RFC 5545 BYMONTHDAY token (1..31 or -1..-31, no leading zeros).
+
+RFC 5545 §3.3.10 allows optional leading `+`/`-` but `+` is semantically
+redundant for BYMONTHDAY and not seen in practice, so we reject it for
+stricter normalization (unlike BYDAY where `+1WE` does appear in prod data).
+"""
+
+
+def normalize_bymonthday(raw: str | None) -> str | None:
+    """Coerce a BYMONTHDAY string to RFC 5545 form, or return None on failure.
+
+    Accepts comma-separated day-of-month tokens in 1..31 / -1..-31, with
+    optional whitespace around each. Silently returns None for empty/None
+    input. For a non-empty input that cannot be fully normalized, returns
+    None and emits a structlog warning so CloudWatch can surface new drift.
+
+    Examples:
+        "15"      → "15"
+        "1,15"    → "1,15"
+        "1,-1"    → "1,-1"   (first + last day)
+        " 15, 30" → "15,30"
+        "32"      → None + warn
+        "0"       → None + warn
+        "MO"      → None + warn
+        ""        → None (no warn)
+    """
+    if raw is None:
+        return None
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    tokens = [t.strip() for t in stripped.split(",")]
+    normalized: list[str] = []
+    for tok in tokens:
+        if not tok or not BYMONTHDAY_TOKEN_PATTERN.match(tok):
+            logger.warning("ical_bymonthday_unrecognized", raw=raw)
+            return None
+        normalized.append(tok)
 
     return ",".join(normalized)
