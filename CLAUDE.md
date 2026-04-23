@@ -690,13 +690,17 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 - **Enrichment**: Enhances incomplete data using geocoding services
 - **Rejection**: Filters out test data and low-quality records
 - **Caching**: Redis-based caching for performance optimization
-- **RFC 5545 `schedule.byday` enforcement**: Canonical normalizer at `app/utils/ical.py` (duplicated verbatim to `plugins/ppr-write-api/app/ical.py`) is the single source of truth. Enforced at four seams:
-  1. Submarine result builder (`app/submarine/result_builder.py`) — drops unrecognized day entries with `submarine_unrecognized_byday` warn log.
-  2. Reconciler `_transform_schedule` (`app/reconciler/job_processor.py`) — coerces or drops to NULL with `reconciler_byday_dropped` warn log.
-  3. `ScheduleInfo` Pydantic model (`app/models/hsds/response.py`) — `@field_validator("byday", mode="before")` normalizes or raises.
-  4. Write API `ScheduleUpdate` (`plugins/ppr-write-api/app/models.py`) — same validator for authenticated edits.
+- **RFC 5545 `schedule.byday` + `schedule.bymonthday` enforcement**: Canonical normalizers (`normalize_byday`, `normalize_bymonthday`) at `app/utils/ical.py` (duplicated verbatim to `plugins/ppr-write-api/app/ical.py`) are the single source of truth. Enforced at four seams:
+  1. Submarine result builder (`app/submarine/result_builder.py`) — each hours entry must carry `freq` + exactly one of `byday`/`bymonthday`; otherwise dropped with `submarine_schedule_entry_incomplete` / `submarine_schedule_entry_inconsistent` warn logs.
+  2. Reconciler `_transform_schedule` (`app/reconciler/job_processor.py`) — coerces or drops to NULL with `reconciler_byday_dropped` / `reconciler_bymonthday_dropped` warn logs.
+  3. `ScheduleInfo` Pydantic model (`app/models/hsds/response.py`) — `@field_validator` on both `byday` and `bymonthday` normalizes or raises.
+  4. Write API `ScheduleUpdate` (`plugins/ppr-write-api/app/models.py`) — same validators for authenticated edits.
 
-  Coerces: Unicode minus (U+2212) → ASCII `-`; `L<DAY>` → `-1<DAY>`; prose (`Third Tuesday` → `3TU`, whitelist of `first..fifth,last` × weekdays); full day names → 2-letter codes. Rejects: `today`/relative dates, truncated codes (`3F`), bare integers, any token that doesn't match `^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)$`. Grep CloudWatch for `ical_byday_unrecognized` / `submarine_unrecognized_byday` / `reconciler_byday_dropped` to find new drift patterns.
+  **byday** coerces: Unicode minus (U+2212) → ASCII `-`; `L<DAY>` → `-1<DAY>`; prose (`Third Tuesday` → `3TU`, whitelist of `first..fifth,last` × weekdays); full day names → 2-letter codes. Rejects: `today`/relative dates, truncated codes (`3F`), bare integers, any token that doesn't match `^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)$`.
+
+  **bymonthday** accepts day-of-month numbers 1..31 or -1..-31, comma-separated (e.g., `15`, `1,15`, `1,-1`, `-1`). Rejects: 0, 32+, prose, weekday codes, leading zeros, anything not matching `^-?([1-9]|[12][0-9]|3[01])$` per token.
+
+  Grep CloudWatch for `ical_byday_unrecognized` / `ical_bymonthday_unrecognized` / `reconciler_byday_dropped` / `reconciler_bymonthday_dropped` / `submarine_schedule_entry_*` to find new drift patterns.
 
 ## Troubleshooting Common Issues
 

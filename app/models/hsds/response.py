@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
-from app.utils.ical import normalize_byday
+from app.utils.ical import normalize_byday, normalize_bymonthday
 
 from .base import HSDSBaseModel
 
@@ -151,6 +151,10 @@ class ScheduleInfo(BaseModel):
     opens_at: str | None = Field(None, description="Opening time (e.g., '09:00')")
     closes_at: str | None = Field(None, description="Closing time (e.g., '17:00')")
     byday: str | None = Field(None, description="Days of week (e.g., 'MO,TU,WE,TH,FR')")
+    bymonthday: str | None = Field(
+        None,
+        description="Days of month, RFC 5545 BYMONTHDAY (e.g., '15', '1,15', '-1')",
+    )
     freq: str | None = Field(None, description="Frequency (WEEKLY, MONTHLY)")
     description: str | None = Field(None, description="Schedule description")
     valid_from: str | None = Field(None, description="Start date of validity")
@@ -175,6 +179,22 @@ class ScheduleInfo(BaseModel):
         normalized = normalize_byday(value)
         if normalized is None:
             raise ValueError(f"byday does not match RFC 5545 format: {value!r}")
+        return normalized
+
+    @field_validator("bymonthday", mode="before")
+    @classmethod
+    def _coerce_bymonthday_rfc5545(cls, value: str | None) -> str | None:
+        """Coerce bymonthday to RFC 5545 via normalize_bymonthday, or reject.
+
+        Same semantics as the byday validator — empty → None, invalid → raise.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        normalized = normalize_bymonthday(value)
+        if normalized is None:
+            raise ValueError(f"bymonthday does not match RFC 5545 format: {value!r}")
         return normalized
 
 

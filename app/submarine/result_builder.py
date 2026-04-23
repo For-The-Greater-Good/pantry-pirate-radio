@@ -18,7 +18,7 @@ from app.llm.queue.job import LLMJob
 from app.llm.queue.types import JobResult, JobStatus
 from app.models.hsds.response import PhoneInfo, ScheduleInfo
 from app.submarine.models import SubmarineJob, SubmarineResult, SubmarineStatus
-from app.utils.ical import normalize_byday
+from app.utils.ical import normalize_byday, normalize_bymonthday
 
 logger = structlog.get_logger(__name__)
 
@@ -110,43 +110,18 @@ class SubmarineResultBuilder:
                         extra={"phone": phone},
                     )
 
-        # Map hours to schedules — only if hours was a missing field
+        # Map hours to schedules — only if hours was a missing field.
+        # Each entry uses RFC 5545 shape: freq + (byday XOR bymonthday)
+        # + opens_at/closes_at. Legacy entries with just "day" are still
+        # accepted for backwards-compat and normalized to byday.
         if "hours" in missing:
             hours = fields.get("hours")
             if hours and isinstance(hours, list):
                 schedules = []
                 for entry in hours:
-                    if not isinstance(entry, dict):
-                        continue
-                    raw_day = entry.get("day", "")
-                    byday = normalize_byday(raw_day)
-                    if byday is None:
-                        logger.warning(
-                            "submarine_unrecognized_byday",
-                            extra={
-                                "location_id": job.location_id,
-                                "raw_day": raw_day,
-                            },
-                        )
-                        continue
-                    sched = {
-                        "byday": byday,
-                        "opens_at": entry.get("opens_at", ""),
-                        "closes_at": entry.get("closes_at", ""),
-                        "freq": "WEEKLY",
-                        "wkst": "MO",
-                    }
-                    try:
-                        ScheduleInfo(**sched)
-                        # Skip schedules with empty time fields
-                        if not sched["opens_at"] or not sched["closes_at"]:
-                            continue
+                    sched = self._build_schedule_entry(entry, job.location_id)
+                    if sched is not None:
                         schedules.append(sched)
-                    except (ValidationError, ValueError, TypeError):
-                        logger.warning(
-                            "submarine_invalid_schedule",
-                            extra={"schedule": sched},
-                        )
                 if schedules:
                     location["schedules"] = schedules
 
@@ -173,3 +148,93 @@ class SubmarineResultBuilder:
             result["organization"] = [organization]
 
         return result
+
+    def _build_schedule_entry(
+        self, entry: Any, location_id: str
+    ) -> dict[str, Any] | None:
+        """Validate one hours entry and return an HSDS schedule dict.
+
+        Entry must be a dict with freq + (byday XOR bymonthday) + opens_at/
+        closes_at. Legacy shape with just "day" is accepted as byday.
+
+        Returns None (drop the entry) with a structured warn log if:
+        - entry isn't a dict
+        - neither byday nor bymonthday can be derived
+        - both byday and bymonthday are set
+        - freq=WEEKLY but bymonthday is set
+        - opens_at or closes_at is empty
+        - ScheduleInfo Pydantic rejects the final shape
+        """
+        if not isinstance(entry, dict):
+            return None
+
+        raw_freq = (entry.get("freq") or "").strip().upper() or "WEEKLY"
+        raw_byday = entry.get("byday") or entry.get("day") or ""
+        raw_bymonthday = entry.get("bymonthday") or ""
+
+        byday = normalize_byday(raw_byday) if raw_byday else None
+        bymonthday = normalize_bymonthday(raw_bymonthday) if raw_bymonthday else None
+
+        # Must have exactly one recurrence field set.
+        if byday and bymonthday:
+            logger.warning(
+                "submarine_schedule_entry_inconsistent",
+                extra={
+                    "location_id": location_id,
+                    "reason": "both_byday_and_bymonthday_set",
+                    "raw_byday": raw_byday,
+                    "raw_bymonthday": raw_bymonthday,
+                },
+            )
+            return None
+        if not byday and not bymonthday:
+            # Both missing OR both rejected by their normalizers (which
+            # already emitted ical_* warn logs). Add a submarine-specific
+            # warn so the CloudWatch trail points at this entry.
+            logger.warning(
+                "submarine_schedule_entry_incomplete",
+                extra={
+                    "location_id": location_id,
+                    "raw_byday": raw_byday,
+                    "raw_bymonthday": raw_bymonthday,
+                    "raw_freq": raw_freq,
+                },
+            )
+            return None
+
+        # freq/field consistency check.
+        if raw_freq == "WEEKLY" and bymonthday:
+            logger.warning(
+                "submarine_schedule_entry_inconsistent",
+                extra={
+                    "location_id": location_id,
+                    "reason": "weekly_with_bymonthday",
+                    "raw_bymonthday": raw_bymonthday,
+                },
+            )
+            return None
+
+        sched: dict[str, Any] = {
+            "opens_at": entry.get("opens_at", ""),
+            "closes_at": entry.get("closes_at", ""),
+            "freq": raw_freq if raw_freq in ("WEEKLY", "MONTHLY") else "WEEKLY",
+            "wkst": "MO",
+        }
+        if byday:
+            sched["byday"] = byday
+        if bymonthday:
+            sched["bymonthday"] = bymonthday
+
+        if not sched["opens_at"] or not sched["closes_at"]:
+            return None
+
+        try:
+            ScheduleInfo(**sched)
+        except (ValidationError, ValueError, TypeError):
+            logger.warning(
+                "submarine_invalid_schedule",
+                extra={"schedule": sched, "location_id": location_id},
+            )
+            return None
+
+        return sched

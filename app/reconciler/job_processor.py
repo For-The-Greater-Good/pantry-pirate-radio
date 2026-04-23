@@ -25,7 +25,7 @@ from app.reconciler.organization_creator import OrganizationCreator
 from app.reconciler.service_creator import ServiceCreator
 from app.reconciler.submarine_location_handler import SubmarineLocationHandler
 from app.reconciler.version_tracker import VersionTracker
-from app.utils.ical import normalize_byday
+from app.utils.ical import normalize_byday, normalize_bymonthday
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -275,6 +275,19 @@ class JobProcessor:
                 transformed.pop("byday", None)
             else:
                 transformed["byday"] = normalized_byday
+
+        # Enforce RFC 5545 bymonthday — mirrors the byday block above.
+        raw_bymonthday = transformed.get("bymonthday")
+        if raw_bymonthday is not None and str(raw_bymonthday).strip():
+            normalized_bymonthday = normalize_bymonthday(raw_bymonthday)
+            if normalized_bymonthday is None:
+                logger.warning(
+                    "reconciler_bymonthday_dropped",
+                    extra={"original": raw_bymonthday},
+                )
+                transformed.pop("bymonthday", None)
+            else:
+                transformed["bymonthday"] = normalized_bymonthday
 
         return transformed
 

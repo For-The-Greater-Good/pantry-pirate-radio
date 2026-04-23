@@ -284,3 +284,43 @@ class TestScheduleInfoBydayValidation:
     def test_empty_byday_becomes_none(self, empty: str | None) -> None:
         schedule = ScheduleInfo(byday=empty, freq="WEEKLY")
         assert schedule.byday is None
+
+
+class TestScheduleInfoBymonthdayValidation:
+    """ScheduleInfo enforces RFC 5545 bymonthday via normalize_bymonthday."""
+
+    @pytest.mark.parametrize(
+        "bymonthday,expected",
+        [
+            ("1", "1"),
+            ("15", "15"),
+            ("31", "31"),
+            ("-1", "-1"),
+            ("-31", "-31"),
+            ("1,15", "1,15"),
+            ("1,-1", "1,-1"),
+            ("  1 , 15  ", "1,15"),  # whitespace stripped
+        ],
+    )
+    def test_valid_bymonthday_passes(self, bymonthday: str, expected: str) -> None:
+        schedule = ScheduleInfo(bymonthday=bymonthday, freq="MONTHLY")
+        assert schedule.bymonthday == expected
+
+    @pytest.mark.parametrize(
+        "bad_bymonthday",
+        ["0", "32", "-32", "100", "MO", "today", "15th", "1,0", "1,MO", "+1"],
+    )
+    def test_invalid_bymonthday_raises(self, bad_bymonthday: str) -> None:
+        with pytest.raises(ValidationError):
+            ScheduleInfo(bymonthday=bad_bymonthday, freq="MONTHLY")
+
+    @pytest.mark.parametrize("empty", [None, "", "   "])
+    def test_empty_bymonthday_becomes_none(self, empty: str | None) -> None:
+        schedule = ScheduleInfo(bymonthday=empty, freq="MONTHLY")
+        assert schedule.bymonthday is None
+
+    def test_bymonthday_and_byday_both_accepted(self) -> None:
+        """Pydantic allows both — XOR enforcement is at submarine/reconciler layer."""
+        schedule = ScheduleInfo(byday="MO", bymonthday="15", freq="MONTHLY")
+        assert schedule.byday == "MO"
+        assert schedule.bymonthday == "15"

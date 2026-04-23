@@ -378,8 +378,12 @@ class TestBydayNormalization:
         schedules = job_result.data["location"][0]["schedules"]
         assert len(schedules) == 1
         assert schedules[0]["byday"] == "MO"
+        # Dropped entry surfaces via the schedule-entry-incomplete warn
+        # (normalize_byday returned None, leaving neither field usable).
         assert any(
-            "submarine_unrecognized_byday" in rec.message for rec in caplog.records
+            "submarine_schedule_entry_incomplete" in rec.message
+            or "ical_byday_unrecognized" in rec.message
+            for rec in caplog.records
         )
 
     def test_today_hallucination_dropped(self, builder, caplog):
@@ -396,7 +400,9 @@ class TestBydayNormalization:
         location = job_result.data["location"][0]
         assert "schedules" not in location
         assert any(
-            "submarine_unrecognized_byday" in rec.message for rec in caplog.records
+            "submarine_schedule_entry_incomplete" in rec.message
+            or "ical_byday_unrecognized" in rec.message
+            for rec in caplog.records
         )
 
     def test_prose_ordinal_coerced(self, builder):
@@ -418,6 +424,198 @@ class TestBydayNormalization:
 
         schedules = job_result.data["location"][0]["schedules"]
         assert schedules[0]["byday"] == "-1TU"
+
+
+class TestSubmarineBymonthdayEntry:
+    """RFC-native hours entries with freq + bymonthday."""
+
+    @pytest.fixture
+    def builder(self):
+        return SubmarineResultBuilder()
+
+    def _build_with_hours(self, builder, hours_list):
+        job = SubmarineJob(
+            id="sub-bmd-01",
+            location_id="loc-123",
+            website_url="https://example.com",
+            missing_fields=["hours"],
+            source_scraper_id="test",
+            location_name="Test Pantry",
+            latitude=39.78,
+            longitude=-89.65,
+        )
+        result = SubmarineResult(
+            job_id="sub-bmd-01",
+            location_id="loc-123",
+            status="success",
+            extracted_fields={"hours": hours_list},
+        )
+        return builder.build(job, result)
+
+    def test_monthly_bymonthday_entry_accepted(self, builder):
+        """freq=MONTHLY + bymonthday=15 produces a valid schedule."""
+        job_result = self._build_with_hours(
+            builder,
+            [
+                {
+                    "freq": "MONTHLY",
+                    "bymonthday": "15",
+                    "opens_at": "09:00",
+                    "closes_at": "17:00",
+                }
+            ],
+        )
+        schedules = job_result.data["location"][0]["schedules"]
+        assert len(schedules) == 1
+        assert schedules[0]["bymonthday"] == "15"
+        assert schedules[0]["freq"] == "MONTHLY"
+        assert "byday" not in schedules[0]
+
+    def test_mixed_compound_bymonthday(self, builder):
+        """bymonthday='1,-1' (first + last day) passes through."""
+        job_result = self._build_with_hours(
+            builder,
+            [
+                {
+                    "freq": "MONTHLY",
+                    "bymonthday": "1,-1",
+                    "opens_at": "09:00",
+                    "closes_at": "17:00",
+                }
+            ],
+        )
+        schedules = job_result.data["location"][0]["schedules"]
+        assert schedules[0]["bymonthday"] == "1,-1"
+
+    def test_invalid_bymonthday_drops_entry(self, builder, caplog):
+        """bymonthday='32' is unrecoverable — drop the entry."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            job_result = self._build_with_hours(
+                builder,
+                [
+                    {
+                        "freq": "MONTHLY",
+                        "bymonthday": "32",
+                        "opens_at": "09:00",
+                        "closes_at": "17:00",
+                    }
+                ],
+            )
+        location = job_result.data["location"][0]
+        assert "schedules" not in location
+        assert any(
+            "submarine_schedule_entry_incomplete" in rec.message
+            or "ical_bymonthday_unrecognized" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_both_byday_and_bymonthday_drops_entry(self, builder, caplog):
+        """Entry with both byday AND bymonthday is inconsistent — drop."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            job_result = self._build_with_hours(
+                builder,
+                [
+                    {
+                        "freq": "MONTHLY",
+                        "byday": "MO",
+                        "bymonthday": "15",
+                        "opens_at": "09:00",
+                        "closes_at": "17:00",
+                    }
+                ],
+            )
+        location = job_result.data["location"][0]
+        assert "schedules" not in location
+        assert any(
+            "submarine_schedule_entry_inconsistent" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_weekly_with_bymonthday_drops_entry(self, builder, caplog):
+        """freq=WEEKLY + bymonthday is inconsistent per RFC — drop."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            job_result = self._build_with_hours(
+                builder,
+                [
+                    {
+                        "freq": "WEEKLY",
+                        "bymonthday": "15",
+                        "opens_at": "09:00",
+                        "closes_at": "17:00",
+                    }
+                ],
+            )
+        location = job_result.data["location"][0]
+        assert "schedules" not in location
+        assert any(
+            "submarine_schedule_entry_inconsistent" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_entry_without_byday_or_bymonthday_drops(self, builder, caplog):
+        """Entry with neither byday nor bymonthday — drop + warn."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            job_result = self._build_with_hours(
+                builder,
+                [
+                    {
+                        "freq": "WEEKLY",
+                        "opens_at": "09:00",
+                        "closes_at": "17:00",
+                    }
+                ],
+            )
+        location = job_result.data["location"][0]
+        assert "schedules" not in location
+        assert any(
+            "submarine_schedule_entry_incomplete" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_legacy_day_key_still_works(self, builder):
+        """Back-compat: entries with just 'day' (no freq) keep working."""
+        job_result = self._build_with_hours(
+            builder,
+            [{"day": "MO", "opens_at": "09:00", "closes_at": "17:00"}],
+        )
+        schedules = job_result.data["location"][0]["schedules"]
+        assert len(schedules) == 1
+        assert schedules[0]["byday"] == "MO"
+        assert schedules[0]["freq"] == "WEEKLY"
+
+    def test_mixed_entries_weekly_and_monthly(self, builder):
+        """Multiple entries of different shapes mix cleanly."""
+        job_result = self._build_with_hours(
+            builder,
+            [
+                {
+                    "freq": "WEEKLY",
+                    "byday": "TU",
+                    "opens_at": "10:00",
+                    "closes_at": "14:00",
+                },
+                {
+                    "freq": "MONTHLY",
+                    "bymonthday": "15",
+                    "opens_at": "09:00",
+                    "closes_at": "17:00",
+                },
+            ],
+        )
+        schedules = job_result.data["location"][0]["schedules"]
+        assert len(schedules) == 2
+        byday_sched = next(s for s in schedules if "byday" in s)
+        bmd_sched = next(s for s in schedules if "bymonthday" in s)
+        assert byday_sched["byday"] == "TU"
+        assert bmd_sched["bymonthday"] == "15"
 
 
 class TestHsdsValidation:

@@ -211,6 +211,42 @@ def test_byday_pattern_accepts_rfc5545():
     assert not regex.match("mo")  # lowercase — LLM must emit canonical case
 
 
+def test_bymonthday_pattern_accepts_rfc5545():
+    """schedule.bymonthday pattern mirrors app/utils/ical.py::BYMONTHDAY_TOKEN_PATTERN.
+
+    RFC 5545 §3.3.10 BYMONTHDAY values are 1..31 or -1..-31, comma-separated.
+    """
+    import re
+
+    pattern = TYPE_CONSTRAINTS["schedule.bymonthday"]["pattern"]
+    regex = re.compile(pattern)
+
+    # Valid single day-of-month
+    assert regex.match("1")
+    assert regex.match("15")
+    assert regex.match("31")
+    assert regex.match("-1")
+    assert regex.match("-15")
+    assert regex.match("-31")
+
+    # Valid compound lists
+    assert regex.match("1,15")
+    assert regex.match("1,-1")  # first + last
+    assert regex.match("15,30")
+    assert regex.match("1,15,30")
+
+    # Rejections
+    assert not regex.match("0")  # RFC 5545: 1..31 not 0
+    assert not regex.match("32")
+    assert not regex.match("-32")
+    assert not regex.match("+1")  # + not allowed on BYMONTHDAY
+    assert not regex.match("MO")  # weekday code
+    assert not regex.match("today")
+    assert not regex.match("15th")
+    assert not regex.match("01")  # leading zero
+    assert not regex.match("")
+
+
 def test_format_requirements_in_prompt():
     """Test that format requirements are documented in the prompt."""
     prompt_path = Path("app/llm/hsds_aligner/prompts/food_pantry_mapper.prompt")

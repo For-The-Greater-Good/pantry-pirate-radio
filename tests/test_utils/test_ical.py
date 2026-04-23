@@ -1,10 +1,15 @@
-"""Tests for app/utils/ical.py — RFC 5545 BYDAY normalization."""
+"""Tests for app/utils/ical.py — RFC 5545 BYDAY + BYMONTHDAY normalization."""
 
 from __future__ import annotations
 
 import pytest
 
-from app.utils.ical import BYDAY_TOKEN_PATTERN, normalize_byday
+from app.utils.ical import (
+    BYDAY_TOKEN_PATTERN,
+    BYMONTHDAY_TOKEN_PATTERN,
+    normalize_byday,
+    normalize_bymonthday,
+)
 
 
 class TestBydayTokenPattern:
@@ -184,4 +189,149 @@ class TestNormalizeBydayLogging:
         assert result is None
         assert not any(
             "ical_byday_unrecognized" in record.message for record in caplog.records
+        )
+
+
+class TestBymonthdayTokenPattern:
+    """BYMONTHDAY_TOKEN_PATTERN matches a single RFC 5545 §3.3.10 BYMONTHDAY."""
+
+    @pytest.mark.parametrize(
+        "token",
+        [
+            "1",
+            "9",
+            "10",
+            "15",
+            "29",
+            "30",
+            "31",
+            "-1",
+            "-9",
+            "-15",
+            "-30",
+            "-31",
+        ],
+    )
+    def test_valid_tokens(self, token: str) -> None:
+        assert BYMONTHDAY_TOKEN_PATTERN.match(token) is not None
+
+    @pytest.mark.parametrize(
+        "token",
+        [
+            "",
+            "0",
+            "-0",
+            "32",
+            "-32",
+            "100",
+            "01",  # leading zero
+            "-01",  # signed leading zero
+            "+1",  # RFC 5545 doesn't use + for BYMONTHDAY
+            "MO",  # weekday code
+            "15th",
+            "-",
+            " 15",
+            "15 ",
+        ],
+    )
+    def test_invalid_tokens(self, token: str) -> None:
+        assert BYMONTHDAY_TOKEN_PATTERN.match(token) is None
+
+
+class TestNormalizeBymonthdayValid:
+    """Valid RFC 5545 BYMONTHDAY strings pass through (whitespace-trimmed)."""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("1", "1"),
+            ("15", "15"),
+            ("31", "31"),
+            ("-1", "-1"),
+            ("-31", "-31"),
+            ("1,15", "1,15"),
+            ("1,-1", "1,-1"),  # first + last
+            ("15,30", "15,30"),
+            ("-1,-15", "-1,-15"),
+            ("1,15,30", "1,15,30"),
+            ("  1 , 15  ", "1,15"),  # whitespace stripped
+            ("15 ,30", "15,30"),
+        ],
+    )
+    def test_valid_inputs(self, raw: str, expected: str) -> None:
+        assert normalize_bymonthday(raw) == expected
+
+
+class TestNormalizeBymonthdayRejections:
+    """Unrecoverable inputs return None (and emit warn log)."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "0",  # RFC 5545 says 1..31 / -1..-31, not 0
+            "-0",
+            "32",
+            "-32",
+            "100",
+            "01",  # leading zero
+            "+1",  # plus not allowed for BYMONTHDAY
+            "MO",  # weekday code, not day-of-month
+            "today",
+            "15th",
+            "1,0",  # 0 in compound invalidates the whole list
+            "1,32",
+            "1,MO",
+            "1,,3",  # empty middle token
+            "1,",  # trailing empty token
+            ",15",  # leading empty token
+            "random text",
+        ],
+    )
+    def test_rejections(self, raw: str) -> None:
+        assert normalize_bymonthday(raw) is None
+
+
+class TestNormalizeBymonthdayEmpty:
+    """Empty / None inputs return None without a warning log."""
+
+    @pytest.mark.parametrize("raw", [None, "", "   ", "\t", "\n"])
+    def test_empty_inputs(self, raw: str | None) -> None:
+        assert normalize_bymonthday(raw) is None
+
+
+class TestNormalizeBymonthdayLogging:
+    """Unrecognized non-empty inputs emit a structlog warning for CloudWatch grep."""
+
+    def test_rejection_emits_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = normalize_bymonthday("32")
+        assert result is None
+        assert any(
+            "ical_bymonthday_unrecognized" in record.message
+            or "ical_bymonthday_unrecognized" in str(record.args)
+            for record in caplog.records
+        )
+
+    def test_valid_input_does_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = normalize_bymonthday("1,15")
+        assert result == "1,15"
+        assert not any(
+            "ical_bymonthday_unrecognized" in record.message
+            for record in caplog.records
+        )
+
+    def test_empty_does_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = normalize_bymonthday("")
+        assert result is None
+        assert not any(
+            "ical_bymonthday_unrecognized" in record.message
+            for record in caplog.records
         )

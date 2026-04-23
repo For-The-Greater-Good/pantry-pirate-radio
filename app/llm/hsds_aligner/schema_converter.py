@@ -302,6 +302,13 @@ TYPE_CONSTRAINTS: dict[str, SchemaDict] = {
         "pattern": r"^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)(,[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU))*$",
         "description": "Days of week in RFC 5545 BYDAY format (e.g., MO,WE,FR; 1FR; -1MO; 2WE,-1MO)",
     },
+    # Day-of-month validation — RFC 5545 BYMONTHDAY, 1..31 or -1..-31.
+    # Keep in sync with app/utils/ical.py::BYMONTHDAY_TOKEN_PATTERN.
+    "schedule.bymonthday": {
+        "type": "string",
+        "pattern": r"^-?([1-9]|[12][0-9]|3[01])(,-?([1-9]|[12][0-9]|3[01]))*$",
+        "description": "Days of month in RFC 5545 BYMONTHDAY format (e.g., 15; 1,15; -1 for last day)",
+    },
     # Address field flexibility
     "address.city": {
         "type": "string",
@@ -897,7 +904,11 @@ class SchemaConverter:
                         "pattern": r"^[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU)(,[+-]?[1-5]?(MO|TU|WE|TH|FR|SA|SU))*$",
                         "description": "Days of week in RFC 5545 BYDAY format. Simple: MO,WE,FR. Monthly ordinals: 1FR (1st Friday), 3TU (3rd Tuesday), -1MO (last Monday), 2WE,-1MO (2nd Wednesday + last Monday).",
                     },
-                    "bymonthday": {"type": "string"},
+                    "bymonthday": {
+                        "type": "string",
+                        "pattern": r"^-?([1-9]|[12][0-9]|3[01])(,-?([1-9]|[12][0-9]|3[01]))*$",
+                        "description": "Days of month in RFC 5545 BYMONTHDAY format: 1..31 or -1..-31, comma-separated (e.g., '15', '1,15', '-1' for last day).",
+                    },
                     "byweekno": {"type": "string"},
                     "byyearday": {"type": "string"},
                     "interval": {"type": "number"},
