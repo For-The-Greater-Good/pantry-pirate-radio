@@ -16,8 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      # Match the pattern used in ci.yml — default GITHUB_TOKEN can't access
+      # private plugin/scraper submodules, so pull them conditionally via a
+      # PAT stored in SUBMODULE_TOKEN. Missing token → plugin-dependent
+      # CDK tests skip cleanly (see infra/tests/test_portal_ingest_wiring.py).
+      - name: Checkout private submodules (if token available)
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            git config --global url."https://${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init --recursive || true
+          else
+            echo "No SUBMODULE_TOKEN — plugin CDK tests will skip cleanly"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
