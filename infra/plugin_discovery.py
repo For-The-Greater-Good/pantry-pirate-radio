@@ -27,6 +27,7 @@ def discover_and_load_plugins(
     compute_stack: cdk.Stack,
     secrets_stack: cdk.Stack,
     database_stack: object,
+    services_stack: cdk.Stack,
 ) -> dict[str, list]:
     """Discover and instantiate plugin CDK stacks.
 
@@ -38,6 +39,9 @@ def discover_and_load_plugins(
         compute_stack: Stack dependency for all plugin stacks.
         secrets_stack: Stack dependency for all plugin stacks.
         database_stack: Database stack with ``proxy_security_group``.
+        services_stack: Services stack — plugin stacks that reference its
+            scraper task def ARN / role ARNs (e.g. ppr-write-api for portal
+            ingest) need this ordering to resolve cross-stack references.
 
     Returns:
         A dict of ``{plugin_name: [stack_instances]}``.
@@ -87,9 +91,7 @@ def discover_and_load_plugins(
                 sys.path.insert(0, plugin_infra_str)
             spec = importlib.util.spec_from_file_location(module_name, module_path)
             if not spec or not spec.loader:
-                warnings.warn(
-                    f"Cannot load plugin module: {module_path}", stacklevel=2
-                )
+                warnings.warn(f"Cannot load plugin module: {module_path}", stacklevel=2)
                 continue
             mod = importlib.util.module_from_spec(spec)
             try:
@@ -123,11 +125,10 @@ def discover_and_load_plugins(
             instance.add_dependency(compute_stack)
             instance.add_dependency(secrets_stack)
             instance.add_dependency(database_stack)
+            instance.add_dependency(services_stack)
 
             # Per-stack tag for cost attribution
-            cdk.Tags.of(instance).add(
-                "Stack", f"{class_name}-{environment_name}"
-            )
+            cdk.Tags.of(instance).add("Stack", f"{class_name}-{environment_name}")
 
             # Track for inter-plugin dependency resolution
             plugin_stacks.setdefault(plugin_name, []).append(instance)

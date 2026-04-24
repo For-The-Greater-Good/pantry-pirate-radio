@@ -691,6 +691,21 @@ _plugin_context = {
     # DNS — custom domain for Amplify apps
     "domain_name": domain_name,
     "hosted_zone_id": hosted_zone_id,
+    # Portal ingest: Write API Lambda dispatches to the shared scraper task
+    # def via ecs:RunTask. These six keys power WriteApiStack._wire_ingest().
+    # Until they're present, POST /ingest returns 503 by design (AWS-only
+    # feature gate per Principle XV exemption).
+    "scraper_cluster_arn": compute_stack.cluster.cluster_arn,
+    "portal_ingest_task_arn": services_stack.scraper_task_definition.task_definition_arn,
+    "scraper_container_name": "ScraperContainer",
+    "scraper_subnet_ids": [s.subnet_id for s in compute_stack.vpc.private_subnets],
+    "scraper_security_group_ids": [
+        services_stack.scraper_security_group.security_group_id,
+    ],
+    "scraper_pass_role_arns": [
+        services_stack.scraper_task_role.role_arn,
+        services_stack.scraper_task_definition.execution_role.role_arn,
+    ],
 }
 
 discover_and_load_plugins(
@@ -701,6 +716,7 @@ discover_and_load_plugins(
     compute_stack=compute_stack,
     secrets_stack=secrets_stack,
     database_stack=database_stack,
+    services_stack=services_stack,
 )
 
 app.synth()
