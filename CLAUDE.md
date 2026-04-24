@@ -805,6 +805,12 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 
 ## Recent Updates and Features
 
+### Admin/editor confidence override
+- **Inline editor in Lighthouse**: admins and editors can correct a location's `confidence_score` and `verified_by` directly from `/locations/[id]` via a pencil trigger next to the existing `ConfidenceBadge`. See `plugins/ppr-lighthouse/src/components/locations/confidence-editor.tsx`. Claimants never see the control.
+- **Write API contract**: `PUT /locations/{id}` accepts three new optional fields on `LocationUpdateRequest` — `confidence_score` (0-100), `verified_by` (`auto`/`admin`/`source`/`claimed`), `reason` (max 500). Applied only when `caller_context.source in ('admin','editor')` **and** `caller_context.user_id` is present; any other source silently ignores them.
+- **Audit trail**: successful overrides emit the structlog event `admin_confidence_override` with `user_id`, `username`, `actor_type`, `new_confidence_score`, `new_verified_by`, `reason`. Defense-in-depth rejections emit `admin_override_rejected_missing_user_id`. Grep CloudWatch for both.
+- **No schema change**: the existing `location_source` audit row continues to carry full `caller_context` (including `reason`). Tier constants live in `app/validator/scoring.py:17-27`.
+
 ### Scraper Submarine (PR #404)
 - **Post-Reconciler Enrichment**: Crawls food bank websites using crawl4ai to fill missing hours, phone, email, and description fields
 - **Two-Phase Architecture**: Crawl (Fargate, real-time) → Staging Queue → Batch Extract (Bedrock batch inference at 50% cost) or on-demand fallback (<100 records)
