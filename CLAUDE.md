@@ -805,6 +805,15 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 
 ## Recent Updates and Features
 
+### Admin Portal Upload (`portal_ingest` scraper)
+- **AWS-only feature** (Principle XV exemption): Lighthouse admin route `/admin/upload` lets operators bulk-ingest CSV/XLSX location rows.
+- **Flow**: Lighthouse UI → `/api/upload` BFF (CSRF + admin role + `uploadData` permission + server-side parse) → `PPRClient.ingestUpload(rows, metadata)` → Write API `POST /ingest` → S3 ingest bucket → ECS RunTask launches the `portal_ingest` Fargate task → `PortalIngestScraper` reads S3 payload and emits one raw JSON row per entry via `self.submit_to_queue()` → Content Store (SHA-256 dedupe) → LLM → Validator → Reconciler (standard `verified_by='auto'`).
+- **Scraper**: `app/scraper/scrapers/portal_ingest_scraper.py` (scrapers submodule). Reads from `UPLOAD_PAYLOAD_S3_URI` env var set by the ECS task override; stamps each row with `_portal_ingest: { upload_id, row_index, filename, uploaded_by }` for downstream attribution.
+- **Provenance**: write-api-owned `ingest_audit` table (lazy `CREATE TABLE IF NOT EXISTS`, no cross-repo migration). Reconciled records still get a full `change_audit` row via the existing PUT /locations path when admins boost specific records.
+- **Local Docker**: `/ingest` returns clean 503 — no docker-compose changes, no import errors (Principle XV exemption clause).
+- **Permission**: `uploadData` admin-only in `plugins/ppr-lighthouse/src/lib/auth/permissions.ts`. Editors edit individual records via existing flows; bulk ingest requires admin.
+- **Row limit**: 10,000 per upload (enforced client-side, server-side BFF, and Write API `IngestRequest` Pydantic model).
+
 ### Scraper Submarine (PR #404)
 - **Post-Reconciler Enrichment**: Crawls food bank websites using crawl4ai to fill missing hours, phone, email, and description fields
 - **Two-Phase Architecture**: Crawl (Fargate, real-time) → Staging Queue → Batch Extract (Bedrock batch inference at 50% cost) or on-demand fallback (<100 records)
