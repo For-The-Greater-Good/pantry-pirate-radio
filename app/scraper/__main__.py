@@ -12,7 +12,7 @@ from app.scraper.utils import ScraperJob
 
 # Scrapers excluded from --all, scouting-party, and full-broadside runs.
 # These are only invoked directly by name (e.g., triggered by external systems).
-MANUAL_ONLY_SCRAPERS = {"helm_portal"}
+MANUAL_ONLY_SCRAPERS = {"helm_portal", "portal_ingest"}
 
 # Configure logging
 logging.basicConfig(
