@@ -30,17 +30,33 @@ from stacks.secrets_stack import SecretsStack
 from stacks.services_stack import ServiceConfig, ServicesStack
 from stacks.storage_stack import StorageStack
 
-# Import the write-api plugin stack from the submodule on disk.
+# Import the write-api plugin stack from the submodule on disk. Skip the
+# plugin-dependent tests cleanly if the submodule isn't checked out (e.g.
+# a CI runner that forgot `submodules: recursive`). The MANUAL_ONLY_SCRAPERS
+# test below still runs since it doesn't depend on the plugin.
 _WRITE_API_INFRA = (
     Path(__file__).resolve().parents[2] / "plugins" / "ppr-write-api" / "infra"
 )
-if str(_WRITE_API_INFRA) not in sys.path:
-    sys.path.insert(0, str(_WRITE_API_INFRA))
+_WRITE_API_STACK_FILE = _WRITE_API_INFRA / "write_api_stack.py"
 
-from write_api_stack import WriteApiStack  # noqa: E402
+if _WRITE_API_STACK_FILE.exists():
+    if str(_WRITE_API_INFRA) not in sys.path:
+        sys.path.insert(0, str(_WRITE_API_INFRA))
+    from write_api_stack import WriteApiStack  # type: ignore[import-not-found]  # noqa: E402
+
+    _PLUGIN_AVAILABLE = True
+else:
+    _PLUGIN_AVAILABLE = False
+    WriteApiStack = None  # type: ignore[assignment,misc]
 
 
 ENV = cdk.Environment(account="123456789012", region="us-east-1")
+
+
+requires_plugin = pytest.mark.skipif(
+    not _PLUGIN_AVAILABLE,
+    reason="ppr-write-api submodule not checked out — run `git submodule update --init` or add `submodules: recursive` to the checkout step",
+)
 
 
 @pytest.fixture()
@@ -124,6 +140,7 @@ def wired_write_api_template() -> assertions.Template:
     return assertions.Template.from_stack(write_api_stack)
 
 
+@requires_plugin
 class TestLambdaEnvVars:
     """The Lambda must receive the five SCRAPER_* env vars from plugin_context."""
 
@@ -152,6 +169,7 @@ class TestLambdaEnvVars:
         _assert_env_var_present(wired_write_api_template, "UPLOADS_BUCKET_NAME")
 
 
+@requires_plugin
 class TestIamGrants:
     """Lambda IAM must include ecs:RunTask scoped to the task def ARN
     and iam:PassRole scoped to the two role ARNs."""
