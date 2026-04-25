@@ -238,6 +238,30 @@ class DnsStack(Stack):
                 ),
             )
 
+        # Twilio domain verification (organization-level binding).
+        # Twilio's "Verify Domain" UI asks for a TXT record at
+        # `_twilio.<domain>` so it can confirm we own the subdomain
+        # before granting org-managed user / domain features against
+        # it. Verifying the subdomain doesn't conflict with verifying
+        # the apex separately later — each verification is its own TXT
+        # at its own host.
+        #
+        # The token below is non-secret (it's the equivalent of a
+        # `verification=<hash>` challenge — useful only as proof of DNS
+        # control during this one-shot handshake). Tracked in
+        # source instead of an SSM parameter so the verification
+        # binding is reproducible across redeploys / fresh accounts.
+        route53.TxtRecord(
+            self,
+            "TwilioDomainVerification",
+            zone=zone,
+            record_name="_twilio",
+            values=[
+                "twilio-domain-verification=3549c54fc8e07957c0457e0640eeee95",
+            ],
+            ttl=Duration.minutes(5),
+        )
+
         CfnOutput(
             self,
             "DomainName",

@@ -149,3 +149,35 @@ class TestExportsCloudFront:
         )
         template = assertions.Template.from_stack(dns)
         template.resource_count_is("AWS::SSM::Parameter", 0)
+
+
+class TestTwilioDomainVerification:
+    """Tests for the `_twilio.<domain>` TXT record that proves DNS
+    ownership of the subdomain to Twilio's organization-domain
+    verification flow."""
+
+    def test_creates_twilio_verification_txt_record(self, env):
+        app = cdk.App()
+        dns = DnsStack(
+            app,
+            "DnsStackTwilioTxt",
+            environment_name="dev",
+            hosted_zone_id="Z0123456789ABCDEFGHIJ",
+            domain_name="example.com",
+            http_api_id="abc123",
+            env=env,
+        )
+        template = assertions.Template.from_stack(dns)
+
+        # CDK quotes TXT values per RFC 1035; the record value is the
+        # verification token Twilio displays in its UI.
+        template.has_resource_properties(
+            "AWS::Route53::RecordSet",
+            {
+                "Type": "TXT",
+                "Name": "_twilio.example.com.",
+                "ResourceRecords": [
+                    '"twilio-domain-verification=3549c54fc8e07957c0457e0640eeee95"',
+                ],
+            },
+        )
