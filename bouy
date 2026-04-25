@@ -2726,6 +2726,18 @@ print(json.dumps(l))
                     exit 1
                 fi
                 output success "CDK deployment complete"
+
+                # `--infra-only` is the natural retry after a submodule
+                # bump. CDK alone doesn't pick up new plugin images
+                # (their ECR repos live outside the standard image
+                # set), so plugin templates / build code go stale even
+                # when the CDK stack and core images are current. Push
+                # plugin images + force redeploy so the next plugin
+                # build task / service runs against the new code.
+                output info "Building and pushing plugin images..."
+                build_and_push_plugin_images
+                redeploy_plugin_services
+                output success "Plugin images updated"
                 ;;
             full)
                 build_app_image
