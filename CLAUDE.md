@@ -805,6 +805,12 @@ Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stac
 
 ## Recent Updates and Features
 
+### Modular Twilio Verify SMS verification (ppr-lighthouse)
+- **Why**: A2P 10DLC carrier campaign approval is still pending; the legacy magic-link SMS verification path is code-complete but disabled. Twilio Verify is a separate product (no 10DLC required, Twilio is sender-of-record) so phone verification ships today.
+- **Switch**: `SMS_VERIFICATION_MODE=verify` (default during 10DLC wait) | `magic_link` (post-10DLC). Flip via Amplify env var, no rebuild.
+- **Verify-mode flow**: `/api/claims/send-verification` → `startVerification(phone)` → user gets 6-digit code → `/api/claims/check-verification` → `checkVerification(phone, code)` → on approved → shared `completeClaimVerification` helper runs the same enrollment / welcome pipeline as the magic-link consumer.
+- **Files**: `src/lib/sms/twilio-verify.ts`, `src/app/api/claims/check-verification/route.ts`, `src/components/claims/OtpInputForm.tsx`, `src/lib/claims/complete-verification.ts`. New Amplify env vars: `SMS_VERIFICATION_MODE`, `TWILIO_VERIFY_SERVICE_SID`.
+
 ### Admin Portal Upload (`portal_ingest` scraper)
 - **AWS-only feature** (Principle XV exemption): Lighthouse admin route `/admin/upload` lets operators bulk-ingest CSV/XLSX location rows.
 - **Flow**: Lighthouse UI → `/api/upload` BFF (CSRF + admin role + `uploadData` permission + server-side parse) → `PPRClient.ingestUpload(rows, metadata)` → Write API `POST /ingest` → S3 ingest bucket → ECS RunTask launches the `portal_ingest` Fargate task → `PortalIngestScraper` reads S3 payload and emits one raw JSON row per entry via `self.submit_to_queue()` → Content Store (SHA-256 dedupe) → LLM → Validator → Reconciler (standard `verified_by='auto'`).
