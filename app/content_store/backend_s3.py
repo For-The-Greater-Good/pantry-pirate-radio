@@ -403,6 +403,88 @@ class S3ContentStoreBackend:
         )
 
     @with_aws_retry
+    def index_delete_entry(self, content_hash: str) -> None:
+        """Remove a content_hash entry from the DynamoDB index. Idempotent.
+
+        Removes pending entries (no result_path) so the next scrape
+        re-enqueues the content instead of dedup-skipping it.
+        """
+        self._ensure_initialized()
+        dynamodb = self._get_dynamodb_client()
+
+        dynamodb.delete_item(
+            TableName=self.dynamodb_table,
+            Key={"content_hash": {"S": content_hash}},
+        )
+
+    @with_aws_retry
+    def index_scan_pending_since(self, since_iso: str) -> list[dict]:
+        """Return pending (no result_path) entries created at or after `since_iso`.
+
+        Args:
+            since_iso: ISO-8601 timestamp string (e.g. "2026-04-26T00:00:00+00:00").
+                Entries with `created_at >= since_iso` and no `result_path`
+                are returned.
+
+        Returns:
+            List of dicts with keys content_hash, created_at, content_path,
+            status, job_id (if set). Results are deduplicated by content_hash.
+
+        Note:
+            Performs a full DynamoDB Scan with a FilterExpression — expensive
+            and slow on large tables. Intended for one-shot recovery, not
+            steady-state operation.
+
+            Pagination state is held only in this loop; if the surrounding
+            @with_aws_retry decorator restarts the call, the scan begins from
+            page 1 again. We dedupe by content_hash to keep callers idempotent
+            in that retry case.
+        """
+        self._ensure_initialized()
+        dynamodb = self._get_dynamodb_client()
+
+        seen: set[str] = set()
+        results: list[dict] = []
+        params: dict = {
+            "TableName": self.dynamodb_table,
+            "FilterExpression": (
+                "attribute_not_exists(result_path) AND created_at >= :since"
+            ),
+            "ExpressionAttributeValues": {":since": {"S": since_iso}},
+        }
+
+        while True:
+            response = dynamodb.scan(**params)
+            for item in response.get("Items", []):
+                content_hash_attr = item.get("content_hash") or {}
+                content_hash = content_hash_attr.get("S")
+                if not content_hash:
+                    # Defensive: skip rows with missing/corrupt PK rather than
+                    # aborting the whole recovery run.
+                    logger.warning(
+                        "scan_skipped_item_missing_content_hash",
+                        item_keys=list(item.keys()),
+                    )
+                    continue
+                if content_hash in seen:
+                    continue
+                seen.add(content_hash)
+                results.append(
+                    {
+                        "content_hash": content_hash,
+                        "created_at": item.get("created_at", {}).get("S", ""),
+                        "content_path": item.get("content_path", {}).get("S", ""),
+                        "status": item.get("status", {}).get("S", ""),
+                        "job_id": item.get("job_id", {}).get("S"),
+                    }
+                )
+            if "LastEvaluatedKey" not in response:
+                break
+            params["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+
+        return results
+
+    @with_aws_retry
     def index_clear_job_id(self, content_hash: str) -> None:
         """Clear job ID for content in DynamoDB index.
 

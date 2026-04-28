@@ -109,6 +109,134 @@ class TestSQSQueueBackendReceiveMessages:
         assert messages[0]["message_id"] == "msg-123"
         assert messages[0]["receipt_handle"] == "receipt-abc"
 
+    def test_receive_messages_unwraps_send_to_sqs_envelope(
+        self, mock_sqs_client, mock_dynamodb_client, sample_llm_job
+    ):
+        """Wrapped envelope {job_id, data: {job_id, job, ...}, ...} parses
+        without poison-pilling. Required for messages produced by
+        app.pipeline.sqs_sender.send_to_sqs."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        # Envelope shape produced by app/pipeline/sqs_sender.py:104-110
+        envelope = {
+            "job_id": sample_llm_job.id,
+            "data": {
+                "job_id": sample_llm_job.id,
+                "job": sample_llm_job.model_dump(mode="json"),
+                "enqueued_at": datetime.now(UTC).isoformat(),
+            },
+            "source": "batcher-lambda",
+            "enqueued_at": datetime.now(UTC).isoformat(),
+        }
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-wrapped",
+                    "ReceiptHandle": "receipt-wrapped",
+                    "Body": json.dumps(envelope),
+                }
+            ]
+        }
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        messages = backend.receive_messages()
+
+        assert len(messages) == 1
+        assert messages[0]["job_id"] == sample_llm_job.id
+        assert messages[0]["job"].id == sample_llm_job.id
+        # Must NOT have been treated as a poison pill
+        mock_sqs_client.delete_message.assert_not_called()
+
+    def test_receive_messages_parses_legacy_flat_envelope(
+        self, mock_sqs_client, mock_dynamodb_client, sample_llm_job
+    ):
+        """Flat {job_id, job, ...} shape (no `data` wrapper) must still parse.
+        Required so SQSQueueBackend.enqueue() output remains compatible."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        flat_body = {
+            "job_id": sample_llm_job.id,
+            "job": sample_llm_job.model_dump(mode="json"),
+            "enqueued_at": datetime.now(UTC).isoformat(),
+        }
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-flat",
+                    "ReceiptHandle": "receipt-flat",
+                    "Body": json.dumps(flat_body),
+                }
+            ]
+        }
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        messages = backend.receive_messages()
+
+        assert len(messages) == 1
+        assert messages[0]["job_id"] == sample_llm_job.id
+        assert messages[0]["job"].id == sample_llm_job.id
+        mock_sqs_client.delete_message.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "data_value",
+        [None, "string-instead-of-dict", 123, ["list", "instead"]],
+        ids=["none", "string", "int", "list"],
+    )
+    def test_receive_messages_falls_back_when_data_is_not_dict(
+        self, mock_sqs_client, mock_dynamodb_client, sample_llm_job, data_value
+    ):
+        """If `data` is present but not a dict (corruption / future producer
+        regression), fall back to top-level `job`. Without this guard, the
+        unwrap would crash mid-fallback and poison-pill silently."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        body = {
+            "job_id": sample_llm_job.id,
+            "data": data_value,
+            "job": sample_llm_job.model_dump(mode="json"),
+            "enqueued_at": datetime.now(UTC).isoformat(),
+        }
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-mixed",
+                    "ReceiptHandle": "receipt-mixed",
+                    "Body": json.dumps(body),
+                }
+            ]
+        }
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        messages = backend.receive_messages()
+
+        assert len(messages) == 1
+        assert messages[0]["job_id"] == sample_llm_job.id
+        mock_sqs_client.delete_message.assert_not_called()
+
     def test_receive_messages_handles_malformed_json(
         self, mock_sqs_client, mock_dynamodb_client
     ):
@@ -405,3 +533,113 @@ class TestSQSQueueBackendPoisonPillDeleteFailure:
         assert messages == []
         # Both deletes were attempted
         assert mock_sqs_client.delete_message.call_count == 2
+
+
+class TestSQSQueueBackendDLQForwarding:
+    """When dlq_url is set, malformed messages are forwarded before deletion
+    so the body is preserved instead of silently lost."""
+
+    def test_dlq_url_unset_does_not_forward(
+        self, mock_sqs_client, mock_dynamodb_client
+    ):
+        """Without dlq_url, behavior matches the legacy contract — delete only."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-bad",
+                    "ReceiptHandle": "receipt-bad",
+                    "Body": "not valid json",
+                },
+            ]
+        }
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+            # dlq_url not set
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        backend.receive_messages()
+
+        # Forward should not have happened (only delete)
+        mock_sqs_client.send_message.assert_not_called()
+        mock_sqs_client.delete_message.assert_called_once()
+
+    def test_dlq_url_set_forwards_before_delete(
+        self, mock_sqs_client, mock_dynamodb_client
+    ):
+        """With dlq_url set, the original body is sent to the DLQ before
+        the source-queue delete. FIFO DLQ requires MessageGroupId."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-bad",
+                    "ReceiptHandle": "receipt-bad",
+                    "Body": "corrupt body 12345",
+                },
+            ]
+        }
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+            dlq_url="https://sqs.us-east-1.amazonaws.com/123/llm-dlq.fifo",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        backend.receive_messages()
+
+        # Forwarded
+        mock_sqs_client.send_message.assert_called_once()
+        send_kwargs = mock_sqs_client.send_message.call_args.kwargs
+        assert send_kwargs["QueueUrl"].endswith("/llm-dlq.fifo")
+        assert send_kwargs["MessageGroupId"] == "poison-pills"
+        assert send_kwargs["MessageDeduplicationId"] == "msg-bad"
+        body = json.loads(send_kwargs["MessageBody"])
+        assert body["original_body"] == "corrupt body 12345"
+        assert body["original_message_id"] == "msg-bad"
+        assert body["source"] == "fargate-worker-poison-pill"
+        # Then deleted from source
+        mock_sqs_client.delete_message.assert_called_once()
+
+    def test_dlq_send_failure_does_not_block_delete(
+        self, mock_sqs_client, mock_dynamodb_client
+    ):
+        """If the DLQ send fails (DLQ outage), the source-queue delete must
+        still run — losing the body to a DLQ outage is no worse than the
+        legacy delete-only behavior."""
+        from app.llm.queue.backend_sqs import SQSQueueBackend
+
+        mock_sqs_client.receive_message.return_value = {
+            "Messages": [
+                {
+                    "MessageId": "msg-bad",
+                    "ReceiptHandle": "receipt-bad",
+                    "Body": "corrupt",
+                },
+            ]
+        }
+        mock_sqs_client.send_message.side_effect = Exception("DLQ unavailable")
+
+        backend = SQSQueueBackend(
+            queue_url="https://sqs.us-east-1.amazonaws.com/123/queue",
+            dynamodb_table="jobs-table",
+            dlq_url="https://sqs.us-east-1.amazonaws.com/123/llm-dlq.fifo",
+        )
+        backend._sqs_client = mock_sqs_client
+        backend._dynamodb_client = mock_dynamodb_client
+        backend._initialized = True
+
+        backend.receive_messages()
+
+        mock_sqs_client.send_message.assert_called_once()
+        mock_sqs_client.delete_message.assert_called_once()

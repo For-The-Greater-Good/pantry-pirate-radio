@@ -124,3 +124,137 @@ class TestS3ContentStoreBackendIndexOperations:
             backend.index_clear_job_id(content_hash)
 
         mock_dynamodb.update_item.assert_called_once()
+
+    def test_index_delete_entry_removes_item(self, backend):
+        """index_delete_entry() should call DynamoDB delete_item."""
+        mock_dynamodb = MagicMock()
+        content_hash = "abc123" + "0" * 58
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            backend.index_delete_entry(content_hash)
+
+        mock_dynamodb.delete_item.assert_called_once_with(
+            TableName="test-table",
+            Key={"content_hash": {"S": content_hash}},
+        )
+
+    def test_index_scan_pending_since_paginates(self, backend):
+        """index_scan_pending_since() should paginate and return only pending entries."""
+        mock_dynamodb = MagicMock()
+        # Two pages of results from DynamoDB
+        mock_dynamodb.scan.side_effect = [
+            {
+                "Items": [
+                    {
+                        "content_hash": {"S": "h1"},
+                        "created_at": {"S": "2026-04-26T01:00:00+00:00"},
+                        "content_path": {"S": "s3://b/h1"},
+                        "status": {"S": "pending"},
+                        "job_id": {"S": "job-h1"},
+                    },
+                    {
+                        "content_hash": {"S": "h2"},
+                        "created_at": {"S": "2026-04-26T02:00:00+00:00"},
+                        "content_path": {"S": "s3://b/h2"},
+                        "status": {"S": "pending"},
+                    },
+                ],
+                "LastEvaluatedKey": {"content_hash": {"S": "h2"}},
+            },
+            {
+                "Items": [
+                    {
+                        "content_hash": {"S": "h3"},
+                        "created_at": {"S": "2026-04-27T00:00:00+00:00"},
+                        "content_path": {"S": "s3://b/h3"},
+                        "status": {"S": "pending"},
+                    },
+                ],
+            },
+        ]
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            results = backend.index_scan_pending_since("2026-04-26T00:00:00+00:00")
+
+        assert len(results) == 3
+        assert results[0]["content_hash"] == "h1"
+        assert results[0]["job_id"] == "job-h1"
+        assert results[1]["job_id"] is None  # Missing job_id field
+        assert results[2]["content_hash"] == "h3"
+        # Pin the exact FilterExpression — a flip from attribute_not_exists
+        # to attribute_exists would invert the result set (returning completed
+        # entries) and a recovery script would then delete them.
+        first_call = mock_dynamodb.scan.call_args_list[0]
+        assert (
+            first_call.kwargs["FilterExpression"]
+            == "attribute_not_exists(result_path) AND created_at >= :since"
+        )
+        assert (
+            first_call.kwargs["ExpressionAttributeValues"][":since"]["S"]
+            == "2026-04-26T00:00:00+00:00"
+        )
+        # Pagination was forwarded correctly: 2nd scan must use the LastEvaluatedKey
+        # from the 1st response. A regression that drops this would still pass with
+        # a stub side_effect — assert it explicitly.
+        second_call = mock_dynamodb.scan.call_args_list[1]
+        assert second_call.kwargs["ExclusiveStartKey"] == {"content_hash": {"S": "h2"}}
+
+    def test_index_scan_pending_since_deduplicates_results(self, backend):
+        """Results are deduplicated by content_hash so caller is idempotent
+        if the underlying scan restarts (e.g. via @with_aws_retry)."""
+        mock_dynamodb = MagicMock()
+        # h1 appears in both pages — caller should only see it once.
+        mock_dynamodb.scan.side_effect = [
+            {
+                "Items": [
+                    {
+                        "content_hash": {"S": "h1"},
+                        "created_at": {"S": "2026-04-26T01:00:00+00:00"},
+                        "content_path": {"S": "s3://b/h1"},
+                        "status": {"S": "pending"},
+                    },
+                ],
+                "LastEvaluatedKey": {"content_hash": {"S": "h1"}},
+            },
+            {
+                "Items": [
+                    {
+                        "content_hash": {"S": "h1"},  # duplicate
+                        "created_at": {"S": "2026-04-26T01:00:00+00:00"},
+                        "content_path": {"S": "s3://b/h1"},
+                        "status": {"S": "pending"},
+                    },
+                    {
+                        "content_hash": {"S": "h2"},
+                        "created_at": {"S": "2026-04-26T02:00:00+00:00"},
+                        "content_path": {"S": "s3://b/h2"},
+                        "status": {"S": "pending"},
+                    },
+                ],
+            },
+        ]
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            results = backend.index_scan_pending_since("2026-04-26T00:00:00+00:00")
+
+        hashes = [r["content_hash"] for r in results]
+        assert hashes == ["h1", "h2"]
+
+    def test_index_scan_pending_since_skips_items_missing_pk(self, backend):
+        """Rows missing the content_hash PK should be skipped (logged), not
+        crash the whole scan — preserves recovery progress on corrupt data."""
+        mock_dynamodb = MagicMock()
+        mock_dynamodb.scan.return_value = {
+            "Items": [
+                {"created_at": {"S": "2026-04-26T01:00:00+00:00"}},  # no PK
+                {
+                    "content_hash": {"S": "h_ok"},
+                    "created_at": {"S": "2026-04-26T02:00:00+00:00"},
+                },
+            ],
+        }
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            results = backend.index_scan_pending_since("2026-04-26T00:00:00+00:00")
+
+        assert [r["content_hash"] for r in results] == ["h_ok"]

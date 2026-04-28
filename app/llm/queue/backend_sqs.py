@@ -46,8 +46,19 @@ class SQSQueueBackend:
         dynamodb_table: str,
         region_name: Optional[str] = None,
         visibility_timeout: int = 300,
+        dlq_url: str = "",
     ) -> None:
-        """Initialize SQSQueueBackend."""
+        """Initialize SQSQueueBackend.
+
+        Args:
+            queue_url: Source SQS queue URL.
+            dynamodb_table: DynamoDB table for job status.
+            region_name: AWS region (uses default credential chain if None).
+            visibility_timeout: SQS visibility timeout (0-43200s).
+            dlq_url: Optional dead-letter queue URL. When set, malformed
+                messages are forwarded here before being deleted from the
+                source queue, preserving the body for inspection.
+        """
         # Validate visibility_timeout is within SQS limits (0-43200 seconds)
         if not (0 <= visibility_timeout <= 43200):
             raise ValueError(
@@ -62,6 +73,7 @@ class SQSQueueBackend:
         self.dynamodb_table = dynamodb_table
         self.region_name = region_name
         self.visibility_timeout = visibility_timeout
+        self.dlq_url = dlq_url
 
         # Extract queue name from URL
         self._queue_name = queue_url.rstrip("/").split("/")[-1]
@@ -449,13 +461,19 @@ class SQSQueueBackend:
         for msg in response.get("Messages", []):
             try:
                 body = json.loads(msg["Body"])
+                # Producers vary: some wrap as {job_id, data: {...}, ...},
+                # others write {job_id, job, ...} flat. Unwrap defensively.
+                payload = (
+                    body.get("data") if isinstance(body.get("data"), dict) else body
+                )
                 messages.append(
                     {
                         "message_id": msg["MessageId"],
                         "receipt_handle": msg["ReceiptHandle"],
-                        "job_id": body["job_id"],
-                        "job": LLMJob.model_validate(body["job"]),
-                        "enqueued_at": body.get("enqueued_at"),
+                        "job_id": body.get("job_id") or payload["job_id"],
+                        "job": LLMJob.model_validate(payload["job"]),
+                        "enqueued_at": body.get("enqueued_at")
+                        or payload.get("enqueued_at"),
                     }
                 )
             except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
@@ -468,6 +486,15 @@ class SQSQueueBackend:
                     error=str(e),
                     error_type=type(e).__name__,
                 )
+                # Forward to DLQ (if configured) so the body is preserved for
+                # inspection. Without this the message is silently lost on delete.
+                if self.dlq_url:
+                    self._forward_to_dlq(
+                        sqs,
+                        original_body=msg.get("Body", ""),
+                        message_id=msg.get("MessageId", "unknown"),
+                        error=str(e),
+                    )
                 # Log full message body for audit trail before deletion
                 logger.warning(
                     "poison_pill_message_deleted",
@@ -492,6 +519,50 @@ class SQSQueueBackend:
                     )
 
         return messages
+
+    def _forward_to_dlq(
+        self,
+        sqs_client: Any,
+        original_body: str,
+        message_id: str,
+        error: str,
+    ) -> None:
+        """Forward a poison-pill body to the DLQ before deletion.
+
+        DLQ failures are logged but not raised — losing the body to a DLQ
+        outage is no worse than the existing poison-pill delete behavior,
+        and we don't want to block the source-queue delete on it.
+        """
+        try:
+            envelope = json.dumps(
+                {
+                    "original_body": original_body,
+                    "original_message_id": message_id,
+                    "error": error,
+                    "source": "fargate-worker-poison-pill",
+                },
+                default=str,
+            )
+            send_kwargs: dict[str, Any] = {
+                "QueueUrl": self.dlq_url,
+                "MessageBody": envelope,
+            }
+            if self.dlq_url.endswith(".fifo"):
+                send_kwargs["MessageGroupId"] = "poison-pills"
+                send_kwargs["MessageDeduplicationId"] = message_id[:128]
+            sqs_client.send_message(**send_kwargs)
+            logger.warning(
+                "poison_pill_forwarded_to_dlq",
+                message_id=message_id,
+                dlq_url=self.dlq_url,
+            )
+        except Exception as e:
+            logger.error(
+                "failed_to_forward_poison_pill_to_dlq",
+                message_id=message_id,
+                dlq_url=self.dlq_url,
+                error=str(e),
+            )
 
     def delete_message(self, receipt_handle: str) -> None:
         """Delete a message from SQS after successful processing.

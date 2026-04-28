@@ -210,14 +210,13 @@ class TestHandlerBatchPath:
         mock_dynamodb = MagicMock()
         mock_get_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
 
-        # Capture uploaded file contents before cleanup
+        # Capture S3JsonlWriter put_object payloads (small payloads skip multipart).
         captured = {}
 
-        def capture_upload(Filename, Bucket, Key, **kwargs):
-            with open(Filename) as f:
-                captured[Key] = f.read()
+        def capture_put(**kwargs):
+            captured[kwargs["Key"]] = kwargs["Body"].decode("utf-8")
 
-        mock_s3.upload_file.side_effect = capture_upload
+        mock_s3.put_object.side_effect = capture_put
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
             mock_drain.return_value = _make_drain_file(BATCH_THRESHOLD)
@@ -274,11 +273,10 @@ class TestHandlerBatchPath:
 
         captured = {}
 
-        def capture_upload(Filename, Bucket, Key, **kwargs):
-            with open(Filename) as f:
-                captured[Key] = f.read()
+        def capture_put(**kwargs):
+            captured[kwargs["Key"]] = kwargs["Body"].decode("utf-8")
 
-        mock_s3.upload_file.side_effect = capture_upload
+        mock_s3.put_object.side_effect = capture_put
 
         with patch("app.llm.queue.batcher._drain_staging_queue") as mock_drain:
             mock_drain.return_value = _make_drain_file(3)
@@ -323,7 +321,7 @@ class TestHandlerOnDemandPath:
                 result = handler(event, None)
 
         assert result["mode"] == "on-demand"
-        assert result["count"] == 5
+        assert result["record_count"] == 5
         assert mock_send.call_count == 5
         mock_bedrock.create_model_invocation_job.assert_not_called()
 
@@ -347,7 +345,7 @@ class TestHandlerEmptyQueue:
                 result = handler({"execution_id": "exec-123", "scrapers": []}, None)
 
         assert result["mode"] == "on-demand"
-        assert result["count"] == 0
+        assert result["record_count"] == 0
 
 
 class TestHandlerLogging:
@@ -402,7 +400,7 @@ class TestHandlerMessageDeletion:
                 )
 
         assert result["mode"] == "on-demand"
-        assert result["count"] == 0
+        assert result["record_count"] == 0
         assert result["failed"] == 3
 
 
@@ -438,7 +436,7 @@ class TestHandlerOnDemandPartialFailure:
                 )
 
         assert result["mode"] == "on-demand"
-        assert result["count"] == 2
+        assert result["record_count"] == 2
         assert result["failed"] == 1
 
     @patch("app.llm.queue.batcher._get_clients")
@@ -462,7 +460,7 @@ class TestHandlerOnDemandPartialFailure:
                 )
 
         assert result["mode"] == "on-demand"
-        assert result["count"] == 5
+        assert result["record_count"] == 5
         assert result["failed"] == 0
 
     @patch("app.llm.queue.batcher._get_clients")
@@ -497,7 +495,7 @@ class TestHandlerOnDemandPartialFailure:
 
         # All 5 records should have been attempted
         assert mock_send.call_count == 5
-        assert result["count"] == 4
+        assert result["record_count"] == 4
         assert result["failed"] == 1
 
 

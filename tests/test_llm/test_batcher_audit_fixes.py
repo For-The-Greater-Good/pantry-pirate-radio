@@ -184,7 +184,7 @@ class TestM4BatchThresholdPerInvocation:
 
         # With 0 records, should be on-demand regardless of threshold
         assert result["mode"] == "on-demand"
-        assert result["count"] == 0
+        assert result["record_count"] == 0
 
 
 class TestForwardToDlq:
@@ -274,14 +274,14 @@ class TestOriginalJobsJsonlFormat:
         mock_dynamodb = MagicMock()
         mock_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
 
-        # Capture what gets uploaded to S3
+        # Capture what gets uploaded to S3 via the streaming writer's
+        # put_object path (small payloads skip multipart).
         uploaded_files: dict[str, str] = {}
 
-        def capture_upload(Filename, Bucket, Key, **kwargs):
-            with open(Filename) as f:
-                uploaded_files[Key] = f.read()
+        def capture_put(**kwargs):
+            uploaded_files[kwargs["Key"]] = kwargs["Body"].decode("utf-8")
 
-        mock_s3.upload_file.side_effect = capture_upload
+        mock_s3.put_object.side_effect = capture_put
         mock_bedrock.create_model_invocation_job.return_value = {
             "jobArn": "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
         }

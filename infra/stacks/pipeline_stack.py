@@ -308,7 +308,6 @@ class PipelineStack(Stack):
                 "ResultSelector": {
                     "queue_empty.$": "$.Payload.queue_empty",
                     "mode.$": "$.Payload.mode",
-                    "record_count.$": "$.Payload.record_count",
                 },
                 "ResultPath": "$.batchResult",
                 "Next": "CheckQueueDrained",

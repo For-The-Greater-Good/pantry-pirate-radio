@@ -208,6 +208,14 @@ class BatchInferenceStack(Stack):
                     expiration=Duration.days(7),
                     enabled=True,
                 ),
+                # Multipart uploads from the batcher leak parts if the Lambda
+                # crashes mid-upload (and the bucket bills for them indefinitely).
+                # Auto-abort partials older than 7 days.
+                s3.LifecycleRule(
+                    id="AbortIncompleteMultipart",
+                    abort_incomplete_multipart_upload_after=Duration.days(7),
+                    enabled=True,
+                ),
             ],
         )
 
@@ -430,7 +438,8 @@ class BatchInferenceStack(Stack):
         vpc_kwargs = {}
         if self._proxy_security_group:
             rp_sg = ec2.SecurityGroup(
-                self, "ResultProcessorSG",
+                self,
+                "ResultProcessorSG",
                 vpc=self._vpc,
                 description="Result processor Lambda - DB access",
             )

@@ -164,6 +164,7 @@ compute_stack = ComputeStack(
     max_capacity=5,
     ecr_repository=ecr_stack.repositories.get("worker"),
     llm_queue_url=queue_stack.llm_queue.queue_url,
+    llm_dlq_url=queue_stack.llm_dlq.queue_url,
     sqs_jobs_table_name=storage_stack.jobs_table.table_name,
     validator_queue_url=queue_stack.validator_queue.queue_url,
     content_bucket_name=storage_stack.content_bucket.bucket_name,
@@ -375,6 +376,9 @@ for _stack_label, _stack_obj in [
 
 # Compute Stack (LLM Workers) - needs queue, storage, and Bedrock access
 compute_stack.grant_queue_access(queue_stack.llm_queue)
+# Worker forwards malformed bodies to the LLM DLQ before deletion (preserves
+# evidence). Send-only — workers never read from the DLQ.
+queue_stack.llm_dlq.grant_send_messages(compute_stack.task_role)
 compute_stack.grant_storage_access(
     storage_stack.content_bucket,
     storage_stack.jobs_table,

@@ -45,6 +45,7 @@ class ComputeStack(Stack):
         ecr_repository: ecr.IRepository | None = None,
         image_tag: str = "latest",
         llm_queue_url: str | None = None,
+        llm_dlq_url: str | None = None,
         sqs_jobs_table_name: str | None = None,
         validator_queue_url: str | None = None,
         content_bucket_name: str | None = None,
@@ -82,6 +83,7 @@ class ComputeStack(Stack):
         self.ecr_repository = ecr_repository
         self.image_tag = image_tag
         self.llm_queue_url = llm_queue_url
+        self.llm_dlq_url = llm_dlq_url
         self.sqs_jobs_table_name = sqs_jobs_table_name
         self.content_bucket_name = content_bucket_name
         self.content_index_table_name = content_index_table_name
@@ -341,6 +343,7 @@ class ComputeStack(Stack):
                     "LLM_PROVIDER": "bedrock",
                     "LLM_MODEL_NAME": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
                     "SQS_QUEUE_URL": self.llm_queue_url,
+                    "LLM_DLQ_URL": self.llm_dlq_url,
                     "SQS_JOBS_TABLE": self.sqs_jobs_table_name,
                     "VALIDATOR_QUEUE_URL": self.validator_queue_url,
                     "CONTENT_STORE_BACKEND": "s3",

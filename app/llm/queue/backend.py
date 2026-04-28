@@ -313,11 +313,15 @@ def _create_queue_backend(queue_name: str) -> QueueBackend:
             )
 
         region_name = os.environ.get("AWS_DEFAULT_REGION")
+        # When set, malformed messages are forwarded here before being deleted
+        # from the source queue so the body is preserved for inspection.
+        dlq_url = os.environ.get("LLM_DLQ_URL", "")
 
         backend = SQSQueueBackend(
             queue_url=sqs_queue_url,
             dynamodb_table=sqs_jobs_table,
             region_name=region_name,
+            dlq_url=dlq_url,
         )
         backend.setup()
         return backend

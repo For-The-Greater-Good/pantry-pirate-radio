@@ -31,6 +31,7 @@ from uuid import uuid4
 import structlog
 
 from app.llm.providers.bedrock import build_messages_api_request
+from app.llm.queue.s3_jsonl_writer import S3JsonlWriter
 from app.pipeline.sqs_sender import send_to_sqs
 
 logger = structlog.get_logger(__name__)
@@ -343,6 +344,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         remaining_time_fn=remaining_time_fn,
     )
 
+    # Pre-bind so the outer except's logger.error never NameErrors and masks
+    # the real exception even if a future refactor moves work above the assignment.
+    decision = "unknown"
+
     try:
         # 2. Decide batch vs on-demand
         decision = "batch" if record_count >= batch_threshold else "on-demand"
@@ -356,7 +361,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         )
 
         if record_count == 0:
-            return {"mode": "on-demand", "count": 0, "queue_empty": True}
+            return {
+                "mode": "on-demand",
+                "record_count": 0,
+                "failed": 0,
+                "queue_empty": True,
+            }
 
         if decision == "on-demand":
             # Re-enqueue each job to the appropriate on-demand queue.
@@ -407,78 +417,56 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             return {
                 "mode": "on-demand",
-                "count": succeeded,
+                "record_count": succeeded,
                 "failed": failed_count,
                 "queue_empty": queue_empty,
             }
 
-        # 3. Build JSONL + original_jobs to temp files (constant memory)
+        # 3. Stream JSONL + original_jobs directly to S3.
+        #    /tmp on Lambda is capped at 4 GiB; large drains exceed that.
+        #    S3JsonlWriter buffers ~8 MiB and uploads multipart, keeping
+        #    memory constant regardless of payload size.
         input_key = f"input/{s3_safe_id}/input.jsonl"
         output_key_prefix = f"output/{s3_safe_id}/"
         original_jobs_key = f"input/{s3_safe_id}/original_jobs.jsonl"
 
-        input_jsonl = tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".jsonl",
-            delete=False,
-        )
-        original_jobs_f = tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".jsonl",
-            delete=False,
-        )
-        input_jsonl_path = input_jsonl.name
-        original_jobs_path = original_jobs_f.name
+        input_writer = S3JsonlWriter(s3, batch_bucket, input_key)
+        original_jobs_writer = S3JsonlWriter(s3, batch_bucket, original_jobs_key)
 
         try:
-            # Stream records: read staging file line by line, write JSONL and
-            # original_jobs simultaneously. Only one record in memory at a time.
-            with open(staging_file) as sf:
-                for line in sf:
-                    record = json.loads(line)
+            with input_writer, original_jobs_writer:
+                with open(staging_file) as sf:
+                    for line in sf:
+                        record = json.loads(line)
 
-                    if source == "submarine":
-                        from app.llm.queue.submarine_batch import (
-                            extract_submarine_record,
+                        if source == "submarine":
+                            from app.llm.queue.submarine_batch import (
+                                extract_submarine_record,
+                            )
+
+                            job_id, messages_body = extract_submarine_record(record)
+                        else:
+                            job_data = record.get("job", {})
+                            job_id = job_data.get("id", record.get("job_id", ""))
+                            messages_body = build_messages_api_request(
+                                prompt=job_data.get("prompt", ""),
+                                format_schema=job_data.get("format") or None,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                            )
+
+                        if not job_id:
+                            job_id = f"unknown-{uuid4()}"
+                            logger.warning(
+                                "empty_job_id_fallback",
+                                generated_id=job_id,
+                                record_keys=list(record.keys()),
+                            )
+
+                        input_writer.write_record(
+                            {"recordId": job_id, "modelInput": messages_body}
                         )
-
-                        job_id, messages_body = extract_submarine_record(record)
-                    else:
-                        job_data = record.get("job", {})
-                        job_id = job_data.get("id", record.get("job_id", ""))
-                        messages_body = build_messages_api_request(
-                            prompt=job_data.get("prompt", ""),
-                            format_schema=job_data.get("format") or None,
-                            temperature=temperature,
-                            max_tokens=max_tokens,
-                        )
-
-                    if not job_id:
-                        job_id = f"unknown-{uuid4()}"
-                        logger.warning(
-                            "empty_job_id_fallback",
-                            generated_id=job_id,
-                            record_keys=list(record.keys()),
-                        )
-
-                    jsonl_record = {
-                        "recordId": job_id,
-                        "modelInput": messages_body,
-                    }
-                    input_jsonl.write(json.dumps(jsonl_record) + "\n")
-
-                    # Write original job as JSONL (one record per line, streamable)
-                    original_jobs_f.write(json.dumps({"k": job_id, "v": record}) + "\n")
-            input_jsonl.close()
-            original_jobs_f.close()
-
-            # 4. Upload to S3 — streams from disk, no memory spike
-            s3.upload_file(
-                Filename=input_jsonl_path,
-                Bucket=batch_bucket,
-                Key=input_key,
-                ExtraArgs={"ContentType": "application/jsonl"},
-            )
+                        original_jobs_writer.write_record({"k": job_id, "v": record})
 
             logger.info(
                 "batch_jsonl_uploaded",
@@ -487,7 +475,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 record_count=record_count,
             )
 
-            # 5. Submit Bedrock batch job
+            # 4. Submit Bedrock batch job
             now = datetime.now(UTC)
             job_name = (
                 f"{job_name_prefix}-{s3_safe_id[-8:]}-{now.strftime('%Y%m%d%H%M%S')}"
@@ -523,18 +511,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 execution_id=execution_id,
             )
 
-            # 6. Store recovery data BEFORE returning.
-            #    Original jobs for the result processor to map outputs back.
-
-            # 6a. Upload original jobs to S3 (streams from disk)
-            s3.upload_file(
-                Filename=original_jobs_path,
-                Bucket=batch_bucket,
-                Key=original_jobs_key,
-                ExtraArgs={"ContentType": "application/jsonl"},
-            )
-
-            # 6b. Store batch job metadata in DynamoDB for result processor
+            # 5. Store batch job metadata in DynamoDB for result processor.
+            #    original_jobs was already uploaded by the streaming writer above.
             dynamodb.put_item(
                 TableName=jobs_table,
                 Item={
@@ -551,7 +529,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 },
             )
 
-            # 7. Staging messages were already deleted during drain
+            # 6. Staging messages were already deleted during drain
             return {
                 "mode": "batch",
                 "job_arn": job_arn,
@@ -559,12 +537,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "queue_empty": queue_empty,
             }
 
-        finally:
-            for path in (input_jsonl_path, original_jobs_path):
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
+        except Exception:
+            # Abort any in-progress multipart uploads to avoid orphan parts.
+            input_writer.abort()
+            original_jobs_writer.abort()
+            raise
 
     except Exception:
         logger.error(
