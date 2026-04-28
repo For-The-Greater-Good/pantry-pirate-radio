@@ -203,29 +203,51 @@ class TestContentStore:
         stored_job_id = content_store.get_job_id(entry.hash)
         assert stored_job_id == job_id
 
-    def test_should_not_return_pending_job_for_duplicate_content(self, content_store):
-        """Should NOT return existing job ID for pending content (allow reprocessing)."""
+    def test_returns_existing_job_id_for_pending_duplicate(self, content_store):
+        """Duplicate scrapes of in-flight content must surface the existing
+        job_id so the scraper-side dedup (`if content_entry.job_id: skip`)
+        actually fires. Returning None here used to cause every weekly run to
+        re-enqueue every previously-pending record."""
         content = '{"name": "Duplicate Pantry", "address": "789 Pine St"}'
         metadata = {"scraper_id": "test_scraper"}
 
-        # Mock the _is_job_active method to return True for our job
+        # Job is alive — should not be cleared.
         with patch.object(content_store, "_is_job_active") as mock_is_active:
             mock_is_active.return_value = True
 
-            # First time: store content
             entry1 = content_store.store_content(content, metadata)
             assert entry1.status == "pending"
-            assert entry1.job_id is None
+            assert entry1.job_id is None  # No job linked yet
 
-            # Link a job
             job_id = "job-999"
             content_store.link_job(entry1.hash, job_id)
 
-            # Second time: should allow new processing (not return existing job)
             entry2 = content_store.store_content(content, metadata)
             assert entry2.hash == entry1.hash
             assert entry2.status == "pending"
-            assert entry2.job_id is None  # Should NOT return the existing job
+            assert entry2.job_id == job_id  # Surfaces existing job for dedup
+
+    def test_returns_existing_job_id_in_sqs_mode(self, temp_store_path):
+        """SQS-mode dedup regression: previously this path always returned
+        job_id=None even when one was set in DDB, causing weekly re-enqueue
+        storms (124k pending → 18k re-enqueued every Monday). Must now return
+        the persisted job_id."""
+        # SQS mode = no Redis connection.
+        store = ContentStore(store_path=temp_store_path, redis_url=None)
+        assert store._is_sqs_mode()
+
+        content = '{"name": "SQS Duplicate Pantry"}'
+        metadata = {"scraper_id": "test_scraper"}
+
+        entry1 = store.store_content(content, metadata)
+        assert entry1.job_id is None
+
+        store.link_job(entry1.hash, "sqs-job-456")
+
+        entry2 = store.store_content(content, metadata)
+        assert entry2.hash == entry1.hash
+        assert entry2.status == "pending"
+        assert entry2.job_id == "sqs-job-456"
 
     def test_should_cleanup_failed_job_and_allow_reprocessing(self, content_store):
         """Should clear failed job IDs and allow reprocessing."""

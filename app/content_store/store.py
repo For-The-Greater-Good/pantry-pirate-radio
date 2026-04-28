@@ -205,21 +205,20 @@ class ContentStore:
                 job_id=data.get("job_id"),
             )
 
-        # Check if content already exists with a job_id (for cleanup only).
-        # H2 FIX: In SQS mode, skip the active job check since we can't
-        # query RQ job status. The result cache check above already prevents
-        # reprocessing of completed content, and SQS FIFO dedup handles
-        # duplicates within the 5-minute window.
+        # Read the persisted job_id (if any). In Redis mode we additionally
+        # probe RQ to see if the job is still alive, and clear stale ids so
+        # dead jobs don't dedup-skip forever. In SQS mode we cannot query
+        # job status, so a previously-enqueued job_id stays — accept that
+        # silently-failed records may need operator recovery rather than
+        # re-enqueueing them on every scraper run.
         existing_job_id = self.get_job_id(content_hash)
         if existing_job_id and not self._is_sqs_mode():
             if not self._is_job_active(existing_job_id):
-                # Job is no longer active (failed, expired, etc.)
-                # Clear the old job_id so content can be reprocessed
                 self.clear_job_id(content_hash)
+                existing_job_id = None
 
         # Store content if not already stored
         if not self._backend.content_exists(content_hash):
-            # Write content
             content_data = {
                 "content": content,
                 "metadata": metadata,
@@ -228,15 +227,19 @@ class ContentStore:
             content_path = self._backend.write_content(
                 content_hash, json.dumps(content_data, indent=2)
             )
-
-            # Update index
             self._backend.index_insert_content(
                 content_hash, content_path, datetime.now(UTC)
             )
 
-        # Return pending status without job_id (allow new processing)
+        # Return the persisted job_id so the scraper-side dedup
+        # (`if content_entry.job_id: skip`) actually fires for content already
+        # in flight from a prior run. Returning None here was the cause of the
+        # weekly-run re-enqueue storm that grew to 124k pending entries.
         return ContentEntry(
-            hash=content_hash, status="pending", result=None, job_id=None
+            hash=content_hash,
+            status="pending",
+            result=None,
+            job_id=existing_job_id,
         )
 
     def store_result(self, content_hash: str, result: str, job_id: str) -> None:
