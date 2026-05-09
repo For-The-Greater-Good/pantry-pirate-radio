@@ -511,7 +511,13 @@ jobs:
         # Ignore GHSA-whj4-6x5x-4v2j (pillow) - fix is 12.2.0, pending poetry update; not on hot path
         # Ignore GHSA-6w46-j5rx-g56g (pytest) - fix is 9.0.3 (major bump); dev-only, breaking change
         # Ignore GHSA-mf9w-mj56-hr94 (python-dotenv) - fix is 1.2.2, pending poetry update; .env parser, no runtime exposure to untrusted input
-        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq --ignore-vuln GHSA-whj4-6x5x-4v2j --ignore-vuln GHSA-6w46-j5rx-g56g --ignore-vuln GHSA-mf9w-mj56-hr94
+        # Ignore GHSA-wjx4-4jcj-g98j (pillow) - fix is 12.2.0, pending poetry update; same bundle as whj4 above
+        # Ignore GHSA-5xmw-vc9v-4wf2 (pillow) - fix is 12.2.0, pending poetry update; same bundle as whj4 above
+        # Ignore GHSA-r73j-pqj5-w3x7 (pillow) - fix is 12.2.0, pending poetry update; same bundle as whj4 above
+        # Ignore GHSA-pwv6-vv43-88gr (pillow) - fix is 12.2.0, pending poetry update; same bundle as whj4 above
+        # Ignore GHSA-58qw-9mgm-455v (pip) - no fixed version available upstream yet; pip upgraded in Dockerfile so runtime is unaffected
+        # Ignore GHSA-jp4c-xjxw-mgf9 (pip) - fix is 26.1, pending poetry update; pip upgraded in Dockerfile so runtime is unaffected
+        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq --ignore-vuln GHSA-whj4-6x5x-4v2j --ignore-vuln GHSA-6w46-j5rx-g56g --ignore-vuln GHSA-mf9w-mj56-hr94 --ignore-vuln GHSA-wjx4-4jcj-g98j --ignore-vuln GHSA-5xmw-vc9v-4wf2 --ignore-vuln GHSA-r73j-pqj5-w3x7 --ignore-vuln GHSA-pwv6-vv43-88gr --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9
 
   xenon:
     needs: setup

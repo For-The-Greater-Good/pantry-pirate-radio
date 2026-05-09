@@ -1,226 +1,182 @@
 """Tests for Second Harvest Clark, Champaign & Logan OH scraper."""
 
 import json
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 from app.scraper.scrapers.second_harvest_clark_champaign_logan_oh_scraper import (
     SecondHarvestClarkChampaignLoganOhScraper,
 )
 
 
+def _wix_block(suffix: str, name: str, address: str, hours: str, phone: str) -> str:
+    """Build a Wix-style repeater block for a single pantry entry."""
+
+    def rt(idx: int, value: str) -> str:
+        return (
+            f'<div id="comp-mmy04h0q{idx}__{suffix}" '
+            f'class="wixui-rich-text" data-testid="richTextElement">'
+            f"<p><span>{value}</span></p></div>"
+        )
+
+    return rt(1, name) + rt(2, address) + rt(3, hours) + rt(4, phone)
+
+
 @pytest.fixture
-def mock_wpsl_response():
-    """Mock WP Store Locator API response for Clark/Champaign/Logan."""
-    return [
-        {
-            "id": "201",
-            "store": "Springfield Community Food Pantry",
-            "address": "20 N Murray St",
-            "address2": "",
-            "city": "Springfield",
-            "state": "OH",
-            "zip": "45503",
-            "phone": "937-555-1234",
-            "lat": "39.9242",
-            "lng": "-83.8088",
-            "hours": "<p>Tuesday-Thursday 10:00 AM - 2:00 PM</p>",
-            "url": "",
-            "description": "<p>Serving Clark County families</p>",
-            "distance": "0.5",
-        },
-        {
-            "id": "202",
-            "store": "Urbana Food Distribution",
-            "address": "300 Scioto St",
-            "address2": "",
-            "city": "Urbana",
-            "state": "",
-            "zip": "43078",
-            "phone": "",
-            "lat": "40.1084",
-            "lng": "-83.7524",
-            "hours": "",
-            "url": "",
-            "description": "<p>2nd and 4th Wednesday 9 AM - 12 PM</p>",
-            "distance": "20.0",
-        },
-        {
-            "id": "203",
-            "store": "Bellefontaine Area Pantry",
-            "address": "100 S Main St",
-            "address2": "",
-            "city": "Bellefontaine",
-            "state": "OH",
-            "zip": "43311",
-            "phone": "937-555-9876",
-            "lat": "40.3612",
-            "lng": "-83.7594",
-            "hours": "",
-            "url": "",
-            "description": "<p>Monday and Friday 1:00 PM - 4:00 PM</p>",
-            "distance": "30.0",
-        },
+def sample_html() -> str:
+    """Minimal HTML mimicking the Wix repeater layout on /pantries-test."""
+    blocks = [
+        _wix_block(
+            "1865979a-0079-4983-a158-2cc3e8a1d8dc",
+            "Bethel Churches United Pantry",
+            "226 S Pike St, New Carlisle, Oh",
+            "Pantry Wednesday 4-5:30pm Friday 12-2PM",
+            "937-845-1008",
+        ),
+        _wix_block(
+            "2865979a-0079-4983-a158-2cc3e8a1d8dc",
+            "Oasis of Mercy Pantry at St Michael&#39;s",
+            "40 Walnut St, Mechanicsburg, Oh",
+            "Pantry: first and third Tuesdays, 3:30-5:30pm",
+            "614-507-0882",
+        ),
     ]
+    return f"<html><body>{''.join(blocks)}</body></html>"
 
 
 @pytest.mark.asyncio
 async def test_scraper_initialization():
-    """Test scraper initializes with correct parameters."""
+    """Scraper exposes the Wix pantries URL."""
     scraper = SecondHarvestClarkChampaignLoganOhScraper()
     assert scraper.scraper_id == "second_harvest_clark_champaign_logan_oh"
-    assert "theshfb.org" in scraper.ajax_url
+    assert scraper.base_url == "https://www.theshfb.org"
+    assert scraper.pantries_url.endswith("/pantries-test")
     assert scraper.test_mode is False
 
 
-@pytest.mark.asyncio
-async def test_scraper_test_mode():
-    """Test scraper initializes correctly in test mode."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper(test_mode=True)
-    assert scraper.test_mode is True
-    assert scraper.request_delay == 0.05
-
-
-@pytest.mark.asyncio
-async def test_generate_grid_points():
-    """Test grid generation covers Clark/Champaign/Logan area."""
+def test_parse_address_three_parts():
     scraper = SecondHarvestClarkChampaignLoganOhScraper()
-    points = scraper._generate_grid_points()
-    assert len(points) > 10
-    for lat, lng in points:
-        assert 39.7 <= lat <= 40.4
-        assert -84.1 <= lng <= -83.3
+    assert scraper._parse_address("226 S Pike St, New Carlisle, Oh") == {
+        "address": "226 S Pike St",
+        "city": "New Carlisle",
+        "state": "OH",
+    }
 
 
-@pytest.mark.asyncio
-async def test_parse_location(mock_wpsl_response):
-    """Test parsing raw WPSL response items."""
+def test_parse_address_two_parts_defaults_state():
     scraper = SecondHarvestClarkChampaignLoganOhScraper()
-
-    loc = scraper._parse_location(mock_wpsl_response[0])
-    assert loc["name"] == "Springfield Community Food Pantry"
-    assert loc["city"] == "Springfield"
-    assert loc["state"] == "OH"
-    assert loc["zip"] == "45503"
-    assert loc["latitude"] == 39.9242
-    assert loc["longitude"] == -83.8088
-    assert "Tuesday-Thursday" in loc["hours"]
-
-
-@pytest.mark.asyncio
-async def test_parse_location_empty_state(mock_wpsl_response):
-    """Test parsing handles empty state field with OH default."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper()
-
-    loc = scraper._parse_location(mock_wpsl_response[1])
-    assert loc["state"] == "OH"
-
-
-@pytest.mark.asyncio
-async def test_parse_location_hours_fallback(mock_wpsl_response):
-    """Test hours falls back to description when hours field is empty."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper()
-
-    loc = scraper._parse_location(mock_wpsl_response[1])
-    assert "Wednesday" in loc["hours"]
-    assert "9 AM" in loc["hours"]
-
-
-@pytest.mark.asyncio
-async def test_parse_location_coordinates_can_be_none():
-    """Test that coordinates can be None."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper()
-
-    item = {
-        "id": "999",
-        "store": "No Coords",
-        "address": "123 Main",
-        "address2": "",
+    assert scraper._parse_address("123 Main St, Springfield") == {
+        "address": "123 Main St",
         "city": "Springfield",
         "state": "OH",
-        "zip": "45503",
-        "phone": "",
-        "lat": None,
-        "lng": None,
-        "hours": "",
-        "url": "",
-        "description": "",
     }
-    loc = scraper._parse_location(item)
-    assert loc["latitude"] is None
-    assert loc["longitude"] is None
 
 
-@pytest.mark.asyncio
-async def test_scrape_deduplication(mock_wpsl_response):
-    """Test that duplicate locations are removed."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper(test_mode=True)
-
-    async def mock_fetch(client, lat, lng):
-        return mock_wpsl_response
-
-    with patch.object(scraper, "fetch_locations_for_point", side_effect=mock_fetch):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
-            result = await scraper.scrape()
-
-    summary = json.loads(result)
-    assert summary["unique_locations"] == 3
-    assert summary["total_jobs_created"] == 3
+def test_parse_address_with_extra_commas():
+    scraper = SecondHarvestClarkChampaignLoganOhScraper()
+    parsed = scraper._parse_address("100 N Main St, Suite 4, Urbana, OH")
+    assert parsed == {
+        "address": "100 N Main St, Suite 4",
+        "city": "Urbana",
+        "state": "OH",
+    }
 
 
-@pytest.mark.asyncio
-async def test_scrape_metadata(mock_wpsl_response):
-    """Test that scraped locations include correct metadata."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper(test_mode=True)
+def test_parse_pantries_extracts_all_fields(sample_html):
+    scraper = SecondHarvestClarkChampaignLoganOhScraper()
+    pantries = scraper.parse_pantries(sample_html)
+    assert len(pantries) == 2
 
-    submitted = []
+    bethel = pantries[0]
+    assert bethel["name"] == "Bethel Churches United Pantry"
+    assert bethel["address"] == "226 S Pike St"
+    assert bethel["city"] == "New Carlisle"
+    assert bethel["state"] == "OH"
+    assert "Wednesday" in bethel["hours"]
+    assert "Friday" in bethel["hours"]
+    assert bethel["phone"] == "937-845-1008"
+    assert bethel["latitude"] is None
+    assert bethel["longitude"] is None
 
-    def capture(data):
-        submitted.append(json.loads(data))
-        return "job_123"
 
-    async def mock_fetch(client, lat, lng):
-        return mock_wpsl_response[:1]
+def test_parse_pantries_decodes_html_entities(sample_html):
+    scraper = SecondHarvestClarkChampaignLoganOhScraper()
+    pantries = scraper.parse_pantries(sample_html)
+    oasis = pantries[1]
+    assert oasis["name"] == "Oasis of Mercy Pantry at St Michael's"
 
-    with patch.object(scraper, "fetch_locations_for_point", side_effect=mock_fetch):
-        with patch.object(scraper, "submit_to_queue", side_effect=capture):
-            await scraper.scrape()
 
-    assert len(submitted) >= 1
-    assert submitted[0]["source"] == "second_harvest_clark_champaign_logan_oh"
-    assert submitted[0]["food_bank"] == (
-        "Second Harvest Food Bank of Clark, Champaign & Logan Counties"
+def test_parse_pantries_skips_incomplete_blocks():
+    """Repeater items missing one of the four rich-text fields are skipped."""
+    suffix = "abcdef12-3456-7890-abcd-ef1234567890"
+    incomplete = (
+        f'<div id="comp-x1__{suffix}" data-testid="richTextElement">'
+        f"<p>Only Name</p></div>"
+        f'<div id="comp-x2__{suffix}" data-testid="richTextElement">'
+        f"<p>Only Address</p></div>"
     )
+    scraper = SecondHarvestClarkChampaignLoganOhScraper()
+    assert scraper.parse_pantries(f"<html>{incomplete}</html>") == []
 
 
 @pytest.mark.asyncio
-async def test_scrape_full_workflow(mock_wpsl_response):
-    """Test complete scrape workflow returns valid summary."""
-    scraper = SecondHarvestClarkChampaignLoganOhScraper(test_mode=True)
+async def test_scrape_submits_jobs_with_metadata(sample_html):
+    scraper = SecondHarvestClarkChampaignLoganOhScraper()
 
-    async def mock_fetch(client, lat, lng):
-        return mock_wpsl_response
+    submitted: list[dict] = []
 
-    with patch.object(scraper, "fetch_locations_for_point", side_effect=mock_fetch):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+    def capture(payload: str) -> str:
+        submitted.append(json.loads(payload))
+        return "job_xyz"
+
+    async def fake_fetch(client):
+        return sample_html
+
+    with patch.object(scraper, "fetch_html", side_effect=fake_fetch):
+        with patch.object(scraper, "submit_to_queue", side_effect=capture):
             result = await scraper.scrape()
 
     summary = json.loads(result)
     assert summary["scraper_id"] == "second_harvest_clark_champaign_logan_oh"
+    assert summary["unique_locations"] == 2
+    assert summary["total_jobs_created"] == 2
     assert summary["source"] == "https://www.theshfb.org"
+
+    assert len(submitted) == 2
+    assert submitted[0]["source"] == "second_harvest_clark_champaign_logan_oh"
+    assert submitted[0]["food_bank"] == (
+        "Second Harvest Food Bank of Clark, Champaign & Logan Counties"
+    )
+    assert submitted[0]["hours"]
+    assert submitted[0]["phone"]
 
 
 @pytest.mark.asyncio
-async def test_scrape_empty_response():
-    """Test scrape handles empty API response gracefully."""
+async def test_scrape_test_mode_caps_results(sample_html):
+    """test_mode limits to first 3 entries — fewer entries pass through unchanged."""
     scraper = SecondHarvestClarkChampaignLoganOhScraper(test_mode=True)
 
-    async def mock_fetch(client, lat, lng):
-        return []
+    async def fake_fetch(client):
+        return sample_html
 
-    with patch.object(scraper, "fetch_locations_for_point", side_effect=mock_fetch):
-        with patch.object(scraper, "submit_to_queue", return_value="job_123"):
+    with patch.object(scraper, "fetch_html", side_effect=fake_fetch):
+        with patch.object(scraper, "submit_to_queue", return_value="job_xyz"):
+            result = await scraper.scrape()
+
+    summary = json.loads(result)
+    assert summary["unique_locations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_scrape_empty_page():
+    scraper = SecondHarvestClarkChampaignLoganOhScraper()
+
+    async def fake_fetch(client):
+        return "<html><body><p>nothing here</p></body></html>"
+
+    with patch.object(scraper, "fetch_html", side_effect=fake_fetch):
+        with patch.object(scraper, "submit_to_queue", return_value="job_xyz"):
             result = await scraper.scrape()
 
     summary = json.loads(result)
