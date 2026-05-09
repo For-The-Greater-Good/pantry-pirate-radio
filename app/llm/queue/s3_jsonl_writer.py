@@ -133,7 +133,7 @@ class S3JsonlWriter:
     def __enter__(self) -> "S3JsonlWriter":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, exc_type, exc, _tb) -> None:
         if exc_type is not None:
             self.abort()
         else:
