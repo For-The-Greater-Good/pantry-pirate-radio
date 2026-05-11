@@ -60,6 +60,15 @@ bs4 = "^0.0.2"
 playwright = "^1.51.0"
 marshmallow = "^3.26.0"
 pyjwt = "^2.12.0"
+# Pinned directly (not just transitive) to force >=46.0.7 in the
+# lockfile, fixing CVE-2026-39892 (buffer overflow in non-PEM key
+# handling). 46.0.6 and earlier 45.x/46.x are vulnerable.
+cryptography = ">=46.0.7"
+# Pinned directly to fix GHSA-qccp-gfcp-xxvc and GHSA-mf9v-mfxr-j63j;
+# both are fixed in urllib3 2.7.0. (urllib3 is a transitive of
+# requests/botocore — without a direct pin, poetry may leave the
+# lockfile at the earlier vulnerable patch.)
+urllib3 = ">=2.7.0"
 xlrd = "^2.0.1"
 starlette = ">=0.49.1"
 mangum = ">=0.17.0"
