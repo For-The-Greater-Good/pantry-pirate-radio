@@ -121,6 +121,23 @@ CSV_COLUMNS = [
 
 GOOGLE_MY_MAPS_LAYER_LIMIT = 10_000
 
+# Known US-centroid coordinates that some geocoders return when they cannot
+# resolve a real address. Any location landing within ~22km (0.2 deg) of one
+# of these points has bogus coords and is dropped from the map export — the
+# DB row still exists, it just shouldn't be visualized.
+GEOCODER_FALLBACK_ZONES = [
+    (39.82, -98.58),  # Lebanon, KS — "geographic center of the contiguous US" stake
+    (39.50, -98.35),  # Census-cited center
+]
+FALLBACK_RADIUS_DEG = 0.2
+
+
+def is_geocoder_fallback(lat: float, lng: float) -> bool:
+    for clat, clng in GEOCODER_FALLBACK_ZONES:
+        if abs(lat - clat) < FALLBACK_RADIUS_DEG and abs(lng - clng) < FALLBACK_RADIUS_DEG:
+            return True
+    return False
+
 
 def get_connection_string() -> str:
     db_url = os.getenv("DATABASE_URL")
@@ -395,8 +412,17 @@ def main() -> int:
     scraper_counter: Counter[str] = Counter()
     cat_counter: Counter[str] = Counter()
     food_bank_counter: Counter[str] = Counter()
+    fallback_dropped = 0
+    fallback_dropped_by_state: Counter[str] = Counter()
 
     for r in db_rows:
+        lat = float(r["lat"])
+        lng = float(r["lng"])
+        if is_geocoder_fallback(lat, lng):
+            fallback_dropped += 1
+            fallback_dropped_by_state[r.get("state") or "(blank)"] += 1
+            continue
+
         scraper_ids = list(r.get("scraper_ids") or [])
         for s in scraper_ids:
             scraper_counter[s] += 1
@@ -415,8 +441,8 @@ def main() -> int:
 
         out_row = {
             "name": r["name"] or "",
-            "latitude": float(r["lat"]),
-            "longitude": float(r["lng"]),
+            "latitude": lat,
+            "longitude": lng,
             "category": category,
             "address": format_address(r),
             "city": r.get("city") or "",
@@ -467,6 +493,7 @@ def main() -> int:
             "fa": cat_counter.get("fa", 0),
             "aggregator": cat_counter.get("aggregator", 0),
         },
+        "geocoder_fallback_dropped": fallback_dropped,
         "food_banks": food_banks,
         "filters": {
             "state": args.state.upper() if args.state else None,
@@ -493,6 +520,9 @@ def main() -> int:
     print(f"Total canonical locations with valid coords: {total}")
     print(f"  Feeding America: {cat_counter.get('fa', 0)}")
     print(f"  Aggregator:      {cat_counter.get('aggregator', 0)}")
+    print(f"  Dropped (geocoder fallback near US centroid): {fallback_dropped}")
+    if fallback_dropped:
+        print(f"    by state: {dict(fallback_dropped_by_state.most_common())}")
     print(f"  Output CSV:      {csv_path}")
     if args.state:
         print(f"Filter: state={args.state.upper()}")
