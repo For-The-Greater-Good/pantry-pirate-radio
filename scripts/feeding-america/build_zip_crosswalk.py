@@ -12,7 +12,7 @@ are appended to data/.crosswalk_failed_zips.txt for follow-up.
 
 Usage (run inside the app container):
     ./bouy exec app python scripts/feeding-america/build_zip_crosswalk.py
-    ./bouy exec app python scripts/feeding-america/build_zip_crosswalk.py --rate-limit 0.5
+    ./bouy exec app python scripts/feeding-america/build_zip_crosswalk.py --concurrency 30
 
 The ZCTA input list comes from the US Census Gazetteer; if it's missing
 the script prints instructions on how to source it.
@@ -21,6 +21,7 @@ the script prints instructions on how to source it.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 import sys
 import time
@@ -36,7 +37,7 @@ FAILED_PATH = DATA_DIR / ".crosswalk_failed_zips.txt"
 HEADER = ["zip", "fa_org_id", "fa_org_name"]
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 2.0
-PROGRESS_EVERY = 100
+PROGRESS_EVERY = 500
 
 
 ZCTA_INSTRUCTIONS = f"""\
@@ -95,12 +96,14 @@ def parse_organizations(zip_code: str, payload: dict) -> list[tuple[str, int, st
     return rows
 
 
-def fetch_zip(client: httpx.Client, zip_code: str) -> list[tuple[str, int, str]]:
+async def fetch_zip_async(
+    client: httpx.AsyncClient, zip_code: str
+) -> list[tuple[str, int, str]]:
     """Fetch one ZIP with bounded retries on network/5xx errors."""
     last_exc: Exception | None = None
     for attempt in range(MAX_ATTEMPTS):
         try:
-            response = client.get(API_URL, params={"zip": zip_code})
+            response = await client.get(API_URL, params={"zip": zip_code})
             if response.status_code >= 500:
                 raise httpx.HTTPStatusError(
                     f"server error {response.status_code}",
@@ -112,17 +115,96 @@ def fetch_zip(client: httpx.Client, zip_code: str) -> list[tuple[str, int, str]]
         except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
             last_exc = exc
             if attempt + 1 < MAX_ATTEMPTS:
-                time.sleep(BACKOFF_BASE_SECONDS * (2**attempt))
+                await asyncio.sleep(BACKOFF_BASE_SECONDS * (2**attempt))
     raise RuntimeError(f"failed to fetch zip {zip_code}: {last_exc}")
+
+
+async def run(todo: list[str], total_zips: int, concurrency: int) -> tuple[int, int]:
+    """Drive the fetch loop concurrently. Returns (rows_written, failures)."""
+    sem = asyncio.Semaphore(concurrency)
+    csv_lock = asyncio.Lock()
+    rows_written = 0
+    failures = 0
+    completed = 0
+    start = time.monotonic()
+
+    limits = httpx.Limits(
+        max_connections=concurrency, max_keepalive_connections=concurrency
+    )
+    async with httpx.AsyncClient(timeout=30.0, limits=limits) as client:
+
+        async def process(zip_code: str) -> None:
+            nonlocal rows_written, failures, completed
+            async with sem:
+                try:
+                    rows = await fetch_zip_async(client, zip_code)
+                except RuntimeError as exc:
+                    async with csv_lock:
+                        with FAILED_PATH.open("a") as failed_f:
+                            failed_f.write(f"{zip_code}\n")
+                        failures += 1
+                        completed += 1
+                        _maybe_log_progress(
+                            completed,
+                            total_zips,
+                            rows_written,
+                            failures,
+                            start,
+                            exc=exc,
+                            zip_code=zip_code,
+                        )
+                    return
+
+                async with csv_lock:
+                    if rows:
+                        with CSV_PATH.open("a", newline="") as csv_f:
+                            writer = csv.writer(csv_f)
+                            for row in rows:
+                                writer.writerow(row)
+                        rows_written += len(rows)
+                    completed += 1
+                    _maybe_log_progress(
+                        completed, total_zips, rows_written, failures, start
+                    )
+
+        await asyncio.gather(*(process(z) for z in todo))
+
+    return rows_written, failures
+
+
+def _maybe_log_progress(
+    completed: int,
+    total: int,
+    rows_written: int,
+    failures: int,
+    start: float,
+    *,
+    exc: Exception | None = None,
+    zip_code: str | None = None,
+) -> None:
+    """Print progress on a cadence; always print failures."""
+    if exc is not None and zip_code is not None:
+        print(f"[{completed}/{total}] {zip_code} FAILED: {exc}", file=sys.stderr)
+        return
+    if completed % PROGRESS_EVERY != 0:
+        return
+    elapsed = time.monotonic() - start
+    rate = completed / elapsed if elapsed > 0 else 0
+    eta_min = ((total - completed) / rate / 60) if rate > 0 else 0
+    print(
+        f"[{completed}/{total}] rows: {rows_written}, failed: {failures}, "
+        f"rate: {rate:.1f}/s, ETA: {eta_min:.1f}min",
+        file=sys.stderr,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build FA ZIP crosswalk CSV.")
     parser.add_argument(
-        "--rate-limit",
-        type=float,
-        default=1.0,
-        help="seconds between requests (default 1.0 ~= 9 hours total)",
+        "--concurrency",
+        type=int,
+        default=20,
+        help="number of concurrent in-flight requests (default 20)",
     )
     args = parser.parse_args(argv)
 
@@ -131,53 +213,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     ensure_csv_header(CSV_PATH)
-    completed = load_completed_zips(CSV_PATH)
+    completed_set = load_completed_zips(CSV_PATH)
 
     zips = [z.strip() for z in ZCTA_PATH.read_text().splitlines() if z.strip()]
-    todo = [z for z in zips if z not in completed]
+    todo = [z for z in zips if z not in completed_set]
     print(
-        f"resuming with {len(completed)} ZIPs already in CSV; "
-        f"{len(todo)} of {len(zips)} remaining",
+        f"resuming with {len(completed_set)} ZIPs already in CSV; "
+        f"{len(todo)} of {len(zips)} remaining; concurrency={args.concurrency}",
         file=sys.stderr,
     )
 
-    rows_written = 0
-    failures = 0
-    start = time.monotonic()
-
-    with httpx.Client(timeout=30.0) as client:
-        for i, zip_code in enumerate(todo, 1):
-            try:
-                rows = fetch_zip(client, zip_code)
-            except RuntimeError as exc:
-                failures += 1
-                with FAILED_PATH.open("a") as failed_f:
-                    failed_f.write(f"{zip_code}\n")
-                print(f"[{i}/{len(todo)}] {zip_code} FAILED: {exc}", file=sys.stderr)
-                if args.rate_limit > 0:
-                    time.sleep(args.rate_limit)
-                continue
-
-            if rows:
-                with CSV_PATH.open("a", newline="") as csv_f:
-                    writer = csv.writer(csv_f)
-                    for row in rows:
-                        writer.writerow(row)
-                rows_written += len(rows)
-
-            if i % PROGRESS_EVERY == 0:
-                elapsed = time.monotonic() - start
-                rate = i / elapsed if elapsed > 0 else 0
-                eta_min = ((len(todo) - i) / rate / 60) if rate > 0 else 0
-                print(
-                    f"[{i}/{len(todo)}] {zip_code} -> {len(rows)} orgs "
-                    f"(written: {rows_written}, failed: {failures}, "
-                    f"rate: {rate:.2f}/s, ETA: {eta_min:.0f}min)",
-                    file=sys.stderr,
-                )
-
-            if args.rate_limit > 0:
-                time.sleep(args.rate_limit)
+    rows_written, failures = asyncio.run(run(todo, len(todo), args.concurrency))
 
     print(
         f"DONE. processed: {len(todo) - failures}, failed: {failures}, "
