@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PPR Data-Quality Map</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&family=Noto+Serif:wght@400;700&display=swap" />
+<link rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<link rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+<style>
+  :root {
+    --plentiful-purple-100: #A990DB;
+    --plentiful-purple-200: #9272D1;
+    --plentiful-purple-300: #7B53C8;
+    --plentiful-green-100:  #00CD96;
+    --plentiful-green-200:  #008763;
+    --plentiful-white-100:  #FFFFFF;
+    --plentiful-white-200:  #F7F7F7;
+    --plentiful-white-300:  #EFEFEF;
+    --plentiful-black-100:  #0F0F0F;
+    --plentiful-black-200:  #696969;
+    --plentiful-black-300:  #DEDEDE;
+    --plentiful-orange-100: #FF8F00;
+    --plentiful-red-100:    #FF5B5B;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    font-family: "Noto Sans", system-ui, sans-serif;
+    color: var(--plentiful-black-100);
+    background: var(--plentiful-white-200);
+  }
+  header {
+    height: 64px; display: flex; align-items: center; gap: 24px;
+    padding: 0 24px; box-sizing: border-box;
+    background: var(--plentiful-purple-300); color: white;
+    box-shadow: 0 2px 6px rgba(15, 15, 15, 0.12);
+    position: relative; z-index: 1000;
+  }
+  header h1 {
+    font-family: "Noto Serif", Georgia, serif;
+    font-weight: 700; font-size: 20px; margin: 0;
+    letter-spacing: 0.2px;
+  }
+  header .subtitle {
+    font-size: 12px; opacity: 0.85; margin-left: -16px;
+  }
+  #legend {
+    display: flex; gap: 16px; align-items: center; margin-left: 12px;
+  }
+  .legend-item {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; padding: 6px 10px; border-radius: 16px;
+    background: rgba(255,255,255,0.14); cursor: pointer; user-select: none;
+    transition: opacity 0.15s, background 0.15s;
+  }
+  .legend-item:hover { background: rgba(255,255,255,0.22); }
+  .legend-item.disabled { opacity: 0.35; }
+  .legend-swatch {
+    width: 14px; height: 14px; border-radius: 50%; display: inline-block;
+    border: 2px solid white;
+  }
+  .swatch-fa  { background: var(--plentiful-purple-100); }
+  .swatch-agg { background: var(--plentiful-green-100); }
+  .swatch-dup { background: var(--plentiful-orange-100); }
+  .legend-count {
+    font-variant-numeric: tabular-nums; font-weight: 600; opacity: 0.95;
+  }
+  #status {
+    margin-left: auto; font-size: 13px; opacity: 0.9;
+    font-variant-numeric: tabular-nums;
+  }
+  #map { position: absolute; top: 64px; left: 0; right: 0; bottom: 0; }
+
+  /* Popup styling */
+  .leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(15, 15, 15, 0.18);
+  }
+  .leaflet-popup-content { margin: 12px 14px; min-width: 240px; }
+  .popup-title {
+    font-family: "Noto Serif", Georgia, serif;
+    font-weight: 700; font-size: 15px;
+    margin: 0 0 6px; color: var(--plentiful-black-100);
+    line-height: 1.25;
+  }
+  .popup-meta {
+    font-size: 12px; color: var(--plentiful-black-200);
+    margin: 3px 0; line-height: 1.45;
+  }
+  .popup-meta strong { color: var(--plentiful-black-100); font-weight: 600; }
+  .popup-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px; opacity: 0.5; margin-top: 8px; word-break: break-all;
+  }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10.5px; color: white; font-weight: 700; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .badge-fa  { background: var(--plentiful-purple-300); }
+  .badge-agg { background: var(--plentiful-green-200);  }
+  .badge-dup { background: var(--plentiful-orange-100); }
+  .dup-section { margin-top: 8px; }
+  .dup-section-head {
+    font-size: 10.5px; letter-spacing: 0.5px; text-transform: uppercase;
+    font-weight: 700; color: var(--plentiful-black-200); margin-bottom: 2px;
+  }
+  .dup-sep { height: 1px; background: var(--plentiful-white-300); margin: 8px 0 0; }
+  .missing   { color: var(--plentiful-orange-100); font-weight: 600; }
+  .confidence {
+    display: inline-block; padding: 1px 6px; border-radius: 6px;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .conf-high { background: rgba(0,135,99,0.12);  color: var(--plentiful-green-200); }
+  .conf-med  { background: rgba(255,143,0,0.12); color: var(--plentiful-orange-100); }
+  .conf-low  { background: rgba(255,91,91,0.12); color: var(--plentiful-red-100); }
+
+  /* Cluster bubbles per dominant category */
+  .marker-cluster.cluster-fa div  { background: rgba(123, 83, 200, 0.85); color: white; font-weight: 700; }
+  .marker-cluster.cluster-fa      { background: rgba(169, 144, 219, 0.45); }
+  .marker-cluster.cluster-agg div { background: rgba(0, 135, 99, 0.85); color: white; font-weight: 700; }
+  .marker-cluster.cluster-agg     { background: rgba(0, 205, 150, 0.45); }
+  .marker-cluster.cluster-mix div { background: rgba(255, 143, 0, 0.9); color: white; font-weight: 700; }
+  .marker-cluster.cluster-mix     { background: rgba(255, 143, 0, 0.35); }
+  .marker-cluster div { font-family: "Noto Sans", sans-serif; }
+
+  /* Loading overlay */
+  #boot {
+    position: absolute; inset: 64px 0 0 0; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(247,247,247,0.85); z-index: 999;
+    font-family: "Noto Serif", Georgia, serif; font-size: 16px;
+    color: var(--plentiful-black-200);
+  }
+  #boot.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pantry Pirate Radio</h1>
+  <span class="subtitle">Data-Quality Map</span>
+  <div id="legend">
+    <span class="legend-item" data-cat="fa">
+      <span class="legend-swatch swatch-fa"></span>
+      Feeding America <span class="legend-count" id="count-fa">—</span>
+    </span>
+    <span class="legend-item" data-cat="dup">
+      <span class="legend-swatch swatch-dup"></span>
+      Likely duplicate <span class="legend-count" id="count-dup">—</span>
+    </span>
+  </div>
+  <div id="status">Initializing…</div>
+</header>
+
+<div id="map"></div>
+<div id="boot">Loading map data…</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<script>
+"use strict";
+
+const PURPLE = "#7B53C8";
+const GREEN  = "#008763";
+
+const map = L.map("map", { preferCanvas: true, worldCopyJump: true })
+  .setView([39.5, -98.5], 4);
+
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: "abcd", maxZoom: 19,
+}).addTo(map);
+
+function dot(color) {
+  return L.divIcon({
+    className: "ppr-pin",
+    html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="5" fill="${color}" stroke="white" stroke-width="2"/></svg>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  });
+}
+const iconFa  = dot(PURPLE);
+const iconAgg = dot(GREEN);
+
+// Coord precision for the within-FA dup detector: 3 decimals = ~110m bucket.
+// Pairs of canonical locations within the same bucket are flagged as likely
+// unmerged duplicates (the reconciler should probably have merged them).
+const DUP_COORD_DECIMALS = 3;
+const ORANGE = "#FF8F00";
+const iconDup = dot(ORANGE);
+
+const cluster = L.markerClusterGroup({
+  chunkedLoading: true,
+  chunkInterval: 80,
+  chunkDelay: 20,
+  maxClusterRadius: 60,
+  showCoverageOnHover: false,
+  spiderfyOnMaxZoom: true,
+  disableClusteringAtZoom: 16,
+  iconCreateFunction(cluster) {
+    let nFa = 0, nDup = 0;
+    cluster.getAllChildMarkers().forEach(m => {
+      if      (m.__cat === "fa")  nFa++;
+      else if (m.__cat === "dup") nDup++;
+    });
+    const total = nFa + nDup;
+    const cssClass = nDup > 0 ? "cluster-mix" : "cluster-fa";
+    const size = total < 50 ? "small" : total < 500 ? "medium" : "large";
+    return L.divIcon({
+      html: `<div><span>${total.toLocaleString()}</span></div>`,
+      className: `marker-cluster ${cssClass} marker-cluster-${size}`,
+      iconSize: L.point(40, 40),
+    });
+  },
+});
+map.addLayer(cluster);
+
+// Two sets of markers, addressed by legend toggle.
+const markersByCat = { fa: [], dup: [] };
+const visibleCat = { fa: true, dup: true };
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+
+function confidenceClass(score) {
+  const n = parseInt(score, 10);
+  if (isNaN(n)) return "";
+  if (n >= 80) return "conf-high";
+  if (n >= 50) return "conf-med";
+  return "conf-low";
+}
+
+function rowBody(row, category) {
+  const badge = `<span class="badge badge-fa">Feeding America</span>`;
+  const missing = row.missing_fields
+    ? `<div class="popup-meta">Missing: <span class="missing">${esc(row.missing_fields)}</span></div>`
+    : `<div class="popup-meta">Missing: <em>none</em></div>`;
+  const submarine = row.submarine_status
+    ? `<div class="popup-meta"><strong>Submarine:</strong> ${esc(row.submarine_status)}</div>` : "";
+  const geo = row.geocoding_source
+    ? `<div class="popup-meta"><strong>Geocoder:</strong> ${esc(row.geocoding_source)}</div>` : "";
+  const confCls = confidenceClass(row.confidence_score);
+  const org = row.organization
+    ? `<div class="popup-meta"><strong>Operating org:</strong> ${esc(row.organization)}</div>` : "";
+  const faServiceArea = row.fa_food_banks
+    ? `<div class="popup-meta"><strong>FA service area:</strong> ${esc(row.fa_food_banks.split('|').join(', '))}</div>` : "";
+  return `
+    <div class="popup-title">${esc(row.name || "Unnamed")}</div>
+    <div class="popup-meta">${badge}</div>
+    ${org}
+    ${faServiceArea}
+    <div class="popup-meta">${esc(row.address || "")}</div>
+    <div class="popup-meta">
+      <strong>Confidence:</strong> <span class="confidence ${confCls}">${esc(row.confidence_score)}</span>
+      &nbsp;<strong>Sources:</strong> ${esc(row.source_count)}
+      &nbsp;<strong>Status:</strong> ${esc(row.validation_status)}
+      ${row.verified_by ? `&nbsp;<strong>By:</strong> ${esc(row.verified_by)}` : ""}
+    </div>
+    <div class="popup-meta"><strong>Scrapers:</strong> ${esc(row.scrapers || "")}</div>
+    ${missing}
+    ${geo}
+    ${submarine}
+    <div class="popup-id">${esc(row.location_id)}</div>
+  `;
+}
+
+function popupHtml(row, category) { return rowBody(row, category); }
+
+function dupPopupHtml(rows) {
+  const blocks = rows.map((r, i) =>
+    `<div class="dup-section"><div class="dup-section-head">Record ${i + 1}</div>${rowBody(r, "fa")}</div>`
+  );
+  const meters = Math.round(approxDistanceMeters(rows));
+  return `
+    <div class="popup-title">Likely duplicate (${rows.length} records, ~${meters}m apart)</div>
+    <div class="popup-meta">
+      <span class="badge badge-dup">Likely duplicate</span>
+      &nbsp;Separate canonical IDs at the same place — reconciler did not merge.
+    </div>
+    ${blocks.join('<div class="dup-sep"></div>')}
+  `;
+}
+
+function approxDistanceMeters(rows) {
+  // Crude greatest-spread of the coordinate cluster, in meters.
+  let maxD = 0;
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const a = rows[i], b = rows[j];
+      const dy = (parseFloat(a.latitude) - parseFloat(b.latitude)) * 111_111;
+      const dx = (parseFloat(a.longitude) - parseFloat(b.longitude)) * 111_111 *
+                 Math.cos(parseFloat(a.latitude) * Math.PI / 180);
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d > maxD) maxD = d;
+    }
+  }
+  return maxD;
+}
+
+function loadCsvRows(url, category) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      step(results) {
+        const r = results.data;
+        const lat = parseFloat(r.latitude);
+        const lng = parseFloat(r.longitude);
+        if (!isFinite(lat) || !isFinite(lng)) return;
+        r.__cat = category;
+        rows.push(r);
+      },
+      complete() { resolve(rows); },
+      error(err) { reject(err); },
+    });
+  });
+}
+
+function buildMarkers(rows) {
+  // Bucket every row by rounded coords. Any bucket with 2+ distinct canonical
+  // location_ids becomes a single dup marker (reconciler should have merged
+  // them but didn't). Singletons emit individual FA markers.
+  const factor = Math.pow(10, DUP_COORD_DECIMALS);
+  const buckets = new Map();
+  for (const r of rows) {
+    const lat = Math.round(parseFloat(r.latitude)  * factor) / factor;
+    const lng = Math.round(parseFloat(r.longitude) * factor) / factor;
+    const k = `${lat},${lng}`;
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(r);
+  }
+
+  const faMarkers = [], dupMarkers = [];
+  for (const [, group] of buckets) {
+    const distinctIds = new Set(group.map(r => r.location_id));
+    if (distinctIds.size >= 2) {
+      let latSum = 0, lngSum = 0;
+      for (const r of group) { latSum += parseFloat(r.latitude); lngSum += parseFloat(r.longitude); }
+      const lat = latSum / group.length, lng = lngSum / group.length;
+      const m = L.marker([lat, lng], { icon: iconDup });
+      m.bindPopup(() => dupPopupHtml(group), { maxWidth: 380 });
+      m.__cat = "dup";
+      dupMarkers.push(m);
+    } else {
+      for (const r of group) {
+        const m = L.marker([parseFloat(r.latitude), parseFloat(r.longitude)], { icon: iconFa });
+        m.bindPopup(() => popupHtml(r, "fa"), { maxWidth: 340 });
+        m.__cat = "fa";
+        faMarkers.push(m);
+      }
+    }
+  }
+  return { faMarkers, dupMarkers };
+}
+
+function applyVisibility() {
+  const wanted = [];
+  for (const cat of ["fa", "dup"]) {
+    if (visibleCat[cat]) wanted.push(...markersByCat[cat]);
+  }
+  cluster.clearLayers();
+  cluster.addLayers(wanted);
+}
+
+document.querySelectorAll(".legend-item").forEach(el => {
+  el.addEventListener("click", () => {
+    const cat = el.dataset.cat;
+    visibleCat[cat] = !visibleCat[cat];
+    el.classList.toggle("disabled", !visibleCat[cat]);
+    applyVisibility();
+  });
+});
+
+const statusEl = document.getElementById("status");
+const bootEl   = document.getElementById("boot");
+
+async function bootstrap() {
+  let manifest;
+  try {
+    const res = await fetch("data_quality_map_manifest.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`manifest ${res.status}`);
+    manifest = await res.json();
+  } catch (e) {
+    statusEl.textContent = "Cannot load manifest. Serve this folder over HTTP (e.g. python3 -m http.server in outputs/).";
+    bootEl.textContent = "Open this file via a local web server, not file://.";
+    console.error(e);
+    return;
+  }
+
+  // Support both new (single CSV) and legacy (fa_csv + aggregator_csv) manifests.
+  const csvName = manifest.csv || manifest.fa_csv;
+  const totalAdvertised = manifest.count
+    || (manifest.counts && (manifest.counts.fa + (manifest.counts.aggregator || 0)))
+    || 0;
+  statusEl.textContent = `Loading ${totalAdvertised.toLocaleString()} locations…`;
+
+  try {
+    const rows = await loadCsvRows(csvName, "fa");
+    statusEl.textContent = "Detecting duplicates…";
+
+    const { faMarkers, dupMarkers } = buildMarkers(rows);
+    markersByCat.fa  = faMarkers;
+    markersByCat.dup = dupMarkers;
+
+    document.getElementById("count-fa").textContent  = faMarkers.length.toLocaleString();
+    document.getElementById("count-dup").textContent = dupMarkers.length.toLocaleString();
+
+    applyVisibility();
+    const totalShown = faMarkers.length + dupMarkers.length;
+    statusEl.textContent = `${totalShown.toLocaleString()} pins · ${dupMarkers.length.toLocaleString()} dup clusters · ${manifest.generated.slice(0,10)}`;
+    bootEl.classList.add("hidden");
+  } catch (err) {
+    statusEl.textContent = "Failed to load CSV";
+    bootEl.textContent = "CSV load failed — check console.";
+    console.error(err);
+  }
+}
+
+bootstrap();
+</script>
+</body>
+</html>
