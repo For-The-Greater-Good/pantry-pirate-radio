@@ -139,6 +139,26 @@ def is_geocoder_fallback(lat: float, lng: float) -> bool:
     return False
 
 
+# NYC ZIPs in the feeding_america_zip_coverage table over-match because lots
+# of out-of-state pantries have malformed/bogus ZIPs that fall into NYC's range.
+# Until that's untangled upstream, drop NY + the two NYC food banks from the map.
+EXCLUDED_STATES: set[str] = {"NY"}
+EXCLUDED_FA_FOOD_BANKS: set[str] = {
+    "City Harvest",
+    "Food Bank For New York City",
+}
+
+
+def is_nyc_excluded(state: str | None, fa_food_banks: list[str] | None) -> bool:
+    if state and state.upper() in EXCLUDED_STATES:
+        return True
+    if fa_food_banks:
+        for fb in fa_food_banks:
+            if fb in EXCLUDED_FA_FOOD_BANKS:
+                return True
+    return False
+
+
 def get_connection_string() -> str:
     db_url = os.getenv("DATABASE_URL")
     if db_url and db_url.startswith("postgresql+psycopg2://"):
@@ -414,6 +434,8 @@ def main() -> int:
     food_bank_counter: Counter[str] = Counter()
     fallback_dropped = 0
     fallback_dropped_by_state: Counter[str] = Counter()
+    nyc_dropped = 0
+    nyc_dropped_reason: Counter[str] = Counter()
 
     for r in db_rows:
         lat = float(r["lat"])
@@ -423,6 +445,16 @@ def main() -> int:
             fallback_dropped_by_state[r.get("state") or "(blank)"] += 1
             continue
 
+        state = r.get("state")
+        fa_food_banks = list(r.get("fa_food_banks") or [])
+        if is_nyc_excluded(state, fa_food_banks):
+            nyc_dropped += 1
+            if state and state.upper() in EXCLUDED_STATES:
+                nyc_dropped_reason[f"state={state.upper()}"] += 1
+            else:
+                nyc_dropped_reason["fa_food_bank=NYC"] += 1
+            continue
+
         scraper_ids = list(r.get("scraper_ids") or [])
         for s in scraper_ids:
             scraper_counter[s] += 1
@@ -430,7 +462,7 @@ def main() -> int:
         category = classify(scraper_ids, allowed, blocklist)
         cat_counter[category] += 1
 
-        fa_food_banks = list(r.get("fa_food_banks") or [])
+        # fa_food_banks already pulled above for the NYC-exclusion check.
         for fb in fa_food_banks:
             food_bank_counter[fb] += 1
 
@@ -494,6 +526,7 @@ def main() -> int:
             "aggregator": cat_counter.get("aggregator", 0),
         },
         "geocoder_fallback_dropped": fallback_dropped,
+        "nyc_dropped": nyc_dropped,
         "food_banks": food_banks,
         "filters": {
             "state": args.state.upper() if args.state else None,
@@ -523,6 +556,9 @@ def main() -> int:
     print(f"  Dropped (geocoder fallback near US centroid): {fallback_dropped}")
     if fallback_dropped:
         print(f"    by state: {dict(fallback_dropped_by_state.most_common())}")
+    print(f"  Dropped (NYC ZIP-coverage carve-out): {nyc_dropped}")
+    if nyc_dropped:
+        print(f"    reason: {dict(nyc_dropped_reason.most_common())}")
     print(f"  Output CSV:      {csv_path}")
     if args.state:
         print(f"Filter: state={args.state.upper()}")
