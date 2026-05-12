@@ -624,6 +624,11 @@ When services are running, the following endpoints are available:
 - **Datasette Viewer**: http://localhost:8001 (in production mode only)
 - **RQ Dashboard**: http://localhost:9181 (job queue monitoring)
 
+**PTF partner endpoints** (public, no auth, Plentiful /map/locations wire shape):
+- `GET /api/v1/partners/ptf/locations` — list with `limit`/`offset`, `lat1/lng1/lat2/lng2` bbox, `q` substring
+- `GET /api/v1/partners/ptf/locations/{location_id}` — single location detail
+- Both responses include a `feeding_america_food_bank` block (id + name, plus richer fields when in catalogue) when the location's ZIP matches `feeding_america_zip_coverage`; `null` otherwise.
+
 Datasette provides:
 - SQL interface to explore published HAARRRvest data
 - Read-only access to the SQLite database
