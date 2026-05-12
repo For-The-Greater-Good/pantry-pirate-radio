@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.partners.ptf.locations_router import locations_router
 from app.api.v1.partners.ptf.models import PtfSyncResponse
 from app.api.v1.partners.ptf.services import PtfSyncService
 from app.core.db import get_session
@@ -15,6 +16,7 @@ from app.core.db import get_session
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/partners/ptf", tags=["partners"])
+router.include_router(locations_router)
 
 
 @router.get(

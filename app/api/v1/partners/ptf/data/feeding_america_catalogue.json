@@ -1,0 +1,1586 @@
+{
+  "1": {
+    "find_food_url": "https://www.rrfb.org/find-help/find-food/",
+    "id": 1,
+    "is_affiliate": false,
+    "name": "Roadrunner Food Bank",
+    "state": "NM",
+    "url_slug": "www-rrfb-org"
+  },
+  "10": {
+    "find_food_url": "https://www.foodbanknyc.org/get-help/",
+    "id": 10,
+    "is_affiliate": false,
+    "name": "Food Bank For New York City",
+    "state": "NY",
+    "url_slug": "www-foodbanknyc-org"
+  },
+  "100": {
+    "find_food_url": "https://www.akroncantonfoodbank.org/need-food",
+    "id": 100,
+    "is_affiliate": false,
+    "name": "Akron-Canton Regional Foodbank",
+    "state": "OH",
+    "url_slug": "www-akroncantonfoodbank-org"
+  },
+  "102": {
+    "find_food_url": "https://curehunger.org/get-help/",
+    "id": 102,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of East Central Indiana",
+    "state": "IN",
+    "url_slug": "curehunger-org"
+  },
+  "103": {
+    "find_food_url": "https://www.mannafoodbank.org/where-to-get-help/",
+    "id": 103,
+    "is_affiliate": false,
+    "name": "MANNA FoodBank",
+    "state": "NC",
+    "url_slug": "www-mannafoodbank-org"
+  },
+  "105": {
+    "find_food_url": "https://smfoodbank.org/getfood/",
+    "id": 105,
+    "is_affiliate": false,
+    "name": "South Michigan Food Bank",
+    "state": "MI",
+    "url_slug": "smfoodbank-org"
+  },
+  "106": {
+    "find_food_url": "https://shfblv.org/find-food/",
+    "id": 106,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Lehigh Valley and NE Pennsylvania",
+    "state": "PA",
+    "url_slug": "shfblv-org"
+  },
+  "109": {
+    "find_food_url": "https://idahofoodbank.org/locations/",
+    "id": 109,
+    "is_affiliate": false,
+    "name": "The Idaho Foodbank",
+    "state": "ID",
+    "url_slug": "idahofoodbank-org"
+  },
+  "11": {
+    "find_food_url": "https://www.feedmorewny.org/programs-services/find-food/pantry-locator/",
+    "id": 11,
+    "is_affiliate": false,
+    "name": "FeedMore Western New York, Inc.",
+    "state": "NY",
+    "url_slug": "www-feedmorewny-org"
+  },
+  "110": {
+    "find_food_url": "https://communityfoodshare.org/get-food/",
+    "id": 110,
+    "is_affiliate": false,
+    "name": "Community Food Share",
+    "state": "CO",
+    "url_slug": "communityfoodshare-org"
+  },
+  "112": {
+    "find_food_url": "https://solvehungertoday.org/get-help/where-to-get-food/",
+    "id": 112,
+    "is_affiliate": false,
+    "name": "Northern Illinois Food Bank",
+    "state": "IL",
+    "url_slug": "solvehungertoday-org"
+  },
+  "113": {
+    "find_food_url": "https://www.findfoodbank.org/find-food/",
+    "id": 113,
+    "is_affiliate": false,
+    "name": "FIND Food Bank",
+    "state": "CA",
+    "url_slug": "www-findfoodbank-org"
+  },
+  "114": {
+    "find_food_url": "https://www.hacap.org/findfood",
+    "id": 114,
+    "is_affiliate": false,
+    "name": "HACAP Food Reservoir",
+    "state": "IA",
+    "url_slug": "www-hacap-org"
+  },
+  "116": {
+    "find_food_url": "https://sharefoodbringhope.org/get-help",
+    "id": 116,
+    "is_affiliate": false,
+    "name": "The Food Bank for Central & Northeast Missouri",
+    "state": "MO",
+    "url_slug": "sharefoodbringhope-org"
+  },
+  "117": {
+    "find_food_url": "https://feedingthevalley.org/locate-a-food-pantry-near-you/",
+    "id": 117,
+    "is_affiliate": false,
+    "name": "Feeding the Valley Food Bank",
+    "state": "GA",
+    "url_slug": "feedingthevalley-org"
+  },
+  "119": {
+    "find_food_url": "https://www.hungersolutions.org/find-help/",
+    "id": 119,
+    "is_affiliate": false,
+    "name": "North Country Food Bank, Inc.",
+    "state": "MN",
+    "url_slug": "www-northcountryfoodbank-org"
+  },
+  "12": {
+    "find_food_url": "https://foodbanksj.org/zip-code-locator/",
+    "id": 12,
+    "is_affiliate": false,
+    "name": "Food Bank of South Jersey",
+    "state": "NJ",
+    "url_slug": "foodbanksj-org"
+  },
+  "121": {
+    "find_food_url": "https://thefoodbankdayton.org/needfood/",
+    "id": 121,
+    "is_affiliate": false,
+    "name": "The Foodbank, Inc.",
+    "state": "OH",
+    "url_slug": "thefoodbankdayton-org"
+  },
+  "123": {
+    "find_food_url": "https://afoodbank.org/agency-tools/agency-locator/",
+    "id": 123,
+    "is_affiliate": false,
+    "name": "Food Bank of the Albemarle",
+    "state": "NC",
+    "url_slug": "afoodbank-org"
+  },
+  "124": {
+    "find_food_url": "https://feedingamericaky.org/find-help/",
+    "id": 124,
+    "is_affiliate": false,
+    "name": "Feeding America, Kentucky's Heartland",
+    "state": "KY",
+    "url_slug": "feedingamericaky-org"
+  },
+  "126": {
+    "find_food_url": "https://tristatefoodbank.org/find-help/pantries-soup-kitchens#googtrans(en|en)",
+    "id": 126,
+    "is_affiliate": false,
+    "name": "Tri-State Food Bank, Inc.",
+    "state": "IN",
+    "url_slug": "www-tristatefoodbank-org"
+  },
+  "129": {
+    "find_food_url": "https://www.sharedharvest.org/get-help",
+    "id": 129,
+    "is_affiliate": false,
+    "name": "Shared Harvest Foodbank",
+    "state": "OH",
+    "url_slug": "www-sharedharvest-org"
+  },
+  "133": {
+    "find_food_url": "https://mercercountyfoodbank.org/gethelp/",
+    "id": 133,
+    "is_affiliate": false,
+    "name": "Mercer County Food Bank",
+    "state": "PA",
+    "url_slug": "mercercountyfoodbank-org"
+  },
+  "134": {
+    "find_food_url": "https://hungercantwait.org/find-help/find-food/",
+    "id": 134,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Southeast North Carolina",
+    "state": "NC",
+    "url_slug": "hungercantwait-org"
+  },
+  "135": {
+    "find_food_url": "https://www.communityharvest.org/get-help/",
+    "id": 135,
+    "is_affiliate": false,
+    "name": "Community Harvest Food Bank of Northeast Indiana, Inc.",
+    "state": "IN",
+    "url_slug": "www-communityharvest-org"
+  },
+  "136": {
+    "find_food_url": "https://fredfood.org/pantry_locator_map",
+    "id": 136,
+    "is_affiliate": false,
+    "name": "Fredericksburg Regional Food Bank",
+    "state": "VA",
+    "url_slug": "www-fredfood-org"
+  },
+  "137": {
+    "find_food_url": "https://foodbanklarimer.org/food-finder-map/",
+    "id": 137,
+    "is_affiliate": false,
+    "name": "Food Bank for Larimer County",
+    "state": "CO",
+    "url_slug": "foodbanklarimer-org"
+  },
+  "138": {
+    "find_food_url": "https://www.rvrfoodbank.org/get-help/pantry-locator/",
+    "id": 138,
+    "is_affiliate": false,
+    "name": "River Valley Regional Food Bank",
+    "state": "AR",
+    "url_slug": "www-rvrfoodbank-org"
+  },
+  "139": {
+    "find_food_url": "https://foodbanknwi.org/food-assistance",
+    "id": 139,
+    "is_affiliate": false,
+    "name": "Food Bank of Northwest Indiana",
+    "state": "IN",
+    "url_slug": "foodbanknwi-org"
+  },
+  "14": {
+    "find_food_url": "https://www.secondharvestmetrolina.org/need-food",
+    "id": 14,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Metrolina",
+    "state": "NC",
+    "url_slug": "www-secondharvestmetrolina-org"
+  },
+  "141": {
+    "find_food_url": "https://weldfoodbank.org/i-need-assistance/",
+    "id": 141,
+    "is_affiliate": false,
+    "name": "Weld Food Bank",
+    "state": "CO",
+    "url_slug": "weldfoodbank-org"
+  },
+  "145": {
+    "find_food_url": "https://facinghunger.org/get-help/",
+    "id": 145,
+    "is_affiliate": false,
+    "name": "Facing Hunger Foodbank",
+    "state": "WV",
+    "url_slug": "www-facinghunger-org"
+  },
+  "146": {
+    "find_food_url": "https://www.foodbanknorthal.org/findfood/",
+    "id": 146,
+    "is_affiliate": false,
+    "name": "Food Bank of North Alabama",
+    "state": "AL",
+    "url_slug": "www-foodbanknorthal-org"
+  },
+  "149": {
+    "find_food_url": "https://www.msfoodnet.org/help/",
+    "id": 149,
+    "is_affiliate": false,
+    "name": "Mississippi Food Network",
+    "state": "MS",
+    "url_slug": "www-msfoodnet-org"
+  },
+  "15": {
+    "find_food_url": "https://chattfoodbank.org/hungry",
+    "id": 15,
+    "is_affiliate": false,
+    "name": "Chattanooga Area Food Bank",
+    "state": "TN",
+    "url_slug": "chattfoodbank-org"
+  },
+  "151": {
+    "find_food_url": "https://foodbankofnea.org/find-food",
+    "id": 151,
+    "is_affiliate": false,
+    "name": "Food Bank of Northeast Arkansas",
+    "state": "AR",
+    "url_slug": "foodbankofnea-org"
+  },
+  "152": {
+    "find_food_url": "https://lowcountryfoodbank.org/find-food/",
+    "id": 152,
+    "is_affiliate": false,
+    "name": "Lowcountry Food Bank",
+    "state": "SC",
+    "url_slug": "www-lowcountryfoodbank-org"
+  },
+  "154": {
+    "find_food_url": "https://greaterlansingfoodbank.org/get-help",
+    "id": 154,
+    "is_affiliate": false,
+    "name": "Greater Lansing Food Bank",
+    "state": "MI",
+    "url_slug": "greaterlansingfoodbank-org"
+  },
+  "155": {
+    "find_food_url": "https://www.threesquare.org/get-help",
+    "id": 155,
+    "is_affiliate": false,
+    "name": "Three Square Food Bank",
+    "state": "NV",
+    "url_slug": "www-threesquare-org"
+  },
+  "156": {
+    "find_food_url": "https://godspantry.org/help/",
+    "id": 156,
+    "is_affiliate": false,
+    "name": "God's Pantry Food Bank, Inc.",
+    "state": "KY",
+    "url_slug": "godspantry-org"
+  },
+  "157": {
+    "find_food_url": "https://www.lincolnfoodbank.org/get-food/food-distribution-schedule/",
+    "id": 157,
+    "is_affiliate": false,
+    "name": "Food Bank of Lincoln",
+    "state": "NE",
+    "url_slug": "www-lincolnfoodbank-org"
+  },
+  "159": {
+    "find_food_url": "https://mgcfb.org/find-healthy-food/",
+    "id": 159,
+    "is_affiliate": false,
+    "name": "Middle Georgia Community Food Bank",
+    "state": "GA",
+    "url_slug": "mgcfb-org"
+  },
+  "16": {
+    "find_food_url": "https://www.chicagosfoodbank.org/find-food/",
+    "id": 16,
+    "is_affiliate": false,
+    "name": "Greater Chicago Food Depository",
+    "state": "IL",
+    "url_slug": "www-chicagosfoodbank-org"
+  },
+  "160": {
+    "find_food_url": "https://www.secondharvestsw.org/find-food-near-you/",
+    "id": 160,
+    "is_affiliate": false,
+    "name": "Second Harvest Foodbank of Southern Wisconsin",
+    "state": "WI",
+    "url_slug": "www-secondharvestsw-org"
+  },
+  "161": {
+    "find_food_url": "https://nhfoodbank.org/need-food/",
+    "id": 161,
+    "is_affiliate": false,
+    "name": "New Hampshire Food Bank",
+    "state": "NH",
+    "url_slug": "nhfoodbank-org"
+  },
+  "164": {
+    "find_food_url": "https://www.unitedfoodbank.org/get-help/find-food/",
+    "id": 164,
+    "is_affiliate": false,
+    "name": "United Food Bank",
+    "state": "AZ",
+    "url_slug": "www-unitedfoodbank-org"
+  },
+  "167": {
+    "find_food_url": "https://www.freshtrak.com/",
+    "id": 167,
+    "is_affiliate": false,
+    "name": "SE Ohio Foodbank",
+    "state": "OH",
+    "url_slug": "hapcap-org-seofb"
+  },
+  "168": {
+    "find_food_url": "https://hrfoodbank.org/need-food/",
+    "id": 168,
+    "is_affiliate": false,
+    "name": "Virginia Peninsula Foodbank",
+    "state": "VA",
+    "url_slug": "hrfoodbank-org"
+  },
+  "169": {
+    "find_food_url": "https://www.accfb.org/get-food/",
+    "id": 169,
+    "is_affiliate": false,
+    "name": "Alameda County Community Food Bank",
+    "state": "CA",
+    "url_slug": "www-accfb-org"
+  },
+  "17": {
+    "find_food_url": "https://freestorefoodbank.org/provide-food/",
+    "id": 17,
+    "is_affiliate": false,
+    "name": "Freestore Foodbank",
+    "state": "OH",
+    "url_slug": "freestorefoodbank-org"
+  },
+  "170": {
+    "find_food_url": "https://wtxfoodbank.org/help/",
+    "id": 170,
+    "is_affiliate": false,
+    "name": "West Texas Food Bank",
+    "state": "TX",
+    "url_slug": "wtxfoodbank-org"
+  },
+  "175": {
+    "find_food_url": "https://helpingharvest.org/food-assistance/",
+    "id": 175,
+    "is_affiliate": false,
+    "name": "Helping Harvest",
+    "state": "PA",
+    "url_slug": "helpingharvest-org"
+  },
+  "177": {
+    "find_food_url": "https://www.helpingfeedpeople.org/programs/",
+    "id": 177,
+    "is_affiliate": false,
+    "name": "Channel One Regional Food Bank",
+    "state": "MN",
+    "url_slug": "www-helpingfeedpeople-org"
+  },
+  "178": {
+    "find_food_url": "https://feedingthefoothills.org/get-food/",
+    "id": 178,
+    "is_affiliate": false,
+    "name": "Feeding the Foothills",
+    "state": "CA",
+    "url_slug": "feedingthefoothills-org"
+  },
+  "18": {
+    "find_food_url": "https://www.greaterclevelandfoodbank.org/get-help/map",
+    "id": 18,
+    "is_affiliate": false,
+    "name": "Greater Cleveland Food Bank",
+    "state": "OH",
+    "url_slug": "www-greaterclevelandfoodbank-org"
+  },
+  "184": {
+    "find_food_url": "https://foodbanksbc.org/get-help/",
+    "id": 184,
+    "is_affiliate": false,
+    "name": "Foodbank of Santa Barbara County",
+    "state": "CA",
+    "url_slug": "foodbanksbc-org"
+  },
+  "185": {
+    "find_food_url": "https://getfood.refb.org/",
+    "id": 185,
+    "is_affiliate": false,
+    "name": "Redwood Empire Food Bank",
+    "state": "CA",
+    "url_slug": "refb-org"
+  },
+  "186": {
+    "find_food_url": "https://foodbank.org/find-food/",
+    "id": 186,
+    "is_affiliate": false,
+    "name": "Worcester County Food Bank",
+    "state": "MA",
+    "url_slug": "foodbank-org"
+  },
+  "187": {
+    "find_food_url": "https://www.semofoodbank.org/pantry-locator/",
+    "id": 187,
+    "is_affiliate": false,
+    "name": "Southeast Missouri Food Bank",
+    "state": "MO",
+    "url_slug": "www-semofoodbank-org"
+  },
+  "188": {
+    "find_food_url": "https://feedingsouthdakota.org/agencies",
+    "id": 188,
+    "is_affiliate": false,
+    "name": "Feeding South Dakota",
+    "state": "SD",
+    "url_slug": "www-feedingsouthdakota-org"
+  },
+  "189": {
+    "find_food_url": "https://www.vtfoodbank.org/agency-locator",
+    "id": 189,
+    "is_affiliate": false,
+    "name": "Vermont Foodbank",
+    "state": "VT",
+    "url_slug": "www-vtfoodbank-org"
+  },
+  "19": {
+    "find_food_url": "https://careandshare.org/findfood/",
+    "id": 19,
+    "is_affiliate": false,
+    "name": "Care and Share Food Bank",
+    "state": "CO",
+    "url_slug": "careandshare-org"
+  },
+  "191": {
+    "find_food_url": "https://www.theshfb.org/findfood",
+    "id": 191,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Clark, Champaign & Logan Counties",
+    "state": "OH",
+    "url_slug": "www-theshfb-org"
+  },
+  "192": {
+    "find_food_url": "https://ozarksfoodharvest.org/need-help/",
+    "id": 192,
+    "is_affiliate": false,
+    "name": "Ozarks Food Harvest",
+    "state": "MO",
+    "url_slug": "ozarksfoodharvest-org"
+  },
+  "193": {
+    "find_food_url": "https://www.shcfb.org/find-food",
+    "id": 193,
+    "is_affiliate": false,
+    "name": "Second Harvest Community Food Bank",
+    "state": "MO",
+    "url_slug": "www-shcfb-org"
+  },
+  "195": {
+    "find_food_url": "https://fightinghunger.org/help",
+    "id": 195,
+    "is_affiliate": false,
+    "name": "Second Harvest of the Big Bend",
+    "state": "FL",
+    "url_slug": "fightinghunger-org"
+  },
+  "196": {
+    "find_food_url": "https://ccthin.org/emergency-food-assistance",
+    "id": 196,
+    "is_affiliate": false,
+    "name": "Terre Haute Catholic Charities Foodbank",
+    "state": "IN",
+    "url_slug": "terre-haute-catholic-charities-foodbank"
+  },
+  "197": {
+    "find_food_url": "https://www.toledofoodbank.org/get-help/",
+    "id": 197,
+    "is_affiliate": false,
+    "name": "Toledo Northwestern Ohio Food Bank",
+    "state": "OH",
+    "url_slug": "www-toledofoodbank-org"
+  },
+  "199": {
+    "find_food_url": "https://www.localfoodbank.org/food-pantry-referrals.html",
+    "id": 199,
+    "is_affiliate": false,
+    "name": "Second Harvest of the Greater Valley",
+    "state": "CA",
+    "url_slug": "www-localfoodbank-org"
+  },
+  "2": {
+    "find_food_url": "https://www.hpfb.org/get-help/#find_food",
+    "id": 2,
+    "is_affiliate": false,
+    "name": "High Plains Food Bank",
+    "state": "TX",
+    "url_slug": "www-hpfb-org"
+  },
+  "20": {
+    "find_food_url": "https://www.harvesthope.org/get-help",
+    "id": 20,
+    "is_affiliate": false,
+    "name": "Harvest Hope Food Bank",
+    "state": "SC",
+    "url_slug": "www-harvesthope-org"
+  },
+  "201": {
+    "find_food_url": "https://www.eifoodbank.org/help/",
+    "id": 201,
+    "is_affiliate": false,
+    "name": "Eastern Illinois Foodbank",
+    "state": "IL",
+    "url_slug": "www-eifoodbank-org"
+  },
+  "202": {
+    "find_food_url": "https://link.edgepilot.com/s/ae5680f9/BIH5sh9ffEi9-MaCRxsUyw?u=https://www.secondharvestfoodbank.org/find-help",
+    "id": 202,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of North Central Ohio",
+    "state": "OH",
+    "url_slug": "www-secondharvestfoodbank-org"
+  },
+  "206": {
+    "find_food_url": "https://www.neifb.org/find-help/services-in-your-area",
+    "id": 206,
+    "is_affiliate": false,
+    "name": "Northeast Iowa Food Bank",
+    "state": "IA",
+    "url_slug": "www-neifb-org"
+  },
+  "207": {
+    "find_food_url": "https://www.licares.org/find-food/",
+    "id": 207,
+    "is_affiliate": false,
+    "name": "Long Island Cares, Inc.",
+    "state": "NY",
+    "url_slug": "www-licares-org"
+  },
+  "208": {
+    "find_food_url": "https://kansasfoodbank.org/finding-help/",
+    "id": 208,
+    "is_affiliate": false,
+    "name": "Kansas Food Bank",
+    "state": "KS",
+    "url_slug": "kansasfoodbank-org"
+  },
+  "209": {
+    "find_food_url": "https://www.wfafb.org/pantrylisting",
+    "id": 209,
+    "is_affiliate": false,
+    "name": "Wichita Falls Area Food Bank",
+    "state": "TX",
+    "url_slug": "www-wfafb-org"
+  },
+  "21": {
+    "find_food_url": "https://mofc.org/get-help/#find-food-close-to-you",
+    "id": 21,
+    "is_affiliate": false,
+    "name": "Mid-Ohio Food Collective",
+    "state": "OH",
+    "url_slug": "mofc-org"
+  },
+  "214": {
+    "find_food_url": "https://mahoningvalleysecondharvest.org/find-help/",
+    "id": 214,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of the Mahoning Valley",
+    "state": "OH",
+    "url_slug": "mahoningvalleysecondharvest-org"
+  },
+  "216": {
+    "find_food_url": "https://www.easttexasfoodbank.org/#find-food",
+    "id": 216,
+    "is_affiliate": false,
+    "name": "East Texas Food Bank",
+    "state": "TX",
+    "url_slug": "www-easttexasfoodbank-org"
+  },
+  "218": {
+    "find_food_url": "https://secondharvestnorthland.org/find-food/",
+    "id": 218,
+    "is_affiliate": false,
+    "name": "Second Harvest Northland",
+    "state": "MN",
+    "url_slug": "secondharvestnorthland-org"
+  },
+  "219": {
+    "find_food_url": "https://netfoodbank.org/help/",
+    "id": 219,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Northeast Tennessee",
+    "state": "TN",
+    "url_slug": "netfoodbank-org"
+  },
+  "22": {
+    "find_food_url": "https://www.foodbankccs.org/find-food/foodbycity/",
+    "id": 22,
+    "is_affiliate": false,
+    "name": "Food Bank of Contra Costa and Solano",
+    "state": "CA",
+    "url_slug": "www-foodbankccs-org"
+  },
+  "220": {
+    "find_food_url": "https://www.greatplainsfoodbank.org/get-help/",
+    "id": 220,
+    "is_affiliate": false,
+    "name": "Great Plains Food Bank",
+    "state": "ND",
+    "url_slug": "www-greatplainsfoodbank-org"
+  },
+  "221": {
+    "find_food_url": "https://www.foodbankrgv.com/get-food-assistance/",
+    "id": 221,
+    "is_affiliate": false,
+    "name": "Food Bank of the Rio Grande Valley",
+    "state": "TX",
+    "url_slug": "www-foodbankrgv-com"
+  },
+  "222": {
+    "find_food_url": "https://feedingwestchester.org/find-help/",
+    "id": 222,
+    "is_affiliate": false,
+    "name": "Feeding Westchester",
+    "state": "NY",
+    "url_slug": "feedingwestchester-org"
+  },
+  "225": {
+    "find_food_url": "https://foodbankformontereycounty.org/food-assistance/",
+    "id": 225,
+    "is_affiliate": false,
+    "name": "Food Bank for Monterey County",
+    "state": "CA",
+    "url_slug": "foodbankformontereycounty-org"
+  },
+  "229": {
+    "find_food_url": "https://alimentospr.org/contact-us/",
+    "id": 229,
+    "is_affiliate": false,
+    "name": "Banco de Alimentos de Puerto Rico",
+    "state": "PR",
+    "url_slug": "alimentospr-org"
+  },
+  "23": {
+    "find_food_url": "https://coastalbendfoodbank.org/get-help/",
+    "id": 23,
+    "is_affiliate": false,
+    "name": "Coastal Bend Food Bank",
+    "state": "TX",
+    "url_slug": "coastalbendfoodbank-org"
+  },
+  "24": {
+    "find_food_url": "https://ntfb.org/our-programs/get-food-assistance/",
+    "id": 24,
+    "is_affiliate": false,
+    "name": "North Texas Food Bank",
+    "state": "TX",
+    "url_slug": "ntfb-org"
+  },
+  "25": {
+    "find_food_url": "https://www.foodbankrockies.org/find-food/",
+    "id": 25,
+    "is_affiliate": false,
+    "name": "Food Bank of the Rockies",
+    "state": "CO",
+    "url_slug": "www-foodbankrockies-org"
+  },
+  "259": {
+    "find_food_url": "https://www.gsfb.org/get-help/",
+    "id": 259,
+    "is_affiliate": false,
+    "name": "Good Shepherd Food Bank",
+    "state": "ME",
+    "url_slug": "www-gsfb-org"
+  },
+  "26": {
+    "find_food_url": "https://www.foodbankiowa.org/gethelp",
+    "id": 26,
+    "is_affiliate": false,
+    "name": "Food Bank of Iowa",
+    "state": "IA",
+    "url_slug": "www-foodbankiowa-org"
+  },
+  "27": {
+    "find_food_url": "https://www.gcfb.org/mobiles",
+    "id": 27,
+    "is_affiliate": false,
+    "name": "Gleaners Community Food Bank of Southeastern Michigan",
+    "state": "MI",
+    "url_slug": "www-gcfb-org"
+  },
+  "276": {
+    "find_food_url": "https://www.fbcenla.org/find-food",
+    "id": 276,
+    "is_affiliate": false,
+    "name": "Food Bank of Central Louisiana",
+    "state": "LA",
+    "url_slug": "www-fbcenla-org"
+  },
+  "278": {
+    "find_food_url": "https://feedindiana.org/food-pantries",
+    "id": 278,
+    "is_affiliate": false,
+    "name": "Food Bank of Northern Indiana",
+    "state": "IN",
+    "url_slug": "feedindiana-org"
+  },
+  "279": {
+    "find_food_url": "https://www.utahfoodbank.org/find-a-pantry/",
+    "id": 279,
+    "is_affiliate": false,
+    "name": "Utah Food Bank",
+    "state": "UT",
+    "url_slug": "www-utahfoodbank-org"
+  },
+  "28": {
+    "find_food_url": "https://www.foodbankst.org/find-food/",
+    "id": 28,
+    "is_affiliate": false,
+    "name": "Food Bank of the Southern Tier",
+    "state": "NY",
+    "url_slug": "www-foodbankst-org"
+  },
+  "280": {
+    "find_food_url": "https://harrychapinfoodbank.org/food-locator/",
+    "id": 280,
+    "is_affiliate": false,
+    "name": "Harry Chapin Food Bank of Southwest Florida",
+    "state": "FL",
+    "url_slug": "harrychapinfoodbank-org"
+  },
+  "281": {
+    "find_food_url": "https://ccfoodbank.org/findfood/",
+    "id": 281,
+    "is_affiliate": false,
+    "name": "Central California Food Bank",
+    "state": "CA",
+    "url_slug": "ccfoodbank-org"
+  },
+  "284": {
+    "find_food_url": "https://allfaithsfoodbank.org/foodfinder/",
+    "id": 284,
+    "is_affiliate": false,
+    "name": "All Faiths Food Bank",
+    "state": "FL",
+    "url_slug": "allfaithsfoodbank-org"
+  },
+  "285": {
+    "find_food_url": "https://wofb.org/find-help/locate-a-pantry/",
+    "id": 285,
+    "is_affiliate": false,
+    "name": "West Ohio Food Bank",
+    "state": "OH",
+    "url_slug": "wofb-org"
+  },
+  "287": {
+    "find_food_url": "https://www.ceopeoplehelpingpeople.org/find_a_food_pantry",
+    "id": 287,
+    "is_affiliate": false,
+    "name": "CEO Weinberg Northeast Regional Foodbank",
+    "state": "PA",
+    "url_slug": "www-ceopeoplehelpingpeople-org"
+  },
+  "29": {
+    "find_food_url": "https://nwpafoodbank.org/need-help/agency-locator/",
+    "id": 29,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Northwest Pennsylvania",
+    "state": "PA",
+    "url_slug": "www-nwpafoodbank-org"
+  },
+  "290": {
+    "find_food_url": "https://www.tfbgc.org/get-help",
+    "id": 290,
+    "is_affiliate": false,
+    "name": "Food Bank of the Golden Crescent",
+    "state": "TX",
+    "url_slug": "www-tfbgc-org"
+  },
+  "291": {
+    "find_food_url": "https://feedingsga.org/find-help/",
+    "id": 291,
+    "is_affiliate": false,
+    "name": "Second Harvest of South Georgia",
+    "state": "GA",
+    "url_slug": "feedingsga-org"
+  },
+  "294": {
+    "find_food_url": "https://westmorelandfoodbank.org/receive-assistance/",
+    "id": 294,
+    "is_affiliate": false,
+    "name": "Westmoreland Food Bank",
+    "state": "PA",
+    "url_slug": "www-westmorelandfoodbank-org"
+  },
+  "296": {
+    "find_food_url": "https://www.philabundance.org/find-food/",
+    "id": 296,
+    "is_affiliate": false,
+    "name": "Philabundance",
+    "state": "PA",
+    "url_slug": "www-philabundance-org"
+  },
+  "297": {
+    "find_food_url": "https://www.cityharvest.org/food-map/",
+    "id": 297,
+    "is_affiliate": false,
+    "name": "City Harvest",
+    "state": "NY",
+    "url_slug": "www-cityharvest-org"
+  },
+  "298": {
+    "find_food_url": "https://brfoodbank.org/get-help/",
+    "id": 298,
+    "is_affiliate": false,
+    "name": "Greater Baton Rouge Food Bank",
+    "state": "LA",
+    "url_slug": "brfoodbank-org"
+  },
+  "3": {
+    "find_food_url": "https://www.foodbankofalaska.org/help/",
+    "id": 3,
+    "is_affiliate": false,
+    "name": "Food Bank of Alaska, Inc.",
+    "state": "AK",
+    "url_slug": "www-foodbankofalaska-org"
+  },
+  "30": {
+    "find_food_url": "https://www.fbem.org/where-to-get-food/find-a-food-pantry/",
+    "id": 30,
+    "is_affiliate": false,
+    "name": "Food Bank of Eastern Michigan",
+    "state": "MI",
+    "url_slug": "www-fbem-org"
+  },
+  "303": {
+    "find_food_url": "https://www.hhfoodbank.org/find-food/",
+    "id": 303,
+    "is_affiliate": false,
+    "name": "Hoosier Hills Food Bank",
+    "state": "IN",
+    "url_slug": "www-hhfoodbank-org"
+  },
+  "305": {
+    "find_food_url": "https://www.foodgatherers.org/find-help/",
+    "id": 305,
+    "is_affiliate": false,
+    "name": "Food Gatherers",
+    "state": "MI",
+    "url_slug": "www-foodgatherers-org"
+  },
+  "306": {
+    "find_food_url": "https://www.forgottenharvest.org/find-food/",
+    "id": 306,
+    "is_affiliate": false,
+    "name": "Forgotten Harvest",
+    "state": "MI",
+    "url_slug": "www-forgottenharvest-org"
+  },
+  "309": {
+    "find_food_url": "https://www.foodshuttle.org/findfood",
+    "id": 309,
+    "is_affiliate": false,
+    "name": "Inter-Faith Food Shuttle",
+    "state": "NC",
+    "url_slug": "www-foodshuttle-org"
+  },
+  "31": {
+    "find_food_url": "https://tafb.org/find-food/",
+    "id": 31,
+    "is_affiliate": false,
+    "name": "Tarrant Area Food Bank",
+    "state": "TX",
+    "url_slug": "tafb-org"
+  },
+  "310": {
+    "find_food_url": "https://fulfillnj.org/get-help/",
+    "id": 310,
+    "is_affiliate": false,
+    "name": "Fulfill",
+    "state": "NJ",
+    "url_slug": "fulfillnj-org"
+  },
+  "311": {
+    "find_food_url": "https://www.islandharvest.org/find-help/find-a-food-pantry/",
+    "id": 311,
+    "is_affiliate": false,
+    "name": "Island Harvest",
+    "state": "NY",
+    "url_slug": "www-islandharvest-org"
+  },
+  "316": {
+    "find_food_url": "https://harvestregionalfoodbank.org/food-assistance/",
+    "id": 316,
+    "is_affiliate": false,
+    "name": "Harvest Regional Food Bank, Inc.",
+    "state": "AR",
+    "url_slug": "harvestregionalfoodbank-org"
+  },
+  "319": {
+    "find_food_url": "https://www.stmarysfoodbank.org/find-help/",
+    "id": 319,
+    "is_affiliate": false,
+    "name": "St. Mary's Food Bank",
+    "state": "AZ",
+    "url_slug": "www-stmarysfoodbank-org"
+  },
+  "320": {
+    "find_food_url": "https://mfbn.org/get-help/",
+    "id": 320,
+    "is_affiliate": false,
+    "name": "Montana Food Bank Network",
+    "state": "MT",
+    "url_slug": "mfbn-org"
+  },
+  "323": {
+    "find_food_url": "https://setxfoodbank.org/get-help/",
+    "id": 323,
+    "is_affiliate": false,
+    "name": "Southeast Texas Food Bank",
+    "state": "TX",
+    "url_slug": "setxfoodbank-org"
+  },
+  "324": {
+    "find_food_url": "https://foodbanknega.org/network/",
+    "id": 324,
+    "is_affiliate": false,
+    "name": "Food Bank of Northeast Georgia",
+    "state": "GA",
+    "url_slug": "foodbanknega-org"
+  },
+  "326": {
+    "find_food_url": "https://www.foodbanknla.org/food-bank-programs.html",
+    "id": 326,
+    "is_affiliate": false,
+    "name": "Food Bank of Northwest Louisiana",
+    "state": "LA",
+    "url_slug": "www-foodbanknla-org"
+  },
+  "33": {
+    "find_food_url": "https://www.mountaineerfoodbank.org/find-food",
+    "id": 33,
+    "is_affiliate": false,
+    "name": "Mountaineer Food Bank",
+    "state": "WV",
+    "url_slug": "www-mountaineerfoodbank-org"
+  },
+  "339": {
+    "find_food_url": "https://www.foodbanknela.org/find-food/",
+    "id": 339,
+    "is_affiliate": false,
+    "name": "Food Bank of Northeast Louisiana",
+    "state": "LA",
+    "url_slug": "www-foodbanknela-org"
+  },
+  "34": {
+    "find_food_url": "https://www.feedwm.org/findfood/",
+    "id": 34,
+    "is_affiliate": false,
+    "name": "Feeding America West Michigan",
+    "state": "MI",
+    "url_slug": "www-feedwm-org"
+  },
+  "35": {
+    "find_food_url": "https://www.foodbankwma.org/get-help/food-pantry-meal-program-schedule/",
+    "id": 35,
+    "is_affiliate": false,
+    "name": "Food Bank of Western Massachusetts",
+    "state": "MA",
+    "url_slug": "www-foodbankwma-org"
+  },
+  "36": {
+    "find_food_url": "https://hawaiifoodbank.org/get-help/find-food/",
+    "id": 36,
+    "is_affiliate": false,
+    "name": "Hawaii Foodbank",
+    "state": "HI",
+    "url_slug": "hawaiifoodbank-org"
+  },
+  "369": {
+    "find_food_url": "https://www.food-finders.org/find-help/",
+    "id": 369,
+    "is_affiliate": false,
+    "name": "Food Finders Food Bank",
+    "state": "IN",
+    "url_slug": "www-food-finders-org"
+  },
+  "37": {
+    "find_food_url": "https://www.houstonfoodbank.org/find-help/",
+    "id": 37,
+    "is_affiliate": false,
+    "name": "Houston Food Bank",
+    "state": "TX",
+    "url_slug": "www-houstonfoodbank-org"
+  },
+  "370": {
+    "find_food_url": "https://www.feedingnefl.org/feeding-assistance/",
+    "id": 370,
+    "is_affiliate": false,
+    "name": "Feeding Northeast Florida",
+    "state": "FL",
+    "url_slug": "www-feedingnefl-org"
+  },
+  "38": {
+    "find_food_url": "https://www.gleaners.org/findhelp/",
+    "id": 38,
+    "is_affiliate": false,
+    "name": "Gleaners Food Bank of Indiana, Inc.",
+    "state": "IN",
+    "url_slug": "www-gleaners-org"
+  },
+  "4": {
+    "find_food_url": "https://www.acfb.org/get-help/",
+    "id": 4,
+    "is_affiliate": false,
+    "name": "Atlanta Community Food Bank",
+    "state": "GA",
+    "url_slug": "www-acfb-org"
+  },
+  "40": {
+    "find_food_url": "https://www.harvesters.org/get-food-assistance",
+    "id": 40,
+    "is_affiliate": false,
+    "name": "Harvesters - The Community Food Network",
+    "state": "MO",
+    "url_slug": "www-harvesters-org"
+  },
+  "41": {
+    "find_food_url": "https://secondharvestetn.org/find-a-food-pantry/",
+    "id": 41,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of East Tennessee",
+    "state": "TN",
+    "url_slug": "secondharvestetn-org"
+  },
+  "42": {
+    "find_food_url": "https://regionalfoodbank.net/find-nearest-agency/",
+    "id": 42,
+    "is_affiliate": false,
+    "name": "Regional Food Bank of Northeastern New York",
+    "state": "NY",
+    "url_slug": "regionalfoodbank-net"
+  },
+  "43": {
+    "find_food_url": "https://arkansasfoodbank.org/find-food",
+    "id": 43,
+    "is_affiliate": false,
+    "name": "Arkansas Foodbank",
+    "state": "AR",
+    "url_slug": "arkansasfoodbank-org"
+  },
+  "45": {
+    "find_food_url": "https://www.lafoodbank.org/find-food/pantry-locator/",
+    "id": 45,
+    "is_affiliate": false,
+    "name": "Los Angeles Regional Food Bank",
+    "state": "CA",
+    "url_slug": "www-lafoodbank-org"
+  },
+  "46": {
+    "find_food_url": "https://daretocare.org/need-food/",
+    "id": 46,
+    "is_affiliate": false,
+    "name": "Dare to Care Food Bank",
+    "state": "KY",
+    "url_slug": "daretocare-org"
+  },
+  "47": {
+    "find_food_url": "https://www.spfb.org/get_help",
+    "id": 47,
+    "is_affiliate": false,
+    "name": "South Plains Food Bank",
+    "state": "TX",
+    "url_slug": "www-spfb-org"
+  },
+  "48": {
+    "find_food_url": "https://www.pittsburghfoodbank.org/get-help/",
+    "id": 48,
+    "is_affiliate": false,
+    "name": "Greater Pittsburgh Community Food Bank",
+    "state": "PA",
+    "url_slug": "www-pittsburghfoodbank-org"
+  },
+  "49": {
+    "find_food_url": "https://www.midsouthfoodbank.org/find-food",
+    "id": 49,
+    "is_affiliate": false,
+    "name": "Mid-South Food Bank",
+    "state": "TN",
+    "url_slug": "www-midsouthfoodbank-org"
+  },
+  "5": {
+    "find_food_url": "https://goldenharvest.org/find-help/",
+    "id": 5,
+    "is_affiliate": false,
+    "name": "Golden Harvest Food Bank",
+    "state": "GA",
+    "url_slug": "goldenharvest-org"
+  },
+  "50": {
+    "find_food_url": "https://feedingsouthflorida.org/benefits-emergency-services/",
+    "id": 50,
+    "is_affiliate": false,
+    "name": "Feeding South Florida",
+    "state": "FL",
+    "url_slug": "feedingsouthflorida-org"
+  },
+  "51": {
+    "find_food_url": "https://feedingamericawi.org/find-a-pantry",
+    "id": 51,
+    "is_affiliate": false,
+    "name": "Feeding America Eastern Wisconsin",
+    "state": "WI",
+    "url_slug": "feedingamericawi-org"
+  },
+  "52": {
+    "find_food_url": "https://www.feedingthegulfcoast.org/find-help/find-a-pantry?c_src=feedingamerica",
+    "id": 52,
+    "is_affiliate": false,
+    "name": "Feeding the Gulf Coast",
+    "state": "AL",
+    "url_slug": "www-feedingthegulfcoast-org"
+  },
+  "53": {
+    "find_food_url": "https://riverbendfoodbank.org/findfood",
+    "id": 53,
+    "is_affiliate": false,
+    "name": "River Bend Food Bank",
+    "state": "IA",
+    "url_slug": "riverbendfoodbank-org"
+  },
+  "54": {
+    "find_food_url": "https://hafb.org/find-help/?_gl=1*v4k0cx*_ga*MTQ1MjY5MTQ4Mi4xNzAyNTg3NDU2*_ga_NCDD7WYELK*MTcxNTYyODE0OC4xMzUuMS4xNzE1NjI4MTYyLjAuMC4w",
+    "id": 54,
+    "is_affiliate": false,
+    "name": "Heart of Alabama Food Bank",
+    "state": "AL",
+    "url_slug": "hafb-org"
+  },
+  "55": {
+    "find_food_url": "https://www.secondharvestmidtn.org/get-help/",
+    "id": 55,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank Of Middle Tennessee Inc",
+    "state": "TN",
+    "url_slug": "www-secondharvestmidtn-org"
+  },
+  "56": {
+    "find_food_url": "https://www.ctfoodshare.org/get-help",
+    "id": 56,
+    "is_affiliate": false,
+    "name": "Connecticut Foodshare",
+    "state": "CT",
+    "url_slug": "www-ctfoodshare-org"
+  },
+  "563": {
+    "find_food_url": "https://stophunger.org/findhelp/",
+    "id": 563,
+    "is_affiliate": false,
+    "name": "Treasure Coast Food Bank",
+    "state": "FL",
+    "url_slug": "stophunger-org"
+  },
+  "57": {
+    "find_food_url": "https://no-hunger.org/social-servicesbenefits-helpline-3/",
+    "id": 57,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Greater New Orleans and Acadiana",
+    "state": "LA",
+    "url_slug": "no-hunger-org"
+  },
+  "58": {
+    "find_food_url": "https://cfbnj.org/findfood/",
+    "id": 58,
+    "is_affiliate": false,
+    "name": "Community Foodbank of New Jersey",
+    "state": "NJ",
+    "url_slug": "cfbnj-org"
+  },
+  "59": {
+    "find_food_url": "https://www.fbd.org/get-help/",
+    "id": 59,
+    "is_affiliate": false,
+    "name": "Food Bank of Delaware",
+    "state": "DE",
+    "url_slug": "www-fbd-org"
+  },
+  "6": {
+    "find_food_url": "https://www.centraltexasfoodbank.org/get-help",
+    "id": 6,
+    "is_affiliate": false,
+    "name": "Central Texas Food Bank",
+    "state": "TX",
+    "url_slug": "www-centraltexasfoodbank-org"
+  },
+  "60": {
+    "find_food_url": "https://foodbankonline.org/get-help/find-a-food-pantry/",
+    "id": 60,
+    "is_affiliate": false,
+    "name": "Foodbank of Southeastern Virginia and the Eastern Shore",
+    "state": "VA",
+    "url_slug": "foodbankonline-org"
+  },
+  "603": {
+    "find_food_url": "https://yumafoodbank.org/get-help/",
+    "id": 603,
+    "is_affiliate": false,
+    "name": "Yuma Community Food Bank",
+    "state": "AZ",
+    "url_slug": "www-yumafoodbank-org"
+  },
+  "611": {
+    "find_food_url": "https://www.nwafoodbank.org/find-food",
+    "id": 611,
+    "is_affiliate": false,
+    "name": "Northwest Arkansas Food Bank",
+    "state": "AR",
+    "url_slug": "www-nwafoodbank-org"
+  },
+  "62": {
+    "find_food_url": "https://www.regionalfoodbank.org/get-help/",
+    "id": 62,
+    "is_affiliate": false,
+    "name": "Regional Food Bank of Oklahoma",
+    "state": "OK",
+    "url_slug": "www-regionalfoodbank-org"
+  },
+  "627": {
+    "find_food_url": "https://www.southtexasfoodbank.org/agencies",
+    "id": 627,
+    "is_affiliate": false,
+    "name": "South Texas Food Bank",
+    "state": "TX",
+    "url_slug": "www-southtexasfoodbank-org"
+  },
+  "63": {
+    "find_food_url": "https://foodbankheartland.org/get-food/",
+    "id": 63,
+    "is_affiliate": false,
+    "name": "Food Bank for the Heartland",
+    "state": "NE",
+    "url_slug": "foodbankheartland-org"
+  },
+  "64": {
+    "find_food_url": "https://feedoc.org/need-food/#find-food",
+    "id": 64,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Orange County",
+    "state": "CA",
+    "url_slug": "www-feedoc-org"
+  },
+  "65": {
+    "find_food_url": "https://feedhopenow.org/find-help/food-finder/",
+    "id": 65,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank Of Central Florida, Inc.",
+    "state": "FL",
+    "url_slug": "www-feedhopenow-org"
+  },
+  "66": {
+    "find_food_url": "https://foodshare.com/findhelp/#findapantry",
+    "id": 66,
+    "is_affiliate": false,
+    "name": "Food Share, Inc.",
+    "state": "CA",
+    "url_slug": "foodshare-com"
+  },
+  "68": {
+    "find_food_url": "https://www.oregonfoodbank.org/find-support",
+    "id": 68,
+    "is_affiliate": false,
+    "name": "Oregon Food Bank",
+    "state": "OR",
+    "url_slug": "www-oregonfoodbank-org"
+  },
+  "7": {
+    "find_food_url": "https://mdfoodbank.org/find-food/",
+    "id": 7,
+    "is_affiliate": false,
+    "name": "Maryland Food Bank",
+    "state": "MD",
+    "url_slug": "mdfoodbank-org"
+  },
+  "70": {
+    "find_food_url": "https://foodbankcenc.org/food-finder/",
+    "id": 70,
+    "is_affiliate": false,
+    "name": "Food Bank of Central & Eastern North Carolina",
+    "state": "NC",
+    "url_slug": "foodbankcenc-org"
+  },
+  "72": {
+    "find_food_url": "https://feedmore.org/get-help/",
+    "id": 72,
+    "is_affiliate": false,
+    "name": "Feed More",
+    "state": "VA",
+    "url_slug": "feedmore-org"
+  },
+  "726": {
+    "find_food_url": "https://elpasoansfightinghunger.org/need-help",
+    "id": 726,
+    "is_affiliate": false,
+    "name": "El Pasoans Fighting Hunger",
+    "state": "TX",
+    "url_slug": "elpasoansfightinghunger-org"
+  },
+  "73": {
+    "find_food_url": "https://www.feedingamericaie.org/get-help",
+    "id": 73,
+    "is_affiliate": false,
+    "name": "Feeding America Riverside | San Bernardino Counties",
+    "state": "CA",
+    "url_slug": "www-feedingamericaie-org"
+  },
+  "74": {
+    "find_food_url": "https://feedingswva.org/map-directory/",
+    "id": 74,
+    "is_affiliate": false,
+    "name": "Feeding Southwest Virginia",
+    "state": "VA",
+    "url_slug": "feedingswva-org"
+  },
+  "75": {
+    "find_food_url": "https://foodlinkny.org/find-food/",
+    "id": 75,
+    "is_affiliate": false,
+    "name": "Foodlink, Inc.",
+    "state": "NY",
+    "url_slug": "foodlinkny-org"
+  },
+  "76": {
+    "find_food_url": "https://safoodbank.org/help/",
+    "id": 76,
+    "is_affiliate": false,
+    "name": "San Antonio Food Bank",
+    "state": "TX",
+    "url_slug": "safoodbank-org"
+  },
+  "77": {
+    "find_food_url": "https://feedingsandiego.org/find-food/",
+    "id": 77,
+    "is_affiliate": false,
+    "name": "Feeding San Diego",
+    "state": "CA",
+    "url_slug": "feedingsandiego-org"
+  },
+  "78": {
+    "find_food_url": "https://www.sfmfoodbank.org/find-food/",
+    "id": 78,
+    "is_affiliate": false,
+    "name": "SF-Marin Food Bank",
+    "state": "CA",
+    "url_slug": "www-sfmfoodbank-org"
+  },
+  "79": {
+    "find_food_url": "https://www.shfb.org/get-food/",
+    "id": 79,
+    "is_affiliate": false,
+    "name": "Second Harvest of Silicon Valley",
+    "state": "CA",
+    "url_slug": "www-shfb-org"
+  },
+  "8": {
+    "find_food_url": "https://www.feedingal.org/find-food/",
+    "id": 8,
+    "is_affiliate": false,
+    "name": "Community Food Bank of Central Alabama",
+    "state": "AL",
+    "url_slug": "www-feedingal-org"
+  },
+  "80": {
+    "find_food_url": "https://helpendhunger.org/find-food/",
+    "id": 80,
+    "is_affiliate": false,
+    "name": "Second Harvest of Coastal Georgia",
+    "state": "GA",
+    "url_slug": "www-helpendhunger-org"
+  },
+  "81": {
+    "find_food_url": "https://foodlifeline.org/need-food/",
+    "id": 81,
+    "is_affiliate": false,
+    "name": "Food Lifeline",
+    "state": "WA",
+    "url_slug": "foodlifeline-org"
+  },
+  "82": {
+    "find_food_url": "https://fbnn.org/gethelp/",
+    "id": 82,
+    "is_affiliate": false,
+    "name": "Food Bank of Northern Nevada",
+    "state": "NV",
+    "url_slug": "fbnn-org"
+  },
+  "83": {
+    "find_food_url": "https://2-harvest.org/food-near-me-wa/",
+    "id": 83,
+    "is_affiliate": false,
+    "name": "Second Harvest Inland Northwest",
+    "state": "WA",
+    "url_slug": "2-harvest-org"
+  },
+  "84": {
+    "find_food_url": "https://www.centralilfoodbank.org/find-food/food-locator/",
+    "id": 84,
+    "is_affiliate": false,
+    "name": "Central Illinois Foodbank",
+    "state": "IL",
+    "url_slug": "www-centralilfoodbank-org"
+  },
+  "85": {
+    "find_food_url": "https://stlfoodbank.org/programs-services/find-food/",
+    "id": 85,
+    "is_affiliate": false,
+    "name": "St. Louis Area Foodbank",
+    "state": "MO",
+    "url_slug": "stlfoodbank-org"
+  },
+  "86": {
+    "find_food_url": "https://www.2harvest.org/who--how-we-help/how-to-get-help/",
+    "id": 86,
+    "is_affiliate": false,
+    "name": "Second Harvest Heartland",
+    "state": "MN",
+    "url_slug": "www-2harvest-org"
+  },
+  "87": {
+    "find_food_url": "https://www.centralpafoodbank.org/find-help/",
+    "id": 87,
+    "is_affiliate": false,
+    "name": "Central Pennsylvania Food Bank",
+    "state": "PA",
+    "url_slug": "www-centralpafoodbank-org"
+  },
+  "89": {
+    "find_food_url": "https://foodbankcny.org/get-food/food-finder/",
+    "id": 89,
+    "is_affiliate": false,
+    "name": "Food Bank of Central New York",
+    "state": "NY",
+    "url_slug": "www-foodbankcny-org"
+  },
+  "9": {
+    "find_food_url": "https://www.gbfb.org/need-food/",
+    "id": 9,
+    "is_affiliate": false,
+    "name": "The Greater Boston Food Bank",
+    "state": "MA",
+    "url_slug": "www-gbfb-org"
+  },
+  "90": {
+    "find_food_url": "https://feedingtampabay.org/findfood",
+    "id": 90,
+    "is_affiliate": false,
+    "name": "Feeding Tampa Bay",
+    "state": "FL",
+    "url_slug": "feedingtampabay-org"
+  },
+  "91": {
+    "find_food_url": "https://www.communityfoodbank.org/Get-Help",
+    "id": 91,
+    "is_affiliate": false,
+    "name": "Community Food Bank of Southern Arizona",
+    "state": "AZ",
+    "url_slug": "www-communityfoodbank-org"
+  },
+  "92": {
+    "find_food_url": "https://www.okfoodbank.org/help",
+    "id": 92,
+    "is_affiliate": false,
+    "name": "Food Bank of Eastern Oklahoma",
+    "state": "OK",
+    "url_slug": "www-okfoodbank-org"
+  },
+  "93": {
+    "find_food_url": "https://www.brafb.org/find-food/",
+    "id": 93,
+    "is_affiliate": false,
+    "name": "Blue Ridge Area Food Bank",
+    "state": "VA",
+    "url_slug": "www-brafb-org"
+  },
+  "94": {
+    "find_food_url": "https://rifoodbank.org/find-food/",
+    "id": 94,
+    "is_affiliate": false,
+    "name": "Rhode Island Community Food Bank",
+    "state": "RI",
+    "url_slug": "rifoodbank-org"
+  },
+  "95": {
+    "find_food_url": "https://www.capitalareafoodbank.org/find-food-assistance/",
+    "id": 95,
+    "is_affiliate": false,
+    "name": "Capital Area Food Bank",
+    "state": "DC",
+    "url_slug": "www-capitalareafoodbank-org"
+  },
+  "96": {
+    "find_food_url": "https://www.thefoodbank.org/find-foodcomida/",
+    "id": 96,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank Santa Cruz County",
+    "state": "CA",
+    "url_slug": "www-thefoodbank-org"
+  },
+  "97": {
+    "find_food_url": "https://www.secondharvestnwnc.org//find-help",
+    "id": 97,
+    "is_affiliate": false,
+    "name": "Second Harvest Food Bank of Northwest North Carolina",
+    "state": "NC",
+    "url_slug": "www-secondharvestnwnc-org"
+  },
+  "98": {
+    "find_food_url": "https://fbwct.org/food-pantry-and-meal-site-schedules/",
+    "id": 98,
+    "is_affiliate": false,
+    "name": "Food Bank of West Central Texas",
+    "state": "TX",
+    "url_slug": "fbwct-org"
+  }
+}
