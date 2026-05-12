@@ -51,13 +51,16 @@ class TestPantryIdHash:
         u = str(uuid4())
         assert fa_pantry_id_from_uuid(u) == fa_pantry_id_from_uuid(u)
 
-    def test_always_negative(self):
+    def test_always_non_positive(self):
+        """The hash is `-(crc32 & 0x7FFFFFFF)` so it's in
+        [-2147483647, 0]. Zero is theoretically possible (vanishingly
+        rare) when crc32 result is a multiple of 2^31."""
         for _ in range(20):
-            assert fa_pantry_id_from_uuid(str(uuid4())) < 0
+            assert fa_pantry_id_from_uuid(str(uuid4())) <= 0
 
     def test_distinct_uuids_distinct_hash(self):
         # Sanity check — not a guarantee, but ~0 chance of collision at
-        # this volume given crc32 spans 31 bits.
+        # this volume given the 31-bit mask spans ~2 billion values.
         ids = {fa_pantry_id_from_uuid(str(uuid4())) for _ in range(200)}
         assert len(ids) == 200
 

@@ -59,6 +59,7 @@ class TestListEndpoint:
             MockQuery.return_value = mock_q
 
             result = await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=50,
                 offset=0,
                 lat1=None,
@@ -83,6 +84,7 @@ class TestListEndpoint:
             MockQuery.return_value = mock_q
 
             await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=5,
                 offset=10,
                 lat1=None,
@@ -108,6 +110,7 @@ class TestListEndpoint:
             MockQuery.return_value = mock_q
 
             await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=50,
                 offset=0,
                 lat1=40.0,
@@ -125,6 +128,7 @@ class TestListEndpoint:
         session = MagicMock(spec=AsyncSession)
         with pytest.raises(HTTPException) as ei:
             await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=50,
                 offset=0,
                 lat1=40.0,
@@ -147,6 +151,7 @@ class TestListEndpoint:
             MockQuery.return_value = mock_q
 
             await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=50,
                 offset=0,
                 lat1=None,
@@ -174,6 +179,7 @@ class TestListEndpoint:
             MockQuery.return_value = mock_q
 
             result = await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=50,
                 offset=0,
                 lat1=None,
@@ -197,6 +203,7 @@ class TestListEndpoint:
             MockQuery.return_value = mock_q
 
             result = await list_ptf_locations(
+                response=MagicMock(headers={}),
                 limit=50,
                 offset=0,
                 lat1=None,
@@ -222,7 +229,11 @@ class TestDetailEndpoint:
             mock_q.get_schedules = AsyncMock(return_value=[])
             MockQuery.return_value = mock_q
 
-            result = await get_ptf_location(location_id=loc_id, session=session)
+            result = await get_ptf_location(
+                location_id=loc_id,
+                response=MagicMock(headers={}),
+                session=session,
+            )
         assert result.id == loc_id
 
     @pytest.mark.asyncio
@@ -238,6 +249,7 @@ class TestDetailEndpoint:
             with pytest.raises(HTTPException) as ei:
                 await get_ptf_location(
                     location_id="00000000-0000-0000-0000-000000000000",
+                    response=MagicMock(headers={}),
                     session=session,
                 )
             assert ei.value.status_code == 404
@@ -259,13 +271,22 @@ class TestRouterMounting:
         assert "/partners/ptf/locations/{location_id}" in paths
 
     def test_locations_routes_have_no_auth_dependency(self):
-        """A regression guard against accidentally adding an auth dep."""
+        """A regression guard against accidentally adding an auth dep.
+
+        Hard-asserts `dependant` exists rather than falling back to a
+        MagicMock (which would silently pass and make this test useless).
+        """
         from app.api.v1.partners.ptf.router import router
 
-        for route in router.routes:
-            if "/locations" not in route.path:
-                continue
-            for dep in getattr(route, "dependant", MagicMock()).dependencies or []:
+        locations_routes = [
+            r for r in router.routes if "/locations" in getattr(r, "path", "")
+        ]
+        assert len(locations_routes) >= 2, "list and detail routes must exist"
+        for route in locations_routes:
+            assert hasattr(
+                route, "dependant"
+            ), f"route {route.path} has no dependant; can't audit auth"
+            for dep in route.dependant.dependencies or []:
                 name = getattr(dep.call, "__name__", "")
                 assert (
                     "auth" not in name.lower()

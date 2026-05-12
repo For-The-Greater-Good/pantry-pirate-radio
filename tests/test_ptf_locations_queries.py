@@ -103,9 +103,73 @@ class TestQuerySQL:
         query = PtfLocationsQuery(session)
         await query.list_locations(limit=10, offset=0, q="food")
         sql_text = str(session.execute.call_args[0][0])
-        # Both columns must be searched
-        assert sql_text.count("ILIKE") >= 1
-        assert "name" in sql_text
+        # Both name and alternate_name must be searched — exactly two
+        # ILIKE clauses, no fewer.
+        assert sql_text.count("ILIKE") == 2, (
+            f"expected 2 ILIKE clauses for name + alternate_name, got "
+            f"{sql_text.count('ILIKE')}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_q_filter_special_chars_are_bound_not_concatenated(self):
+        """Regression: q must go through bound params so '%' / "'" /
+        SQL keywords can't break out of the LIKE pattern."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(
+            limit=10, offset=0, q="O'Brien'; DROP TABLE location;--"
+        )
+        sql_text = str(session.execute.call_args[0][0])
+        params = session.execute.call_args[0][1]
+        # The dangerous string must live in params, not in the SQL.
+        assert "O'Brien" not in sql_text
+        assert "DROP TABLE" not in sql_text.upper()
+        assert "drop table" in params["q"].lower()
+
+    @pytest.mark.asyncio
+    async def test_q_filter_with_literal_percent_does_not_match_all(self):
+        """Bound param + ILIKE: '%' is part of the pattern wrapper,
+        a user-supplied '%' is escaped by being inside the bound value."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(limit=10, offset=0, q="%")
+        params = session.execute.call_args[0][1]
+        # Pattern is `%<lowered q>%` so a literal '%' becomes `%%%`.
+        # Postgres treats that as "anything containing a literal %",
+        # which is functionally distinct from "match all rows".
+        assert params["q"] == "%%%"
+
+    @pytest.mark.asyncio
+    async def test_list_query_excludes_null_island(self):
+        """SQL must filter out lat=0,lng=0 (Plentiful parity)."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(limit=10, offset=0)
+        sql_text = str(session.execute.call_args[0][0])
+        assert "NOT (l.latitude = 0 AND l.longitude = 0)" in sql_text
+
+    @pytest.mark.asyncio
+    async def test_list_query_filters_physical_addresses(self):
+        """JOIN must restrict to address_type='physical' so mailing
+        addresses don't surface in map results."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(limit=10, offset=0)
+        sql_text = str(session.execute.call_args[0][0])
+        assert "address_type = 'physical'" in sql_text
+
+    @pytest.mark.asyncio
+    async def test_list_query_uses_gist_compatible_bbox_expression(self):
+        """bbox clause must use st_setsrid(st_makepoint(...), 4326)
+        with the && operator so the GIST index idx_location_coords is
+        picked up by the planner."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(limit=10, offset=0, bbox=(40.0, -75.0, 41.0, -73.0))
+        sql_text = str(session.execute.call_args[0][0])
+        assert "st_setsrid(st_makepoint" in sql_text.lower()
+        assert "ST_MakeEnvelope" in sql_text
+        assert "&&" in sql_text
 
     @pytest.mark.asyncio
     async def test_get_by_id_binds_uuid_param(self):
