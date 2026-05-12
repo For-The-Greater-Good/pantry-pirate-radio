@@ -174,7 +174,7 @@
       <span class="legend-swatch swatch-agg"></span>
       Other (non-FA) <span class="legend-count" id="count-agg">—</span>
     </span>
-    <span class="legend-item" data-cat="dup">
+    <span class="legend-item disabled" data-cat="dup" title="Click to filter to within-category duplicates only">
       <span class="legend-swatch swatch-dup"></span>
       Likely duplicate <span class="legend-count" id="count-dup">—</span>
     </span>
@@ -236,15 +236,15 @@ const cluster = L.markerClusterGroup({
   iconCreateFunction(cluster) {
     let nFa = 0, nAgg = 0, nDup = 0;
     cluster.getAllChildMarkers().forEach(m => {
-      if      (m.__cat === "fa")  nFa++;
-      else if (m.__cat === "agg") nAgg++;
-      else if (m.__cat === "dup") nDup++;
+      if (m.__cat === "fa")  nFa++;
+      else                   nAgg++;
+      if (m.__isDup)         nDup++;
     });
-    const total = nFa + nAgg + nDup;
+    const total = nFa + nAgg;
     let cssClass = "cluster-fa";
-    if (nDup > 0) cssClass = "cluster-mix";
-    else if (nAgg > 0 && nFa === 0) cssClass = "cluster-agg";
-    else if (nAgg > 0 && nFa > 0) cssClass = "cluster-mix";
+    if (nDup > 0 && nDup * 2 >= total) cssClass = "cluster-mix";  // mostly dups
+    else if (nAgg > 0 && nFa === 0)    cssClass = "cluster-agg";
+    else if (nAgg > 0 && nFa > 0)      cssClass = "cluster-mix";
     const size = total < 50 ? "small" : total < 500 ? "medium" : "large";
     return L.divIcon({
       html: `<div><span>${total.toLocaleString()}</span></div>`,
@@ -255,10 +255,12 @@ const cluster = L.markerClusterGroup({
 });
 map.addLayer(cluster);
 
-// Three sets of markers, addressed by legend toggle.
-// Aggregator default off; FA + likely-duplicate on.
-const markersByCat = { fa: [], agg: [], dup: [] };
-const visibleCat   = { fa: true, agg: false, dup: true };
+// Two sets of markers (fa and agg). The "Likely duplicate" chip is a
+// FILTER, not a separate category — it scopes the visible set to markers
+// tagged __isDup.
+const markersByCat = { fa: [], agg: [] };
+const visibleCat   = { fa: true, agg: false };
+let dupOnly = false;
 
 // Selected food bank filter (empty = all).
 let foodBankFilter = "";
@@ -341,13 +343,15 @@ function rowBody(row, category) {
 
 function popupHtml(row, category) { return rowBody(row, category); }
 
-function dupPopupHtml(rows) {
+function dupPopupHtml(rows, category) {
+  const cat = category || "fa";
+  const catLabel = cat === "fa" ? "Feeding America" : "Other (non-FA)";
   const blocks = rows.map((r, i) =>
-    `<div class="dup-section"><div class="dup-section-head">Record ${i + 1}</div>${rowBody(r, "fa")}</div>`
+    `<div class="dup-section"><div class="dup-section-head">Record ${i + 1}</div>${rowBody(r, cat)}</div>`
   );
   const meters = Math.round(approxDistanceMeters(rows));
   return `
-    <div class="popup-title">Likely duplicate (${rows.length} records, ~${meters}m apart)</div>
+    <div class="popup-title">Likely duplicate · ${catLabel} (${rows.length} records, ~${meters}m apart)</div>
     <div class="popup-meta">
       <span class="badge badge-dup">Likely duplicate</span>
       &nbsp;Separate canonical IDs at the same place — reconciler did not merge.
@@ -393,9 +397,11 @@ function loadCsvRows(url) {
 }
 
 function buildMarkers(rows) {
-  // Bucket every row by rounded coords. Buckets with 2+ distinct canonical
-  // location_ids become a single dup marker. Singletons keep their category
-  // (fa or agg) from the CSV.
+  // Every row becomes its own pin, colored by category. We additionally tag
+  // pins that share a ~110m bucket with another canonical location of the
+  // SAME category — those are reconciler near-misses ("likely duplicate").
+  // FA + AGG co-location at the same coord is NOT a dup: they're different
+  // networks of data, and an FA pin should always count toward FA.
   const factor = Math.pow(10, DUP_COORD_DECIMALS);
   const buckets = new Map();
   for (const r of rows) {
@@ -406,32 +412,46 @@ function buildMarkers(rows) {
     buckets.get(k).push(r);
   }
 
-  const faMarkers = [], aggMarkers = [], dupMarkers = [];
+  // Per bucket, per category: if 2+ distinct location_ids, mark them as dup.
+  const dupRowIds = new Set();           // location_ids flagged dup
+  const dupSiblings = new Map();         // location_id -> array of sibling rows
   for (const [, group] of buckets) {
-    const distinctIds = new Set(group.map(r => r.location_id));
-    if (distinctIds.size >= 2) {
-      let latSum = 0, lngSum = 0;
-      for (const r of group) { latSum += parseFloat(r.latitude); lngSum += parseFloat(r.longitude); }
-      const lat = latSum / group.length, lng = lngSum / group.length;
-      const m = L.marker([lat, lng], { icon: iconDup });
-      m.bindPopup(() => dupPopupHtml(group), { maxWidth: 380 });
-      m.__cat = "dup";
-      m.__rows = group;
-      dupMarkers.push(m);
-    } else {
-      for (const r of group) {
-        const cat = r.category === "aggregator" ? "agg" : "fa";
-        const icon = cat === "agg" ? iconAgg : iconFa;
-        const m = L.marker([parseFloat(r.latitude), parseFloat(r.longitude)], { icon });
-        m.bindPopup(() => popupHtml(r, cat), { maxWidth: 360 });
-        m.__cat = cat;
-        m.__rows = [r];
-        if (cat === "agg") aggMarkers.push(m);
-        else               faMarkers.push(m);
+    const byCat = { fa: [], agg: [] };
+    for (const r of group) {
+      const c = r.category === "aggregator" ? "agg" : "fa";
+      byCat[c].push(r);
+    }
+    for (const cat of ["fa", "agg"]) {
+      const rs = byCat[cat];
+      const ids = new Set(rs.map(r => r.location_id));
+      if (ids.size >= 2) {
+        for (const r of rs) {
+          dupRowIds.add(r.location_id);
+          dupSiblings.set(r.location_id, rs);
+        }
       }
     }
   }
-  return { faMarkers, aggMarkers, dupMarkers };
+
+  const faMarkers = [], aggMarkers = [];
+  for (const r of rows) {
+    const cat = r.category === "aggregator" ? "agg" : "fa";
+    const isDup = dupRowIds.has(r.location_id);
+    const icon = isDup ? iconDup : (cat === "agg" ? iconAgg : iconFa);
+    const m = L.marker([parseFloat(r.latitude), parseFloat(r.longitude)], { icon });
+    if (isDup) {
+      const siblings = dupSiblings.get(r.location_id) || [r];
+      m.bindPopup(() => dupPopupHtml(siblings, cat), { maxWidth: 380 });
+    } else {
+      m.bindPopup(() => popupHtml(r, cat), { maxWidth: 360 });
+    }
+    m.__cat = cat;
+    m.__isDup = isDup;
+    m.__rows = [r];
+    if (cat === "agg") aggMarkers.push(m);
+    else               faMarkers.push(m);
+  }
+  return { faMarkers, aggMarkers };
 }
 
 function markerMatchesFoodBank(m, foodBank) {
@@ -444,27 +464,31 @@ function markerMatchesFoodBank(m, foodBank) {
 
 function applyVisibility() {
   const wanted = [];
-  for (const cat of ["fa", "agg", "dup"]) {
+  for (const cat of ["fa", "agg"]) {
     if (!visibleCat[cat]) continue;
     for (const m of markersByCat[cat]) {
+      if (dupOnly && !m.__isDup) continue;
       if (markerMatchesFoodBank(m, foodBankFilter)) wanted.push(m);
     }
   }
   cluster.clearLayers();
   cluster.addLayers(wanted);
-  // Status pane shows live shown count.
-  const shown = wanted.length;
   const statusEl = document.getElementById("status");
   if (statusEl && statusEl.dataset.base) {
-    statusEl.textContent = `${shown.toLocaleString()} shown · ${statusEl.dataset.base}`;
+    statusEl.textContent = `${wanted.length.toLocaleString()} shown · ${statusEl.dataset.base}`;
   }
 }
 
 document.querySelectorAll(".legend-item").forEach(el => {
   el.addEventListener("click", () => {
     const cat = el.dataset.cat;
-    visibleCat[cat] = !visibleCat[cat];
-    el.classList.toggle("disabled", !visibleCat[cat]);
+    if (cat === "dup") {
+      dupOnly = !dupOnly;
+      el.classList.toggle("disabled", !dupOnly);
+    } else {
+      visibleCat[cat] = !visibleCat[cat];
+      el.classList.toggle("disabled", !visibleCat[cat]);
+    }
     applyVisibility();
   });
 });
@@ -508,16 +532,19 @@ async function bootstrap() {
     const rows = await loadCsvRows(csvName);
     statusEl.textContent = "Detecting duplicates…";
 
-    const { faMarkers, aggMarkers, dupMarkers } = buildMarkers(rows);
+    const { faMarkers, aggMarkers } = buildMarkers(rows);
     markersByCat.fa  = faMarkers;
     markersByCat.agg = aggMarkers;
-    markersByCat.dup = dupMarkers;
+
+    const dupCount =
+      faMarkers.filter(m => m.__isDup).length +
+      aggMarkers.filter(m => m.__isDup).length;
 
     document.getElementById("count-fa").textContent  = faMarkers.length.toLocaleString();
     document.getElementById("count-agg").textContent = aggMarkers.length.toLocaleString();
-    document.getElementById("count-dup").textContent = dupMarkers.length.toLocaleString();
+    document.getElementById("count-dup").textContent = dupCount.toLocaleString();
 
-    statusEl.dataset.base = `${dupMarkers.length.toLocaleString()} dup clusters · ${manifest.generated.slice(0,10)}`;
+    statusEl.dataset.base = `${dupCount.toLocaleString()} dup pins · ${manifest.generated.slice(0,10)}`;
     applyVisibility();
     bootEl.classList.add("hidden");
   } catch (err) {
