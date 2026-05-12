@@ -90,12 +90,19 @@ CSV_COLUMNS = [
     "name",
     "latitude",
     "longitude",
+    "category",
     "address",
     "city",
     "state",
     "postal_code",
     "organization",
     "fa_food_banks",
+    "phone",
+    "email",
+    "website",
+    "description",
+    "services",
+    "languages",
     "scrapers",
     "source_count",
     "confidence_score",
@@ -104,6 +111,7 @@ CSV_COLUMNS = [
     "missing_fields",
     "geocoding_source",
     "submarine_status",
+    "last_updated",
     "location_id",
 ]
 
@@ -136,14 +144,46 @@ WITH location_scrapers AS (
     GROUP BY location_id
 ),
 location_phones AS (
-    SELECT DISTINCT location_id FROM phone WHERE location_id IS NOT NULL
+    SELECT
+        location_id,
+        MIN(NULLIF(number, '')) AS phone
+    FROM phone
+    WHERE location_id IS NOT NULL
+    GROUP BY location_id
 ),
 location_emails AS (
-    SELECT DISTINCT location_id
+    SELECT
+        location_id,
+        MIN(NULLIF(email, '')) AS email
     FROM contact
     WHERE location_id IS NOT NULL
       AND email IS NOT NULL
       AND email <> ''
+    GROUP BY location_id
+),
+location_services AS (
+    SELECT
+        sal.location_id,
+        STRING_AGG(DISTINCT s.name, '; ' ORDER BY s.name) AS services
+    FROM service_at_location sal
+    JOIN service s ON s.id = sal.service_id
+    WHERE sal.location_id IS NOT NULL AND s.name IS NOT NULL
+    GROUP BY sal.location_id
+),
+location_languages AS (
+    SELECT
+        location_id,
+        STRING_AGG(DISTINCT name, '; ' ORDER BY name) AS languages
+    FROM language
+    WHERE location_id IS NOT NULL AND name IS NOT NULL
+    GROUP BY location_id
+),
+location_last_updated AS (
+    SELECT
+        location_id,
+        MAX(updated_at) AS last_updated
+    FROM location_source
+    GROUP BY location_id
 ),
 location_has_schedule AS (
     SELECT DISTINCT sal.location_id
@@ -175,8 +215,15 @@ SELECT
     l.submarine_last_status,
     ls.scraper_ids,
     COALESCE(ls.source_count, 0) AS source_count,
-    (lp.location_id IS NOT NULL) AS has_phone,
-    (le.location_id IS NOT NULL) AS has_email,
+    lp.phone,
+    le.email,
+    COALESCE(NULLIF(l.url, ''), NULLIF(o.website, '')) AS website,
+    COALESCE(NULLIF(l.description, ''), NULLIF(o.description, '')) AS description,
+    lsvc.services,
+    llng.languages,
+    llu.last_updated,
+    (lp.phone IS NOT NULL) AS has_phone,
+    (le.email IS NOT NULL) AS has_email,
     (COALESCE(NULLIF(l.url, ''), NULLIF(o.website, '')) IS NOT NULL) AS has_website,
     (lhs.location_id IS NOT NULL) AS has_schedule,
     zf.fa_food_banks
@@ -186,6 +233,9 @@ LEFT JOIN organization o ON o.id = l.organization_id
 LEFT JOIN location_scrapers ls ON ls.location_id = l.id
 LEFT JOIN location_phones lp ON lp.location_id = l.id
 LEFT JOIN location_emails le ON le.location_id = l.id
+LEFT JOIN location_services lsvc ON lsvc.location_id = l.id
+LEFT JOIN location_languages llng ON llng.location_id = l.id
+LEFT JOIN location_last_updated llu ON llu.location_id = l.id
 LEFT JOIN location_has_schedule lhs ON lhs.location_id = l.id
 LEFT JOIN zip_fa zf ON zf.zip = LEFT(a.postal_code, 5)
 WHERE l.latitude IS NOT NULL
@@ -218,23 +268,23 @@ def build_query(state: str | None, min_confidence: int | None) -> tuple[str, dic
     return sql, params
 
 
-def is_included(
+def classify(
     scraper_ids: Iterable[str] | None,
     allowed: set[str] | None,
     blocklist: set[str],
-) -> bool:
-    """Decide whether a location belongs on the map.
+) -> str:
+    """Tag a location as 'fa' (any source in allow-list) or 'aggregator' (none).
 
-    If `allowed` is set (TSV-driven), keep the location iff at least one of
-    its sources is in the allowed set. Otherwise, fall back to the legacy
-    blocklist rule: drop only when every source is blocklisted.
+    With `allowed` (TSV-driven): 'fa' if any source is in allowed, else 'aggregator'.
+    Fallback (no TSV): 'aggregator' if every source is in blocklist, else 'fa'.
+    Empty source list -> 'aggregator' (data without provenance).
     """
     ids = [s for s in (scraper_ids or []) if s]
-    if allowed is not None:
-        return any(s in allowed for s in ids) if ids else False
     if not ids:
-        return True
-    return not all(s in blocklist for s in ids)
+        return "aggregator"
+    if allowed is not None:
+        return "fa" if any(s in allowed for s in ids) else "aggregator"
+    return "aggregator" if all(s in blocklist for s in ids) else "fa"
 
 
 def missing_fields_summary(row: dict, has_schedule: bool) -> str:
@@ -338,31 +388,44 @@ def main() -> int:
         conn.close()
 
     kept_rows: list[dict] = []
-    excluded_count = 0
     scraper_counter: Counter[str] = Counter()
-    excluded_scraper_counter: Counter[str] = Counter()
+    cat_counter: Counter[str] = Counter()
+    food_bank_counter: Counter[str] = Counter()
 
     for r in db_rows:
         scraper_ids = list(r.get("scraper_ids") or [])
         for s in scraper_ids:
             scraper_counter[s] += 1
 
-        if not is_included(scraper_ids, allowed, blocklist):
-            excluded_count += 1
-            for s in scraper_ids:
-                excluded_scraper_counter[s] += 1
-            continue
+        category = classify(scraper_ids, allowed, blocklist)
+        cat_counter[category] += 1
+
+        fa_food_banks = list(r.get("fa_food_banks") or [])
+        for fb in fa_food_banks:
+            food_bank_counter[fb] += 1
+
+        last_updated = r.get("last_updated")
+        last_updated_str = (
+            last_updated.isoformat() if hasattr(last_updated, "isoformat") else (last_updated or "")
+        )
 
         out_row = {
             "name": r["name"] or "",
             "latitude": float(r["lat"]),
             "longitude": float(r["lng"]),
+            "category": category,
             "address": format_address(r),
             "city": r.get("city") or "",
             "state": r.get("state") or "",
             "postal_code": r.get("postal_code") or "",
             "organization": r.get("organization_name") or "",
-            "fa_food_banks": "|".join(r.get("fa_food_banks") or []),
+            "fa_food_banks": "|".join(fa_food_banks),
+            "phone": r.get("phone") or "",
+            "email": r.get("email") or "",
+            "website": r.get("website") or "",
+            "description": (r.get("description") or "").strip(),
+            "services": r.get("services") or "",
+            "languages": r.get("languages") or "",
             "scrapers": "|".join(scraper_ids),
             "source_count": int(r.get("source_count") or 0),
             "confidence_score": int(r.get("confidence_score") or 0),
@@ -371,6 +434,7 @@ def main() -> int:
             "missing_fields": missing_fields_summary(r, bool(r.get("has_schedule"))),
             "geocoding_source": r.get("geocoding_source") or "",
             "submarine_status": r.get("submarine_last_status") or "",
+            "last_updated": last_updated_str,
             "location_id": str(r["location_id"]),
         }
         kept_rows.append(out_row)
@@ -381,11 +445,21 @@ def main() -> int:
     csv_path = out_dir / f"data_quality_map_{stamp}.csv"
     write_csv(csv_path, kept_rows)
 
+    # Food banks present in the data, alphabetical with counts — drives the HTML filter dropdown.
+    food_banks = [
+        {"name": name, "count": count}
+        for name, count in sorted(food_bank_counter.items())
+    ]
+
     manifest = {
         "generated": now.isoformat(),
         "csv": csv_path.name,
         "count": len(kept_rows),
-        "excluded": excluded_count,
+        "counts": {
+            "fa": cat_counter.get("fa", 0),
+            "aggregator": cat_counter.get("aggregator", 0),
+        },
+        "food_banks": food_banks,
         "filters": {
             "state": args.state.upper() if args.state else None,
             "min_confidence": args.min_confidence,
@@ -409,25 +483,23 @@ def main() -> int:
     print()
     print("=== Data-Quality Map Export ===")
     print(f"Total canonical locations with valid coords: {total}")
-    print(f"  Kept: {len(kept_rows)}  -> {csv_path}")
-    print(f"  Excluded: {excluded_count}")
+    print(f"  Feeding America: {cat_counter.get('fa', 0)}")
+    print(f"  Aggregator:      {cat_counter.get('aggregator', 0)}")
+    print(f"  Output CSV:      {csv_path}")
     if args.state:
         print(f"Filter: state={args.state.upper()}")
     if args.min_confidence is not None:
         print(f"Filter: min_confidence={args.min_confidence}")
 
     print()
-    print("Top 15 included scraper_ids:")
+    print("Top 15 scraper_ids:")
     for scraper_id, count in scraper_counter.most_common(15):
         is_allowed = allowed is None or scraper_id in allowed
-        flag = "" if is_allowed else "  [EXCLUDED]"
+        flag = "" if is_allowed else "  [aggregator]"
         print(f"  {count:>7}  {scraper_id}{flag}")
 
-    if excluded_scraper_counter:
-        print()
-        print("Top excluded scraper_ids (locations whose only sources were these):")
-        for scraper_id, count in excluded_scraper_counter.most_common(8):
-            print(f"  {count:>7}  {scraper_id}")
+    print()
+    print(f"FA food banks present in data: {len(food_banks)}")
 
     if len(kept_rows) > GOOGLE_MY_MAPS_LAYER_LIMIT:
         print()

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>PPR Data-Quality Map</title>
+<title>Plentiful · Pantry Data-Quality Map</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -75,6 +75,22 @@
   .legend-count {
     font-variant-numeric: tabular-nums; font-weight: 600; opacity: 0.95;
   }
+  #food-bank-filter-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.14); border-radius: 16px;
+    padding: 4px 10px; font-size: 13px; margin-left: 8px;
+  }
+  #food-bank-filter-label > span { font-weight: 600; opacity: 0.95; }
+  #food-bank-filter {
+    background: transparent; color: white; border: none; outline: none;
+    font-family: inherit; font-size: 13px; max-width: 260px;
+    appearance: none; -webkit-appearance: none;
+    padding-right: 18px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath fill='white' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 2px center;
+  }
+  #food-bank-filter option { color: black; background: white; }
   #status {
     margin-left: auto; font-size: 13px; opacity: 0.9;
     font-variant-numeric: tabular-nums;
@@ -147,18 +163,26 @@
 </head>
 <body>
 <header>
-  <h1>Pantry Pirate Radio</h1>
-  <span class="subtitle">Data-Quality Map</span>
+  <h1>Plentiful</h1>
+  <span class="subtitle">Pantry Data-Quality Map</span>
   <div id="legend">
     <span class="legend-item" data-cat="fa">
       <span class="legend-swatch swatch-fa"></span>
       Feeding America <span class="legend-count" id="count-fa">—</span>
+    </span>
+    <span class="legend-item disabled" data-cat="agg">
+      <span class="legend-swatch swatch-agg"></span>
+      Other (non-FA) <span class="legend-count" id="count-agg">—</span>
     </span>
     <span class="legend-item" data-cat="dup">
       <span class="legend-swatch swatch-dup"></span>
       Likely duplicate <span class="legend-count" id="count-dup">—</span>
     </span>
   </div>
+  <label id="food-bank-filter-label">
+    <span>Food bank</span>
+    <select id="food-bank-filter"><option value="">All</option></select>
+  </label>
   <div id="status">Initializing…</div>
 </header>
 
@@ -210,13 +234,17 @@ const cluster = L.markerClusterGroup({
   spiderfyOnMaxZoom: true,
   disableClusteringAtZoom: 16,
   iconCreateFunction(cluster) {
-    let nFa = 0, nDup = 0;
+    let nFa = 0, nAgg = 0, nDup = 0;
     cluster.getAllChildMarkers().forEach(m => {
       if      (m.__cat === "fa")  nFa++;
+      else if (m.__cat === "agg") nAgg++;
       else if (m.__cat === "dup") nDup++;
     });
-    const total = nFa + nDup;
-    const cssClass = nDup > 0 ? "cluster-mix" : "cluster-fa";
+    const total = nFa + nAgg + nDup;
+    let cssClass = "cluster-fa";
+    if (nDup > 0) cssClass = "cluster-mix";
+    else if (nAgg > 0 && nFa === 0) cssClass = "cluster-agg";
+    else if (nAgg > 0 && nFa > 0) cssClass = "cluster-mix";
     const size = total < 50 ? "small" : total < 500 ? "medium" : "large";
     return L.divIcon({
       html: `<div><span>${total.toLocaleString()}</span></div>`,
@@ -227,9 +255,13 @@ const cluster = L.markerClusterGroup({
 });
 map.addLayer(cluster);
 
-// Two sets of markers, addressed by legend toggle.
-const markersByCat = { fa: [], dup: [] };
-const visibleCat = { fa: true, dup: true };
+// Three sets of markers, addressed by legend toggle.
+// Aggregator default off; FA + likely-duplicate on.
+const markersByCat = { fa: [], agg: [], dup: [] };
+const visibleCat   = { fa: true, agg: false, dup: true };
+
+// Selected food bank filter (empty = all).
+let foodBankFilter = "";
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
@@ -243,8 +275,16 @@ function confidenceClass(score) {
   return "conf-low";
 }
 
+function truncate(s, n) {
+  s = String(s || "");
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
 function rowBody(row, category) {
-  const badge = `<span class="badge badge-fa">Feeding America</span>`;
+  const cat = category || row.category || "fa";
+  const badge = cat === "fa"
+    ? `<span class="badge badge-fa">Feeding America</span>`
+    : `<span class="badge badge-agg">Other (non-FA)</span>`;
   const missing = row.missing_fields
     ? `<div class="popup-meta">Missing: <span class="missing">${esc(row.missing_fields)}</span></div>`
     : `<div class="popup-meta">Missing: <em>none</em></div>`;
@@ -252,17 +292,38 @@ function rowBody(row, category) {
     ? `<div class="popup-meta"><strong>Submarine:</strong> ${esc(row.submarine_status)}</div>` : "";
   const geo = row.geocoding_source
     ? `<div class="popup-meta"><strong>Geocoder:</strong> ${esc(row.geocoding_source)}</div>` : "";
+  const lastUpdated = row.last_updated
+    ? `<div class="popup-meta"><strong>Updated:</strong> ${esc(row.last_updated.slice(0,10))}</div>` : "";
   const confCls = confidenceClass(row.confidence_score);
   const org = row.organization
     ? `<div class="popup-meta"><strong>Operating org:</strong> ${esc(row.organization)}</div>` : "";
   const faServiceArea = row.fa_food_banks
     ? `<div class="popup-meta"><strong>FA service area:</strong> ${esc(row.fa_food_banks.split('|').join(', '))}</div>` : "";
+
+  const contactBits = [];
+  if (row.phone)   contactBits.push(`<a href="tel:${esc(row.phone)}">${esc(row.phone)}</a>`);
+  if (row.email)   contactBits.push(`<a href="mailto:${esc(row.email)}">${esc(row.email)}</a>`);
+  if (row.website) contactBits.push(`<a href="${esc(row.website)}" target="_blank" rel="noopener">website</a>`);
+  const contact = contactBits.length
+    ? `<div class="popup-meta"><strong>Contact:</strong> ${contactBits.join(" · ")}</div>` : "";
+
+  const description = row.description
+    ? `<div class="popup-meta popup-description">${esc(truncate(row.description, 240))}</div>` : "";
+  const services = row.services
+    ? `<div class="popup-meta"><strong>Services:</strong> ${esc(row.services.split(';').map(s => s.trim()).filter(Boolean).join(', '))}</div>` : "";
+  const languages = row.languages
+    ? `<div class="popup-meta"><strong>Languages:</strong> ${esc(row.languages.split(';').map(s => s.trim()).filter(Boolean).join(', '))}</div>` : "";
+
   return `
     <div class="popup-title">${esc(row.name || "Unnamed")}</div>
     <div class="popup-meta">${badge}</div>
     ${org}
     ${faServiceArea}
     <div class="popup-meta">${esc(row.address || "")}</div>
+    ${contact}
+    ${description}
+    ${services}
+    ${languages}
     <div class="popup-meta">
       <strong>Confidence:</strong> <span class="confidence ${confCls}">${esc(row.confidence_score)}</span>
       &nbsp;<strong>Sources:</strong> ${esc(row.source_count)}
@@ -273,6 +334,7 @@ function rowBody(row, category) {
     ${missing}
     ${geo}
     ${submarine}
+    ${lastUpdated}
     <div class="popup-id">${esc(row.location_id)}</div>
   `;
 }
@@ -310,7 +372,7 @@ function approxDistanceMeters(rows) {
   return maxD;
 }
 
-function loadCsvRows(url, category) {
+function loadCsvRows(url) {
   return new Promise((resolve, reject) => {
     const rows = [];
     Papa.parse(url, {
@@ -322,7 +384,6 @@ function loadCsvRows(url, category) {
         const lat = parseFloat(r.latitude);
         const lng = parseFloat(r.longitude);
         if (!isFinite(lat) || !isFinite(lng)) return;
-        r.__cat = category;
         rows.push(r);
       },
       complete() { resolve(rows); },
@@ -332,9 +393,9 @@ function loadCsvRows(url, category) {
 }
 
 function buildMarkers(rows) {
-  // Bucket every row by rounded coords. Any bucket with 2+ distinct canonical
-  // location_ids becomes a single dup marker (reconciler should have merged
-  // them but didn't). Singletons emit individual FA markers.
+  // Bucket every row by rounded coords. Buckets with 2+ distinct canonical
+  // location_ids become a single dup marker. Singletons keep their category
+  // (fa or agg) from the CSV.
   const factor = Math.pow(10, DUP_COORD_DECIMALS);
   const buckets = new Map();
   for (const r of rows) {
@@ -345,7 +406,7 @@ function buildMarkers(rows) {
     buckets.get(k).push(r);
   }
 
-  const faMarkers = [], dupMarkers = [];
+  const faMarkers = [], aggMarkers = [], dupMarkers = [];
   for (const [, group] of buckets) {
     const distinctIds = new Set(group.map(r => r.location_id));
     if (distinctIds.size >= 2) {
@@ -355,26 +416,48 @@ function buildMarkers(rows) {
       const m = L.marker([lat, lng], { icon: iconDup });
       m.bindPopup(() => dupPopupHtml(group), { maxWidth: 380 });
       m.__cat = "dup";
+      m.__rows = group;
       dupMarkers.push(m);
     } else {
       for (const r of group) {
-        const m = L.marker([parseFloat(r.latitude), parseFloat(r.longitude)], { icon: iconFa });
-        m.bindPopup(() => popupHtml(r, "fa"), { maxWidth: 340 });
-        m.__cat = "fa";
-        faMarkers.push(m);
+        const cat = r.category === "aggregator" ? "agg" : "fa";
+        const icon = cat === "agg" ? iconAgg : iconFa;
+        const m = L.marker([parseFloat(r.latitude), parseFloat(r.longitude)], { icon });
+        m.bindPopup(() => popupHtml(r, cat), { maxWidth: 360 });
+        m.__cat = cat;
+        m.__rows = [r];
+        if (cat === "agg") aggMarkers.push(m);
+        else               faMarkers.push(m);
       }
     }
   }
-  return { faMarkers, dupMarkers };
+  return { faMarkers, aggMarkers, dupMarkers };
+}
+
+function markerMatchesFoodBank(m, foodBank) {
+  if (!foodBank) return true;
+  // Match if ANY underlying row's fa_food_banks contains the selected food bank.
+  return (m.__rows || []).some(r =>
+    (r.fa_food_banks || "").split("|").includes(foodBank)
+  );
 }
 
 function applyVisibility() {
   const wanted = [];
-  for (const cat of ["fa", "dup"]) {
-    if (visibleCat[cat]) wanted.push(...markersByCat[cat]);
+  for (const cat of ["fa", "agg", "dup"]) {
+    if (!visibleCat[cat]) continue;
+    for (const m of markersByCat[cat]) {
+      if (markerMatchesFoodBank(m, foodBankFilter)) wanted.push(m);
+    }
   }
   cluster.clearLayers();
   cluster.addLayers(wanted);
+  // Status pane shows live shown count.
+  const shown = wanted.length;
+  const statusEl = document.getElementById("status");
+  if (statusEl && statusEl.dataset.base) {
+    statusEl.textContent = `${shown.toLocaleString()} shown · ${statusEl.dataset.base}`;
+  }
 }
 
 document.querySelectorAll(".legend-item").forEach(el => {
@@ -402,27 +485,40 @@ async function bootstrap() {
     return;
   }
 
-  // Support both new (single CSV) and legacy (fa_csv + aggregator_csv) manifests.
   const csvName = manifest.csv || manifest.fa_csv;
   const totalAdvertised = manifest.count
     || (manifest.counts && (manifest.counts.fa + (manifest.counts.aggregator || 0)))
     || 0;
   statusEl.textContent = `Loading ${totalAdvertised.toLocaleString()} locations…`;
 
+  // Populate food-bank dropdown from manifest
+  const dropdown = document.getElementById("food-bank-filter");
+  for (const fb of manifest.food_banks || []) {
+    const opt = document.createElement("option");
+    opt.value = fb.name;
+    opt.textContent = `${fb.name} (${fb.count.toLocaleString()})`;
+    dropdown.appendChild(opt);
+  }
+  dropdown.addEventListener("change", e => {
+    foodBankFilter = e.target.value;
+    applyVisibility();
+  });
+
   try {
-    const rows = await loadCsvRows(csvName, "fa");
+    const rows = await loadCsvRows(csvName);
     statusEl.textContent = "Detecting duplicates…";
 
-    const { faMarkers, dupMarkers } = buildMarkers(rows);
+    const { faMarkers, aggMarkers, dupMarkers } = buildMarkers(rows);
     markersByCat.fa  = faMarkers;
+    markersByCat.agg = aggMarkers;
     markersByCat.dup = dupMarkers;
 
     document.getElementById("count-fa").textContent  = faMarkers.length.toLocaleString();
+    document.getElementById("count-agg").textContent = aggMarkers.length.toLocaleString();
     document.getElementById("count-dup").textContent = dupMarkers.length.toLocaleString();
 
+    statusEl.dataset.base = `${dupMarkers.length.toLocaleString()} dup clusters · ${manifest.generated.slice(0,10)}`;
     applyVisibility();
-    const totalShown = faMarkers.length + dupMarkers.length;
-    statusEl.textContent = `${totalShown.toLocaleString()} pins · ${dupMarkers.length.toLocaleString()} dup clusters · ${manifest.generated.slice(0,10)}`;
     bootEl.classList.add("hidden");
   } catch (err) {
     statusEl.textContent = "Failed to load CSV";
