@@ -32,15 +32,19 @@ To preview the map locally:
     open http://localhost:8765/map.html
 
 To re-publish the snapshot to S3 (semi-external share URL):
+    # map.html + manifest stay path-stable but must always revalidate so
+    # viewers see the latest data without manual cache-busting.
     aws s3 cp outputs/map.html                            \\
         s3://pantry-pirate-radio-exports-prod/sqlite-exports/data-quality-map/map.html \\
-        --content-type text/html --cache-control "public, max-age=300"
-    aws s3 cp outputs/data_quality_map_<date>.csv          \\
-        s3://pantry-pirate-radio-exports-prod/sqlite-exports/data-quality-map/ \\
-        --content-type text/csv --cache-control "public, max-age=3600"
+        --content-type text/html --cache-control "no-cache, no-store, must-revalidate"
     aws s3 cp outputs/data_quality_map_manifest.json       \\
         s3://pantry-pirate-radio-exports-prod/sqlite-exports/data-quality-map/ \\
-        --content-type application/json --cache-control "public, max-age=300"
+        --content-type application/json --cache-control "no-cache, no-store, must-revalidate"
+    # CSV filename is versioned (YYYYMMDDTHHMMSS), so each generation gets a
+    # unique URL — safe to cache aggressively.
+    aws s3 cp outputs/data_quality_map_<stamp>.csv          \\
+        s3://pantry-pirate-radio-exports-prod/sqlite-exports/data-quality-map/ \\
+        --content-type text/csv --cache-control "public, max-age=86400, immutable"
 """
 
 from __future__ import annotations
@@ -440,7 +444,11 @@ def main() -> int:
         kept_rows.append(out_row)
 
     now = datetime.now(timezone.utc)
-    stamp = now.strftime("%Y%m%d")
+    # Include time-of-day in the CSV filename so each export produces a fresh
+    # URL — defeats browser/CDN caching of the prior generation's data even
+    # when re-run on the same calendar day. HTML+manifest stay path-stable so
+    # the share URL never changes; only the CSV the manifest points to does.
+    stamp = now.strftime("%Y%m%dT%H%M%S")
     out_dir = Path(args.out_dir)
     csv_path = out_dir / f"data_quality_map_{stamp}.csv"
     write_csv(csv_path, kept_rows)
