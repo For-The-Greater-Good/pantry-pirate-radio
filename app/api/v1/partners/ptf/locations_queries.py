@@ -163,6 +163,7 @@ def _bind_allowlist(stmt: Any) -> Any:
     """
     return stmt.bindparams(bindparam("allowlist", expanding=True))
 
+
 _SCHEDULES_SQL = """
 SELECT freq, byday, bymonthday, opens_at, closes_at, description
 FROM schedule

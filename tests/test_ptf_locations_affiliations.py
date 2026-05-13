@@ -114,7 +114,7 @@ class TestQualifyingSourceCTE:
         assert "allowlist" in sql_text  # the bind name
         assert "allowlist" in params
         # Tuple of scraper ids, expanding=True at the bind site.
-        assert isinstance(params["allowlist"], (tuple, list))
+        assert isinstance(params["allowlist"], tuple | list)
         assert "vivery_api" in params["allowlist"]
         # Aggregator MUST NOT be in the bound allowlist tuple.
         assert "foodfinder_us" not in params["allowlist"]
