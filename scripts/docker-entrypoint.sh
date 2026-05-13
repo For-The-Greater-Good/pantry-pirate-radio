@@ -75,14 +75,23 @@ case "$SERVICE" in
     
     scraper)
         echo "Starting scraper service..."
+        # FORCE_REEXTRACT (truthy: "true"/"1"/"yes") is set by Step Functions
+        # for backfill runs to bypass the content-store dedup short-circuit.
+        FORCE_REEXTRACT_FLAG=""
+        case "${FORCE_REEXTRACT:-}" in
+            true|TRUE|True|1|yes|YES|Yes)
+                FORCE_REEXTRACT_FLAG="--force-reextract"
+                echo "FORCE_REEXTRACT=$FORCE_REEXTRACT: passing --force-reextract to scraper"
+                ;;
+        esac
         if [ -n "$2" ]; then
             # If additional arguments provided, pass them to scraper
             shift
-            exec python -m app.scraper "$@"
+            exec python -m app.scraper "$@" $FORCE_REEXTRACT_FLAG
         elif [ -n "$SCRAPER_NAME" ] && [ "$SCRAPER_NAME" != "placeholder" ]; then
             # SCRAPER_NAME env var set by Step Functions container override
             echo "Running scraper from env: $SCRAPER_NAME"
-            exec python -m app.scraper "$SCRAPER_NAME"
+            exec python -m app.scraper "$SCRAPER_NAME" $FORCE_REEXTRACT_FLAG
         else
             # Default scraper behavior
             exec tail -f /dev/null  # Keep container running for manual scraper runs

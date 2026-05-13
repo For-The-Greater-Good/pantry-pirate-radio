@@ -106,6 +106,190 @@ def test_find_matching_location_not_found(mock_db: MagicMock) -> None:
     assert result is None
 
 
+def _setup_two_tier_match_mocks(
+    mock_db: MagicMock,
+    strict_hit: tuple | None,
+    fallback_hit: tuple | None,
+) -> None:
+    """Configure mock_db.execute to simulate the three SQL calls in
+    find_matching_location: acquire_lock, strict-match SELECT, fallback
+    SELECT (if reached), release_lock."""
+    lock_result = MagicMock()
+    lock_result.scalar.return_value = "mock_lock_id"
+
+    strict_result = MagicMock()
+    strict_result.first.return_value = strict_hit
+
+    fallback_result = MagicMock()
+    fallback_result.first.return_value = fallback_hit
+
+    release_result = MagicMock()
+
+    if strict_hit is not None:
+        # Strict match returns hit; fallback SELECT never runs
+        mock_db.execute.side_effect = [lock_result, strict_result, release_result]
+    else:
+        # Strict miss → fallback SELECT → release
+        mock_db.execute.side_effect = [
+            lock_result,
+            strict_result,
+            fallback_result,
+            release_result,
+        ]
+
+
+def test_find_matching_location_strict_match_skips_fallback(
+    mock_db: MagicMock,
+) -> None:
+    """When strict coord-only match hits, the same-name/same-org fallback
+    SQL must not run (avoid extra DB round-trip and any risk of widening
+    the match against the caller's intent)."""
+    location_creator = LocationCreator(mock_db)
+    existing_id = str(uuid.uuid4())
+    _setup_two_tier_match_mocks(mock_db, strict_hit=(existing_id,), fallback_hit=None)
+
+    result = location_creator.find_matching_location(
+        37.7749, -122.4194, name="Some Pantry", organization_id=str(uuid.uuid4())
+    )
+
+    assert result == existing_id
+    # Calls: acquire_lock + strict_select + release_lock = 3 (no fallback)
+    assert mock_db.execute.call_count == 3
+
+
+def test_find_matching_location_fallback_same_name(mock_db: MagicMock) -> None:
+    """When strict coord match misses and a same-name location exists within
+    the wider tolerance, the fallback returns it. Closes the 1,112-pair
+    duplicate gap where the same pantry was geocoded slightly differently
+    by two scrapers and the strict ~11m tolerance was too tight."""
+    location_creator = LocationCreator(mock_db)
+    duplicate_id = str(uuid.uuid4())
+    _setup_two_tier_match_mocks(mock_db, strict_hit=None, fallback_hit=(duplicate_id,))
+
+    result = location_creator.find_matching_location(
+        37.7749, -122.4194, name="St. Benedict Church"
+    )
+
+    assert result == duplicate_id
+    # Calls: acquire_lock + strict_select + fallback_select + release_lock
+    assert mock_db.execute.call_count == 4
+    fallback_call = mock_db.execute.call_args_list[2]
+    fallback_params = fallback_call[0][1]
+    assert fallback_params["name"] == "St. Benedict Church"
+    assert fallback_params["org_id"] is None
+    # Fallback tolerance must be wider than strict tolerance
+    assert fallback_params["wide_tolerance"] > 0.0001
+
+
+def test_find_matching_location_fallback_same_org(mock_db: MagicMock) -> None:
+    """When strict coord match misses and a same-organization location
+    exists within the wider tolerance, the fallback returns it."""
+    location_creator = LocationCreator(mock_db)
+    duplicate_id = str(uuid.uuid4())
+    org_id = str(uuid.uuid4())
+    _setup_two_tier_match_mocks(mock_db, strict_hit=None, fallback_hit=(duplicate_id,))
+
+    result = location_creator.find_matching_location(
+        37.7749, -122.4194, organization_id=org_id
+    )
+
+    assert result == duplicate_id
+    fallback_call = mock_db.execute.call_args_list[2]
+    fallback_params = fallback_call[0][1]
+    assert fallback_params["org_id"] == org_id
+    assert fallback_params["name"] is None
+
+
+def test_find_matching_location_no_fallback_without_name_or_org(
+    mock_db: MagicMock,
+) -> None:
+    """Without name or organization_id, the fallback path must be skipped —
+    a wider radius without an identity constraint would merge unrelated
+    nearby pantries."""
+    location_creator = LocationCreator(mock_db)
+    lock_result = MagicMock()
+    lock_result.scalar.return_value = "mock_lock_id"
+    strict_result = MagicMock()
+    strict_result.first.return_value = None
+    release_result = MagicMock()
+    mock_db.execute.side_effect = [lock_result, strict_result, release_result]
+
+    result = location_creator.find_matching_location(37.7749, -122.4194)
+
+    assert result is None
+    # Only acquire_lock + strict_select + release_lock (no fallback)
+    assert mock_db.execute.call_count == 3
+
+
+def test_find_matching_location_fallback_returns_none_when_no_match(
+    mock_db: MagicMock,
+) -> None:
+    """Strict miss + fallback miss → returns None (no false-positive merge)."""
+    location_creator = LocationCreator(mock_db)
+    _setup_two_tier_match_mocks(mock_db, strict_hit=None, fallback_hit=None)
+
+    result = location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="Distinct Pantry Name",
+        organization_id=str(uuid.uuid4()),
+    )
+
+    assert result is None
+    assert mock_db.execute.call_count == 4
+
+
+def test_find_matching_location_fallback_with_both_name_and_org(
+    mock_db: MagicMock,
+) -> None:
+    """When both name and organization_id are passed, the fallback SQL
+    must use an OR (either match qualifies) — not an AND. Locks the
+    semantics against accidental AND regression."""
+    location_creator = LocationCreator(mock_db)
+    duplicate_id = str(uuid.uuid4())
+    org_id = str(uuid.uuid4())
+    _setup_two_tier_match_mocks(mock_db, strict_hit=None, fallback_hit=(duplicate_id,))
+
+    result = location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="St. Benedict Church",
+        organization_id=org_id,
+    )
+
+    assert result == duplicate_id
+    fallback_call = mock_db.execute.call_args_list[2]
+    fallback_sql = str(fallback_call[0][0])
+    fallback_params = fallback_call[0][1]
+    # Both params bound — the SQL itself uses OR so either can match
+    assert fallback_params["name"] == "St. Benedict Church"
+    assert fallback_params["org_id"] == org_id
+    # The fallback SQL must contain OR between the two predicates;
+    # a regression to AND would silently require both row.org_id == org_id
+    # AND row.name == name, missing many real duplicates.
+    assert " OR " in fallback_sql
+
+
+def test_find_matching_location_fallback_name_is_lowercased_and_trimmed(
+    mock_db: MagicMock,
+) -> None:
+    """The fallback name comparison normalizes via LOWER(TRIM(...)).
+    Locks that the SQL preserves this normalization — otherwise
+    'St. Benedict Church' vs '  St. Benedict Church  ' or
+    'ST. BENEDICT CHURCH' wouldn't dedupe."""
+    location_creator = LocationCreator(mock_db)
+    _setup_two_tier_match_mocks(
+        mock_db, strict_hit=None, fallback_hit=(str(uuid.uuid4()),)
+    )
+    location_creator.find_matching_location(
+        37.7749, -122.4194, name="  St. Benedict Church  "
+    )
+    fallback_call = mock_db.execute.call_args_list[2]
+    fallback_sql = str(fallback_call[0][0])
+    assert "LOWER(TRIM(name))" in fallback_sql
+    assert "LOWER(TRIM(:name))" in fallback_sql
+
+
 def test_create_location(
     mock_db: MagicMock, test_location_data: Dict[str, Union[str, float]]
 ) -> None:

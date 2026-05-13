@@ -93,6 +93,13 @@ class TestPipelineStackResources:
                 assert (
                     env_vars.get("SCRAPER_NAME") == "$.scraper_name"
                 ), "SCRAPER_NAME should reference input path"
+                # FORCE_REEXTRACT must flow from the state machine input
+                # so backfill runs (./bouy scraper --aws NAME
+                # --force-reextract) can bypass the content-store dedup.
+                # docker-entrypoint.sh reads this env var.
+                assert env_vars.get("FORCE_REEXTRACT") == (
+                    "States.Format('{}', $.force_reextract)"
+                ), "FORCE_REEXTRACT should reference input path with format intrinsic"
                 break
         else:
             pytest.fail("No StateMachine resource found")

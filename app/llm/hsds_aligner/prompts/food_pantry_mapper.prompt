@@ -46,16 +46,26 @@ FORMAT REQUIREMENTS:
 • Coordinates: Decimal degrees only (e.g., 40.7128, -74.0060)
 
 PHONE NUMBER EXTRACTION:
-• Look for phone numbers in ANY of these field names: phone, contactPhone, phoneExt, phone_number, contact_phone, contact, main_phone, office_phone, etc.
-• Extract phone numbers from nested service contact fields (e.g., service.contactPhone)
-• Convert flat phone fields into the HSDS phones array structure
-• Include phone extensions when provided (phoneExt field)
+• Look for phone numbers in ANY of these input field names: phone, contactPhone, phoneExt, phone_number, contact_phone, contact, main_phone, office_phone, mainPhone, etc.
+
+PHONE PLACEMENT (CRITICAL — phones disappear when placed wrong):
+• A flat phone/contactPhone on a LOCATION's input dict → put it in that location's `phones` array (location[i].phones).
+• A phone on a SERVICE's input dict → put it in that service's `phones` array (service[i].phones).
+• An org-wide phone or mainPhone → put it in the organization's `phones` array (organization[i].phones).
+• The top-level `phone[]` array is a fallback ONLY. If you must use it, EVERY phone entry must set `location_name` matching the parent location's `name` (and/or `organization_name`/`service_name`); otherwise the phone will be lost on import.
+• Prefer nested placement over the top-level array whenever the parent entity is known.
+
+PHONE FORMAT:
+• Convert flat phone fields into the HSDS phones array structure.
+• Include phone extensions when provided (phoneExt field).
 • Examples:
-  - Input: {"phone": "555-1234"} → Output: "phones": [{"number": "555-1234", "type": "voice"}]
-  - Input: {"phone": "555-1234", "contactPhone": "555-5678"} → Output: "phones": [{"number": "555-1234", "type": "voice"}, {"number": "555-5678", "type": "voice"}]
-  - Input: {"phone": "555-1234", "phoneExt": "123"} → Output: "phones": [{"number": "555-1234 ext. 123", "type": "voice"}]
-• Phone numbers from services array should be associated with those services in the output
-• Avoid duplicate phone numbers in the phones array
+  - Input location: {"name": "Main Pantry", "phone": "555-1234"}
+    Output: location[0].phones = [{"number": "555-1234", "type": "voice"}]
+  - Input location: {"name": "Main Pantry", "phone": "555-1234", "contactPhone": "555-5678"}
+    Output: location[0].phones = [{"number": "555-1234", "type": "voice"}, {"number": "555-5678", "type": "voice"}]
+  - Input location: {"name": "Main Pantry", "phone": "555-1234", "phoneExt": "123"}
+    Output: location[0].phones = [{"number": "555-1234 ext. 123", "type": "voice"}]
+• Avoid duplicate phone numbers within the same `phones` array.
 
 ENTITY EXTRACTION GUIDELINES:
 

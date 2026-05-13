@@ -1178,6 +1178,36 @@ class SchemaConverter:
                             "additionalProperties": False,
                         }
 
+        # Re-include nested `phones` on location, organization, and service.
+        # HSDS does not mark `phones` as core in any of those entity
+        # schemas, so the loop above strips it. That left the LLM with
+        # only the top-level `phone[]` array, where routing relies on the
+        # LLM correctly setting parent references — which it often skipped,
+        # dropping phones onto the org entity or losing them entirely.
+        # Putting `phones` back on the parent entity gives the LLM an
+        # unambiguous, locally-scoped destination.
+        #
+        # Must run after the entity loop (needs definitions["phone"]) and
+        # before the top-level structure is built. If HSDS later marks
+        # `phones` as core, the loop will populate it and this injection
+        # will overwrite — acceptable since the resulting property has
+        # the same shape.
+        if "phone" in definitions:
+            nested_phones_property: SchemaDict = {
+                "type": "array",
+                "description": (
+                    "Phone numbers for this entity. Prefer this nested array "
+                    "over the top-level phone[] when the phone belongs to "
+                    "this specific location, organization, or service."
+                ),
+                "items": definitions["phone"],
+            }
+            for entity_name in ("location", "organization", "service"):
+                if entity_name in definitions:
+                    definitions[entity_name]["properties"]["phones"] = (  # type: ignore[index]
+                        nested_phones_property
+                    )
+
         # Build the top-level HSDS structure with enhanced descriptions for food pantry context
         hsds_core_schema: SchemaDict = {
             "$schema": "http://json-schema.org/draft-07/schema#",

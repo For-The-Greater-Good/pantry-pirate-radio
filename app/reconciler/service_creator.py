@@ -461,7 +461,12 @@ class ServiceCreator(BaseReconciler):
             transaction: Optional transaction to use
 
         Returns:
-            Phone ID
+            Phone ID. When a phone row with the same number AND the same
+            parent tuple (location_id, organization_id, service_id,
+            contact_id, service_at_location_id) already exists, returns
+            that existing id WITHOUT inserting a new row. Callers must
+            treat the return as "this phone now exists for this parent",
+            not "a new row was just inserted".
         """
         # Skip creation if no valid phone number provided
         if not number or number.strip() == "":
@@ -484,6 +489,52 @@ class ServiceCreator(BaseReconciler):
         if not any(char.isdigit() for char in number):
             self.logger.warning(f"Phone number '{number}' contains no digits, skipping")
             return None
+
+        db = transaction or self.db
+
+        # Dedup: a phone row attached to the exact same parents (location,
+        # organization, service, contact, service_at_location) with the same
+        # number is identical and should not be inserted twice. The phone
+        # table has no unique constraint on this tuple, so without this
+        # check, full rescrapes silently produce duplicate rows.
+        org_id_str = str(organization_id) if organization_id else None
+        svc_id_str = str(service_id) if service_id else None
+        loc_id_str = str(location_id) if location_id else None
+        contact_id_str = str(contact_id) if contact_id else None
+        sal_id_str = str(service_at_location_id) if service_at_location_id else None
+
+        existing = db.execute(
+            text(
+                """
+                SELECT id FROM phone
+                WHERE number = :number
+                  AND COALESCE(location_id, '') = COALESCE(:location_id, '')
+                  AND COALESCE(organization_id, '') = COALESCE(:organization_id, '')
+                  AND COALESCE(service_id, '') = COALESCE(:service_id, '')
+                  AND COALESCE(contact_id, '') = COALESCE(:contact_id, '')
+                  AND COALESCE(service_at_location_id, '') =
+                      COALESCE(:service_at_location_id, '')
+                LIMIT 1
+                """
+            ),
+            {
+                "number": number,
+                "location_id": loc_id_str,
+                "organization_id": org_id_str,
+                "service_id": svc_id_str,
+                "contact_id": contact_id_str,
+                "service_at_location_id": sal_id_str,
+            },
+        ).first()
+        if existing is not None:
+            existing_id = existing[0]
+            self.logger.debug(
+                f"Phone '{number}' already exists for these parents "
+                f"(id={existing_id}); skipping insert"
+            )
+            return (
+                uuid.UUID(existing_id) if isinstance(existing_id, str) else existing_id
+            )
 
         phone_id = uuid.uuid4()
         query = text(
@@ -514,24 +565,68 @@ class ServiceCreator(BaseReconciler):
         """
         )
 
-        db = transaction or self.db
-        db.execute(
-            query,
-            {
-                "id": str(phone_id),
-                "number": number,
-                "type": phone_type or "voice",  # Default to "voice" if type is empty
-                "organization_id": str(organization_id) if organization_id else None,
-                "service_id": str(service_id) if service_id else None,
-                "location_id": str(location_id) if location_id else None,
-                "contact_id": str(contact_id) if contact_id else None,
-                "service_at_location_id": (
-                    str(service_at_location_id) if service_at_location_id else None
+        # The reconciler currently runs single-instance (desired_count=1
+        # in services_stack.py), so a TOCTOU between the SELECT above and
+        # this INSERT shouldn't happen. But if that constraint is ever
+        # relaxed, or if someone adds a partial UNIQUE INDEX on
+        # (number, parents), this try/except lets us recover by
+        # re-querying for the now-existing row rather than crashing.
+        try:
+            db.execute(
+                query,
+                {
+                    "id": str(phone_id),
+                    "number": number,
+                    "type": phone_type
+                    or "voice",  # Default to "voice" if type is empty
+                    "organization_id": org_id_str,
+                    "service_id": svc_id_str,
+                    "location_id": loc_id_str,
+                    "contact_id": contact_id_str,
+                    "service_at_location_id": sal_id_str,
+                    "extension": extension,
+                    "description": description,
+                },
+            )
+        except IntegrityError as exc:
+            # Re-query: another writer may have just inserted the same
+            # (number, parents) tuple. If we find it, return its id; if
+            # not, the IntegrityError was caused by something else
+            # (FK violation, etc.) — propagate.
+            race_result = db.execute(
+                text(
+                    """
+                    SELECT id FROM phone
+                    WHERE number = :number
+                      AND COALESCE(location_id, '') = COALESCE(:location_id, '')
+                      AND COALESCE(organization_id, '') = COALESCE(:organization_id, '')
+                      AND COALESCE(service_id, '') = COALESCE(:service_id, '')
+                      AND COALESCE(contact_id, '') = COALESCE(:contact_id, '')
+                      AND COALESCE(service_at_location_id, '') =
+                          COALESCE(:service_at_location_id, '')
+                    LIMIT 1
+                    """
                 ),
-                "extension": extension,
-                "description": description,
-            },
-        )
+                {
+                    "number": number,
+                    "location_id": loc_id_str,
+                    "organization_id": org_id_str,
+                    "service_id": svc_id_str,
+                    "contact_id": contact_id_str,
+                    "service_at_location_id": sal_id_str,
+                },
+            ).first()
+            if race_result is not None:
+                race_id = race_result[0]
+                self.logger.info(
+                    "Phone insert raced with another writer; using their row "
+                    "(id=%s, number=%s)",
+                    race_id,
+                    number,
+                )
+                return uuid.UUID(race_id) if isinstance(race_id, str) else race_id
+            # Not a duplicate — propagate the original error.
+            raise exc
 
         # Create version
         version_tracker = VersionTracker(self.db)
@@ -542,13 +637,11 @@ class ServiceCreator(BaseReconciler):
                 "number": number,
                 "type": phone_type
                 or "voice",  # Ensure type is never NULL in version tracking too
-                "organization_id": str(organization_id) if organization_id else None,
-                "service_id": str(service_id) if service_id else None,
-                "location_id": str(location_id) if location_id else None,
-                "contact_id": str(contact_id) if contact_id else None,
-                "service_at_location_id": (
-                    str(service_at_location_id) if service_at_location_id else None
-                ),
+                "organization_id": org_id_str,
+                "service_id": svc_id_str,
+                "location_id": loc_id_str,
+                "contact_id": contact_id_str,
+                "service_at_location_id": sal_id_str,
                 "extension": extension,
                 "description": description,
                 **metadata,

@@ -130,6 +130,33 @@ def test_convert_table_schema(test_schema_path: Path) -> None:
     assert items.get("$ref") == "#/definitions/location"
 
 
+def test_load_hsds_core_schema_includes_nested_phones() -> None:
+    """The active schema must include nested `phones` on location, organization,
+    and service. Without this, the LLM has nowhere to put per-entity phones
+    (the schema strips non-core fields) and falls back to the top-level
+    phone[] array — where routing depends on the LLM correctly setting
+    parent references, which it often skipped, dropping phones."""
+    repo_root = Path(__file__).resolve().parents[2]
+    csv_path = repo_root / "docs" / "HSDS" / "schema" / "simple" / "schema.csv"
+    converter = SchemaConverter(csv_path)
+
+    full = converter.load_hsds_core_schema()
+    schema = full["json_schema"]["schema"]  # type: ignore[index]
+    properties = schema["properties"]  # type: ignore[index]
+
+    for entity in ("location", "organization", "service"):
+        entity_items = properties[entity]["items"]
+        entity_props = entity_items["properties"]
+        assert "phones" in entity_props, (
+            f"{entity}.items.properties must contain 'phones' so the LLM "
+            "can attach phone numbers to this entity without relying on "
+            "ambiguous top-level routing"
+        )
+        phones_def = entity_props["phones"]
+        assert phones_def["type"] == "array"
+        assert "items" in phones_def
+
+
 def test_convert_to_llm_schema(test_schema_path: Path) -> None:
     """Test conversion to LLM schema format."""
     converter = SchemaConverter(test_schema_path)

@@ -116,6 +116,16 @@ class Settings(BaseSettings):
         ge=0.00001,  # ~1.1 meters minimum
         le=0.01,  # ~1.1 km maximum
     )
+    RECONCILER_DUPLICATE_TOLERANCE: float = Field(
+        default=0.0015,
+        description="Wider coordinate tolerance (degrees) used as a fallback when "
+        "the strict coord-only match fails. Combined with a same-name OR "
+        "same-organization predicate to catch real duplicates whose "
+        "coordinates drifted between scrapers. 0.0015 ≈ 165 meters at the "
+        "equator, ~120m at high latitudes.",
+        ge=0.0001,  # must be at least as wide as the strict tolerance
+        le=0.01,  # ~1.1 km maximum to bound false-positive merges
+    )
 
     # Validator Settings
     VALIDATOR_ENABLED: bool = _SHARED["VALIDATOR_ENABLED"]
