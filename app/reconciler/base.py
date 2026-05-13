@@ -18,8 +18,10 @@ class BaseReconciler:
         """
         self.db = db
         self.logger = logging.getLogger(__name__)
-        # Get location tolerance from settings
+        # Strict coord-only match tolerance (~11m default)
         self.location_tolerance = settings.RECONCILER_LOCATION_TOLERANCE
+        # Wider tolerance used by the same-name/same-org fallback (~150m)
+        self.duplicate_tolerance = settings.RECONCILER_DUPLICATE_TOLERANCE
 
     def __enter__(self) -> "BaseReconciler":
         """Enter context."""

@@ -133,6 +133,15 @@ def test_create_phone(
     service_creator = ServiceCreator(mock_db)
     service_id = uuid.uuid4()
 
+    # The dedup SELECT must return None so the INSERT proceeds; the shared
+    # fixture defaults to returning a tuple (matches INSERT...RETURNING
+    # patterns elsewhere) which would short-circuit create_phone.
+    dedup_result = MagicMock()
+    dedup_result.first.return_value = None
+    insert_result = MagicMock()
+    insert_result.first.return_value = None
+    mock_db.execute.side_effect = [dedup_result, insert_result]
+
     # Mock version tracker
     with patch("app.reconciler.service_creator.VersionTracker") as mock_version_tracker:
         mock_tracker_instance = MagicMock()
@@ -147,15 +156,20 @@ def test_create_phone(
             description=str(test_phone_data["description"]),
         )
 
-        # Verify SQL execution
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args
-        assert isinstance(call_args[0][0], TextClause)
-        assert call_args[0][1]["number"] == test_phone_data["number"]
-        assert call_args[0][1]["type"] == test_phone_data["type"]
-        assert call_args[0][1]["service_id"] == str(service_id)
-        assert call_args[0][1]["extension"] == test_phone_data["extension"]
-        assert call_args[0][1]["description"] == test_phone_data["description"]
+        # Two SQL calls: dedup SELECT then INSERT
+        assert mock_db.execute.call_count == 2
+        select_call, insert_call = mock_db.execute.call_args_list
+        assert isinstance(select_call[0][0], TextClause)
+        assert isinstance(insert_call[0][0], TextClause)
+        assert "SELECT id FROM phone" in str(select_call[0][0])
+        assert select_call[0][1]["number"] == test_phone_data["number"]
+        assert select_call[0][1]["service_id"] == str(service_id)
+
+        assert insert_call[0][1]["number"] == test_phone_data["number"]
+        assert insert_call[0][1]["type"] == test_phone_data["type"]
+        assert insert_call[0][1]["service_id"] == str(service_id)
+        assert insert_call[0][1]["extension"] == test_phone_data["extension"]
+        assert insert_call[0][1]["description"] == test_phone_data["description"]
 
         # Verify version was created
         mock_tracker_instance.create_version.assert_called_once()
@@ -164,6 +178,51 @@ def test_create_phone(
         assert str(version_call[0][0]) == str(phone_id)
         assert version_call[0][1] == "phone"
         assert version_call[0][3] == "reconciler"
+
+
+def test_create_phone_dedup_returns_existing_id(
+    mock_db: MagicMock, test_phone_data: Dict[str, Union[str, Optional[int]]]
+) -> None:
+    """When a phone with the same (number, location_id, organization_id,
+    service_id) tuple already exists, create_phone must return that existing
+    id and NOT insert a duplicate row. This guards full-scraper rescrapes
+    (Phase D backfill) against creating duplicate phone rows for the ~8,000
+    Vivery locations that already have phones."""
+    service_creator = ServiceCreator(mock_db)
+    service_id = uuid.uuid4()
+    location_id = uuid.uuid4()
+    existing_phone_id = uuid.uuid4()
+
+    # The dedup SELECT must return the existing phone's id. After that, no
+    # INSERT and no version row should be created.
+    dedup_result = MagicMock()
+    dedup_result.first.return_value = (str(existing_phone_id),)
+    mock_db.execute.return_value = dedup_result
+
+    with patch("app.reconciler.service_creator.VersionTracker") as mock_version_tracker:
+        mock_tracker_instance = MagicMock()
+        mock_version_tracker.return_value = mock_tracker_instance
+
+        returned_id = service_creator.create_phone(
+            str(test_phone_data["number"]),
+            str(test_phone_data["type"]),
+            {"source": "test"},
+            service_id=service_id,
+            location_id=location_id,
+            extension=123,
+            description=str(test_phone_data["description"]),
+        )
+
+        # Only the dedup SELECT runs, no INSERT
+        assert mock_db.execute.call_count == 1
+        select_call = mock_db.execute.call_args_list[0]
+        assert "SELECT id FROM phone" in str(select_call[0][0])
+
+        # Returned id matches the existing row
+        assert returned_id == existing_phone_id
+
+        # No version row created for a duplicate
+        mock_tracker_instance.create_version.assert_not_called()
 
 
 def test_create_language(mock_db: MagicMock) -> None:

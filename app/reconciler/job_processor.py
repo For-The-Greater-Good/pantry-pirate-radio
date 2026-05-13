@@ -614,33 +614,28 @@ class JobProcessor:
                         f"Mapped organization '{org['name']}' to UUID {org_id}"
                     )
 
-                # Try to extract phone numbers from text if none provided
-                # Check if phones is None (missing) or empty list
+                # Last-resort phone extraction from narrative text. Only
+                # fires when the LLM produced no nested phones[] for this
+                # organization AND a schema-kept text field happens to
+                # contain a phone-shaped string. This is a safety net for
+                # inputs that bury the phone in prose rather than a
+                # structured field.
                 if org.get("phones") is None or len(org.get("phones", [])) == 0:
-                    # Try to extract from various text fields
                     extracted_phones = []
                     phone_patterns = [
-                        r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",  # (123) 456-7890
-                        r"\d{3}[-.\s]\d{3}[-.\s]\d{4}",  # 123-456-7890
-                        r"\d{10}",  # 1234567890
-                        r"1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}",  # 1-123-456-7890
-                        r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",  # 1-800-FLOWERS vanity
+                        r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
+                        r"\d{3}[-.\s]\d{3}[-.\s]\d{4}",
+                        r"\d{10}",
+                        r"1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}",
+                        r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",
                     ]
 
-                    # Search in various fields including flat phone fields from scrapers
-                    search_fields = [
-                        "description",
-                        "email",
-                        "website",
-                        "alternate_name",
-                        "year_incorporated",
-                        "legal_status",
-                        "phone",  # Flat phone field from scrapers like vivery
-                        "contactPhone",  # Contact phone field
-                        "contactInfo",  # Formatted contact info from scrapers
-                    ]
+                    # Only search fields the active schema actually keeps on
+                    # the LLM-output organization object. Scraper flat fields
+                    # like `phone`/`contactPhone`/`contactInfo` are stripped
+                    # by the schema converter and never reach this dict.
                     search_text = ""
-                    for field in search_fields:
+                    for field in ("description", "email", "website"):
                         if org.get(field):
                             search_text += " " + str(org[field])
 
@@ -648,7 +643,6 @@ class JobProcessor:
                         for pattern in phone_patterns:
                             matches = re.findall(pattern, search_text)
                             for match in matches:
-                                # Avoid duplicates
                                 if match not in [
                                     p.get("number") for p in extracted_phones
                                 ]:
@@ -656,14 +650,16 @@ class JobProcessor:
                                         {
                                             "number": match,
                                             "type": "voice",
-                                            "languages": [],  # Empty array, now optional
+                                            "languages": [],
                                         }
                                     )
 
                         if extracted_phones:
                             org["phones"] = extracted_phones
                             logger.info(
-                                f"Extracted {len(extracted_phones)} phone numbers from text for organization '{org.get('name', 'Unknown')}'"
+                                f"Extracted {len(extracted_phones)} phone numbers "
+                                f"for organization '{org.get('name', 'Unknown')}' "
+                                "from narrative text"
                             )
 
                 # Create organization phones with languages
@@ -841,9 +837,15 @@ class JobProcessor:
                         and location["latitude"] is not None
                         and location["longitude"] is not None
                     ):
-                        # Check for existing location by coordinates
+                        # Check for existing location by coordinates. Pass name
+                        # and org_id so the matcher can fall back to a wider
+                        # same-name/same-org search when scraper coords drift
+                        # past the strict ~11m tolerance.
                         match_id = location_creator.find_matching_location(
-                            float(location["latitude"]), float(location["longitude"])
+                            float(location["latitude"]),
+                            float(location["longitude"]),
+                            name=location.get("name"),
+                            organization_id=str(org_id) if org_id else None,
                         )
                     else:
                         # No coordinates from validator - this location should have been rejected
@@ -1101,33 +1103,35 @@ class JobProcessor:
                                         metadata=job_result.job.metadata,
                                     )
 
-                        # Try to extract phone numbers from location text if none provided
+                        # Last-resort phone extraction from narrative text.
+                        # Only fires when the LLM produced no nested phones[]
+                        # for this location AND the schema-kept text fields
+                        # (name, description, url) contain something that
+                        # looks like a phone number. This is a safety net for
+                        # inputs where the phone is buried in prose rather
+                        # than a structured field.
                         if location_id and (
                             not location.get("phones")
                             or len(location.get("phones", [])) == 0
                         ):
-                            # Try to extract from location fields
                             extracted_phones = []
                             phone_patterns = [
-                                r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",  # (123) 456-7890
-                                r"\d{3}[-.\s]\d{3}[-.\s]\d{4}",  # 123-456-7890
-                                r"\d{10}",  # 1234567890
-                                r"1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}",  # 1-800-123-4567
-                                r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",  # 1-800-FLOWERS vanity
+                                r"\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
+                                r"\d{3}[-.\s]\d{3}[-.\s]\d{4}",
+                                r"\d{10}",
+                                r"1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}",
+                                r"1[-.\s]?8\d{2}[-.\s]?[A-Z]{3}[-.\s]?[A-Z]{4}",
                             ]
 
-                            # Search in more location fields including website and flat phone fields
+                            # Only search fields the active schema actually
+                            # keeps on the LLM-output location object. Scraper
+                            # flat fields like `phone`/`contactPhone`/`contactInfo`
+                            # are stripped by the schema converter and never
+                            # reach this dict — searching them produces nothing
+                            # and misleads readers into thinking phone recovery
+                            # is happening at this layer.
                             search_text = ""
-                            for field in [
-                                "name",
-                                "description",
-                                "transportation",
-                                "alternate_name",
-                                "website",
-                                "phone",  # Flat phone field from scrapers
-                                "contactPhone",  # Contact phone field
-                                "contactInfo",  # Formatted contact info from scrapers
-                            ]:
+                            for field in ("name", "description", "url"):
                                 if location.get(field):
                                     search_text += " " + str(location[field])
 
@@ -1149,7 +1153,9 @@ class JobProcessor:
                                 if extracted_phones:
                                     location["phones"] = extracted_phones
                                     logger.info(
-                                        f"Extracted {len(extracted_phones)} phone numbers for location '{location.get('name', 'Unknown')}'"
+                                        f"Extracted {len(extracted_phones)} phone numbers "
+                                        f"for location '{location.get('name', 'Unknown')}' "
+                                        "from narrative text"
                                     )
 
                         # Create location phones with languages (for both new and existing locations)
@@ -1556,6 +1562,15 @@ class JobProcessor:
                     service_id_for_phone = None
                     location_id_for_phone = None
 
+                    # Track whether the LLM explicitly named a parent entity.
+                    # An unresolved explicit reference is NOT the same as
+                    # "no reference at all" — we must not silently re-route
+                    # a phone whose explicit location_name failed to map
+                    # onto the single available location.
+                    location_ref_attempted = bool(
+                        phone.get("location_id") or phone.get("location_name")
+                    )
+
                     # Try to map relationships - prefer names over IDs
                     if phone.get("organization_id") or phone.get("organization_name"):
                         ref = phone.get("organization_name") or phone.get(
@@ -1591,21 +1606,36 @@ class JobProcessor:
                             )
                             org_id_for_phone = org_id if org_id else None
 
-                    # Default to organization if no entity relationship specified
-                    if not any(
-                        [org_id_for_phone, service_id_for_phone, location_id_for_phone]
+                    # Single-location auto-attach: when a scraper submits one
+                    # location per job, top-level phones often arrive with
+                    # only organization_name set, and the location is
+                    # unambiguous from context. Fill it in — but ONLY when
+                    # the LLM did not try to name a different location. An
+                    # explicit but unresolvable location_name means "this
+                    # phone belongs to a specific place we couldn't match";
+                    # routing it to the wrong place silently would be worse
+                    # than leaving it on org-only.
+                    if (
+                        location_id_for_phone is None
+                        and not location_ref_attempted
+                        and len(location_ids) == 1
                     ):
-                        org_id_for_phone = org_id if org_id else None
-                        # Attach to location when org has exactly one
-                        if len(location_ids) == 1:
-                            location_id_for_phone = next(iter(location_ids.values()))
-                            logger.debug(
-                                f"Phone {phone.get('number')} has no entity reference, attaching to organization and single location"
-                            )
-                        else:
-                            logger.debug(
-                                f"Phone {phone.get('number')} has no entity reference, attaching to organization only ({len(location_ids)} locations)"
-                            )
+                        location_id_for_phone = next(iter(location_ids.values()))
+                        logger.debug(
+                            f"Phone {phone.get('number')} has no location reference, "
+                            "attaching to the single location in this job"
+                        )
+
+                    # Default to the job's organization if the phone didn't
+                    # name a specific one. A phone with no explicit org ref
+                    # is reasonably treated as belonging to this job's org,
+                    # regardless of whether we resolved a location above.
+                    if org_id_for_phone is None and org_id:
+                        org_id_for_phone = org_id
+                        logger.debug(
+                            f"Phone {phone.get('number')} has no organization reference, "
+                            "attaching to the job's organization"
+                        )
 
                     # Create phone record
                     if phone.get("number"):

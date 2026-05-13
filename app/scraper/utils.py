@@ -1,5 +1,6 @@
 """Utilities for scraper job submission."""
 
+import logging
 import os
 import random
 import uuid
@@ -11,6 +12,8 @@ from prometheus_client import Counter
 from app.core.grid import GridGenerator
 from app.llm.hsds_aligner.schema_converter import SchemaConverter
 from app.models.geographic import BoundingBox, GridPoint
+
+logger = logging.getLogger(__name__)
 
 
 def get_scraper_headers() -> dict[str, str]:
@@ -188,12 +191,17 @@ class ScraperUtils:
         self,
         content: str,
         metadata: dict[str, Any] | None = None,
+        force_reextract: bool = False,
     ) -> str:
         """Queue raw content for processing.
 
         Args:
             content: Raw content to process
             metadata: Optional additional metadata
+            force_reextract: When True, bypass the content-store dedup
+                short-circuit and submit a fresh LLM job even if this
+                content's hash has been seen before. Used for backfill
+                runs after an LLM/prompt/schema fix.
 
         Returns:
             Job ID for tracking
@@ -215,11 +223,19 @@ class ScraperUtils:
             # Make a copy to avoid modifying the dict that's passed to store_content
             content_entry = content_store.store_content(content, dict(job_metadata))
 
-            if content_entry.job_id:
+            if content_entry.job_id and not force_reextract:
                 # Already queued or processed - return existing job ID
                 # Still increment metrics
                 SCRAPER_JOBS.labels(scraper_id=self.scraper_id).inc()
                 return content_entry.job_id
+
+            if content_entry.job_id and force_reextract:
+                logger.info(
+                    "force_reextract=True: re-submitting LLM job for "
+                    "previously-seen content_hash=%s (prior job_id=%s)",
+                    content_entry.hash,
+                    content_entry.job_id,
+                )
 
         # Prepare input with system prompt
         full_prompt: list[dict[str, str]] = [
@@ -387,6 +403,10 @@ class ScraperJob:
         self.scraper_id = scraper_id
         self.utils = ScraperUtils(scraper_id=scraper_id)
         self.geocoder = GeocoderUtils()
+        # When True, every submit_to_queue() call bypasses the content-store
+        # dedup short-circuit and submits a fresh LLM job. Set by the CLI
+        # `--force-reextract` flag for backfill runs.
+        self.force_reextract: bool = False
 
     async def scrape(self) -> str:
         """Scrape data from source.
@@ -412,7 +432,9 @@ class ScraperJob:
             Job ID for tracking
         """
         return self.utils.queue_for_processing(
-            content, metadata={"source": self.scraper_id}
+            content,
+            metadata={"source": self.scraper_id},
+            force_reextract=self.force_reextract,
         )
 
     async def run(self) -> None:

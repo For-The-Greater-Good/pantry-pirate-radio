@@ -120,11 +120,16 @@ def list_available_scrapers() -> list[str]:
     )
 
 
-async def run_scraper_parallel(scraper_name: str) -> tuple[str, bool, float, str]:
+async def run_scraper_parallel(
+    scraper_name: str, force_reextract: bool = False
+) -> tuple[str, bool, float, str]:
     """Run a scraper in parallel.
 
     Args:
         scraper_name: Name of the scraper to run
+        force_reextract: When True, bypass content-store dedup so every
+            scraped record is re-submitted to the LLM queue. Used for
+            backfill runs after a prompt/schema fix.
 
     Returns:
         Tuple of (scraper_name, success, duration, error_message)
@@ -141,6 +146,7 @@ async def run_scraper_parallel(scraper_name: str) -> tuple[str, bool, float, str
         # Strip "scrapers." prefix for consistent scraper_id
         actual_scraper_id = scraper_name.replace("scrapers.", "")
         scraper = scraper_class(scraper_id=actual_scraper_id)
+        scraper.force_reextract = force_reextract
         await scraper.run()
 
         success = True
@@ -153,11 +159,15 @@ async def run_scraper_parallel(scraper_name: str) -> tuple[str, bool, float, str
     return scraper_name, success, duration, error_message
 
 
-async def run_all_scrapers_parallel(max_workers: int = 4) -> dict[str, dict]:
+async def run_all_scrapers_parallel(
+    max_workers: int = 4, force_reextract: bool = False
+) -> dict[str, dict]:
     """Run all available scrapers in parallel.
 
     Args:
         max_workers: Maximum number of workers to use for parallel execution
+        force_reextract: When True, bypass content-store dedup for every
+            scraper invocation. Used for backfill runs.
 
     Returns:
         Dictionary of results by scraper name
@@ -167,7 +177,10 @@ async def run_all_scrapers_parallel(max_workers: int = 4) -> dict[str, dict]:
     logger.info(f"Found {len(scrapers)} scrapers to run")
 
     # Create tasks for each scraper
-    tasks = [run_scraper_parallel(scraper) for scraper in scrapers]
+    tasks = [
+        run_scraper_parallel(scraper, force_reextract=force_reextract)
+        for scraper in scrapers
+    ]
 
     # Use semaphore to limit concurrency
     semaphore = asyncio.Semaphore(max_workers)
@@ -212,6 +225,16 @@ async def main() -> None:
         default=4,
         help="Maximum number of workers for parallel execution",
     )
+    parser.add_argument(
+        "--force-reextract",
+        action="store_true",
+        help=(
+            "Bypass the content-store dedup short-circuit so every scraped "
+            "record is re-submitted to the LLM queue, even if its content "
+            "hash has been seen before. Used for backfill runs after a "
+            "prompt or schema fix."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -235,7 +258,9 @@ async def main() -> None:
                 logger.info(
                     f"Running all scrapers in parallel with max {args.max_workers} workers"
                 )
-                results = await run_all_scrapers_parallel(args.max_workers)
+                results = await run_all_scrapers_parallel(
+                    args.max_workers, force_reextract=args.force_reextract
+                )
 
                 # Print summary
                 print("\nScraper Run Results:")
@@ -276,6 +301,7 @@ async def main() -> None:
                         # Strip "scrapers." prefix for consistent scraper_id
                         actual_scraper_id = scraper_name.replace("scrapers.", "")
                         scraper = scraper_class(scraper_id=actual_scraper_id)
+                        scraper.force_reextract = args.force_reextract
                         await scraper.run()
                         logger.info(f"Scraper {scraper_name} completed successfully")
                     except Exception as e:
@@ -288,6 +314,7 @@ async def main() -> None:
             # Strip "scrapers." prefix for consistent scraper_id
             actual_scraper_id = args.scraper.replace("scrapers.", "")
             scraper = scraper_class(scraper_id=actual_scraper_id)
+            scraper.force_reextract = args.force_reextract
             await scraper.run()
             logger.info(f"Scraper {args.scraper} completed successfully")
 

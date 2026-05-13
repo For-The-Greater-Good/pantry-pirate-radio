@@ -186,6 +186,8 @@ usage() {
     echo "  scraper --aws [--prod|--dev] scouting-party Run all scrapers on AWS (parallel)"
     echo "  scraper --aws [--prod|--dev] --status [ARN] Check AWS pipeline execution status"
     echo "  scraper --aws [--prod|--dev] --logs        Tail AWS scraper CloudWatch logs"
+    echo "  scraper [...] --force-reextract            Bypass content-store dedup (backfill runs)"
+    echo "  run-script [--aws --prod|--dev] PATH [...] Run a one-shot Python script locally or on AWS"
     echo ""
     echo "Claude auth options:"
     echo "  claude-auth         Interactive Claude authentication"
@@ -592,7 +594,7 @@ fi
 
 # Check Docker availability for commands that need it
 case "$1" in
-    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|reconciler|recorder|content-store|haarrrvest|replay|pull)
+    up|down|ps|logs|shell|exec|build|clean|test|scraper|scraper-test|claude-auth|reconciler|recorder|content-store|haarrrvest|replay|pull|run-script)
         if ! check_docker; then
             exit 1
         fi
@@ -1274,6 +1276,21 @@ case "$1" in
         shift
         parse_mode "$@"
 
+        # Strip --force-reextract out of $@ before downstream parsing.
+        # This flag enables backfill runs that bypass the content-store dedup
+        # short-circuit so backfill runs re-LLM every record. Threaded through to
+        # `python -m app.scraper` invocations below.
+        FORCE_REEXTRACT_FLAG=""
+        FILTERED_ARGS=()
+        for arg in "$@"; do
+            if [ "$arg" = "--force-reextract" ]; then
+                FORCE_REEXTRACT_FLAG="--force-reextract"
+            else
+                FILTERED_ARGS+=("$arg")
+            fi
+        done
+        set -- "${FILTERED_ARGS[@]}"
+
         # Skip local Docker checks when running on AWS
         if [ "${1:-}" != "--aws" ]; then
             # Ensure cache is running for job queue
@@ -1496,6 +1513,26 @@ print(json.dumps(l))
 
                 # Start execution if we have scrapers to run (--status and --logs exit above)
                 if [ -n "${SCRAPERS_JSON:-}" ]; then
+                    # Always inject force_reextract (true or false) into the
+                    # Step Functions input so the state machine can read
+                    # $.force_reextract unconditionally and forward it as
+                    # FORCE_REEXTRACT env var to the Fargate task.
+                    if [ "$FORCE_REEXTRACT_FLAG" = "--force-reextract" ]; then
+                        SCRAPERS_JSON=$(echo "$SCRAPERS_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['force_reextract'] = True
+print(json.dumps(d))
+")
+                        output warning "--force-reextract enabled: every scraped record will be re-LLMed regardless of content-store dedup state (backfill mode)"
+                    else
+                        SCRAPERS_JSON=$(echo "$SCRAPERS_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['force_reextract'] = False
+print(json.dumps(d))
+")
+                    fi
                     output info "Starting scraper pipeline on AWS (${DEPLOY_ENV})..."
                     output info "Input: $SCRAPERS_JSON"
                     EXEC_RESULT=$(aws stepfunctions start-execution \
@@ -1527,7 +1564,7 @@ print(json.dumps(l))
                 if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                     EXEC_FLAGS="-T"
                 fi
-                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --all
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper --all $FORCE_REEXTRACT_FLAG
                 ;;
             scouting-party)
                 # Check if next argument is a number (concurrent scrapers)
@@ -1629,13 +1666,197 @@ print(json.dumps(l))
                     if [ $PROGRAMMATIC_MODE -eq 1 ]; then
                         EXEC_FLAGS="-T"
                     fi
-                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper "$scraper_name"
+                    $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS scraper python -m app.scraper "$scraper_name" $FORCE_REEXTRACT_FLAG
                 else
                     output error "No scraper name provided"
                     exit 1
                 fi
                 ;;
         esac
+        ;;
+
+    run-script)
+        # One-shot script runner. Runs an arbitrary Python script either
+        # in a local container or as a one-shot ECS task on AWS using the
+        # reconciler task definition (which already has the app image,
+        # DB secrets, VPC config, and network ACLs for RDS Proxy access).
+        #
+        # Usage:
+        #   ./bouy run-script <script> [args...]
+        #   ./bouy run-script --aws [--prod|--dev] <script> [args...]
+        #
+        # Examples:
+        #   ./bouy run-script scripts/dedupe_same_org_locations.py
+        #   ./bouy run-script scripts/dedupe_same_org_locations.py --apply
+        #   ./bouy run-script --aws --prod scripts/dedupe_same_org_locations.py
+        #   ./bouy run-script --aws --prod scripts/dedupe_same_org_locations.py --apply
+        shift
+        parse_mode "$@"
+
+        # Detect --aws flag
+        AWS_MODE=0
+        DEPLOY_ENV="${DEPLOY_ENV:-dev}"
+        REMAINING=()
+        for arg in "$@"; do
+            case "$arg" in
+                --aws) AWS_MODE=1 ;;
+                --prod) DEPLOY_ENV="prod" ;;
+                --dev) DEPLOY_ENV="dev" ;;
+                --staging) DEPLOY_ENV="staging" ;;
+                *) REMAINING+=("$arg") ;;
+            esac
+        done
+        set -- "${REMAINING[@]}"
+
+        SCRIPT_PATH="${1:-}"
+        if [ -z "$SCRIPT_PATH" ]; then
+            output error "No script path provided"
+            echo "Usage: ./bouy run-script [--aws --prod|--dev] <script_path> [args...]"
+            exit 1
+        fi
+        shift  # consume script path; remaining "$@" are script args
+
+        if [ $AWS_MODE -eq 0 ]; then
+            # Local: run inside the app container so it has DB + Python deps
+            EXEC_FLAGS=""
+            if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                EXEC_FLAGS="-T"
+            fi
+            output info "Running $SCRIPT_PATH in local app container..."
+            $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS app python "$SCRIPT_PATH" "$@"
+            exit $?
+        fi
+
+        # AWS one-shot ECS task
+        if ! command -v aws &>/dev/null; then
+            output error "AWS CLI not found"
+            exit 1
+        fi
+        aws sts get-caller-identity >/dev/null 2>&1 || {
+            output error "AWS credentials not configured. Run: aws configure"
+            exit 1
+        }
+
+        # Discover the reconciler task definition (it has the app image,
+        # DB secrets, and the right IAM role for RDS Proxy access).
+        TASK_DEF=$(aws ecs list-task-definitions \
+            --family-prefix "pantry-pirate-radio-reconciler-${DEPLOY_ENV}" \
+            --status ACTIVE --sort DESC --max-items 1 \
+            --query 'taskDefinitionArns[0]' --output text 2>/dev/null)
+        if [ -z "$TASK_DEF" ] || [ "$TASK_DEF" = "None" ]; then
+            # Fallback: CDK auto-names some families with a suffix
+            TASK_DEF=$(aws ecs list-task-definitions \
+                --family-prefix "pantry-pirate-radio-reconciler" \
+                --status ACTIVE --sort DESC --max-items 1 \
+                --query 'taskDefinitionArns[0]' --output text 2>/dev/null)
+        fi
+        if [ -z "$TASK_DEF" ] || [ "$TASK_DEF" = "None" ]; then
+            output error "No reconciler task definition found for env=$DEPLOY_ENV. Deploy first: ./bouy deploy $DEPLOY_ENV"
+            exit 1
+        fi
+        output info "Using task definition: $TASK_DEF"
+
+        # Discover cluster + network config from the running reconciler
+        # service, scoped to the requested environment. Substring matching
+        # without an env filter risks dispatching a --dev script onto the
+        # prod cluster (or vice versa) — fatal when the script mutates the DB.
+        CLUSTER=$(aws ecs list-clusters \
+            --query "clusterArns[?contains(@, 'pantry-pirate-radio') && contains(@, '${DEPLOY_ENV}')]" \
+            --output text 2>/dev/null | tr '\t' '\n' | head -1)
+        if [ -z "$CLUSTER" ]; then
+            output error "No pantry-pirate-radio cluster matching env=${DEPLOY_ENV} found"
+            exit 1
+        fi
+        RECON_SERVICE=$(aws ecs list-services --cluster "$CLUSTER" \
+            --query "serviceArns[?contains(@, 'reconciler') && contains(@, '${DEPLOY_ENV}')]" \
+            --output text 2>/dev/null | tr '\t' '\n' | head -1)
+        if [ -z "$RECON_SERVICE" ]; then
+            # Fallback: cluster name already encodes the env, so any
+            # reconciler service inside it is correct.
+            RECON_SERVICE=$(aws ecs list-services --cluster "$CLUSTER" \
+                --query "serviceArns[?contains(@, 'reconciler')]" \
+                --output text 2>/dev/null | tr '\t' '\n' | head -1)
+        fi
+        if [ -z "$RECON_SERVICE" ]; then
+            output error "No reconciler service found in cluster $CLUSTER (env=${DEPLOY_ENV})"
+            exit 1
+        fi
+        NET_JSON=$(aws ecs describe-services --cluster "$CLUSTER" \
+            --services "$RECON_SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration' \
+            --output json 2>/dev/null)
+        if [ -z "$NET_JSON" ] || [ "$NET_JSON" = "null" ]; then
+            output error "Could not read network configuration for $RECON_SERVICE"
+            exit 1
+        fi
+        SUBNETS=$(echo "$NET_JSON" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(','.join(d.get('subnets') or []))" \
+            2>/dev/null) || {
+            output error "Failed to parse subnets from networkConfiguration"
+            exit 1
+        }
+        SG=$(echo "$NET_JSON" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(','.join(d.get('securityGroups') or []))" \
+            2>/dev/null) || {
+            output error "Failed to parse securityGroups from networkConfiguration"
+            exit 1
+        }
+        if [ -z "$SUBNETS" ] || [ -z "$SG" ]; then
+            output error "networkConfiguration missing subnets or securityGroups"
+            exit 1
+        fi
+
+        # Build container override JSON. The reconciler container is named
+        # "reconciler" in the task definition; override its command.
+        SCRIPT_CMD_JSON=$(python3 -c "
+import json, sys
+parts = ['python', sys.argv[1]] + sys.argv[2:]
+print(json.dumps(parts))
+" "$SCRIPT_PATH" "$@")
+        OVERRIDES_JSON=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'containerOverrides': [{
+        'name': 'reconciler',
+        'command': json.loads(sys.argv[1]),
+    }]
+}))
+" "$SCRIPT_CMD_JSON")
+
+        output info "Dispatching one-shot task on $DEPLOY_ENV: $SCRIPT_PATH $*"
+        RUN_RESULT=$(aws ecs run-task \
+            --cluster "$CLUSTER" \
+            --task-definition "$TASK_DEF" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
+            --overrides "$OVERRIDES_JSON" \
+            2>&1) || {
+            output error "Failed to start ECS task: $RUN_RESULT"
+            exit 1
+        }
+        # run-task returns {tasks: [...], failures: [...]}; capacity issues
+        # produce empty tasks + populated failures rather than a non-zero
+        # exit code, so check both.
+        TASK_ARN=$(echo "$RUN_RESULT" | python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+except Exception as e:
+    sys.stderr.write(f'unparseable run-task output: {e}\n')
+    sys.exit(1)
+tasks = d.get('tasks') or []
+failures = d.get('failures') or []
+if not tasks:
+    sys.stderr.write('run-task returned no tasks; failures=' + json.dumps(failures) + '\n')
+    sys.exit(1)
+print(tasks[0]['taskArn'])
+" 2>&1) || {
+            output error "$TASK_ARN"
+            exit 1
+        }
+        output success "Task started: $TASK_ARN"
+        output info "Tail logs with: aws logs tail /ecs/pantry-pirate-radio/reconciler-${DEPLOY_ENV} --follow"
+        output info "Check status with: aws ecs describe-tasks --cluster $CLUSTER --tasks $TASK_ARN"
         ;;
 
     claude-auth)
