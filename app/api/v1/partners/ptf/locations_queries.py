@@ -46,7 +46,12 @@ def clamp_offset(value: int) -> int:
 # does not emit a `feeding_america_food_bank` block — but `affiliations`
 # (driven by `has_qualifying_source` alone) still gets "FANO" if a
 # qualifying source exists, regardless of ZIP match.
-_QUALIFYING_SOURCE_CTE = """
+#
+# The CTE is inlined into both _LIST_SQL and _DETAIL_SQL rather than
+# string-concatenated so bandit's B608 (hardcoded_sql_expressions) heuristic
+# stays clean. Allowlist values are bound via SQLAlchemy `expanding=True`
+# (see `_bind_allowlist`); no scraper IDs are interpolated into SQL text.
+_LIST_SQL = """
 WITH qualifying_source AS (
     SELECT location_id,
            BOOL_OR(true) AS has_qualifying_source
@@ -55,11 +60,6 @@ WITH qualifying_source AS (
       AND (source_type IS NULL OR source_type != 'submarine')
     GROUP BY location_id
 )
-"""
-
-_LIST_SQL = (
-    _QUALIFYING_SOURCE_CTE
-    + """
 SELECT DISTINCT ON (l.id)
     l.id,
     l.name,
@@ -103,11 +103,16 @@ ORDER BY l.id,
          p.id NULLS LAST
 LIMIT :limit OFFSET :offset
 """
-)
 
-_DETAIL_SQL = (
-    _QUALIFYING_SOURCE_CTE
-    + """
+_DETAIL_SQL = """
+WITH qualifying_source AS (
+    SELECT location_id,
+           BOOL_OR(true) AS has_qualifying_source
+    FROM location_source
+    WHERE scraper_id IN :allowlist
+      AND (source_type IS NULL OR source_type != 'submarine')
+    GROUP BY location_id
+)
 SELECT
     l.id,
     l.name,
@@ -144,7 +149,6 @@ ORDER BY fa.fa_org_id NULLS LAST,
          p.id NULLS LAST
 LIMIT 1
 """
-)
 
 # Tuple form for the `expanding=True` bindparam below. Tuple (not set/list)
 # so SQLAlchemy expands it into a positional IN clause without re-hashing
