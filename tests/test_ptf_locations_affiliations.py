@@ -251,3 +251,143 @@ class TestAffiliationsField:
         detail_row.pop("affiliations", None)
         detail = PtfLocationDetail.model_validate(detail_row)
         assert detail.affiliations == []
+
+
+# ---- Transformer layer ----------------------------------------------------
+
+
+def _make_row(**overrides):
+    """Build a SimpleNamespace row matching what queries.py SELECTs.
+
+    Mirrors the helper in test_ptf_locations_transformer.py and extends it
+    with the new `has_qualifying_source` / `zip_matched_fa` columns.
+    """
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    base = {
+        "id": str(uuid4()),
+        "name": "Test Pantry",
+        "short_name": None,
+        "description": None,
+        "latitude": 40.0,
+        "longitude": -74.0,
+        "organization_id": None,
+        "org_name": None,
+        "org_description": None,
+        "org_email": None,
+        "org_website": None,
+        "address_1": "1 Main St",
+        "address_2": None,
+        "city": "Newark",
+        "state_province": "NJ",
+        "postal_code": "07102",
+        "phone_number": None,
+        "fa_org_id": None,
+        "fa_org_name": None,
+        "has_qualifying_source": False,
+        "zip_matched_fa": False,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class TestTransformerAffiliations:
+    """`affiliations` is driven by `has_qualifying_source` alone (the FA
+    crosswalk match only affects `feeding_america_food_bank`, per the
+    user's adjustment: an allowlist scraper alone proves the location is
+    a food bank, regardless of whether the ZIP happens to match).
+    """
+
+    def test_qualifying_source_yields_fano_even_without_fa_match(self) -> None:
+        from app.api.v1.partners.ptf.locations_transformer import to_list_item
+
+        # ZIP doesn't appear in feeding_america_zip_coverage, but the
+        # location was found by an allowlist scraper. SQL CASE-gating
+        # leaves fa_org_id NULL — affiliations is still ["FANO"].
+        item = to_list_item(
+            _make_row(
+                has_qualifying_source=True,
+                zip_matched_fa=False,
+                fa_org_id=None,
+                fa_org_name=None,
+            ),
+            catalogue={},
+        )
+        assert item.affiliations == ["FANO"]
+        assert item.feeding_america_food_bank is None
+
+    def test_qualifying_source_plus_fa_match_yields_fano_and_food_bank(self) -> None:
+        from app.api.v1.partners.ptf.locations_transformer import to_list_item
+
+        item = to_list_item(
+            _make_row(
+                has_qualifying_source=True,
+                zip_matched_fa=True,
+                fa_org_id=10,
+                fa_org_name="Food Bank For New York City",
+            ),
+            catalogue={},
+        )
+        assert item.affiliations == ["FANO"]
+        assert item.feeding_america_food_bank is not None
+        assert item.feeding_america_food_bank.id == 10
+
+    def test_no_qualifying_source_yields_empty_affiliations(self) -> None:
+        from app.api.v1.partners.ptf.locations_transformer import to_list_item
+
+        # Only an aggregator source found this location — even if its ZIP
+        # is in FA coverage, the SQL CASE suppressed fa_org_id.
+        item = to_list_item(
+            _make_row(
+                has_qualifying_source=False,
+                zip_matched_fa=True,
+                fa_org_id=None,
+                fa_org_name=None,
+            ),
+            catalogue={},
+        )
+        assert item.affiliations == []
+        assert item.feeding_america_food_bank is None
+
+    def test_zip_match_without_qualifying_source_logs(self, caplog) -> None:
+        """Observability: emit a structured log when the FA crosswalk
+        matched but no qualifying source exists (so we can audit how
+        much aggregator-only data overlaps FA territory during the demo).
+        """
+        import logging
+
+        from app.api.v1.partners.ptf.locations_transformer import to_list_item
+
+        with caplog.at_level(logging.INFO):
+            to_list_item(
+                _make_row(
+                    has_qualifying_source=False,
+                    zip_matched_fa=True,
+                ),
+                catalogue={},
+            )
+        assert any(
+            "ptf_fano_suppressed_no_qualifying_source" in record.getMessage()
+            for record in caplog.records
+        ), "expected ptf_fano_suppressed_no_qualifying_source log event"
+
+    def test_detail_qualifying_source_yields_fano(self) -> None:
+        from app.api.v1.partners.ptf.locations_transformer import to_detail
+
+        detail = to_detail(
+            _make_row(has_qualifying_source=True, fa_org_id=10, fa_org_name="X"),
+            catalogue={},
+            schedules=[],
+        )
+        assert detail.affiliations == ["FANO"]
+
+    def test_detail_no_qualifying_source_yields_empty(self) -> None:
+        from app.api.v1.partners.ptf.locations_transformer import to_detail
+
+        detail = to_detail(
+            _make_row(has_qualifying_source=False),
+            catalogue={},
+            schedules=[],
+        )
+        assert detail.affiliations == []
