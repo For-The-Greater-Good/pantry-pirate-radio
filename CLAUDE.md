@@ -103,6 +103,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./bouy logs validator       # View validator service logs
 ./bouy shell validator      # Debug in validator container
 
+# PTF Broker Outbound Sync (push to Plentiful)
+./bouy ppr-ptf-sync run                       # One-shot daily sync (local)
+PTF_BROKER_DRY_RUN=true ./bouy ppr-ptf-sync run  # Log payloads without calling broker
+
 # Global Flags (work with all commands)
 ./bouy --help               # Show help
 ./bouy --version            # Show version
@@ -813,6 +817,18 @@ Plugins extend Pantry Pirate Radio with additional commands, compose overlays, a
 Plugin CDK stacks are discovered automatically from `plugin.yml` → `infra.stacks[]` entries and added to the CDK app with dependencies on compute and secrets stacks.
 
 ## Recent Updates and Features
+
+### PTF Broker Outbound Sync (`ppr-ptf-sync` plugin)
+- **Direction**: outbound push to Plentiful's transitional `POST /api/v0-broker/organizations/upsert`. Distinct from our existing **inbound** `/api/v1/partners/ptf/sync` endpoint that Plentiful pulls from us; same eligibility filter, opposite transport.
+- **Plugin**: `plugins/ppr-ptf-sync/` (internal Python package named `ptf_sync` to avoid name collision with the main repo's `app/` package — the plugin imports `app.api.v1.partners.ptf.services:PtfSyncService` directly and does not duplicate the qualifying CTE).
+- **Trigger**: EventBridge daily cron (`PTF_BROKER_SCHEDULE_CRON`, default `cron(0 6 ? * * *)`), **disabled in dev/test**, **enabled in prod**. Local one-shot via `./bouy ppr-ptf-sync run`. Runner's public surface is `sync_all()` and `sync_locations(ids)` so a future trickle-feed (reconciler → SQS → Lambda) is a wiring change, not a rewrite (per Plentiful spec author's preference for trickle over batch).
+- **`externalId`**: `location.id` directly — stable PPR UUID, no separate broker UUID. Simplifies the state ledger to a single row per location keyed on `location_id`.
+- **State**: plugin-owned tables `ptf_broker_sync_state` (per-location ledger: payload hash + last status + conflict blob) and `ptf_broker_sync_cursor` (single-row watermark). Both created lazily via `CREATE TABLE IF NOT EXISTS` on first run (matches `ingest_audit` precedent — no cross-repo migration).
+- **Idempotency**: SHA-256 of canonical payload. Unchanged hash + terminal-ok prior status → `skipped_unchanged` (no HTTP call). Prior `conflict` → `skipped_conflict_pending` until human resolution.
+- **Program types**: heuristic over HSDS `service.name` keywords (`soup kitchen`→2, `mobile`→3, default `food pantry`→1) via `ptf_sync/types_mapper.py`.
+- **Credentials**: Basic-auth username/password. Local: `.env` (`PTF_BROKER_USERNAME`, `PTF_BROKER_PASSWORD`). AWS: Secrets Manager `ppr-ptf-sync/broker-credentials-{env}` via `PTF_BROKER_SECRET_ARN`. Toggle is `AWS_LAMBDA_FUNCTION_NAME` env var (Principle XV).
+- **Observability** (Principle XIV): Lambda Errors alarm (≥5/2 periods), Throttles alarm (≥1/2 periods), custom `PtfBrokerConflicts` alarm (>0/run). All route to `pantry-pirate-radio-alerts-{env}` SNS topic. Per-plugin CloudWatch dashboard. Structlog event prefixes: `ptf_broker_run_*`, `ptf_broker_batch_sent`, `ptf_broker_row_{status}`, `ptf_broker_skipped_*`, `ptf_broker_watermark_advanced`.
+- **Dry run**: `PTF_BROKER_DRY_RUN=true` logs payloads without HTTP calls; runner still records `noop` to state so subsequent live runs see unchanged hashes (or set the env var to false on the live run).
 
 ### Admin Portal Upload (`portal_ingest` scraper)
 - **AWS-only feature** (Principle XV exemption): Lighthouse admin route `/admin/upload` lets operators bulk-ingest CSV/XLSX location rows.
