@@ -347,14 +347,17 @@ async def double_seeded(db_session: AsyncSession):
 
     await db_session.execute(
         text(
-            "INSERT INTO organization (id, name, description, normalized_name) "
-            "VALUES (:id, :name, :desc, :norm)"
+            # Email present so the contact-or-schedule filter (added to the
+            # PTF list/detail queries) doesn't reject these tie-break seeds.
+            "INSERT INTO organization (id, name, description, normalized_name, email) "
+            "VALUES (:id, :name, :desc, :norm, :email)"
         ),
         {
             "id": org_id,
             "name": "Coverage Org",
             "desc": "Org for tie-break tests",
             "norm": "coverage-org",
+            "email": "coverage@example.org",
         },
     )
     # Location A: zip 88888 will have two FA rows below.

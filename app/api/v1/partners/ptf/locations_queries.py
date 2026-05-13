@@ -96,6 +96,24 @@ WHERE (l.validation_status != 'rejected' OR l.validation_status IS NULL)
   AND l.longitude IS NOT NULL
   AND NOT (l.latitude = 0 AND l.longitude = 0)
   AND (l.name IS NOT NULL OR o.name IS NOT NULL)
+  -- Require at least one piece of contact info OR a schedule. A location
+  -- with neither is unreachable by the consuming app and shouldn't appear
+  -- in the PTF feed. Empty strings count as missing (some scrapers store
+  -- '' rather than NULL for absent values). Phone uses an explicit EXISTS
+  -- rather than `p.id IS NOT NULL` from the LEFT JOIN above so the filter
+  -- doesn't depend on which phone row the JOIN happens to pick — if any
+  -- phone row has a real number, the location qualifies. Schedule existence
+  -- uses schedule_location_id_idx (partial, WHERE location_id IS NOT NULL).
+  AND (
+      EXISTS (
+          SELECT 1 FROM phone
+          WHERE location_id = l.id
+            AND number IS NOT NULL AND number != ''
+      )
+      OR (o.email IS NOT NULL AND o.email != '')
+      OR (o.website IS NOT NULL AND o.website != '')
+      OR EXISTS (SELECT 1 FROM schedule s WHERE s.location_id = l.id)
+  )
   {bbox}
   {qfilter}
 ORDER BY l.id,
@@ -145,6 +163,20 @@ LEFT JOIN feeding_america_zip_coverage fa
        ON fa.zip = SUBSTR(a.postal_code, 1, 5)
 LEFT JOIN qualifying_source qs ON qs.location_id = l.id
 WHERE l.id = :location_id
+  -- Mirror the list-query filter (including the empty-string check). A
+  -- location with no contact info AND no schedule is not reachable and
+  -- shouldn't be served. Returning empty here means the router responds
+  -- 404, same as a truly-missing location.
+  AND (
+      EXISTS (
+          SELECT 1 FROM phone
+          WHERE location_id = l.id
+            AND number IS NOT NULL AND number != ''
+      )
+      OR (o.email IS NOT NULL AND o.email != '')
+      OR (o.website IS NOT NULL AND o.website != '')
+      OR EXISTS (SELECT 1 FROM schedule s WHERE s.location_id = l.id)
+  )
 ORDER BY fa.fa_org_id NULLS LAST,
          p.id NULLS LAST
 LIMIT 1
