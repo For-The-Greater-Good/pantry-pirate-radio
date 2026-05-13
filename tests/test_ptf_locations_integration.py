@@ -405,3 +405,133 @@ class TestFaCatalogueLoadedAtModuleImport:
         """Org 58 backs many NJ zips in the production crosswalk. If this
         ever breaks, regenerate via scripts/build_ptf_fa_catalogue.py."""
         assert 58 in FA_CATALOGUE or "58" in {str(k) for k in FA_CATALOGUE}
+
+
+class TestContactOrScheduleFilter:
+    """A location must have at least one of {phone, email, website, schedule}
+    to appear in the PTF feed. Locations with none of those are unreachable
+    by the consuming app and should be filtered out by both the list and
+    detail queries.
+    """
+
+    @pytest_asyncio.fixture
+    async def trio(self, db_session: AsyncSession):
+        """Seed three locations under a no-contact org:
+        - `bare_id`: nothing — should be filtered out
+        - `phone_id`: only a phone row
+        - `sched_id`: only a schedule row
+        Plus the `vivery_api` source on each so the FANO qualifying-source
+        CTE still considers them (matches the existing fixture pattern).
+        """
+        bare_org_id = str(uuid.uuid4())
+        bare_id = str(uuid.uuid4())
+        phone_id = str(uuid.uuid4())
+        sched_id = str(uuid.uuid4())
+
+        # Org with NO email, NO website.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, description, email, website)
+                VALUES (:id, :name, 'no-contact org', NULL, NULL)
+                """
+            ),
+            {"id": bare_org_id, "name": "No-Contact Pantries Inc"},
+        )
+
+        # Three locations under the bare org, far from any other test data.
+        # Use a distinct bbox region (somewhere in the Atlantic) so they
+        # don't get pulled in by other tests' bbox queries.
+        for loc_id, name, lat, lng in (
+            (bare_id, "Bare Location (filter-out)", 35.0, -60.0),
+            (phone_id, "Phone-Only Location", 35.001, -60.001),
+            (sched_id, "Schedule-Only Location", 35.002, -60.002),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name,
+                        latitude, longitude, location_type,
+                        validation_status, confidence_score
+                    )
+                    VALUES (:id, :org_id, :name, :lat, :lng,
+                            'physical', 'verified', 75)
+                    """
+                ),
+                {
+                    "id": loc_id,
+                    "org_id": bare_org_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc_id, 'vivery_api', :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc_id": loc_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+
+        # Phone-only: attach one phone row.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, type)
+                VALUES (:id, :loc_id, '5551234567', 'voice')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc_id": phone_id},
+        )
+
+        # Schedule-only: attach one schedule row.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO schedule (id, location_id, opens_at, closes_at, byday, freq)
+                VALUES (:id, :loc_id, '09:00', '12:00', 'TU', 'WEEKLY')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc_id": sched_id},
+        )
+
+        await db_session.flush()
+        return {"bare_id": bare_id, "phone_id": phone_id, "sched_id": sched_id}
+
+    @pytest.mark.asyncio
+    async def test_list_excludes_location_with_no_contact_or_schedule(
+        self, db_session, trio
+    ):
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(34.9, -60.5, 35.1, -59.5),  # the three seeded locations only
+        )
+        ids = {str(r.id) for r in rows}
+        assert trio["bare_id"] not in ids, "bare location should be filtered out"
+        assert trio["phone_id"] in ids, "phone-only location should pass"
+        assert trio["sched_id"] in ids, "schedule-only location should pass"
+
+    @pytest.mark.asyncio
+    async def test_detail_404s_for_location_with_no_contact_or_schedule(
+        self, db_session, trio
+    ):
+        query = PtfLocationsQuery(db_session)
+        # bare location: filter rejects -> get_location returns None (router 404s)
+        assert await query.get_location(trio["bare_id"]) is None
+        # phone-only and schedule-only both pass
+        assert await query.get_location(trio["phone_id"]) is not None
+        assert await query.get_location(trio["sched_id"]) is not None

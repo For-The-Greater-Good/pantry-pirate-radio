@@ -153,6 +153,10 @@ class PtfSyncService:
                   EXISTS (SELECT 1 FROM phone p WHERE p.location_id = l.id)
                   OR o.email IS NOT NULL
                   OR o.website IS NOT NULL
+                  -- Schedule alone is also enough — the consuming app can
+                  -- still surface "open Tue 9-noon" without phone/email/site.
+                  -- Uses schedule_location_id_idx.
+                  OR EXISTS (SELECT 1 FROM schedule s WHERE s.location_id = l.id)
               )
               AND NOT (a.state_province = 'NY' AND UPPER(TRIM(a.city)) IN
                 ({city_literals}))
@@ -194,6 +198,10 @@ class PtfSyncService:
                               WHERE p.location_id = l.id)
                       OR o.email IS NOT NULL
                       OR o.website IS NOT NULL
+                      -- Schedule alone is also enough; uses
+                      -- schedule_location_id_idx.
+                      OR EXISTS (SELECT 1 FROM schedule s
+                                 WHERE s.location_id = l.id)
                   )
                   AND NOT (a.state_province = 'NY' AND UPPER(TRIM(a.city)) IN
                     __CITY_CLAUSE__)
