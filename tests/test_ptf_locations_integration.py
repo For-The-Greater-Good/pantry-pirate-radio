@@ -535,3 +535,60 @@ class TestContactOrScheduleFilter:
         # phone-only and schedule-only both pass
         assert await query.get_location(trio["phone_id"]) is not None
         assert await query.get_location(trio["sched_id"]) is not None
+
+    @pytest.mark.asyncio
+    async def test_empty_string_contact_fields_dont_count(
+        self, db_session: AsyncSession
+    ):
+        """Some scrapers store '' rather than NULL for absent values. The
+        filter must treat empty strings as missing — a location with only
+        empty-string email/website and an empty-string phone number must
+        be filtered out the same as one with NULLs.
+        """
+        org_id = str(uuid.uuid4())
+        loc_id = str(uuid.uuid4())
+
+        # Org with empty-string email and website.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, description, email, website)
+                VALUES (:id, 'Empty-String Org', 'desc', '', '')
+                """
+            ),
+            {"id": org_id},
+        )
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO location (
+                    id, organization_id, name,
+                    latitude, longitude, location_type,
+                    validation_status, confidence_score
+                )
+                VALUES (:id, :org, 'Empty-String Pantry',
+                        45.0, -65.0, 'physical', 'verified', 75)
+                """
+            ),
+            {"id": loc_id, "org": org_id},
+        )
+        # Phone row with an empty number — should also be ignored.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, type)
+                VALUES (:id, :loc, '', 'voice')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": loc_id},
+        )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        # Detail must 404 — neither contact info nor schedule.
+        assert await query.get_location(loc_id) is None
+        # And the list must not include it.
+        rows = await query.list_locations(
+            limit=200, offset=0, bbox=(44.9, -65.5, 45.1, -64.5)
+        )
+        assert loc_id not in {str(r.id) for r in rows}
