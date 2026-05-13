@@ -76,9 +76,62 @@ async def export_simple_locations(
     - Sources array with per-scraper data
     - Source count for quick reference
     """
-    # Build optimized query to fetch locations with sources
-    sql = """
-        WITH location_data AS (
+    # Build optimized query: first select + LIMIT the locations we'll return,
+    # then aggregate `location_source` rows only for those IDs. The old query
+    # aggregated *every* location_source row first and then applied LIMIT at
+    # the top, forcing Postgres to materialize the full source_data CTE.
+    location_filter_sql = """
+        SELECT l.id
+        FROM location l
+        LEFT JOIN address a ON a.location_id = l.id
+        WHERE l.latitude IS NOT NULL
+          AND l.longitude IS NOT NULL
+          AND l.latitude BETWEEN -90 AND 90
+          AND l.longitude BETWEEN -180 AND 180
+          AND l.is_canonical = true
+          AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
+    """
+
+    params: Dict[str, Any] = {}
+
+    # Add state filter with validation
+    if state:
+        # Validate state format - 2 letter code only
+        if (
+            isinstance(state, str)
+            and len(state.strip()) == 2
+            and state.strip().isalpha()
+        ):
+            location_filter_sql += " AND a.state_province = :state"
+            params["state"] = state.upper().strip()
+
+    # Add confidence filter with validation
+    if min_confidence:
+        try:
+            confidence_val = int(min_confidence)
+            if 0 <= confidence_val <= 100:
+                location_filter_sql += (
+                    " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
+                )
+                params["min_confidence"] = confidence_val
+        except (ValueError, TypeError):
+            # Invalid confidence value - skip this filter
+            pass
+
+    location_filter_sql += """
+        ORDER BY COALESCE(l.confidence_score, 50) DESC, l.name
+        LIMIT :limit
+    """
+
+    # location_filter_sql is composed exclusively of static SQL fragments
+    # above; user-provided values are bound via :params, not string-formatted.
+    sql = (
+        """
+        WITH filtered_ids AS (
+        """  # noqa: S608
+        + location_filter_sql
+        + """
+        ), location_data AS (
             SELECT
                 l.id,
                 l.latitude as lat,
@@ -96,6 +149,7 @@ async def export_simple_locations(
                 COALESCE(l.confidence_score, 50) as confidence_score,
                 COALESCE(l.validation_status, 'needs_review') as validation_status
             FROM location l
+            JOIN filtered_ids fi ON fi.id = l.id
             LEFT JOIN organization o ON l.organization_id = o.id
             LEFT JOIN address a ON a.location_id = l.id
             LEFT JOIN LATERAL (
@@ -108,40 +162,6 @@ async def export_simple_locations(
                 WHERE location_id = l.id
                 LIMIT 1
             ) e ON true
-            WHERE l.latitude IS NOT NULL
-              AND l.longitude IS NOT NULL
-              AND l.latitude BETWEEN -90 AND 90
-              AND l.longitude BETWEEN -180 AND 180
-              AND l.is_canonical = true
-              AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
-    """
-
-    params: Dict[str, Any] = {}
-
-    # Add state filter with validation
-    if state:
-        # Validate state format - 2 letter code only
-        if (
-            isinstance(state, str)
-            and len(state.strip()) == 2
-            and state.strip().isalpha()
-        ):
-            sql += " AND a.state_province = :state"
-            params["state"] = state.upper().strip()
-
-    # Add confidence filter with validation
-    if min_confidence:
-        try:
-            confidence_val = int(min_confidence)
-            if 0 <= confidence_val <= 100:
-                sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
-                params["min_confidence"] = confidence_val
-        except (ValueError, TypeError):
-            # Invalid confidence value - skip this filter
-            pass
-
-    # Continue building query with parameterized limit
-    sql += """
         ), source_data AS (
             SELECT
                 ls.location_id,
@@ -161,6 +181,7 @@ async def export_simple_locations(
                 ) as sources,
                 COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count
             FROM location_source ls
+            JOIN filtered_ids fi ON fi.id = ls.location_id
             LEFT JOIN location l2 ON l2.id = ls.location_id
             LEFT JOIN organization o2 ON o2.id = l2.organization_id
             LEFT JOIN address a2 ON a2.location_id = l2.id
@@ -179,8 +200,8 @@ async def export_simple_locations(
         FROM location_data ld
         LEFT JOIN source_data sd ON sd.location_id = ld.id
         ORDER BY ld.confidence_score DESC, ld.name
-        LIMIT :limit
     """
+    )
 
     # Validate and add limit parameter
     try:

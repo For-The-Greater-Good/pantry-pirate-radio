@@ -130,19 +130,36 @@ class TestServiceAtLocationDirect:
             mock_repo = AsyncMock()
             mock_repo_class.return_value = mock_repo
 
-            # Mock service-at-location
+            # Mock service-at-location. Provide real values for the attributes
+            # the dict-building helpers read so they don't crash on Mock objects.
             mock_sal = Mock()
-            mock_sal.service = Mock()
-            mock_sal.location = Mock()
+            mock_sal.id = uuid4()
+            mock_sal.service_id = uuid4()
+            mock_sal.location_id = uuid4()
+            mock_sal.description = "desc"
+            mock_sal.service = Mock(
+                id=uuid4(),
+                organization_id=uuid4(),
+                name="svc",
+                alternate_name=None,
+                description=None,
+                url=None,
+                email=None,
+                status="active",
+            )
+            mock_sal.location = Mock(
+                id=uuid4(),
+                name="loc",
+                alternate_name=None,
+                description=None,
+                latitude=40.0,
+                longitude=-74.0,
+            )
             mock_repo.get_by_id.return_value = mock_sal
 
-            # Mock response models
-            mock_sal_data = Mock()
-            mock_sal_data.service = None
-            mock_sal_data.location = None
-            mock_sal_response.model_validate.return_value = mock_sal_data
-            mock_service_response.model_validate.return_value = Mock()
-            mock_location_response.model_validate.return_value = Mock()
+            mock_sal_response.model_validate.return_value = Mock()
+            # ServiceResponse/LocationResponse aren't called directly anymore;
+            # the handler builds dicts and validates only via ServiceAtLocationResponse.
 
             # Mock session
             mock_session = AsyncMock()
@@ -172,9 +189,12 @@ class TestServiceAtLocationDirect:
                 session=mock_session,
             )
 
-            # Verify details were processed
-            mock_service_response.model_validate.assert_called_once()
-            mock_location_response.model_validate.assert_called_once()
+            # Verify the SAL response model was constructed with embedded
+            # service/location dicts.
+            mock_sal_response.model_validate.assert_called_once()
+            call_arg = mock_sal_response.model_validate.call_args[0][0]
+            assert call_arg["service"] is not None
+            assert call_arg["location"] is not None
 
     @pytest.mark.asyncio
     async def test_get_service_at_location_not_found(self):
@@ -232,9 +252,21 @@ class TestServiceAtLocationDirect:
             mock_repo = AsyncMock()
             mock_repo_class.return_value = mock_repo
 
-            # Mock service-at-location with location
+            # Mock service-at-location with location. Provide real attribute
+            # values for the dict-building helpers.
             mock_sal = Mock()
-            mock_sal.location = Mock()
+            mock_sal.id = uuid4()
+            mock_sal.service_id = uuid4()
+            mock_sal.location_id = uuid4()
+            mock_sal.description = "desc"
+            mock_sal.location = Mock(
+                id=uuid4(),
+                name="loc",
+                alternate_name=None,
+                description=None,
+                latitude=40.0,
+                longitude=-74.0,
+            )
             mock_repo.get_locations_for_service.return_value = [mock_sal]
             mock_repo.count_locations_for_service.return_value = 1
 
@@ -246,11 +278,7 @@ class TestServiceAtLocationDirect:
             }
             mock_create_links.return_value = {}
 
-            # Mock response models
-            mock_sal_data = Mock()
-            mock_sal_data.location = None
-            mock_sal_response.model_validate.return_value = mock_sal_data
-            mock_location_response.model_validate.return_value = Mock()
+            mock_sal_response.model_validate.return_value = Mock()
             mock_page.return_value = Mock()
 
             # Mock request
@@ -290,8 +318,11 @@ class TestServiceAtLocationDirect:
                 session=mock_session,
             )
 
-            # Verify details were processed
-            mock_location_response.model_validate.assert_called_once()
+            # Verify details were processed — the SAL response was called with
+            # a dict whose `location` key contains the shallow location dict.
+            mock_sal_response.model_validate.assert_called_once()
+            call_arg = mock_sal_response.model_validate.call_args[0][0]
+            assert call_arg["location"] is not None
 
     @pytest.mark.asyncio
     async def test_get_services_at_location_execution(self):
@@ -316,9 +347,23 @@ class TestServiceAtLocationDirect:
             mock_repo = AsyncMock()
             mock_repo_class.return_value = mock_repo
 
-            # Mock service-at-location with service
+            # Mock service-at-location with service. Provide real attribute
+            # values for the dict-building helpers.
             mock_sal = Mock()
-            mock_sal.service = Mock()
+            mock_sal.id = uuid4()
+            mock_sal.service_id = uuid4()
+            mock_sal.location_id = uuid4()
+            mock_sal.description = "desc"
+            mock_sal.service = Mock(
+                id=uuid4(),
+                organization_id=uuid4(),
+                name="svc",
+                alternate_name=None,
+                description=None,
+                url=None,
+                email=None,
+                status="active",
+            )
             mock_repo.get_services_at_location.return_value = [mock_sal]
             mock_repo.count_services_at_location.return_value = 1
 
@@ -330,11 +375,7 @@ class TestServiceAtLocationDirect:
             }
             mock_create_links.return_value = {}
 
-            # Mock response models
-            mock_sal_data = Mock()
-            mock_sal_data.service = None
-            mock_sal_response.model_validate.return_value = mock_sal_data
-            mock_service_response.model_validate.return_value = Mock()
+            mock_sal_response.model_validate.return_value = Mock()
             mock_page.return_value = Mock()
 
             # Mock request
@@ -374,8 +415,11 @@ class TestServiceAtLocationDirect:
                 session=mock_session,
             )
 
-            # Verify details were processed
-            mock_service_response.model_validate.assert_called_once()
+            # Verify details were processed — the SAL response was called with
+            # a dict whose `service` key contains the shallow service dict.
+            mock_sal_response.model_validate.assert_called_once()
+            call_arg = mock_sal_response.model_validate.call_args[0][0]
+            assert call_arg["service"] is not None
 
     def test_import_coverage(self):
         """Test import statements coverage - lines 1-25."""

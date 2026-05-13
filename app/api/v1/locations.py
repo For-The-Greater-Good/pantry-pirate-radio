@@ -29,6 +29,20 @@ from app.api.v1.utils import (
 router = APIRouter(prefix="/locations", tags=["locations"])
 
 
+def _shallow_service_for_location(service) -> dict:
+    """Shallow Service dict for embedding in a Location response (no nested locations)."""
+    return {
+        "id": str(service.id),
+        "organization_id": str(service.organization_id),
+        "name": service.name,
+        "alternate_name": getattr(service, "alternate_name", None),
+        "description": service.description,
+        "url": getattr(service, "url", None),
+        "email": getattr(service, "email", None),
+        "status": service.status,
+    }
+
+
 async def get_location_schedules(
     location_id: str, session: AsyncSession
 ) -> list[ScheduleInfo]:
@@ -242,7 +256,9 @@ async def list_locations(
 
         if include_services and location.services_at_location:
             location_data.services = [
-                ServiceResponse.model_validate(sal.service)
+                ServiceResponse.model_validate(
+                    _shallow_service_for_location(sal.service)
+                )
                 for sal in location.services_at_location
             ]
 
@@ -448,7 +464,9 @@ async def search_locations(
             and location.services_at_location
         ):
             location_data.services = [
-                ServiceResponse.model_validate(sal.service)
+                ServiceResponse.model_validate(
+                    _shallow_service_for_location(sal.service)
+                )
                 for sal in location.services_at_location
             ]
 
@@ -540,14 +558,16 @@ async def get_location(
         location_response.schedules = schedules
 
     if include_services:
-        # Load services at this location
+        # Load services at this location. Build shallow dicts so Pydantic never
+        # recurses into service.locations (not eager-loaded → MissingGreenlet).
         from app.database.repositories import ServiceAtLocationRepository
 
         sal_repo = ServiceAtLocationRepository(session)
         services_at_location = await sal_repo.get_services_at_location(location_id)
 
         location_response.services = [
-            ServiceResponse.model_validate(sal.service) for sal in services_at_location
+            ServiceResponse.model_validate(_shallow_service_for_location(sal.service))
+            for sal in services_at_location
         ]
 
     return location_response

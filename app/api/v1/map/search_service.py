@@ -54,8 +54,87 @@ class MapSearchService:
             Tuple of (locations, metadata, total_count)
         """
 
-        # Optimized query for map display - simpler joins for better performance
-        base_query = """
+        # Geographic prefilters are built first so they can be pushed *into* the
+        # searchable_locations CTE — otherwise the LATERAL schedule join below
+        # fans out across every row in `location` (75k+) before the outer bbox
+        # filter applies, which is what caused the 30s API Gateway timeouts.
+        inner_conditions: list[str] = []
+        params: Dict[str, Any] = {}
+
+        if bbox:
+            try:
+                min_lat, min_lng, max_lat, max_lng = bbox
+                if (
+                    -90 <= min_lat <= 90
+                    and -90 <= max_lat <= 90
+                    and -180 <= min_lng <= 180
+                    and -180 <= max_lng <= 180
+                    and min_lat <= max_lat
+                    and min_lng <= max_lng
+                ):
+                    inner_conditions.append("l.latitude BETWEEN :min_lat AND :max_lat")
+                    inner_conditions.append("l.longitude BETWEEN :min_lng AND :max_lng")
+                    params.update(
+                        {
+                            "min_lat": min_lat,
+                            "max_lat": max_lat,
+                            "min_lng": min_lng,
+                            "max_lng": max_lng,
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+        if (
+            center_lat is not None
+            and center_lng is not None
+            and radius_miles is not None
+        ):
+            try:
+                if (
+                    -90 <= center_lat <= 90
+                    and -180 <= center_lng <= 180
+                    and 0 < radius_miles <= 1000
+                ):
+                    inner_conditions.append(
+                        """
+                        (
+                            3959 * acos(
+                                cos(radians(:center_lat)) * cos(radians(l.latitude)) *
+                                cos(radians(l.longitude) - radians(:center_lng)) +
+                                sin(radians(:center_lat)) * sin(radians(l.latitude))
+                            )
+                        ) <= :radius_miles
+                        """
+                    )
+                    params.update(
+                        {
+                            "center_lat": center_lat,
+                            "center_lng": center_lng,
+                            "radius_miles": radius_miles,
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+        if state:
+            if (
+                isinstance(state, str)
+                and len(state.strip()) == 2
+                and state.strip().isalpha()
+            ):
+                inner_conditions.append("a.state_province = :state")
+                params["state"] = state.upper().strip()
+
+        inner_filter_sql = (
+            " AND " + " AND ".join(inner_conditions) if inner_conditions else ""
+        )
+
+        # Optimized query for map display - simpler joins for better performance.
+        # inner_filter_sql is composed exclusively of static SQL fragments
+        # above (no user-supplied strings); all values are bound via :params.
+        base_query = (
+            """
             WITH source_counts AS (
                 SELECT
                     location_id,
@@ -122,12 +201,15 @@ class MapSearchService:
                   AND l.longitude BETWEEN -180 AND 180
                   AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
                   AND l.is_canonical = true
+            """  # noqa: S608
+            + inner_filter_sql
+            + """
             )
         """
+        )
 
         # Build WHERE conditions
-        conditions = []
-        params: Dict[str, Any] = {}
+        conditions: list[str] = []
 
         # Simple text search with input validation - only on location name for basic filtering
         # Not a primary use case, so keep it simple
@@ -143,78 +225,9 @@ class MapSearchService:
                     conditions.append("LOWER(location_name) LIKE :search_pattern")
                     params["search_pattern"] = f"%{sanitized_query.lower()}%"
 
-        # Geographic filters with validation
-        if bbox:
-            try:
-                min_lat, min_lng, max_lat, max_lng = bbox
-                # Validate coordinate bounds
-                if (
-                    -90 <= min_lat <= 90
-                    and -90 <= max_lat <= 90
-                    and -180 <= min_lng <= 180
-                    and -180 <= max_lng <= 180
-                    and min_lat <= max_lat
-                    and min_lng <= max_lng
-                ):
-                    conditions.append("lat BETWEEN :min_lat AND :max_lat")
-                    conditions.append("lng BETWEEN :min_lng AND :max_lng")
-                    params.update(
-                        {
-                            "min_lat": min_lat,
-                            "max_lat": max_lat,
-                            "min_lng": min_lng,
-                            "max_lng": max_lng,
-                        }
-                    )
-            except (ValueError, TypeError):
-                # Invalid bbox format - skip this filter
-                pass
-
-        # Radius search with validation
-        if (
-            center_lat is not None
-            and center_lng is not None
-            and radius_miles is not None
-        ):
-            try:
-                # Validate coordinates and radius
-                if (
-                    -90 <= center_lat <= 90
-                    and -180 <= center_lng <= 180
-                    and 0 < radius_miles <= 1000
-                ):  # Max 1000 miles radius
-                    conditions.append(
-                        """
-                        (
-                            3959 * acos(
-                                cos(radians(:center_lat)) * cos(radians(lat)) *
-                                cos(radians(lng) - radians(:center_lng)) +
-                                sin(radians(:center_lat)) * sin(radians(lat))
-                            )
-                        ) <= :radius_miles
-                    """
-                    )
-                    params.update(
-                        {
-                            "center_lat": center_lat,
-                            "center_lng": center_lng,
-                            "radius_miles": radius_miles,
-                        }
-                    )
-            except (ValueError, TypeError):
-                # Invalid coordinates or radius - skip this filter
-                pass
-
-        # State filter with validation
-        if state:
-            # Validate state format - 2 letter code only
-            if (
-                isinstance(state, str)
-                and len(state.strip()) == 2
-                and state.strip().isalpha()
-            ):
-                conditions.append("state = :state")
-                params["state"] = state.upper().strip()
+        # Geographic + state filters (bbox / radius / state) are pushed into the
+        # `searchable_locations` CTE above so the LATERAL schedule join runs only
+        # for filtered rows. Do not duplicate them here.
 
         # Service filter - simplified, only check if services exist
         if services:
