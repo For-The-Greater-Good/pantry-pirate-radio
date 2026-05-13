@@ -172,6 +172,15 @@ class PipelineStack(Stack):
                 "Name": "SCRAPER_NAME",
                 "Value.$": "$.scraper_name",
             },
+            # Backfill flag: when the state machine input has
+            # force_reextract: true (set by `./bouy scraper --aws NAME
+            # --force-reextract`), the docker-entrypoint.sh reads this and
+            # appends --force-reextract to the scraper command, bypassing
+            # the content-store dedup short-circuit.
+            {
+                "Name": "FORCE_REEXTRACT",
+                "Value.$": "States.Format('{}', $.force_reextract)",
+            },
         ]
 
         # Override SQS_QUEUE_URL to staging queue when batch inference is enabled
@@ -435,11 +444,15 @@ class PipelineStack(Stack):
             enabled=enabled,
         )
 
-        # Add state machine as target with default scraper list
+        # Add state machine as target with default scraper list. Scheduled
+        # runs never bypass the content-store dedup — only ad-hoc backfill
+        # runs (via `./bouy scraper --aws NAME --force-reextract`) do.
         rule.add_target(
             targets.SfnStateMachine(
                 self.state_machine,
-                input=events.RuleTargetInput.from_object({"scrapers": self._scrapers}),
+                input=events.RuleTargetInput.from_object(
+                    {"scrapers": self._scrapers, "force_reextract": False}
+                ),
             )
         )
 

@@ -106,6 +106,134 @@ class TestPhoneLocationFallback:
                     call_kwargs.args[4] == loc_uuid
                 ), "Phone should attach to location for single-location org"
 
+    def test_phone_with_org_name_but_no_location_attaches_to_single_location(self):
+        """Vivery bug case: phone has organization_name (LLM set parent org)
+        but no location_name (LLM didn't realize it needed to). When the job
+        has exactly one location, the phone should still attach to that
+        location — not to the org alone. Before this fix, ~5,295 Vivery
+        phones were lost because the reconciler attached them to org only.
+        """
+        loc_uuid = uuid.uuid4()
+
+        job_result = _make_job_result(
+            locations=[
+                {
+                    "name": "Only Location",
+                    "description": "The sole location",
+                    "latitude": 40.7128,
+                    "longitude": -74.0060,
+                }
+            ],
+            phones=[
+                {
+                    "number": "305-306-7842",
+                    "type": "voice",
+                    "organization_name": "Phone Fallback Org",
+                }
+            ],
+        )
+
+        mock_db = MagicMock(spec=Session)
+        processor = JobProcessor(db=mock_db)
+        org_uuid = uuid.uuid4()
+
+        with (
+            patch.object(processor, "db", mock_db),
+            patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
+            patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator,
+            patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
+            patch("app.reconciler.job_processor.VersionTracker"),
+        ):
+            mock_org = MockOrgCreator.return_value
+            mock_org.process_organization.return_value = (org_uuid, True)
+            mock_org.create_organization.return_value = org_uuid
+
+            mock_loc = MockLocCreator.return_value
+            mock_loc.find_matching_location.return_value = None
+            mock_loc.create_location.return_value = str(loc_uuid)
+
+            mock_svc = MockSvcCreator.return_value
+            mock_svc.create_phone.return_value = uuid.uuid4()
+
+            processor.process_job_result(job_result)
+
+            mock_svc.create_phone.assert_called_once()
+            call_kwargs = mock_svc.create_phone.call_args
+            if call_kwargs.kwargs:
+                assert call_kwargs.kwargs.get("organization_id") == org_uuid
+                assert call_kwargs.kwargs.get("location_id") == loc_uuid, (
+                    "Phone with org_name but no location_name should still "
+                    "attach to the single location in the job (Vivery bug fix)"
+                )
+            else:
+                assert call_kwargs.args[4] == loc_uuid, (
+                    "Phone with org_name but no location_name should still "
+                    "attach to the single location in the job (Vivery bug fix)"
+                )
+
+    def test_phone_with_unresolvable_location_name_does_not_auto_attach(self):
+        """When phone.location_name is set but doesn't match any location
+        in the job, the single-location auto-attach must NOT fire. An
+        explicit-but-unresolvable reference means the LLM is saying
+        'this phone belongs to a specific place we couldn't match' —
+        silently routing it onto the only available location would mis-
+        attribute a phone that doesn't actually belong there.
+        """
+        loc_uuid = uuid.uuid4()
+
+        job_result = _make_job_result(
+            locations=[
+                {
+                    "name": "Only Location",
+                    "description": "The sole location in this job",
+                    "latitude": 40.7128,
+                    "longitude": -74.0060,
+                }
+            ],
+            phones=[
+                {
+                    "number": "555-0299",
+                    "type": "voice",
+                    "location_name": "Some OTHER Location Not In This Job",
+                }
+            ],
+        )
+
+        mock_db = MagicMock(spec=Session)
+        processor = JobProcessor(db=mock_db)
+        org_uuid = uuid.uuid4()
+
+        with (
+            patch.object(processor, "db", mock_db),
+            patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
+            patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator,
+            patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
+            patch("app.reconciler.job_processor.VersionTracker"),
+        ):
+            mock_org = MockOrgCreator.return_value
+            mock_org.process_organization.return_value = (org_uuid, True)
+            mock_org.create_organization.return_value = org_uuid
+
+            mock_loc = MockLocCreator.return_value
+            mock_loc.find_matching_location.return_value = None
+            mock_loc.create_location.return_value = str(loc_uuid)
+
+            mock_svc = MockSvcCreator.return_value
+            mock_svc.create_phone.return_value = uuid.uuid4()
+
+            processor.process_job_result(job_result)
+
+            mock_svc.create_phone.assert_called_once()
+            call_kwargs = mock_svc.create_phone.call_args
+            if call_kwargs.kwargs:
+                assert call_kwargs.kwargs.get("location_id") is None, (
+                    "Phone with unresolvable explicit location_name must NOT "
+                    "be auto-attached to a different location"
+                )
+                assert call_kwargs.kwargs.get("organization_id") == org_uuid
+            else:
+                assert call_kwargs.args[4] is None
+
     def test_phone_org_only_with_multiple_locations(self):
         """Phone with no entity reference should attach to org only when multiple locations exist."""
         loc_a_uuid = uuid.uuid4()

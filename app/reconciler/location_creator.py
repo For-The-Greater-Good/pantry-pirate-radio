@@ -84,31 +84,66 @@ class LocationCreator(BaseReconciler):
             self.logger.error(f"Failed to log constraint violation: {e}")
 
     def find_matching_location(
-        self, latitude: float, longitude: float, tolerance: float = None
+        self,
+        latitude: float,
+        longitude: float,
+        tolerance: float = None,
+        name: str | None = None,
+        organization_id: str | None = None,
     ) -> str | None:
         """Find matching location by coordinates (backward compatibility wrapper).
+
+        When `name` or `organization_id` is provided, a second-tier match
+        widens the search radius and constrains by same-name OR same-org —
+        catching real duplicates whose coordinates drifted between scrapers.
 
         Args:
             latitude: Location latitude
             longitude: Location longitude
             tolerance: Coordinate matching tolerance (uses config default if not specified)
+            name: Optional location name for same-name fallback match
+            organization_id: Optional parent organization id (UUID string) for
+                same-org fallback match
 
         Returns:
             ID of matching location if found, None otherwise
         """
         if tolerance is None:
             tolerance = self.location_tolerance
-        return self.find_matching_location_with_lock(latitude, longitude, tolerance)
+        return self.find_matching_location_with_lock(
+            latitude,
+            longitude,
+            tolerance,
+            name=name,
+            organization_id=organization_id,
+        )
 
     def find_matching_location_with_lock(
-        self, latitude: float, longitude: float, tolerance: float = None
+        self,
+        latitude: float,
+        longitude: float,
+        tolerance: float = None,
+        name: str | None = None,
+        organization_id: str | None = None,
     ) -> str | None:
         """Find matching location by coordinates using advisory locks for consistency.
+
+        Performs a two-tier match:
+          1. Strict coord-only match within ``tolerance`` (~11m default).
+          2. If no match AND ``name`` or ``organization_id`` is provided,
+             a wider coord match within ``self.duplicate_tolerance``
+             (~165m at the equator, narrower at higher latitudes)
+             constrained to rows with the same name OR same organization.
+             This catches real duplicates that the strict tier misses when
+             different scrapers geocode the same pantry slightly differently.
 
         Args:
             latitude: Location latitude
             longitude: Location longitude
             tolerance: Coordinate matching tolerance (uses config default if not specified)
+            name: Optional location name for same-name fallback match
+            organization_id: Optional parent organization id (UUID string) for
+                same-org fallback match
 
         Returns:
             ID of matching location if found, None otherwise
@@ -121,7 +156,7 @@ class LocationCreator(BaseReconciler):
         lock_id = lock_result.scalar()
 
         try:
-            # Use the database function for consistent coordinate matching
+            # Tier 1: strict coord-only match.
             query = text(
                 """
                 SELECT id
@@ -138,7 +173,64 @@ class LocationCreator(BaseReconciler):
                 query, {"lat1": latitude, "lon1": longitude, "tolerance": tolerance}
             )
             row = result.first()
-            return row[0] if row else None
+            if row:
+                return row[0]
+
+            # Tier 2: same-name OR same-org fallback within a wider radius.
+            # Only runs when a name or org_id is provided AND the strict
+            # match failed. Conservative: requires BOTH a wider coord match
+            # AND a name-or-org constraint — so two unrelated pantries with
+            # different names and different orgs won't merge even if nearby.
+            has_name = bool(name and name.strip())
+            has_org = bool(organization_id)
+            if not (has_name or has_org):
+                return None
+
+            fallback_query = text(
+                """
+                SELECT id
+                FROM location
+                WHERE is_canonical = TRUE
+                  AND ABS(latitude - :lat1) < :wide_tolerance
+                  AND ABS(longitude - :lon1) < :wide_tolerance
+                  AND (
+                    (:org_id IS NOT NULL AND organization_id = :org_id)
+                    OR (
+                        :name IS NOT NULL
+                        AND :name <> ''
+                        AND LOWER(TRIM(name)) = LOWER(TRIM(:name))
+                    )
+                  )
+                ORDER BY ABS(latitude - :lat1) + ABS(longitude - :lon1)
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """
+            )
+            fallback_result = self.db.execute(
+                fallback_query,
+                {
+                    "lat1": latitude,
+                    "lon1": longitude,
+                    "wide_tolerance": self.duplicate_tolerance,
+                    "org_id": organization_id if has_org else None,
+                    "name": name if has_name else None,
+                },
+            )
+            fallback_row = fallback_result.first()
+            if fallback_row:
+                self.logger.info(
+                    "Same-name/same-org fallback merged duplicate location "
+                    "(strict coord match missed)",
+                    extra={
+                        "matched_id": fallback_row[0],
+                        "lat": latitude,
+                        "lon": longitude,
+                        "location_name": name,
+                        "organization_id": organization_id,
+                    },
+                )
+                return fallback_row[0]
+            return None
 
         finally:
             # Always release the advisory lock
