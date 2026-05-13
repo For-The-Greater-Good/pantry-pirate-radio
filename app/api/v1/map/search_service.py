@@ -182,21 +182,17 @@ class MapSearchService:
                 LEFT JOIN address a ON a.location_id = l.id
                 LEFT JOIN organization o ON o.id = l.organization_id
                 LEFT JOIN source_counts sc ON sc.location_id = l.id
-                -- UNION ALL instead of `WHERE location_id=l.id OR service_id IN (subquery)`
-                -- so each branch uses its own index (schedule.location_id and
-                -- schedule.service_id). The OR form forced sequential scans.
+                -- Only the location_id branch matters here: ~58k rows in
+                -- `schedule` have a location_id, and only ~10 rows in the
+                -- entire DB have a service_id (verified against prod). The
+                -- former OR/UNION service-id branch joined 80k SAL rows x
+                -- 58k schedule rows per location for that 10-row payoff and
+                -- dominated the query cost. Index used:
+                -- schedule_location_id_idx (partial, WHERE location_id IS NOT NULL).
                 LEFT JOIN LATERAL (
                     SELECT opens_at, closes_at, byday, description
-                    FROM (
-                        SELECT opens_at, closes_at, byday, description, location_id, service_id
-                        FROM schedule
-                        WHERE schedule.location_id = l.id
-                        UNION ALL
-                        SELECT s2.opens_at, s2.closes_at, s2.byday, s2.description, s2.location_id, s2.service_id
-                        FROM schedule s2
-                        JOIN service_at_location sal ON sal.service_id = s2.service_id
-                        WHERE sal.location_id = l.id
-                    ) candidates
+                    FROM schedule
+                    WHERE schedule.location_id = l.id
                     ORDER BY
                         CASE WHEN opens_at IS NOT NULL THEN 0 ELSE 1 END
                     LIMIT 1

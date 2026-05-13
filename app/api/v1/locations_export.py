@@ -132,6 +132,10 @@ async def export_simple_locations(
         + location_filter_sql
         + """
         ), location_data AS (
+            -- No `email` join: there is no `email` table in the schema; the
+            -- `email` field belongs to contact/organization/service as columns.
+            -- The old LATERAL was a phantom-table reference that raised
+            -- ProgrammingError on every invocation.
             SELECT
                 l.id,
                 l.latitude as lat,
@@ -144,7 +148,7 @@ async def export_simple_locations(
                 a.postal_code as zip,
                 p.number as phone,
                 l.url as website,
-                e.email,
+                o.email as email,
                 l.description,
                 COALESCE(l.confidence_score, 50) as confidence_score,
                 COALESCE(l.validation_status, 'needs_review') as validation_status
@@ -157,16 +161,10 @@ async def export_simple_locations(
                 WHERE location_id = l.id
                 LIMIT 1
             ) p ON true
-            LEFT JOIN LATERAL (
-                SELECT email FROM email
-                WHERE location_id = l.id
-                LIMIT 1
-            ) e ON true
         ), source_data AS (
-            -- Collapse to one row per (location, scraper) keeping the most
-            -- recent source. Without this the JSON aggregation can produce
-            -- thousands of entries per location (one per historical scraper
-            -- run) and trip the 6 MB Lambda response limit.
+            -- One row per (location, scraper) — already guaranteed by the
+            -- partial UNIQUE indexes on location_source. Filter out submarine
+            -- sources so they don't bloat the aggregated array.
             SELECT
                 ls.location_id,
                 json_agg(
@@ -174,7 +172,7 @@ async def export_simple_locations(
                         'scraper', ls.scraper_id,
                         'name', ls.name,
                         'phone', p2.number,
-                        'email', e2.email,
+                        'email', o2.email,
                         'website', o2.website,
                         'address', CONCAT_WS(', ', a2.address_1, a2.city, a2.state_province, a2.postal_code),
                         'confidence_score', COALESCE(l2.confidence_score, 50),
@@ -183,28 +181,16 @@ async def export_simple_locations(
                     )
                     ORDER BY ls.updated_at DESC
                 ) as sources,
-                COUNT(*) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count
-            FROM (
-                SELECT DISTINCT ON (ls_inner.location_id, ls_inner.scraper_id)
-                    ls_inner.location_id,
-                    ls_inner.scraper_id,
-                    ls_inner.name,
-                    ls_inner.source_type,
-                    ls_inner.updated_at,
-                    ls_inner.created_at
-                FROM location_source ls_inner
-                JOIN filtered_ids fi ON fi.id = ls_inner.location_id
-                ORDER BY ls_inner.location_id, ls_inner.scraper_id, ls_inner.updated_at DESC
-            ) ls
+                COUNT(*) as source_count
+            FROM location_source ls
+            JOIN filtered_ids fi ON fi.id = ls.location_id
             LEFT JOIN location l2 ON l2.id = ls.location_id
             LEFT JOIN organization o2 ON o2.id = l2.organization_id
             LEFT JOIN address a2 ON a2.location_id = l2.id
             LEFT JOIN LATERAL (
                 SELECT number FROM phone WHERE location_id = l2.id LIMIT 1
             ) p2 ON true
-            LEFT JOIN LATERAL (
-                SELECT email FROM email WHERE location_id = l2.id LIMIT 1
-            ) e2 ON true
+            WHERE ls.source_type IS NULL OR ls.source_type != 'submarine'
             GROUP BY ls.location_id
         )
         SELECT
