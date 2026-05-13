@@ -18,14 +18,18 @@
     "has_plentiful_pantry": false,
     "has_appointments": false,
     "service_type": 1,
-    "programs": ["Food Pantry", "TEFAP"],
+    "programs": [
+      "Food Pantry",
+      "TEFAP"
+    ],
     "services": null,
     "services_detailed": null,
     "next_service": null,
     "feeding_america_food_bank": {
       "id": 58,
       "name": "Community Foodbank of New Jersey"
-    }
+    },
+    "affiliations": []
   },
   {
     "id": "11111111-2222-3333-4444-555555550002",
@@ -53,7 +57,8 @@
     "feeding_america_food_bank": {
       "id": 116,
       "name": "Oregon Food Bank"
-    }
+    },
+    "affiliations": []
   },
   {
     "id": "11111111-2222-3333-4444-555555550003",
@@ -74,10 +79,13 @@
     "has_plentiful_pantry": false,
     "has_appointments": false,
     "service_type": 1,
-    "programs": ["Food Pantry"],
+    "programs": [
+      "Food Pantry"
+    ],
     "services": null,
     "services_detailed": null,
     "next_service": null,
-    "feeding_america_food_bank": null
+    "feeding_america_food_bank": null,
+    "affiliations": []
   }
 ]

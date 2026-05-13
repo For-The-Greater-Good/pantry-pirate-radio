@@ -163,3 +163,91 @@ class TestQualifyingSourceCTE:
         assert "has_qualifying_source" in sql_text
         assert "zip_matched_fa" in sql_text
         assert "allowlist" in params
+
+
+# ---- Schema layer (`affiliations` field) ---------------------------------
+
+
+class TestAffiliationsField:
+    """Both list-item and detail schemas must carry an optional
+    `affiliations: list[str]` field that defaults to an empty list.
+    """
+
+    def _minimal_list_item(self) -> dict:
+        # Smallest payload that satisfies all required fields. Mirrors the
+        # transformer's output for a non-FA-network location.
+        return {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Test Pantry",
+            "short_name": "Test Pantry",
+            "address_street_1": "1 Main St",
+            "address_street_2": "",
+            "city": "Newark",
+            "zip_code": 7102,
+            "state": "NJ",
+            "phone": 0,
+            "website": "",
+            "pantry_id": -42,
+            "pantry_timezone": "America/New_York",
+            "avatar": "",
+            "longitude": -74.0,
+            "latitude": 40.0,
+            "has_plentiful_pantry": False,
+            "has_appointments": False,
+            "service_type": 1,
+            "programs": [],
+            "services": None,
+            "services_detailed": None,
+            "next_service": None,
+            "feeding_america_food_bank": None,
+        }
+
+    def test_list_item_default_affiliations_is_empty(self) -> None:
+        from app.api.v1.partners.ptf.locations_schemas import PtfLocationListItem
+
+        # No affiliations key in input → default empty list.
+        item = PtfLocationListItem.model_validate(self._minimal_list_item())
+        assert item.affiliations == []
+
+    def test_list_item_accepts_fano(self) -> None:
+        from app.api.v1.partners.ptf.locations_schemas import PtfLocationListItem
+
+        payload = self._minimal_list_item()
+        payload["affiliations"] = ["FANO"]
+        item = PtfLocationListItem.model_validate(payload)
+        assert item.affiliations == ["FANO"]
+
+    def test_list_item_accepts_multiple_codes(self) -> None:
+        from app.api.v1.partners.ptf.locations_schemas import PtfLocationListItem
+
+        payload = self._minimal_list_item()
+        # Spec: a location MAY have multiple affiliations; order not significant.
+        payload["affiliations"] = ["FANO", "CITYHARVEST"]
+        item = PtfLocationListItem.model_validate(payload)
+        assert set(item.affiliations) == {"FANO", "CITYHARVEST"}
+
+    def test_list_item_accepts_explicit_empty(self) -> None:
+        from app.api.v1.partners.ptf.locations_schemas import PtfLocationListItem
+
+        payload = self._minimal_list_item()
+        payload["affiliations"] = []
+        item = PtfLocationListItem.model_validate(payload)
+        assert item.affiliations == []
+
+    def test_detail_default_affiliations_is_empty(self) -> None:
+        # Compose from the existing fixture so we don't duplicate the full
+        # detail required-fields list inline.
+        import json
+        from pathlib import Path
+
+        from app.api.v1.partners.ptf.locations_schemas import PtfLocationDetail
+
+        fixtures_dir = Path(__file__).parent / "fixtures" / "ptf_locations"
+        detail_row = json.loads(
+            (fixtures_dir / "plentiful_location_detail_sample.json").read_text()
+        )
+        # Strip affiliations if the fixture has been updated to include it,
+        # so we test the default-empty path explicitly.
+        detail_row.pop("affiliations", None)
+        detail = PtfLocationDetail.model_validate(detail_row)
+        assert detail.affiliations == []
