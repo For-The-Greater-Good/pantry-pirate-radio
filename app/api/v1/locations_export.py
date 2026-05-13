@@ -163,6 +163,10 @@ async def export_simple_locations(
                 LIMIT 1
             ) e ON true
         ), source_data AS (
+            -- Collapse to one row per (location, scraper) keeping the most
+            -- recent source. Without this the JSON aggregation can produce
+            -- thousands of entries per location (one per historical scraper
+            -- run) and trip the 6 MB Lambda response limit.
             SELECT
                 ls.location_id,
                 json_agg(
@@ -179,9 +183,19 @@ async def export_simple_locations(
                     )
                     ORDER BY ls.updated_at DESC
                 ) as sources,
-                COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count
-            FROM location_source ls
-            JOIN filtered_ids fi ON fi.id = ls.location_id
+                COUNT(*) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count
+            FROM (
+                SELECT DISTINCT ON (ls_inner.location_id, ls_inner.scraper_id)
+                    ls_inner.location_id,
+                    ls_inner.scraper_id,
+                    ls_inner.name,
+                    ls_inner.source_type,
+                    ls_inner.updated_at,
+                    ls_inner.created_at
+                FROM location_source ls_inner
+                JOIN filtered_ids fi ON fi.id = ls_inner.location_id
+                ORDER BY ls_inner.location_id, ls_inner.scraper_id, ls_inner.updated_at DESC
+            ) ls
             LEFT JOIN location l2 ON l2.id = ls.location_id
             LEFT JOIN organization o2 ON o2.id = l2.organization_id
             LEFT JOIN address a2 ON a2.location_id = l2.id
