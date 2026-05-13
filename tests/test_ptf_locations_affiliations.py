@@ -50,7 +50,6 @@ class TestAllowlistModule:
             "food_helpline_org",
             "getfull_app_api",
             "the_food_pantries_org",
-            "freshtrak",
             "nyc_efap_programs",
             "human_update",
             "submarine",
