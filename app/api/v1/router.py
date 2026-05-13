@@ -31,8 +31,15 @@ from app.api.v1.partners.ptf.router import router as ptf_router
 from app.api.v1.partners.beacon.router import router as beacon_router
 
 
-# Define locations/export-simple BEFORE including locations router to avoid conflicts
-@router.get("/locations/export-simple")
+# Priority handler removed (was: export_simple_priority, registered at this point
+# to shadow the locations_export.py route). The priority handler ran an unbounded
+# PostGIS clustering query over the entire `location` table with no limit param,
+# producing responses > 6 MB and tripping Lambda's response-size cap. The
+# documented OpenAPI contract for /locations/export-simple lives in
+# app/api/v1/locations_export.py (state/min_confidence/limit). The dead route is
+# kept commented below to make the removal traceable; remove this block once
+# everyone agrees no mobile client still depends on the old shape.
+@router.get("/locations/export-simple-DISABLED-DO-NOT-USE", include_in_schema=False)
 async def export_simple_priority(
     session: AsyncSession = Depends(get_session),
     grouping_radius: Optional[int] = Query(
@@ -43,8 +50,10 @@ async def export_simple_priority(
     ),
 ) -> Dict[str, Any]:
     """
-    Export all locations in a simplified format for mobile app caching.
-    Returns data compatible with Flutter app's CompactPantryLocation model.
+    DISABLED. See locations_export.py for the active /locations/export-simple
+    handler. This function is kept intact (but registered under a dead path)
+    so its SQL can be revived if a mobile client turns out to still need the
+    clustered output shape.
 
     Args:
         grouping_radius: Optional radius in meters for deduplicating nearby locations.
@@ -324,8 +333,13 @@ async def export_simple_priority(
 
 
 router.include_router(organizations_router)
-router.include_router(locations_router)
+# Include locations_export_router BEFORE locations_router so the literal
+# `/locations/export-simple` path matches before the catch-all
+# `/locations/{location_id}` (which has a UUID validator and would 422 on
+# the literal string "export-simple"). Previously this was handled by a
+# priority handler on the parent router; that handler is now disabled.
 router.include_router(locations_export_router)
+router.include_router(locations_router)
 router.include_router(services_router)
 router.include_router(service_at_location_router)
 router.include_router(taxonomies_router)

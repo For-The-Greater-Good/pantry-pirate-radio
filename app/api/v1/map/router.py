@@ -193,9 +193,10 @@ async def get_map_locations(
     validation_status: Optional[str] = Query(
         None, description="Validation status filter"
     ),
-    # Pagination parameters
+    # Pagination parameters. `per_page` defaults to 500 to keep Lambda response
+    # time well under the API Gateway 30s ceiling on unparameterized calls.
     page: Optional[int] = Query(None, ge=1, description="Page number (if paginating)"),
-    per_page: Optional[int] = Query(None, ge=1, le=1000, description="Items per page"),
+    per_page: int = Query(500, ge=1, le=1000, description="Items per page (max 1000)"),
     # Aggregation parameters
     clustering_radius: int = Query(
         150, ge=0, le=1000, description="Aggregation radius in meters"
@@ -225,7 +226,7 @@ async def get_map_locations(
         state=state,
         confidence_min=confidence_min,
         validation_status=validation_status,
-        limit=per_page if per_page else 10000,
+        limit=per_page,
     )
 
     # Convert to response models

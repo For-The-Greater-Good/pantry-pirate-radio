@@ -25,6 +25,79 @@ from app.api.v1.utils import (
 router = APIRouter(prefix="/service-at-location", tags=["service-at-location"])
 
 
+def _sal_to_dict(sal) -> dict:
+    """Build a plain dict from a ServiceAtLocation ORM row, never touching relationships."""
+    return {
+        "id": str(sal.id),
+        "service_id": str(sal.service_id),
+        "location_id": str(sal.location_id),
+        "description": sal.description,
+        "service": None,
+        "location": None,
+    }
+
+
+def _shallow_service_dict(service) -> dict:
+    """Shallow Service dict for embedding in a SAL response (no nested locations).
+
+    Includes every field the response model surfaces *except* the
+    `locations` relationship, which is intentionally omitted so Pydantic
+    won't traverse into it and trip a lazy-load.
+    """
+    return {
+        "id": str(service.id),
+        "organization_id": str(service.organization_id),
+        "name": service.name,
+        "alternate_name": getattr(service, "alternate_name", None),
+        "description": service.description,
+        "url": getattr(service, "url", None),
+        "email": getattr(service, "email", None),
+        "status": service.status,
+        "interpretation_services": getattr(service, "interpretation_services", None),
+        "application_process": getattr(service, "application_process", None),
+        "fees_description": getattr(service, "fees_description", None),
+        "wait_time": getattr(service, "wait_time", None),
+        "metadata": {
+            "last_updated": (
+                service.updated_at.isoformat()
+                if getattr(service, "updated_at", None)
+                else None
+            )
+        },
+    }
+
+
+def _shallow_location_dict(location) -> dict:
+    """Shallow Location dict for embedding in a SAL response (no nested services).
+
+    Mirrors the response model except for the `services` relationship,
+    which is omitted to avoid Pydantic traversing into a lazy-load.
+    """
+    return {
+        "id": str(location.id),
+        "name": location.name,
+        "alternate_name": getattr(location, "alternate_name", None),
+        "description": location.description,
+        "latitude": (
+            float(location.latitude) if location.latitude is not None else None
+        ),
+        "longitude": (
+            float(location.longitude) if location.longitude is not None else None
+        ),
+        "transportation": getattr(location, "transportation", None),
+        "external_identifier": getattr(location, "external_identifier", None),
+        "external_identifier_type": getattr(location, "external_identifier_type", None),
+        "location_type": getattr(location, "location_type", None),
+        "metadata": {
+            "last_updated": (
+                location.updated_at.isoformat()
+                if getattr(location, "updated_at", None)
+                else None
+            )
+        },
+    }
+
+
 @router.get("/", response_model=Page[ServiceAtLocationResponse])
 async def list_service_at_location(
     request: Request,
@@ -172,55 +245,15 @@ async def get_service_at_location(
     if not sal:
         raise HTTPException(status_code=404, detail="Service-at-location not found")
 
-    # Convert to response model
-    try:
-        sal_response = ServiceAtLocationResponse.model_validate(sal)
-    except Exception:
-        # Fallback to manual construction if validation fails
-        sal_dict = {
-            "id": str(sal.id),
-            "service_id": str(sal.service_id),
-            "location_id": str(sal.location_id),
-            "description": sal.description,
-        }
-        sal_response = ServiceAtLocationResponse.model_validate(sal_dict)
+    sal_dict = _sal_to_dict(sal)
 
     if include_details:
-        # Load service and location details
         if sal.service:
-            try:
-                sal_response.service = ServiceResponse.model_validate(sal.service)
-            except Exception:
-                # Fallback for service
-                service_dict = {
-                    "id": str(sal.service.id),
-                    "name": sal.service.name,
-                    "description": sal.service.description,
-                    "status": sal.service.status,
-                }
-                sal_response.service = ServiceResponse.model_validate(service_dict)
-
+            sal_dict["service"] = _shallow_service_dict(sal.service)
         if sal.location:
-            try:
-                sal_response.location = LocationResponse.model_validate(sal.location)
-            except Exception:
-                # Fallback for location
-                loc_dict = {
-                    "id": str(sal.location.id),
-                    "name": sal.location.name,
-                    "latitude": (
-                        float(sal.location.latitude) if sal.location.latitude else None
-                    ),
-                    "longitude": (
-                        float(sal.location.longitude)
-                        if sal.location.longitude
-                        else None
-                    ),
-                    "description": sal.location.description,
-                }
-                sal_response.location = LocationResponse.model_validate(loc_dict)
+            sal_dict["location"] = _shallow_location_dict(sal.location)
 
-    return sal_response
+    return ServiceAtLocationResponse.model_validate(sal_dict)
 
 
 @router.get(
@@ -262,15 +295,14 @@ async def get_locations_for_service(
     pagination["total_items"] = total
     pagination["total_pages"] = max(1, (total + per_page - 1) // per_page)
 
-    # Convert to response models
+    # Convert to response models — repo eager-loads `location` but NOT `service`,
+    # so we must never access sal.service here.
     sal_responses = []
     for sal in locations_for_service:
-        sal_data = ServiceAtLocationResponse.model_validate(sal)
-
+        sal_dict = _sal_to_dict(sal)
         if include_details and sal.location:
-            sal_data.location = LocationResponse.model_validate(sal.location)
-
-        sal_responses.append(sal_data)
+            sal_dict["location"] = _shallow_location_dict(sal.location)
+        sal_responses.append(ServiceAtLocationResponse.model_validate(sal_dict))
 
     # Create pagination links
     links = create_pagination_links(
@@ -332,15 +364,14 @@ async def get_services_at_location(
     pagination["total_items"] = total
     pagination["total_pages"] = max(1, (total + per_page - 1) // per_page)
 
-    # Convert to response models
+    # Convert to response models — repo eager-loads `service` but NOT `location`,
+    # so we must never access sal.location here.
     sal_responses = []
     for sal in services_at_location:
-        sal_data = ServiceAtLocationResponse.model_validate(sal)
-
+        sal_dict = _sal_to_dict(sal)
         if include_details and sal.service:
-            sal_data.service = ServiceResponse.model_validate(sal.service)
-
-        sal_responses.append(sal_data)
+            sal_dict["service"] = _shallow_service_dict(sal.service)
+        sal_responses.append(ServiceAtLocationResponse.model_validate(sal_dict))
 
     # Create pagination links
     links = create_pagination_links(

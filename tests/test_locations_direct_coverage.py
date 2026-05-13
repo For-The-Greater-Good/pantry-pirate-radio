@@ -546,9 +546,20 @@ class TestLocationsDirectExecution:
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
 
-            # Mock service at location
+            # Mock service at location. The handler now builds a shallow dict
+            # from the ORM (no nested relationship traversal) before validating,
+            # so provide real values for the attributes the dict-builder reads.
             mock_sal = Mock()
-            mock_sal.service = Mock()
+            mock_sal.service = Mock(
+                id=uuid4(),
+                organization_id=uuid4(),
+                name="svc",
+                alternate_name=None,
+                description=None,
+                url=None,
+                email=None,
+                status="active",
+            )
             mock_sal_repo.get_services_at_location.return_value = [mock_sal]
 
             # Mock response models
@@ -571,9 +582,13 @@ class TestLocationsDirectExecution:
 
             # Verify service at location repository was used
             mock_sal_repo.get_services_at_location.assert_called_once_with(location_id)
-            mock_service_response.model_validate.assert_called_once_with(
-                mock_sal.service
-            )
+            # Handler now builds a shallow service dict instead of passing the
+            # raw ORM (which would lazy-load service.locations). Assert the
+            # call was made with a dict containing the expected service id.
+            mock_service_response.model_validate.assert_called_once()
+            call_arg = mock_service_response.model_validate.call_args[0][0]
+            assert isinstance(call_arg, dict)
+            assert call_arg["id"] == str(mock_sal.service.id)
 
     @pytest.mark.asyncio
     async def test_search_locations_distance_calculation(self):

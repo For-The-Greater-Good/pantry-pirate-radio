@@ -20,6 +20,56 @@ from app.api.v1.utils import (
 router = APIRouter(prefix="/services", tags=["services"])
 
 
+def _service_to_dict(service) -> dict:
+    """Build a plain dict from a Service ORM row without touching unloaded relationships."""
+    return {
+        "id": str(service.id),
+        "organization_id": str(service.organization_id),
+        "name": service.name,
+        "alternate_name": getattr(service, "alternate_name", None),
+        "description": service.description,
+        "url": getattr(service, "url", None),
+        "email": getattr(service, "email", None),
+        "status": service.status,
+        "interpretation_services": getattr(service, "interpretation_services", None),
+        "application_process": getattr(service, "application_process", None),
+        "fees_description": getattr(service, "fees_description", None),
+        "wait_time": getattr(service, "wait_time", None),
+        "metadata": {
+            "last_updated": (
+                service.updated_at.isoformat()
+                if getattr(service, "updated_at", None)
+                else None
+            )
+        },
+    }
+
+
+def _location_to_dict(location) -> dict:
+    """Build a plain dict from a Location ORM row without touching unloaded relationships."""
+    return {
+        "id": str(location.id),
+        "name": location.name,
+        "alternate_name": getattr(location, "alternate_name", None),
+        "description": location.description,
+        "latitude": float(location.latitude) if location.latitude is not None else None,
+        "longitude": (
+            float(location.longitude) if location.longitude is not None else None
+        ),
+        "transportation": getattr(location, "transportation", None),
+        "external_identifier": getattr(location, "external_identifier", None),
+        "external_identifier_type": getattr(location, "external_identifier_type", None),
+        "location_type": getattr(location, "location_type", None),
+        "metadata": {
+            "last_updated": (
+                location.updated_at.isoformat()
+                if getattr(location, "updated_at", None)
+                else None
+            )
+        },
+    }
+
+
 @router.get("/", response_model=Page[ServiceResponse])
 async def list_services(
     request: Request,
@@ -201,23 +251,21 @@ async def search_services(
     # Convert to response models
     service_responses = []
     for service in services:
-        service_data = ServiceResponse.model_validate(service)
+        service_dict = _service_to_dict(service)
 
         if include_locations:
-            # Load locations for this service
             from app.database.repositories import ServiceAtLocationRepository
 
             sal_repo = ServiceAtLocationRepository(session)
             locations_for_service = await sal_repo.get_locations_for_service(
-                service_data.id
+                UUID(str(service.id))
             )
 
-            service_data.locations = [
-                LocationResponse.model_validate(sal.location)
-                for sal in locations_for_service
+            service_dict["locations"] = [
+                _location_to_dict(sal.location) for sal in locations_for_service
             ]
 
-        service_responses.append(service_data)
+        service_responses.append(ServiceResponse.model_validate(service_dict))
 
     # Calculate pagination metadata
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -288,19 +336,19 @@ async def get_service(
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
 
-    # Convert to response model
-    service_response = ServiceResponse.model_validate(service)
+    # Build dict explicitly — avoids Pydantic recursing into unloaded
+    # nested relationships (e.g. location.services) under async SQLAlchemy.
+    service_dict = _service_to_dict(service)
 
     if include_locations:
-        # Load locations for this service
         from app.database.repositories import ServiceAtLocationRepository
 
         sal_repo = ServiceAtLocationRepository(session)
         locations_for_service = await sal_repo.get_locations_for_service(service_id)
 
-        service_response.locations = [
-            LocationResponse.model_validate(sal.location)
-            for sal in locations_for_service
+        # Shallow location dicts only — do NOT include `services` (not eager-loaded).
+        service_dict["locations"] = [
+            _location_to_dict(sal.location) for sal in locations_for_service
         ]
 
-    return service_response
+    return ServiceResponse.model_validate(service_dict)
