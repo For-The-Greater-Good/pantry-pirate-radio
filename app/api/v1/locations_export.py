@@ -164,9 +164,12 @@ async def export_simple_locations(
                 LIMIT 1
             ) p ON true
         ), source_data AS (
-            -- One row per (location, scraper) — already guaranteed by the
-            -- partial UNIQUE indexes on location_source. Filter out submarine
-            -- sources so they don't bloat the aggregated array.
+            -- After the `source_type != 'submarine'` filter below, the
+            -- `location_source_scraper_unique_idx` partial unique index
+            -- (covers `source_type = 'scraper' OR source_type IS NULL`)
+            -- ensures at most one row per (location_id, scraper_id) pair.
+            -- COUNT(DISTINCT scraper_id) is defensive against a future
+            -- source_type sharing a scraper_id with a normal scraper row.
             SELECT
                 ls.location_id,
                 json_agg(
@@ -183,7 +186,7 @@ async def export_simple_locations(
                     )
                     ORDER BY ls.updated_at DESC
                 ) as sources,
-                COUNT(*) as source_count
+                COUNT(DISTINCT ls.scraper_id) as source_count
             FROM location_source ls
             JOIN filtered_ids fi ON fi.id = ls.location_id
             LEFT JOIN location l2 ON l2.id = ls.location_id

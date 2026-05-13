@@ -38,7 +38,12 @@ def _sal_to_dict(sal) -> dict:
 
 
 def _shallow_service_dict(service) -> dict:
-    """Shallow Service dict for embedding in a SAL response (no nested locations)."""
+    """Shallow Service dict for embedding in a SAL response (no nested locations).
+
+    Includes every field the response model surfaces *except* the
+    `locations` relationship, which is intentionally omitted so Pydantic
+    won't traverse into it and trip a lazy-load.
+    """
     return {
         "id": str(service.id),
         "organization_id": str(service.organization_id),
@@ -48,11 +53,26 @@ def _shallow_service_dict(service) -> dict:
         "url": getattr(service, "url", None),
         "email": getattr(service, "email", None),
         "status": service.status,
+        "interpretation_services": getattr(service, "interpretation_services", None),
+        "application_process": getattr(service, "application_process", None),
+        "fees_description": getattr(service, "fees_description", None),
+        "wait_time": getattr(service, "wait_time", None),
+        "metadata": {
+            "last_updated": (
+                service.updated_at.isoformat()
+                if getattr(service, "updated_at", None)
+                else None
+            )
+        },
     }
 
 
 def _shallow_location_dict(location) -> dict:
-    """Shallow Location dict for embedding in a SAL response (no nested services)."""
+    """Shallow Location dict for embedding in a SAL response (no nested services).
+
+    Mirrors the response model except for the `services` relationship,
+    which is omitted to avoid Pydantic traversing into a lazy-load.
+    """
     return {
         "id": str(location.id),
         "name": location.name,
@@ -64,6 +84,17 @@ def _shallow_location_dict(location) -> dict:
         "longitude": (
             float(location.longitude) if location.longitude is not None else None
         ),
+        "transportation": getattr(location, "transportation", None),
+        "external_identifier": getattr(location, "external_identifier", None),
+        "external_identifier_type": getattr(location, "external_identifier_type", None),
+        "location_type": getattr(location, "location_type", None),
+        "metadata": {
+            "last_updated": (
+                location.updated_at.isoformat()
+                if getattr(location, "updated_at", None)
+                else None
+            )
+        },
     }
 
 
