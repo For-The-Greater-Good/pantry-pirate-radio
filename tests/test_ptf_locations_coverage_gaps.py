@@ -303,6 +303,7 @@ class TestDetailShapeFullParity:
         "user_can_book",
         "distance",
         "feeding_america_food_bank",
+        "affiliations",
     }
 
     def test_detail_emits_every_required_rn_field(self):
@@ -432,6 +433,32 @@ async def double_seeded(db_session: AsyncSession):
         ),
         {"z": "07102", "i": 58, "n": "Community Foodbank of New Jersey"},
     )
+
+    # Both seeded locations need an allowlist scraper source so the FANO
+    # qualifying_source CTE flips has_qualifying_source -> true; otherwise
+    # the CASE-gate in queries.py suppresses fa_org_id and the tie-break
+    # assertions fail in a misleading way.
+    for loc_id, lat, lng in (
+        (loc_multifa, 41.1, -74.5),
+        (loc_multiaddr, 40.7, -74.17),
+    ):
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO location_source (
+                    id, location_id, scraper_id, name, latitude, longitude
+                )
+                VALUES (:id, :loc, 'vivery_api', 'tie-break seed', :lat, :lng)
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "loc": loc_id,
+                "lat": lat,
+                "lng": lng,
+            },
+        )
 
     await db_session.flush()
     return {
