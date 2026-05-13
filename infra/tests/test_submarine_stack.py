@@ -70,6 +70,57 @@ class TestSubmarineStackResources:
             },
         )
 
+    def test_creates_dedicated_eventbridge_invoke_role(self, template):
+        """EventBridge needs its own role to invoke the state machine.
+
+        Regression: prod ran 42 days with no submarine scans because the
+        EventBridge rule was pointed at the state-machine execution role
+        (trust principal: states.amazonaws.com), which EventBridge cannot
+        assume. Every scheduled invocation failed silently.
+        """
+        # A role with events.amazonaws.com as trust principal must exist.
+        template.has_resource_properties(
+            "AWS::IAM::Role",
+            {
+                "AssumeRolePolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": "sts:AssumeRole",
+                                        "Principal": {
+                                            "Service": "events.amazonaws.com"
+                                        },
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
+        )
+        # That role must have states:StartExecution on the state machine.
+        template.has_resource_properties(
+            "AWS::IAM::Policy",
+            {
+                "PolicyDocument": assertions.Match.object_like(
+                    {
+                        "Statement": assertions.Match.array_with(
+                            [
+                                assertions.Match.object_like(
+                                    {
+                                        "Action": "states:StartExecution",
+                                        "Effect": "Allow",
+                                    }
+                                )
+                            ]
+                        )
+                    }
+                )
+            },
+        )
+
 
 class TestSubmarineStackProd:
     """Tests for production environment settings."""

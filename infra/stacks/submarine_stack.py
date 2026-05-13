@@ -315,6 +315,23 @@ class SubmarineStack(Stack):
             state_machine_type="STANDARD",
         )
 
+        # IAM role for EventBridge to invoke the state machine. Must be
+        # separate from the state machine's execution role above (different
+        # trust principal: events.amazonaws.com vs states.amazonaws.com).
+        # Without this dedicated role, every scheduled invocation fails
+        # silently (rule fires -> FailedInvocations metric, no execution).
+        schedule_invoke_role = iam.Role(
+            self,
+            "SubmarineScheduleInvokeRole",
+            assumed_by=iam.ServicePrincipal("events.amazonaws.com"),
+        )
+        schedule_invoke_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution"],
+                resources=[self.state_machine.attr_arn],
+            )
+        )
+
         # EventBridge schedule (weekly, disabled by default in dev)
         self.schedule_rule = events.CfnRule(
             self,
@@ -327,7 +344,7 @@ class SubmarineStack(Stack):
                 events.CfnRule.TargetProperty(
                     arn=self.state_machine.attr_arn,
                     id="SubmarineStateMachine",
-                    role_arn=role.role_arn,
+                    role_arn=schedule_invoke_role.role_arn,
                     input=json.dumps({}),
                 )
             ],
