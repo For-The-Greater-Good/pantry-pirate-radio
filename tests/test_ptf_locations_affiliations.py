@@ -62,6 +62,74 @@ class TestAllowlistModule:
             )
 
 
+class TestAllowlistLoaderFailsLoudly:
+    """The TSV is data critical to FA enrichment correctness; any corruption
+    must crash at process startup rather than silently degrade to an empty
+    or partial allowlist (Constitution VI + XI).
+    """
+
+    def _write_tsv(self, tmp_path, content: str):
+        # Patch the loader to read a temp TSV path. The module-level constant
+        # was already loaded at import; we test the helper directly.
+        from app.api.v1.partners.ptf import _allowlist as mod
+
+        path = tmp_path / "fano_allowlist.tsv"
+        path.write_text(content)
+        return mod, path
+
+    def test_missing_scraper_id_column_raises(self, tmp_path, monkeypatch) -> None:
+        mod, path = self._write_tsv(
+            tmp_path,
+            "category\tcount\twrong_col\nfa\t1\tsomething\n",
+        )
+        monkeypatch.setattr(mod, "_TSV_PATH", path)
+        try:
+            mod._load()
+        except RuntimeError as exc:
+            assert "scraper_id" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError for missing column")
+
+    def test_empty_scraper_id_cell_raises(self, tmp_path, monkeypatch) -> None:
+        mod, path = self._write_tsv(
+            tmp_path,
+            "category\tcount\tscraper_id\nfa\t1\tgood_scraper\nfa\t1\t\n",
+        )
+        monkeypatch.setattr(mod, "_TSV_PATH", path)
+        try:
+            mod._load()
+        except RuntimeError as exc:
+            assert "empty scraper_id" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError for empty cell")
+
+    def test_empty_allowlist_raises(self, tmp_path, monkeypatch) -> None:
+        # Header-only TSV — no data rows.
+        mod, path = self._write_tsv(tmp_path, "category\tcount\tscraper_id\n")
+        monkeypatch.setattr(mod, "_TSV_PATH", path)
+        try:
+            mod._load()
+        except RuntimeError as exc:
+            assert "empty allowlist" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError for empty allowlist")
+
+    def test_bom_in_header_does_not_corrupt_column_lookup(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A Windows-edited TSV that ships with a UTF-8 BOM prefix must
+        still load correctly — otherwise the first column header becomes
+        `\\ufeffcategory` and DictReader silently misses `scraper_id`.
+        """
+        mod, path = self._write_tsv(
+            tmp_path,
+            "﻿category\tcount\tscraper_id\nfa\t1\tgood_scraper\n",
+        )
+        monkeypatch.setattr(mod, "_TSV_PATH", path)
+        loaded = mod._load()
+        assert "good_scraper" in loaded
+
+
 # ---- SQL layer (qualifying_source CTE) -----------------------------------
 
 
