@@ -130,7 +130,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         if isinstance(exc, PydanticValidationError):
             try:
                 log_kwargs["validation_errors"] = exc.errors()
-            except Exception:  # noqa: S110
+            except Exception:  # noqa: S110  # nosec B110
                 # exc.errors() is normally safe; never let logging hide the original failure.
                 pass
 
@@ -144,7 +144,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         if not isinstance(exc, HTTPException):
             try:
                 log_kwargs["exc_repr"] = repr(exc)[:2000]
-            except Exception:  # noqa: S110
+            except Exception:  # noqa: S110  # nosec B110
                 pass
 
         if isinstance(exc, HTTPException):

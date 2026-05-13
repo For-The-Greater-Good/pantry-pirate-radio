@@ -125,11 +125,13 @@ async def export_simple_locations(
 
     # location_filter_sql is composed exclusively of static SQL fragments
     # above; user-provided values are bound via :params, not string-formatted.
+    # nosec B608 / noqa: S608 markers below silence both bandit and ruff for
+    # the multi-line SQL concatenation; the SQL keywords are static.
     sql = (
         """
         WITH filtered_ids AS (
-        """  # noqa: S608
-        + location_filter_sql
+        """  # nosec B608  # noqa: S608
+        + location_filter_sql  # nosec B608
         + """
         ), location_data AS (
             -- No `email` join: there is no `email` table in the schema; the
