@@ -181,6 +181,33 @@ def _resolve_fa(
     return PtfFeedingAmericaFoodBank.model_validate(payload)
 
 
+def _affiliations_for(row: Any) -> list[str]:
+    """Compute the `affiliations` list for a row.
+
+    A location qualifies for "FANO" iff at least one of its sources is in
+    the FANO allowlist (computed in SQL as `has_qualifying_source`). The
+    ZIP-to-FA crosswalk only affects `feeding_america_food_bank`; an
+    allowlist scraper finding a location is itself a sufficient signal
+    that the location is a food bank, regardless of whether the ZIP
+    happens to map to a specific FA member bank.
+
+    When the ZIP matched FA crosswalk but the source did not qualify
+    (the SQL CASE suppressed `fa_org_id`), we emit a structured info
+    log so operators can audit aggregator-only locations that overlap
+    FA territory (Constitution XII).
+    """
+    affiliations: list[str] = []
+    has_qualifying = bool(getattr(row, "has_qualifying_source", False))
+    if has_qualifying:
+        affiliations.append("FANO")
+    elif getattr(row, "zip_matched_fa", False):
+        logger.info(
+            "ptf_fano_suppressed_no_qualifying_source",
+            location_id=str(getattr(row, "id", "")),
+        )
+    return affiliations
+
+
 def _compose_address(row: Any) -> str:
     """Plentiful's composed address: street1, street2, city, state, zip.
 
@@ -254,6 +281,7 @@ def to_list_item(
         services_detailed=None,
         next_service=None,
         feeding_america_food_bank=_resolve_fa(row.fa_org_id, row.fa_org_name, cat),
+        affiliations=_affiliations_for(row),
     )
 
 
@@ -333,6 +361,7 @@ def to_detail(
         user_can_book=False,
         distance=0,
         feeding_america_food_bank=_resolve_fa(row.fa_org_id, row.fa_org_name, cat),
+        affiliations=_affiliations_for(row),
     )
 
 

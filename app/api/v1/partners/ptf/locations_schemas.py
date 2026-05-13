@@ -99,6 +99,15 @@ class PtfLocationListItem(BaseModel):
     services_detailed: Optional[list[dict[str, Any]]] = None
     next_service: Optional[dict[str, Any]] = None
     feeding_america_food_bank: Optional[PtfFeedingAmericaFoodBank] = None
+    affiliations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Opaque affiliation codes. 'FANO' = Feeding America Network "
+            "Organization affiliate (case-sensitive). Empty list when no "
+            "affiliations apply. Multiple codes possible; order not "
+            "significant. Frontend ignores unknown codes."
+        ),
+    )
 
 
 class PtfLocationDetail(BaseModel):
@@ -172,3 +181,12 @@ class PtfLocationDetail(BaseModel):
     user_can_book: bool
     distance: float = Field(ge=0)
     feeding_america_food_bank: Optional[PtfFeedingAmericaFoodBank] = None
+    affiliations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Opaque affiliation codes. 'FANO' = Feeding America Network "
+            "Organization affiliate (case-sensitive). Empty list when no "
+            "affiliations apply. Multiple codes possible; order not "
+            "significant. Frontend ignores unknown codes."
+        ),
+    )

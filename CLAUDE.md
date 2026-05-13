@@ -707,6 +707,10 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 
   Grep CloudWatch for `ical_byday_unrecognized` / `ical_bymonthday_unrecognized` / `reconciler_byday_dropped` / `reconciler_bymonthday_dropped` / `submarine_schedule_entry_*` to find new drift patterns.
 
+#### FANO Allowlist (PTF endpoints)
+
+The PTF partner endpoints (`/api/v1/partners/ptf/locations` and `/locations/{id}`) emit a `feeding_america_food_bank` enrichment block and an `affiliations` array (`["FANO"]` for Feeding America Network Organization affiliates). Both are gated on a curated allowlist of scrapers at `app/api/v1/partners/ptf/fano_allowlist.tsv` — locations whose only sources are aggregators (`foodfinder_us`, `food_helpline_org`, `getfull_app_api`, `the_food_pantries_org`, `freshtrak`), enrichments (`submarine` source_type, `human_update`, `portal_ingest`), or non-FA regional indexes do not receive FANO add-on data. A SQL `qualifying_source` CTE in `app/api/v1/partners/ptf/locations_queries.py` computes the gate; the transformer in `app/api/v1/partners/ptf/locations_transformer.py` emits `ptf_fano_suppressed_no_qualifying_source` (INFO) when the ZIP matches `feeding_america_zip_coverage` but the source did not qualify.
+
 ## Troubleshooting Common Issues
 
 ### Docker Issues

@@ -174,6 +174,35 @@ async def seeded(db_session: AsyncSession):
         },
     )
 
+    # Seed an allowlist scraper source so the FANO `qualifying_source` CTE
+    # treats both seeded locations as qualifying. `vivery_api` is the
+    # fa-spine entry in the allowlist (covers ~14k locations in real data).
+    # Without this row, the CASE-gate in queries.py suppresses fa_org_id
+    # and the FA enrichment tests would fail in a confusing way.
+    for loc_id, lat, lng in (
+        (loc_fa_id, 40.7357, -74.1723),
+        (loc_no_fa_id, 64.8378, -147.7164),
+    ):
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO location_source (
+                    id, location_id, scraper_id, name, latitude, longitude
+                )
+                VALUES (:id, :loc_id, :scraper_id, :name, :lat, :lng)
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "loc_id": loc_id,
+                "scraper_id": "vivery_api",
+                "name": "Seeded by vivery_api (integration test)",
+                "lat": lat,
+                "lng": lng,
+            },
+        )
+
     await db_session.flush()
     return {
         "org_id": org_id,
@@ -327,6 +356,26 @@ class TestFeedingAmericaJoinSemantics:
                 """
             ),
             {"id": str(uuid.uuid4()), "loc_id": plus4_loc, "zip": "07102-4567"},
+        )
+        # Need an allowlist source so the FANO qualifying_source CTE flips
+        # has_qualifying_source -> true and the CASE-gate keeps fa_org_id.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO location_source (
+                    id, location_id, scraper_id, name, latitude, longitude
+                )
+                VALUES (:id, :loc_id, 'vivery_api', 'plus4 seed',
+                        :lat, :lng)
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "loc_id": plus4_loc,
+                "lat": 40.7400,
+                "lng": -74.1700,
+            },
         )
         await db_session.flush()
 
