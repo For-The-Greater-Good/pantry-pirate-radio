@@ -2893,7 +2893,13 @@ print(tasks[0]['taskArn'])
 
                 # Force ECS services to pull new images
                 output info "Forcing ECS service redeployment..."
-                ECS_SERVICES="worker validator reconciler recorder"
+                # Include `submarine` so the service re-resolves :latest to
+                # the just-pushed digest. Without this, the submarine service
+                # holds a cached digest (resolved at its last deployment) and
+                # can break when ECR lifecycle GCs that digest — see the
+                # 2026-05-13 outage where the service ran with desired=15 /
+                # running=0 because the cached digest no longer existed.
+                ECS_SERVICES="worker validator reconciler recorder submarine"
                 CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
                 for svc in $ECS_SERVICES; do
                     SERVICE_NAME="pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
@@ -2989,7 +2995,13 @@ print(tasks[0]['taskArn'])
 
                 # Phase 4: Force ECS services and Lambda to pull new images
                 output info "Phase 4: Forcing service redeployment..."
-                ECS_SERVICES="worker validator reconciler recorder"
+                # Include `submarine` so the service re-resolves :latest to
+                # the just-pushed digest. Without this, the submarine service
+                # holds a cached digest (resolved at its last deployment) and
+                # can break when ECR lifecycle GCs that digest — see the
+                # 2026-05-13 outage where the service ran with desired=15 /
+                # running=0 because the cached digest no longer existed.
+                ECS_SERVICES="worker validator reconciler recorder submarine"
                 CLUSTER="pantry-pirate-radio-${DEPLOY_ENV}"
                 for svc in $ECS_SERVICES; do
                     SERVICE_NAME="pantry-pirate-radio-${svc}-${DEPLOY_ENV}"
