@@ -134,6 +134,19 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                 # exc.errors() is normally safe; never let logging hide the original failure.
                 pass
 
+        # For any non-HTTPException, include a truncated repr of the exception
+        # inline. `logger.exception` is supposed to attach a traceback via
+        # structlog's format_exc_info, but in this FastAPI exception-handler
+        # path sys.exc_info() can be cleared, so the traceback never makes it
+        # to CloudWatch. The repr (which includes SQLAlchemy's compiled SQL +
+        # the underlying asyncpg/psycopg error message) is enough to diagnose
+        # the vast majority of failures from logs alone.
+        if not isinstance(exc, HTTPException):
+            try:
+                log_kwargs["exc_repr"] = repr(exc)[:2000]
+            except Exception:  # noqa: S110
+                pass
+
         if isinstance(exc, HTTPException):
             logger.error("request_error", **log_kwargs)
         else:
