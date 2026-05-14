@@ -29,7 +29,8 @@ def clamp_offset(value: int) -> int:
 
 # Both queries below share the same tie-break invariants:
 #  1. DISTINCT ON (l.id) collapses multi-address/multi-phone rows in the
-#     list query; LIMIT 1 with the same ORDER BY does the same for detail.
+#     list query (inside the `candidates` CTE); LIMIT 1 with the same
+#     ORDER BY does the same for detail.
 #  2. Physical address wins via `address_type = 'physical'` filter on the
 #     JOIN (rather than ORDER BY, so seq scans are smaller).
 #  3. For multiple eligible FA crosswalk rows for one ZIP, lowest
@@ -47,6 +48,20 @@ def clamp_offset(value: int) -> int:
 # (driven by `has_qualifying_source` alone) still gets "FANO" if a
 # qualifying source exists, regardless of ZIP match.
 #
+# `_LIST_SQL` additionally clusters near-duplicate canonicals at the
+# endpoint as defense-in-depth: the reconciler's name-or-org-constrained
+# merge tier bails when independent scrapers produce different names AND
+# different orgs for the same physical pantry, so duplicates leak into
+# `location`. ST_ClusterDBSCAN(eps:=0.0005, minpoints:=1) groups rows
+# whose (lng,lat) sit within ~55m of each other (eps is in SRID-4326
+# degrees, ~111m per degree at the equator, narrower at higher lats);
+# minpoints=1 means isolated rows form their own singleton cluster so no
+# unique location is ever dropped. The survivor per cluster is picked by
+# `has_qualifying_source DESC, confidence_score DESC NULLS LAST, id ASC`
+# so the FANO enrichment block is never silently stripped when a non-FANO
+# sibling exists — matches the eps used by the inbound /sync endpoint
+# (`services.py:_build_qualified_cte`).
+#
 # The CTE is inlined into both _LIST_SQL and _DETAIL_SQL rather than
 # string-concatenated so bandit's B608 (hardcoded_sql_expressions) heuristic
 # stays clean. Allowlist values are bound via SQLAlchemy `expanding=True`
@@ -59,66 +74,112 @@ WITH qualifying_source AS (
     WHERE scraper_id IN :allowlist
       AND (source_type IS NULL OR source_type != 'submarine')
     GROUP BY location_id
-)
-SELECT DISTINCT ON (l.id)
-    l.id,
-    l.name,
-    l.alternate_name AS short_name,
-    l.description,
-    l.latitude,
-    l.longitude,
-    l.organization_id,
-    o.name AS org_name,
-    o.description AS org_description,
-    o.email AS org_email,
-    o.website AS org_website,
-    a.address_1,
-    a.address_2,
-    a.city,
-    a.state_province,
-    a.postal_code,
-    p.number AS phone_number,
-    CASE WHEN COALESCE(qs.has_qualifying_source, false)
-         THEN fa.fa_org_id END AS fa_org_id,
-    CASE WHEN COALESCE(qs.has_qualifying_source, false)
-         THEN fa.fa_org_name END AS fa_org_name,
-    COALESCE(qs.has_qualifying_source, false) AS has_qualifying_source,
-    (fa.fa_org_id IS NOT NULL) AS zip_matched_fa
-FROM location l
-LEFT JOIN organization o ON l.organization_id = o.id
-LEFT JOIN address a ON a.location_id = l.id AND a.address_type = 'physical'
-LEFT JOIN phone p ON p.location_id = l.id
-LEFT JOIN feeding_america_zip_coverage fa
-       ON fa.zip = SUBSTR(a.postal_code, 1, 5)
-LEFT JOIN qualifying_source qs ON qs.location_id = l.id
-WHERE (l.validation_status != 'rejected' OR l.validation_status IS NULL)
-  AND l.latitude IS NOT NULL
-  AND l.longitude IS NOT NULL
-  AND NOT (l.latitude = 0 AND l.longitude = 0)
-  AND (l.name IS NOT NULL OR o.name IS NOT NULL)
-  -- Require at least one piece of contact info OR a schedule. A location
-  -- with neither is unreachable by the consuming app and shouldn't appear
-  -- in the PTF feed. Empty strings count as missing (some scrapers store
-  -- '' rather than NULL for absent values). Phone uses an explicit EXISTS
-  -- rather than `p.id IS NOT NULL` from the LEFT JOIN above so the filter
-  -- doesn't depend on which phone row the JOIN happens to pick — if any
-  -- phone row has a real number, the location qualifies. Schedule existence
-  -- uses schedule_location_id_idx (partial, WHERE location_id IS NOT NULL).
-  AND (
-      EXISTS (
-          SELECT 1 FROM phone
-          WHERE location_id = l.id
-            AND number IS NOT NULL AND number != ''
+),
+candidates AS (
+    SELECT DISTINCT ON (l.id)
+        l.id,
+        l.name,
+        l.alternate_name AS short_name,
+        l.description,
+        l.latitude,
+        l.longitude,
+        l.confidence_score,
+        l.organization_id,
+        o.name AS org_name,
+        o.description AS org_description,
+        o.email AS org_email,
+        o.website AS org_website,
+        a.address_1,
+        a.address_2,
+        a.city,
+        a.state_province,
+        a.postal_code,
+        p.number AS phone_number,
+        CASE WHEN COALESCE(qs.has_qualifying_source, false)
+             THEN fa.fa_org_id END AS fa_org_id,
+        CASE WHEN COALESCE(qs.has_qualifying_source, false)
+             THEN fa.fa_org_name END AS fa_org_name,
+        COALESCE(qs.has_qualifying_source, false) AS has_qualifying_source,
+        (fa.fa_org_id IS NOT NULL) AS zip_matched_fa
+    FROM location l
+    LEFT JOIN organization o ON l.organization_id = o.id
+    LEFT JOIN address a ON a.location_id = l.id AND a.address_type = 'physical'
+    LEFT JOIN phone p ON p.location_id = l.id
+    LEFT JOIN feeding_america_zip_coverage fa
+           ON fa.zip = SUBSTR(a.postal_code, 1, 5)
+    LEFT JOIN qualifying_source qs ON qs.location_id = l.id
+    WHERE (l.validation_status != 'rejected' OR l.validation_status IS NULL)
+      AND l.latitude IS NOT NULL
+      AND l.longitude IS NOT NULL
+      AND NOT (l.latitude = 0 AND l.longitude = 0)
+      AND (l.name IS NOT NULL OR o.name IS NOT NULL)
+      -- Require at least one piece of contact info OR a schedule. A
+      -- location with neither is unreachable by the consuming app and
+      -- shouldn't appear in the PTF feed. Empty strings count as missing
+      -- (some scrapers store '' rather than NULL for absent values).
+      -- Phone uses an explicit EXISTS rather than `p.id IS NOT NULL` from
+      -- the LEFT JOIN above so the filter doesn't depend on which phone
+      -- row the JOIN happens to pick — if any phone row has a real
+      -- number, the location qualifies. Schedule existence uses
+      -- schedule_location_id_idx (partial, WHERE location_id IS NOT NULL).
+      AND (
+          EXISTS (
+              SELECT 1 FROM phone
+              WHERE location_id = l.id
+                AND number IS NOT NULL AND number != ''
+          )
+          OR (o.email IS NOT NULL AND o.email != '')
+          OR (o.website IS NOT NULL AND o.website != '')
+          OR EXISTS (SELECT 1 FROM schedule s WHERE s.location_id = l.id)
       )
-      OR (o.email IS NOT NULL AND o.email != '')
-      OR (o.website IS NOT NULL AND o.website != '')
-      OR EXISTS (SELECT 1 FROM schedule s WHERE s.location_id = l.id)
-  )
-  {bbox}
-  {qfilter}
-ORDER BY l.id,
-         fa.fa_org_id NULLS LAST,
-         p.id NULLS LAST
+      {bbox}
+      {qfilter}
+    ORDER BY l.id,
+             fa.fa_org_id NULLS LAST,
+             p.id NULLS LAST
+),
+clustered AS (
+    SELECT c.*,
+           ST_ClusterDBSCAN(
+               ST_SetSRID(
+                   ST_MakePoint(
+                       CAST(c.longitude AS float8),
+                       CAST(c.latitude AS float8)
+                   ),
+                   4326
+               ),
+               eps := 0.0005,
+               minpoints := 1
+           ) OVER () AS cluster_id
+    FROM candidates c
+)
+SELECT DISTINCT ON (cluster_id)
+    id,
+    name,
+    short_name,
+    description,
+    latitude,
+    longitude,
+    organization_id,
+    org_name,
+    org_description,
+    org_email,
+    org_website,
+    address_1,
+    address_2,
+    city,
+    state_province,
+    postal_code,
+    phone_number,
+    fa_org_id,
+    fa_org_name,
+    has_qualifying_source,
+    zip_matched_fa
+FROM clustered
+ORDER BY cluster_id,
+         has_qualifying_source DESC,
+         confidence_score DESC NULLS LAST,
+         id
 LIMIT :limit OFFSET :offset
 """
 

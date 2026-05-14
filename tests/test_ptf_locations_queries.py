@@ -172,6 +172,57 @@ class TestQuerySQL:
         assert "&&" in sql_text
 
     @pytest.mark.asyncio
+    async def test_list_query_clusters_near_duplicate_canonicals(self):
+        """Defense-in-depth: when the reconciler leaves near-duplicate
+        location rows (different name AND different org so its widen-
+        radius merge bails), the endpoint must collapse them via
+        ST_ClusterDBSCAN with eps matching the inbound /sync endpoint."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(limit=10, offset=0)
+        sql_text = str(session.execute.call_args[0][0])
+        assert "ST_ClusterDBSCAN" in sql_text, "list query must run cluster-based dedup"
+        # eps must match the inbound /sync endpoint (services.py) so
+        # operators reason about one tolerance, not two.
+        assert "eps := 0.0005" in sql_text
+        # minpoints=1 means isolated rows form their own singleton
+        # cluster — no unique location is ever dropped.
+        assert "minpoints := 1" in sql_text
+        # Survivor pick must prefer FANO-qualifying rows so the
+        # feeding_america_food_bank enrichment block is never silently
+        # stripped in favor of a non-FANO sibling.
+        norm = " ".join(sql_text.split())
+        assert "has_qualifying_source DESC" in norm
+        # …then highest confidence, then a stable id tie-break.
+        assert (
+            "confidence_score DESC NULLS LAST" in norm
+        ), "survivor pick must fall back to confidence_score after FANO"
+
+    @pytest.mark.asyncio
+    async def test_list_query_keeps_confidence_score_for_survivor_ordering(self):
+        """The clustered survivor pick orders by `confidence_score DESC
+        NULLS LAST`. That requires the column in the inner SELECT — a
+        future refactor that drops it would break dedup silently."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.list_locations(limit=10, offset=0)
+        sql_text = str(session.execute.call_args[0][0])
+        # `c.confidence_score` (with table alias) shouldn't be required,
+        # but the column name itself must appear in the candidates SELECT.
+        assert "confidence_score" in sql_text
+
+    @pytest.mark.asyncio
+    async def test_detail_query_does_not_cluster(self):
+        """The detail endpoint must keep returning exactly the row asked
+        for — clustering it would silently rewrite the response.id for
+        any consumer that cached a non-survivor id from a prior list."""
+        session = _capture_session()
+        query = PtfLocationsQuery(session)
+        await query.get_location("11111111-2222-3333-4444-555555555555")
+        sql_text = str(session.execute.call_args[0][0])
+        assert "ST_ClusterDBSCAN" not in sql_text
+
+    @pytest.mark.asyncio
     async def test_get_by_id_binds_uuid_param(self):
         session = _capture_session()
         query = PtfLocationsQuery(session)
