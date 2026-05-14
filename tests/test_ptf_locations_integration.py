@@ -24,7 +24,10 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from unittest.mock import MagicMock
+
 from app.api.v1.partners.ptf.locations_queries import PtfLocationsQuery
+from app.api.v1.partners.ptf.locations_router import list_ptf_locations
 from app.api.v1.partners.ptf.locations_transformer import (
     FA_CATALOGUE,
     to_detail,
@@ -863,7 +866,7 @@ class TestNearDuplicateCollapse:
     async def test_loose_tier_merges_same_address_within_200m(
         self, db_session: AsyncSession
     ):
-        """~150m apart, different names but identical normalized address
+        """~120m apart, different names but identical normalized address
         + ZIP. The address gate (>0.7 similarity, ZIP match) must merge
         them. Realistic case: two scrapers describing the same building
         with different naming conventions ('St. John Pantry' vs 'Saint
@@ -885,8 +888,9 @@ class TestNearDuplicateCollapse:
                 {"id": oid},
             )
 
-        # ~145m apart (0.0013 deg lng ≈ 110m at this lat) — well inside
-        # the 200m loose tier, well outside the 50m tight tier.
+        # ~120m apart on the lng axis at this latitude:
+        # 0.0013 deg * cos(33.75°) * 111 km/deg ≈ 120m. Well inside the
+        # 200m loose tier, well outside the 50m tight tier.
         for loc_id, org_id, lat, lng, name in (
             (loc_a, org_a, 33.7500, -84.3900, "St. John Food Pantry"),
             (loc_b, org_b, 33.7500, -84.3915, "Saint John's Outreach Center"),
@@ -1126,3 +1130,439 @@ class TestNearDuplicateCollapse:
         ids = {str(r.id) for r in rows}
         assert far_a in ids
         assert far_b in ids
+
+
+async def _seed_location(
+    session: AsyncSession,
+    *,
+    loc_id: str,
+    org_id: str,
+    name: str,
+    lat: float,
+    lng: float,
+    address_1: str,
+    postal_code: str,
+    confidence: int = 70,
+    scraper_id: str = "no_fa_scraper",
+) -> None:
+    """Common seed helper for the loose-tier integration scenarios.
+
+    Each row gets an org website so the "has contact info" filter
+    passes, a single location_source so the FANO qualifying-source CTE
+    sees it, and a physical address so the address gate has something
+    to compare.
+    """
+    await session.execute(
+        text(
+            """
+            INSERT INTO organization (id, name, description, website)
+            VALUES (:id, :name, 'shared-helper test org',
+                    'https://example.org')
+            ON CONFLICT (id) DO NOTHING
+            """
+        ),
+        {"id": org_id, "name": name},
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO location (
+                id, organization_id, name, latitude, longitude,
+                location_type, validation_status, confidence_score
+            )
+            VALUES (:id, :org, :name, :lat, :lng,
+                    'physical', 'verified', :conf)
+            """
+        ),
+        {
+            "id": loc_id,
+            "org": org_id,
+            "name": name,
+            "lat": lat,
+            "lng": lng,
+            "conf": confidence,
+        },
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO address (
+                id, location_id, address_1, city,
+                state_province, postal_code, country, address_type
+            )
+            VALUES (:id, :loc, :addr, 'Anywhere',
+                    'XX', :zip, 'US', 'physical')
+            """
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "loc": loc_id,
+            "addr": address_1,
+            "zip": postal_code,
+        },
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO location_source (
+                id, location_id, scraper_id, name, latitude, longitude
+            )
+            VALUES (:id, :loc, :scraper, :name, :lat, :lng)
+            """
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "loc": loc_id,
+            "scraper": scraper_id,
+            "name": name,
+            "lat": lat,
+            "lng": lng,
+        },
+    )
+
+
+class TestTieredDedupEdgeCases:
+    """Loose-tier semantics that aren't covered by the headline
+    name-match / address-match / distinct-neighbor cases above."""
+
+    @pytest.mark.asyncio
+    async def test_transitive_chain_collapses_via_recursive_cte(
+        self, db_session: AsyncSession
+    ):
+        """A↔B by name only, B↔C by address only, A and C have no direct
+        edge. All three must collapse to a single component via the
+        recursive transitive-closure walk. This is the specific reason
+        the implementation uses `WITH RECURSIVE` — a non-transitive join
+        would return A, B, C as three separate rows here.
+        """
+        org_id = str(uuid.uuid4())
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        loc_c = str(uuid.uuid4())
+        # All three rows ~80m apart along a north-south line at lat 47.
+        # 0.0008 deg lat ≈ 89m, comfortably inside loose-tier ceiling and
+        # outside tight-tier floor so neither geo tier merges them.
+        # A and B share name ("River Valley Food Pantry") but distinct
+        # addresses; B and C share address ("500 River Rd" / ZIP) but
+        # distinct names; A and C share NOTHING — name differs, address
+        # differs, ZIP differs. Without transitive closure A and C
+        # would NOT merge.
+        await _seed_location(
+            db_session,
+            loc_id=loc_a,
+            org_id=org_id,
+            name="River Valley Food Pantry",
+            lat=47.0000,
+            lng=-122.0000,
+            address_1="100 Oak Ave",
+            postal_code="98101",
+        )
+        await _seed_location(
+            db_session,
+            loc_id=loc_b,
+            org_id=str(uuid.uuid4()),
+            name="River Valley Food Pantry",
+            lat=47.0008,
+            lng=-122.0000,
+            address_1="500 River Rd",
+            postal_code="98102",
+        )
+        await _seed_location(
+            db_session,
+            loc_id=loc_c,
+            org_id=str(uuid.uuid4()),
+            name="Olympic Outreach Center",
+            lat=47.0016,
+            lng=-122.0000,
+            address_1="500 River Rd",
+            postal_code="98102",
+        )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(46.99, -122.01, 47.01, -121.99),
+        )
+        seeded = {loc_a, loc_b, loc_c}
+        returned = {str(r.id) for r in rows if str(r.id) in seeded}
+        assert len(returned) == 1, (
+            f"transitive A-B-C chain must collapse to ONE survivor, "
+            f"got {len(returned)}: {returned}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_same_name_different_zip_within_200m_merges(
+        self, db_session: AsyncSession
+    ):
+        """Pin the documented semantics: the loose-tier name gate
+        fires regardless of ZIP because the 200m geo cap is the
+        proximity gate. Two rows ~120m apart with identical normalized
+        name but in different ZIPs collapse — a ZIP boundary running
+        through a parking lot shouldn't keep duplicates apart.
+        """
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        org_a = str(uuid.uuid4())
+        org_b = str(uuid.uuid4())
+        await _seed_location(
+            db_session,
+            loc_id=loc_a,
+            org_id=org_a,
+            name="Borderline Pantry of Centerville",
+            lat=39.5000,
+            lng=-105.0000,
+            address_1="100 ZIP-A Side",
+            postal_code="80014",
+        )
+        await _seed_location(
+            db_session,
+            loc_id=loc_b,
+            org_id=org_b,
+            name="Borderline Pantry of Centerville",
+            lat=39.5011,
+            lng=-105.0000,
+            address_1="200 ZIP-B Side",
+            postal_code="80015",
+        )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(39.49, -105.01, 39.51, -104.99),
+        )
+        seeded = {loc_a, loc_b}
+        returned = {str(r.id) for r in rows if str(r.id) in seeded}
+        assert (
+            len(returned) == 1
+        ), f"same-name different-ZIP rows within 200m must merge, got {returned}"
+
+    @pytest.mark.asyncio
+    async def test_null_name_rows_do_not_merge_on_name_gate(
+        self, db_session: AsyncSession
+    ):
+        """Both rows have `name = NULL`, sit ~120m apart, and carry
+        completely different addresses. similarity('','') in pg_trgm
+        returns 0, well below the 0.5 threshold, so the name gate must
+        not fire. The address gate doesn't fire either (different
+        address_1). They must NOT merge.
+        """
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        org_id = str(uuid.uuid4())
+        # The "has_contact" filter requires a contact field, and the
+        # _seed_location helper assumes a name (sets `INSERT ... :name`).
+        # We need NULL names, so we seed by hand. Use the org website as
+        # the contact-info anchor.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, description, website)
+                VALUES (:id, 'Nameless Org', 'null-name test',
+                        'https://example.org')
+                """
+            ),
+            {"id": org_id},
+        )
+        for loc_id, lat, lng, addr in (
+            (loc_a, 30.0000, -90.0000, "100 Anonymous Way"),
+            (loc_b, 30.0011, -90.0000, "999 Nowhere Blvd"),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name, latitude, longitude,
+                        location_type, validation_status, confidence_score
+                    )
+                    VALUES (:id, :org, NULL, :lat, :lng,
+                            'physical', 'verified', 70)
+                    """
+                ),
+                {"id": loc_id, "org": org_id, "lat": lat, "lng": lng},
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO address (
+                        id, location_id, address_1, city,
+                        state_province, postal_code, country, address_type
+                    )
+                    VALUES (:id, :loc, :addr, 'NowhereCity', 'LA',
+                            '70112', 'US', 'physical')
+                    """
+                ),
+                {"id": str(uuid.uuid4()), "loc": loc_id, "addr": addr},
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc, 'no_fa_scraper',
+                            'null-name seed', :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(29.99, -90.01, 30.01, -89.99),
+        )
+        seeded = {loc_a, loc_b}
+        returned = {str(r.id) for r in rows if str(r.id) in seeded}
+        assert returned == {
+            loc_a,
+            loc_b,
+        }, "NULL-name rows must not merge via name gate"
+
+    @pytest.mark.asyncio
+    async def test_accented_name_folds_to_ascii(self, db_session: AsyncSession):
+        """The normalization pipeline must fold Latin diacritics before
+        the regex strip so 'San José Community Pantry' and 'San Jose
+        Community Pantry' share trigrams. Two rows ~120m apart with
+        names differing only in `é` vs `e` must merge under the loose
+        tier — without folding, the regex would drop `é` entirely
+        and the trigram similarity would be artificially low.
+        """
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        await _seed_location(
+            db_session,
+            loc_id=loc_a,
+            org_id=str(uuid.uuid4()),
+            name="San José Community Pantry",
+            lat=37.3000,
+            lng=-121.8700,
+            address_1="100 Almaden Blvd",
+            postal_code="95113",
+        )
+        await _seed_location(
+            db_session,
+            loc_id=loc_b,
+            org_id=str(uuid.uuid4()),
+            name="San Jose Community Pantry",
+            lat=37.3011,
+            lng=-121.8700,
+            address_1="500 Market St",
+            postal_code="95113",
+        )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(37.29, -121.88, 37.31, -121.86),
+        )
+        seeded = {loc_a, loc_b}
+        returned = {str(r.id) for r in rows if str(r.id) in seeded}
+        assert len(returned) == 1, f"accent-folded names must merge, got {returned}"
+
+    @pytest.mark.asyncio
+    async def test_bbox_padding_pulls_in_nearby_pin(self, db_session: AsyncSession):
+        """End-to-end check that `_pad_bbox_to_min` actually changes
+        which rows the SQL returns. Seed a pin ~1.5 mi north of a
+        tiny (0.001°-wide) viewport center and call the router (where
+        padding happens, not the query layer); the pin must come back
+        because the 3-mi floor expanded the viewport to include it.
+
+        This exists because the helper is exhaustively unit-tested but
+        a regression that wires padding through the wrong code path
+        would still pass all helper tests while quietly leaving the
+        SQL unchanged.
+        """
+        org_id = str(uuid.uuid4())
+        near_pin = str(uuid.uuid4())
+        # Viewport center: (48.0000, -123.0000). Pin ~1.3 mi north:
+        # 0.019° lat ≈ 2.1 km ≈ 1.3 mi. Tiny bbox (0.001° on a side)
+        # would normally clip it. After 3-mi padding (0.0435° on a
+        # side, half-extent 0.02175°), the pin at +0.019° lat is
+        # comfortably inside the padded envelope.
+        await _seed_location(
+            db_session,
+            loc_id=near_pin,
+            org_id=org_id,
+            name="Near-The-Viewport Pantry",
+            lat=48.0190,
+            lng=-123.0000,
+            address_1="100 Just Outside Ln",
+            postal_code="98362",
+        )
+        await db_session.flush()
+
+        response = MagicMock(headers={})
+        results = await list_ptf_locations(
+            response=response,
+            limit=50,
+            offset=0,
+            # 0.001° wide, centered on (48.0, -123.0).
+            lat1=47.9995,
+            lng1=-123.0005,
+            lat2=48.0005,
+            lng2=-122.9995,
+            q=None,
+            session=db_session,
+        )
+        returned_ids = {r.id for r in results}
+        assert near_pin in returned_ids, (
+            "padded bbox must pull in pins inside the 3-mi floor; "
+            f"got {len(returned_ids)} results without the seed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_boundary_at_200m_still_merges(self, db_session: AsyncSession):
+        """Guards against a regression that flips `ST_DWithin`'s
+        inclusive comparison to strict `<`. Two rows just inside the
+        loose-tier ceiling (~199m apart) with identical names must
+        merge. Use 0.00170 deg ≈ 189m so we're inside the ceiling
+        without being right on a floating-point razor's edge.
+        """
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        await _seed_location(
+            db_session,
+            loc_id=loc_a,
+            org_id=str(uuid.uuid4()),
+            name="Edge Of The Window Pantry",
+            lat=44.0000,
+            lng=-93.0000,
+            address_1="100 Boundary Ln",
+            postal_code="55101",
+        )
+        await _seed_location(
+            db_session,
+            loc_id=loc_b,
+            org_id=str(uuid.uuid4()),
+            name="Edge Of The Window Pantry",
+            lat=44.0017,
+            lng=-93.0000,
+            address_1="200 Limit Rd",
+            postal_code="55102",
+        )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(43.99, -93.01, 44.01, -92.99),
+        )
+        seeded = {loc_a, loc_b}
+        returned = {str(r.id) for r in rows if str(r.id) in seeded}
+        assert (
+            len(returned) == 1
+        ), f"rows just inside loose-tier ceiling must merge, got {returned}"

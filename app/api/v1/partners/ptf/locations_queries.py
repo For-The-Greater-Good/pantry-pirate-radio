@@ -69,14 +69,20 @@ def clamp_offset(value: int) -> int:
 #   * Tight tier (<= _DEDUP_TIGHT_DEG, ~50m): always an edge. Same
 #     parcel / same building — GPS fuzz dominates, names diverge.
 #   * Loose tier (50m < d <= _DEDUP_LOOSE_DEG, ~200m): an edge only if
-#     normalized names fuzzy-match (trigram similarity > 0.5), OR
-#     normalized address_1 fuzzy-matches (>0.7) AND postal codes agree.
+#     normalized names fuzzy-match (`similarity(...) > _NAME_SIM_THRESHOLD`)
+#     OR normalized address_1 fuzzy-matches
+#     (`similarity(...) > _ADDR_SIM_THRESHOLD`) AND 5-digit ZIPs agree.
 #     This catches reconciler-missed dupes on the opposite side of a
 #     parking lot / strip mall while leaving genuinely distinct
-#     neighboring pantries alone.
+#     neighboring pantries alone. Threshold values live as module
+#     constants above; the SQL binds them, never hard-codes the floats.
 #
-# Implementation is a recursive-CTE connected-components walk on those
-# edges. Self-loops in `edges_both` ensure every candidate (including
+# Implementation: spatial-index-aware DBSCAN pre-clusters candidates at
+# `_DEDUP_LOOSE_DEG` (`loose_clusters` CTE) so the per-pair tier-rule
+# self-join only walks within-cluster pairs (small constant). Then a
+# recursive-CTE connected-components walk (`edges` → `edges_both` →
+# `reachable` → `components`) assigns each candidate a `component_id`.
+# Self-loops in `edges_both` ensure every candidate (including
 # singletons) ends up in the result. Survivor per component is picked by
 # `has_qualifying_source DESC, confidence_score DESC NULLS LAST, id ASC`
 # so the FANO enrichment block is never silently stripped when a non-FANO
@@ -124,12 +130,39 @@ candidates AS (
         -- Inputs to the loose-tier fuzzy gate. Strip punctuation and
         -- lowercase; keep stop-words like "church"/"ministry" because
         -- they're often the only signal that two pantries are distinct.
-        lower(regexp_replace(coalesce(l.name, ''),
-              '[^a-zA-Z0-9 ]', '', 'g')) AS norm_name,
-        lower(regexp_replace(coalesce(a.address_1, ''),
-              '[^a-zA-Z0-9 ]', '', 'g')) AS norm_addr,
+        -- `translate(...)` folds the common Latin diacritics to ASCII
+        -- BEFORE the regex strip so "San José" and "San Jose" share
+        -- trigrams instead of differing on `é`. This is portable (no
+        -- `unaccent` extension required) and covers ~Spanish, French,
+        -- Italian, Portuguese — the languages most relevant for US
+        -- food-pantry names. Add more pairs here if a new locale shows
+        -- up; one char per source position in each string.
+        lower(
+            regexp_replace(
+                translate(
+                    coalesce(l.name, ''),
+                    'áàâäãåÁÀÂÄÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜñÑçÇ',
+                    'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUnNcC'
+                ),
+                '[^a-zA-Z0-9 ]', '', 'g'
+            )
+        ) AS norm_name,
+        lower(
+            regexp_replace(
+                translate(
+                    coalesce(a.address_1, ''),
+                    'áàâäãåÁÀÂÄÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜñÑçÇ',
+                    'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUnNcC'
+                ),
+                '[^a-zA-Z0-9 ]', '', 'g'
+            )
+        ) AS norm_addr,
         SUBSTR(a.postal_code, 1, 5) AS zip5,
-        -- Cached geometry — used twice (cluster pairing + GIST bbox).
+        -- Cached geometry so the downstream loose-cluster DBSCAN and
+        -- the per-pair ST_DWithin don't recompute the make-point each
+        -- row. The bbox filter below still uses the indexed expression
+        -- against `location l` directly, which is what hits the GIST
+        -- index `idx_location_coords`.
         ST_SetSRID(
             ST_MakePoint(
                 CAST(l.longitude AS float8),
@@ -174,18 +207,51 @@ candidates AS (
              fa.fa_org_id NULLS LAST,
              p.id NULLS LAST
 ),
--- Tier edges: a directed pair (a < b) gets an edge whenever the two
--- candidates land in the same dedup component. Tight tier always
--- contributes; loose tier requires the trigram-similarity gate.
+-- Loose pre-cluster: spatial-index-aware DBSCAN groups candidates
+-- within the loose-tier ceiling. ST_ClusterDBSCAN is a window function
+-- that internally walks the GIST index on `idx_location_coords` (when
+-- the planner can see through to the indexed expression), so this is
+-- O(N log N) rather than the O(N^2) of a naive self-join. The
+-- per-pair tier rule then only needs to look at within-cluster pairs,
+-- which in practice are 1-3 rows.
+loose_clusters AS (
+    SELECT c.*,
+           ST_ClusterDBSCAN(
+               c.geom,
+               eps := :dedup_loose_deg,
+               minpoints := 1
+           ) OVER () AS loose_cluster_id
+    FROM candidates c
+),
+-- Tier edges: a directed pair (a < b) gets an edge when (i) they sit
+-- in the same loose pre-cluster (within ~200m or transitively reachable
+-- via 200m hops) AND (ii) the tier rule fires. Tight tier (~50m) always
+-- contributes; loose tier requires the trigram-similarity gate. The
+-- intra-cluster join is small enough that the per-pair similarity()
+-- and tight-tier ST_DWithin calls are cheap.
 edges AS (
     SELECT c1.id AS a_id, c2.id AS b_id
-    FROM candidates c1
-    JOIN candidates c2 ON c1.id < c2.id
+    FROM loose_clusters c1
+    JOIN loose_clusters c2
+      ON c1.loose_cluster_id = c2.loose_cluster_id
+     AND c1.id < c2.id
+    -- Strict pairwise loose-tier cap. DBSCAN's transitive-neighbor
+    -- semantics can span more than `eps` end-to-end (A within 200m of
+    -- B, B within 200m of C, A 350m from C — all one cluster). The
+    -- explicit ST_DWithin keeps direct pair edges capped at 200m and
+    -- relies on the recursive components walk below for transitivity.
     WHERE ST_DWithin(c1.geom, c2.geom, :dedup_loose_deg)
       AND (
           ST_DWithin(c1.geom, c2.geom, :dedup_tight_deg)
           OR similarity(c1.norm_name, c2.norm_name) > :name_sim_threshold
           OR (
+              -- Name gate fires regardless of ZIP — the 200m geo cap
+              -- is the proximity gate, and two same-named rows that
+              -- close together are nearly always the same physical
+              -- pantry pin even when ZIP boundaries split them.
+              -- Address gate requires ZIP agreement because address_1
+              -- alone is too easy to match coincidentally ("100 Main
+              -- St" exists in every town).
               similarity(c1.norm_addr, c2.norm_addr) > :addr_sim_threshold
               AND c1.zip5 IS NOT NULL
               AND c1.zip5 = c2.zip5

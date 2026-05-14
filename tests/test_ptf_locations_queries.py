@@ -190,6 +190,13 @@ class TestQuerySQL:
         assert (
             "WITH RECURSIVE" in sql_text
         ), "list query must use recursive CTE for tiered dedup"
+        # Loose pre-cluster keeps the per-pair self-join inside small
+        # spatial groups — without it, the edges CTE is O(N^2) and the
+        # GIST index can't help (the planner can't see through the
+        # CTE-materialized `geom` column).
+        assert (
+            "ST_ClusterDBSCAN" in sql_text
+        ), "loose pre-cluster must use ST_ClusterDBSCAN for index-aware grouping"
         assert (
             "ST_DWithin" in sql_text
         ), "tier edges must use ST_DWithin against pre-cached geom"
@@ -239,6 +246,10 @@ class TestQuerySQL:
         query = PtfLocationsQuery(session)
         await query.get_location("11111111-2222-3333-4444-555555555555")
         sql_text = str(session.execute.call_args[0][0])
+        # All three of these dedup primitives belong only on the list
+        # path. Inheriting them on the detail query would silently
+        # rewrite the response.id to a survivor and break consumers
+        # that cached non-survivor ids from a prior list.
         assert "ST_ClusterDBSCAN" not in sql_text
         assert "WITH RECURSIVE" not in sql_text
         assert "similarity(" not in sql_text

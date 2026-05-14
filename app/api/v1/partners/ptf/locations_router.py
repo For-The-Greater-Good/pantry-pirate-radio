@@ -44,15 +44,29 @@ _DETAIL_CACHE_CONTROL = "public, max-age=300, s-maxage=300"
 # guarantees a ~3-mile margin around any small viewport.
 _BBOX_MIN_SIZE_DEG = 0.0435
 
+# Heuristic for "this looks like the caller meant to wrap the
+# antimeridian". A legitimate viewport spans at most ~180° of longitude;
+# anything wider almost certainly came from `lng1=170, lng2=-170` (which
+# we then sort to `(-170, 170)` = a planet-sized envelope). We log a
+# warning but don't reject — PTF is US-only in practice and a server-
+# side 422 would surprise any future Pacific-region client.
+_ANTIMERIDIAN_LNG_SPAN_THRESHOLD = 180.0
+
 
 def _pad_bbox_to_min(
     bbox: tuple[float, float, float, float],
 ) -> tuple[float, float, float, float]:
     """Expand small bboxes to a minimum side length around their center.
 
-    Also incidentally normalizes min/max ordering, so callers that swap
-    `lat1`/`lat2` (or `lng1`/`lng2`) still get a valid envelope. Inputs
-    above the floor pass through untouched.
+    Side effects beyond expansion:
+      * Sorts min/max so callers that swap `lat1`/`lat2` (or
+        `lng1`/`lng2`) still get a valid envelope.
+      * Clamps the padded result back into the SRID-4326 valid range
+        (`[-90, 90]` latitude, `[-180, 180]` longitude) so near-edge
+        inputs don't produce an out-of-range envelope after expansion.
+
+    Inputs above the floor and inside the valid range pass through
+    untouched.
     """
     lat1, lng1, lat2, lng2 = bbox
     lat_min, lat_max = sorted((lat1, lat2))
@@ -66,6 +80,12 @@ def _pad_bbox_to_min(
     if (lng_max - lng_min) < _BBOX_MIN_SIZE_DEG:
         lng_min = lng_center - half
         lng_max = lng_center + half
+    # Clamp back into SRID-4326 valid range. ST_MakeEnvelope is lenient
+    # but values outside the range are still nonsense.
+    lat_min = max(-90.0, lat_min)
+    lat_max = min(90.0, lat_max)
+    lng_min = max(-180.0, lng_min)
+    lng_max = min(180.0, lng_max)
     return (lat_min, lng_min, lat_max, lng_max)
 
 
@@ -108,18 +128,33 @@ async def list_ptf_locations(
         if len(provided) == 4
         else None
     )
-    bbox_padded = False
+    bbox_padded: Optional[bool] = None
     if bbox is not None:
+        # Antimeridian heuristic: a single-viewport request never spans
+        # more than 180° of longitude; anything wider is almost certainly
+        # `lng1=170, lng2=-170` (which we'd otherwise normalize to a
+        # planet-sized envelope without complaint). Warn so the issue is
+        # diagnosable, but proceed — PTF is US-only in practice and a
+        # 422 would surprise any future Pacific-region client.
+        if abs(bbox[3] - bbox[1]) > _ANTIMERIDIAN_LNG_SPAN_THRESHOLD:
+            logger.warning(
+                "ptf_bbox_antimeridian_suspect",
+                lng1=bbox[1],
+                lng2=bbox[3],
+                span_deg=abs(bbox[3] - bbox[1]),
+            )
         padded = _pad_bbox_to_min(bbox)
-        if padded != bbox:
-            bbox_padded = True
-            bbox = padded
+        bbox_padded = padded != bbox
+        bbox = padded
 
     log = logger.bind(
         endpoint="ptf_locations_list",
         limit=limit,
         offset=offset,
         has_bbox=bbox is not None,
+        # None when no bbox was provided; True/False when one was. Keeps
+        # CloudWatch filters that count `bbox_padded=true` honest — the
+        # base rate is the count of `has_bbox=true` requests.
         bbox_padded=bbox_padded,
         has_q=q is not None,
     )

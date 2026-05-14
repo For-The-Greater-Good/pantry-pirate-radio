@@ -388,6 +388,160 @@ class TestPadBboxToMin:
         lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
         assert lng_min < lng_max
 
+    def test_padding_near_north_pole_clamps_to_90(self):
+        """A near-pole input padded outward would push lat past 90°.
+        Helper must clamp so the resulting envelope is still a valid
+        SRID-4326 geometry."""
+        bbox = (89.99, -100.0, 89.999, -99.999)
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lat_max <= 90.0
+        assert lat_min >= -90.0
+
+    def test_padding_near_south_pole_clamps_to_minus_90(self):
+        bbox = (-89.999, 0.0, -89.99, 0.001)
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lat_min >= -90.0
+        assert lat_max <= 90.0
+
+    def test_padding_near_lng_edge_clamps(self):
+        """Near the dateline, padding must clamp to [-180, 180]."""
+        bbox = (40.0, 179.99, 41.0, 179.999)
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lng_min >= -180.0
+        assert lng_max <= 180.0
+
+
+class TestAntimeridianAndBboxPaddedFlag:
+    """Antimeridian warn + bbox_padded log-field type contract."""
+
+    @pytest.mark.asyncio
+    async def test_antimeridian_span_logs_warning(self):
+        """A bbox whose lng span > 180° is almost certainly a caller
+        passing `lng1=170, lng2=-170` and intending to wrap the
+        dateline. Sorting would normalize to (-170, 170) — a 340° envelope
+        covering most of the planet. We don't reject (PTF is US-only in
+        practice), but we must emit a warn-level log so misconfigured
+        clients are diagnosable."""
+        session = MagicMock(spec=AsyncSession)
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            # Need a child logger for the structured .info() chain to
+            # not blow up on the MagicMock.
+            mock_logger.bind.return_value = MagicMock()
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.0,
+                lng1=170.0,
+                lat2=41.0,
+                lng2=-170.0,
+                q=None,
+                session=session,
+            )
+            warn_calls = [
+                c
+                for c in mock_logger.warning.call_args_list
+                if c.args and c.args[0] == "ptf_bbox_antimeridian_suspect"
+            ]
+            assert (
+                len(warn_calls) == 1
+            ), "antimeridian-suspect bbox must emit exactly one warn"
+
+    @pytest.mark.asyncio
+    async def test_bbox_padded_is_none_when_no_bbox(self):
+        """`bbox_padded` is None (not False) when no bbox was provided
+        so CloudWatch filters can tell 'no bbox' apart from 'bbox
+        provided but not padded'."""
+        session = MagicMock(spec=AsyncSession)
+        bound = MagicMock()
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            mock_logger.bind.return_value = bound
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=None,
+                lng1=None,
+                lat2=None,
+                lng2=None,
+                q=None,
+                session=session,
+            )
+            bind_kwargs = mock_logger.bind.call_args.kwargs
+            assert bind_kwargs["bbox_padded"] is None
+
+    @pytest.mark.asyncio
+    async def test_bbox_padded_is_true_when_padding_fires(self):
+        session = MagicMock(spec=AsyncSession)
+        bound = MagicMock()
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            mock_logger.bind.return_value = bound
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.7580,
+                lng1=-73.9858,
+                lat2=40.7585,
+                lng2=-73.9853,
+                q=None,
+                session=session,
+            )
+            bind_kwargs = mock_logger.bind.call_args.kwargs
+            assert bind_kwargs["bbox_padded"] is True
+
+    @pytest.mark.asyncio
+    async def test_bbox_padded_is_false_when_bbox_above_floor(self):
+        session = MagicMock(spec=AsyncSession)
+        bound = MagicMock()
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            mock_logger.bind.return_value = bound
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.0,
+                lng1=-75.0,
+                lat2=41.0,
+                lng2=-73.0,
+                q=None,
+                session=session,
+            )
+            bind_kwargs = mock_logger.bind.call_args.kwargs
+            assert bind_kwargs["bbox_padded"] is False
+
 
 class TestRouterMounting:
     """Confirms the router is wired up so HTTP requests hit it."""
