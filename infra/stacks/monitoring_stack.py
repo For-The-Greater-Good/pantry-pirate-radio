@@ -192,10 +192,15 @@ class MonitoringStack(Stack):
             f"/ecs/pantry-pirate-radio/reconciler-{env}",
         )
 
+        # CloudWatch Logs filter syntax: terms with special characters
+        # (slashes, spaces, etc.) must be wrapped in double quotes to
+        # parse as a single literal. The Tier 2 log line contains a `/`,
+        # so we quote it; the Tier 3 event name is a clean snake_case
+        # token and needs no quoting.
         filters = {
             "Tier3FuzzyMerge": "reconciler_tier3_fuzzy_merge",
             "Tier2NameOrOrgMerge": (
-                "Same-name/same-org fallback merged duplicate location"
+                '"Same-name/same-org fallback merged duplicate location"'
             ),
         }
         for metric_name, pattern in filters.items():
