@@ -36,6 +36,38 @@ locations_router = APIRouter(tags=["partners"])
 _LIST_CACHE_CONTROL = "public, max-age=60, s-maxage=300"
 _DETAIL_CACHE_CONTROL = "public, max-age=300, s-maxage=300"
 
+# Minimum bbox side length, in SRID-4326 degrees. ~3 miles at the
+# equator (0.0435 * 111km/deg = 4.83 km ≈ 3 mi); slightly less in real
+# distance at higher US latitudes for longitude, which is fine for a
+# floor. Clients zooming into a single block would otherwise see pins
+# pop out of the response as the viewport edge clips them — this floor
+# guarantees a ~3-mile margin around any small viewport.
+_BBOX_MIN_SIZE_DEG = 0.0435
+
+
+def _pad_bbox_to_min(
+    bbox: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Expand small bboxes to a minimum side length around their center.
+
+    Also incidentally normalizes min/max ordering, so callers that swap
+    `lat1`/`lat2` (or `lng1`/`lng2`) still get a valid envelope. Inputs
+    above the floor pass through untouched.
+    """
+    lat1, lng1, lat2, lng2 = bbox
+    lat_min, lat_max = sorted((lat1, lat2))
+    lng_min, lng_max = sorted((lng1, lng2))
+    lat_center = (lat_min + lat_max) / 2
+    lng_center = (lng_min + lng_max) / 2
+    half = _BBOX_MIN_SIZE_DEG / 2
+    if (lat_max - lat_min) < _BBOX_MIN_SIZE_DEG:
+        lat_min = lat_center - half
+        lat_max = lat_center + half
+    if (lng_max - lng_min) < _BBOX_MIN_SIZE_DEG:
+        lng_min = lng_center - half
+        lng_max = lng_center + half
+    return (lat_min, lng_min, lat_max, lng_max)
+
 
 @locations_router.get(
     "/locations",
@@ -50,7 +82,7 @@ _DETAIL_CACHE_CONTROL = "public, max-age=300, s-maxage=300"
 )
 async def list_ptf_locations(
     response: Response,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     lat1: Optional[float] = Query(None, ge=-90, le=90),
     lng1: Optional[float] = Query(None, ge=-180, le=180),
@@ -66,13 +98,29 @@ async def list_ptf_locations(
             status_code=422,
             detail="Bounding box requires all of lat1, lng1, lat2, lng2",
         )
-    bbox = tuple(bbox_parts) if len(provided) == 4 else None  # type: ignore[assignment]
+    bbox: Optional[tuple[float, float, float, float]] = (
+        (
+            float(bbox_parts[0]),  # type: ignore[arg-type]
+            float(bbox_parts[1]),  # type: ignore[arg-type]
+            float(bbox_parts[2]),  # type: ignore[arg-type]
+            float(bbox_parts[3]),  # type: ignore[arg-type]
+        )
+        if len(provided) == 4
+        else None
+    )
+    bbox_padded = False
+    if bbox is not None:
+        padded = _pad_bbox_to_min(bbox)
+        if padded != bbox:
+            bbox_padded = True
+            bbox = padded
 
     log = logger.bind(
         endpoint="ptf_locations_list",
         limit=limit,
         offset=offset,
         has_bbox=bbox is not None,
+        bbox_padded=bbox_padded,
         has_q=q is not None,
     )
 
@@ -104,10 +152,10 @@ async def list_ptf_locations(
         returned=len(items),
         dropped=dropped,
         fa_matched=fa_matched,
-        # Near-duplicate canonicals are collapsed at query time via
-        # ST_ClusterDBSCAN — see `_LIST_SQL` in locations_queries.py.
-        # Flag included so CloudWatch can confirm the cluster path is
-        # live, and so a future drop in fa_matched can be correlated.
+        # Near-duplicate canonicals are collapsed at query time via a
+        # tiered connected-components walk (tight ~50m always-merge,
+        # loose ~200m gated by name/address similarity). See
+        # `_LIST_SQL` in locations_queries.py.
         dedup_active=True,
     )
     response.headers["Cache-Control"] = _LIST_CACHE_CONTROL

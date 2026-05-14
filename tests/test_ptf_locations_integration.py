@@ -598,8 +598,8 @@ class TestNearDuplicateCollapse:
     """Defense-in-depth: when the reconciler leaves multiple `location`
     rows for the same physical pantry (different scrapers, different
     names, no shared org), the endpoint must collapse them to one row
-    via ST_ClusterDBSCAN so Plentiful's map doesn't show three pins on
-    top of each other.
+    via the tiered cluster-dedup so Plentiful's map doesn't show three
+    pins on top of each other.
 
     Scenario mirrors the real Beaverton Adventist Church (SDA) case
     that triggered this work: three slightly-different names at the
@@ -638,7 +638,7 @@ class TestNearDuplicateCollapse:
         # Three locations, all within ~30m at 14645 SW Davis Rd.
         # Latitude ~45.4869, longitude ~-122.8331 (real Beaverton coords).
         # 0.0001 deg ≈ 11m, so 0.0002 deg ≈ 22m — well inside the
-        # 0.0005-deg (~55m) DBSCAN epsilon used by the query.
+        # 0.00045-deg (~50m) tight-tier epsilon used by the query.
         seeds = [
             (
                 loc_ids[0],
@@ -780,9 +780,291 @@ class TestNearDuplicateCollapse:
         assert winner.has_qualifying_source is True
 
     @pytest.mark.asyncio
+    async def test_loose_tier_merges_same_name_within_200m(
+        self, db_session: AsyncSession
+    ):
+        """Two rows ~120m apart with the same normalized name must
+        merge via the loose tier (50-200m, name-gated). This is the
+        primary motivating case — strip-mall / parking-lot pantries
+        that the tight 50m tier alone misses."""
+        org_a = str(uuid.uuid4())
+        org_b = str(uuid.uuid4())
+        loc_near = str(uuid.uuid4())
+        loc_far_ish = str(uuid.uuid4())
+
+        for oid in (org_a, org_b):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, description, website)
+                    VALUES (:id, 'Loose Tier Org', 'loose tier test',
+                            'https://example.org')
+                    """
+                ),
+                {"id": oid},
+            )
+
+        # ~120m apart on the lat axis (0.0011 deg lat ≈ 122m). Same
+        # normalized name → loose-tier name gate fires → merged.
+        for loc_id, org_id, lat, lng, name in (
+            (loc_near, org_a, 42.5000, -71.0000, "Greater Boston Food Pantry"),
+            (loc_far_ish, org_b, 42.5011, -71.0000, "Greater Boston Food Pantry"),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name, latitude, longitude,
+                        location_type, validation_status, confidence_score
+                    )
+                    VALUES (:id, :org, :name, :lat, :lng,
+                            'physical', 'verified', 70)
+                    """
+                ),
+                {
+                    "id": loc_id,
+                    "org": org_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc, 'no_fa_scraper', :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(42.49, -71.01, 42.51, -70.99),
+        )
+        returned = {str(r.id) for r in rows if str(r.id) in {loc_near, loc_far_ish}}
+        assert (
+            len(returned) == 1
+        ), f"loose-tier name gate must merge ~120m same-name rows, got {returned}"
+
+    @pytest.mark.asyncio
+    async def test_loose_tier_merges_same_address_within_200m(
+        self, db_session: AsyncSession
+    ):
+        """~150m apart, different names but identical normalized address
+        + ZIP. The address gate (>0.7 similarity, ZIP match) must merge
+        them. Realistic case: two scrapers describing the same building
+        with different naming conventions ('St. John Pantry' vs 'Saint
+        John's Outreach')."""
+        org_a = str(uuid.uuid4())
+        org_b = str(uuid.uuid4())
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+
+        for oid in (org_a, org_b):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, description, website)
+                    VALUES (:id, 'Addr Tier Org', 'addr tier test',
+                            'https://example.org')
+                    """
+                ),
+                {"id": oid},
+            )
+
+        # ~145m apart (0.0013 deg lng ≈ 110m at this lat) — well inside
+        # the 200m loose tier, well outside the 50m tight tier.
+        for loc_id, org_id, lat, lng, name in (
+            (loc_a, org_a, 33.7500, -84.3900, "St. John Food Pantry"),
+            (loc_b, org_b, 33.7500, -84.3915, "Saint John's Outreach Center"),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name, latitude, longitude,
+                        location_type, validation_status, confidence_score
+                    )
+                    VALUES (:id, :org, :name, :lat, :lng,
+                            'physical', 'verified', 70)
+                    """
+                ),
+                {
+                    "id": loc_id,
+                    "org": org_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO address (
+                        id, location_id, address_1, city,
+                        state_province, postal_code, country, address_type
+                    )
+                    VALUES (:id, :loc, '215 Peachtree St NE', 'Atlanta',
+                            'GA', '30303', 'US', 'physical')
+                    """
+                ),
+                {"id": str(uuid.uuid4()), "loc": loc_id},
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc, 'no_fa_scraper', :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(33.74, -84.40, 33.76, -84.38),
+        )
+        returned = {str(r.id) for r in rows if str(r.id) in {loc_a, loc_b}}
+        assert (
+            len(returned) == 1
+        ), f"loose-tier address gate must merge same-address rows, got {returned}"
+
+    @pytest.mark.asyncio
+    async def test_loose_tier_does_not_merge_distinct_neighbors(
+        self, db_session: AsyncSession
+    ):
+        """Two pantries ~120m apart with genuinely different names AND
+        addresses must NOT merge — they're real neighbors on a dense
+        block, not duplicates. This is the false-positive guard for the
+        widened loose tier."""
+        org_a = str(uuid.uuid4())
+        org_b = str(uuid.uuid4())
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+
+        for oid in (org_a, org_b):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, description, website)
+                    VALUES (:id, 'Distinct Neighbor Org',
+                            'distinct neighbor test',
+                            'https://example.org')
+                    """
+                ),
+                {"id": oid},
+            )
+
+        for loc_id, org_id, lat, lng, name, addr in (
+            (
+                loc_a,
+                org_a,
+                42.0000,
+                -75.0000,
+                "Riverside Community Kitchen",
+                "100 Riverside Ave",
+            ),
+            (
+                loc_b,
+                org_b,
+                42.0011,
+                -75.0000,
+                "Hillcrest Methodist Pantry",
+                "215 Hill St",
+            ),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name, latitude, longitude,
+                        location_type, validation_status, confidence_score
+                    )
+                    VALUES (:id, :org, :name, :lat, :lng,
+                            'physical', 'verified', 70)
+                    """
+                ),
+                {
+                    "id": loc_id,
+                    "org": org_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO address (
+                        id, location_id, address_1, city,
+                        state_province, postal_code, country, address_type
+                    )
+                    VALUES (:id, :loc, :addr, 'Anywhere',
+                            'NY', '13901', 'US', 'physical')
+                    """
+                ),
+                {"id": str(uuid.uuid4()), "loc": loc_id, "addr": addr},
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc, 'no_fa_scraper', :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(41.99, -75.01, 42.01, -74.99),
+        )
+        returned = {str(r.id) for r in rows if str(r.id) in {loc_a, loc_b}}
+        assert returned == {
+            loc_a,
+            loc_b,
+        }, "distinct neighbors must NOT merge under the loose tier gate"
+
+    @pytest.mark.asyncio
     async def test_far_apart_rows_are_not_merged(self, db_session: AsyncSession):
-        """Singleton clusters (minpoints=1) must not drop unique
-        locations. Two rows >55m apart must both come back."""
+        """Self-loops in `edges_both` guarantee every candidate ends
+        up in its own component when no inter-row edges fire. Two rows
+        >200m apart must both come back."""
         org_id = str(uuid.uuid4())
         far_a = str(uuid.uuid4())
         far_b = str(uuid.uuid4())
@@ -797,7 +1079,8 @@ class TestNearDuplicateCollapse:
             ),
             {"id": org_id},
         )
-        # ~0.01 deg apart (~1.1km) — well outside the 0.0005 epsilon.
+        # ~0.01 deg apart (~1.1km) — well outside the 0.00180 (~200m)
+        # loose-tier ceiling, so no dedup edge can form.
         for loc_id, lat, lng, name in (
             (far_a, 38.0, -77.0, "Far Pantry A"),
             (far_b, 38.01, -77.01, "Far Pantry B"),
