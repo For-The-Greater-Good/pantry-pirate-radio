@@ -692,6 +692,155 @@ class TestUniqueConflictDelete:
         assert payload["scraper_id"] == "conflict_scraper"
 
 
+class TestGrandchildRepointBeforeUniqueDelete:
+    """When a UNIQUE-conflicting parent row gets deleted, its
+    grandchildren (rows that FK to it) must be repointed onto the
+    survivor's matching parent row FIRST. Without this, the DELETE
+    hits the FK constraint and the whole cluster rolls back.
+
+    Discovered live: 13% of clusters in the first prod --apply failed
+    with `schedule_service_at_location_id_fkey` violations because
+    schedule rows referencing a duplicate's service_at_location were
+    orphaning when the SAL DELETE fired.
+    """
+
+    def test_schedule_fk_to_service_at_location_repoints_before_delete(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        import uuid as _uuid
+
+        _ensure_audit_table(clean_dedup_tables)
+
+        # Seed two near-duplicate locations. `a` gets higher confidence
+        # so the survivor pick is deterministic — without this the test
+        # is flaky on UUID ordering (the third tie-break key in
+        # pick_canonical's ORDER BY).
+        a, b = str(_uuid.uuid4()), str(_uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="FK Cascade Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 FK St",
+            postal_code="08000",
+            confidence=85,
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="FK Cascade Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 FK St",
+            postal_code="08000",
+            confidence=70,
+            scraper_id="other_fk",
+        )
+
+        # Seed a service and a service_at_location on EACH side with the
+        # SAME service_id. This is the UNIQUE conflict that triggers the
+        # DELETE path on `service_at_location(location_id, service_id)`.
+        service_id = str(_uuid.uuid4())
+        # service row needs an organization_id; reuse a's org via the
+        # location join (seed helper creates one per location).
+        a_org = clean_dedup_tables.execute(
+            text("SELECT organization_id FROM location WHERE id = :id"),
+            {"id": a},
+        ).scalar()
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO service (id, organization_id, name, status)
+                VALUES (:id, :org, 'FK Cascade Service', 'active')
+                """
+            ),
+            {"id": service_id, "org": a_org},
+        )
+        sal_a = str(_uuid.uuid4())
+        sal_b = str(_uuid.uuid4())
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO service_at_location (id, service_id, location_id)
+                VALUES (:id, :svc, :loc)
+                """
+            ),
+            {"id": sal_a, "svc": service_id, "loc": a},
+        )
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO service_at_location (id, service_id, location_id)
+                VALUES (:id, :svc, :loc)
+                """
+            ),
+            {"id": sal_b, "svc": service_id, "loc": b},
+        )
+
+        # Seed a schedule on the duplicate's SAL — this is the
+        # grandchild that would orphan without our fix.
+        sched_id = str(_uuid.uuid4())
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO schedule (
+                    id, service_at_location_id, freq, byday,
+                    opens_at, closes_at
+                )
+                VALUES (:id, :sal, 'WEEKLY', 'MO',
+                        '09:00'::time, '17:00'::time)
+                """
+            ),
+            {"id": sched_id, "sal": sal_b},
+        )
+        clean_dedup_tables.commit()
+
+        # Merge. WITHOUT the grandchild-repoint fix this would raise an
+        # IntegrityError when the script tries to DELETE sal_b.
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        assert len(clusters) == 1
+        run_id = str(_uuid.uuid4())
+        result = dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+
+        survivor_id = result["canonical_id"]
+        # Identify which SAL belongs to the survivor.
+        survivor_sal = clean_dedup_tables.execute(
+            text(
+                "SELECT id FROM service_at_location "
+                "WHERE location_id = :loc AND service_id = :svc"
+            ),
+            {"loc": survivor_id, "svc": service_id},
+        ).scalar()
+        assert survivor_sal is not None
+
+        # The schedule row must now reference the SURVIVOR's SAL.
+        # Without the fix this is either NULL (and the schedule row got
+        # orphaned via cascade) or the whole cluster rolled back and
+        # the schedule still points to sal_b (which means the merge
+        # didn't happen at all). Either way, this assertion catches it.
+        sched_owner = clean_dedup_tables.execute(
+            text("SELECT service_at_location_id FROM schedule WHERE id = :id"),
+            {"id": sched_id},
+        ).scalar()
+        assert str(sched_owner) == str(survivor_sal)
+
+        # And there's an audit row recording the repoint, so undo works.
+        audit_row = clean_dedup_tables.execute(
+            text(
+                "SELECT old_value, new_value FROM dedup_run_audit "
+                "WHERE run_id = :rid AND table_name = 'schedule' "
+                "AND action = 'repoint'"
+            ),
+            {"rid": run_id},
+        ).first()
+        assert audit_row is not None
+
+
 class TestSavepointIsolation:
     """The headline resilience claim — one failing cluster doesn't roll
     back successful ones — has to be tested, not just docstring'd."""

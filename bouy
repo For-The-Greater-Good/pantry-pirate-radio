@@ -1806,8 +1806,21 @@ print(json.dumps(d))
             exit 1
         fi
 
-        # Build container override JSON. The reconciler container is named
-        # "reconciler" in the task definition; override its command.
+        # Discover the actual container name from the task definition.
+        # CDK's auto-generated name (currently `ReconcilerContainer`)
+        # can change across CDK versions and historically diverged from
+        # a hard-coded "reconciler" assumption — query at run-time so
+        # this stays correct regardless.
+        CONTAINER_NAME=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF" \
+            --query 'taskDefinition.containerDefinitions[0].name' \
+            --output text 2>/dev/null)
+        if [ -z "$CONTAINER_NAME" ] || [ "$CONTAINER_NAME" = "None" ]; then
+            output error "Could not read container name from $TASK_DEF"
+            exit 1
+        fi
+
+        # Build container override JSON.
         SCRIPT_CMD_JSON=$(python3 -c "
 import json, sys
 parts = ['python', sys.argv[1]] + sys.argv[2:]
@@ -1817,11 +1830,11 @@ print(json.dumps(parts))
 import json, sys
 print(json.dumps({
     'containerOverrides': [{
-        'name': 'reconciler',
-        'command': json.loads(sys.argv[1]),
+        'name': sys.argv[1],
+        'command': json.loads(sys.argv[2]),
     }]
 }))
-" "$SCRIPT_CMD_JSON")
+" "$CONTAINER_NAME" "$SCRIPT_CMD_JSON")
 
         output info "Dispatching one-shot task on $DEPLOY_ENV: $SCRIPT_PATH $*"
         RUN_RESULT=$(aws ecs run-task \

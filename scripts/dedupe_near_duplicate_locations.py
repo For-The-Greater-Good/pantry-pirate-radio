@@ -89,6 +89,29 @@ CHILD_TABLES: list[tuple[str, str, list[str]]] = [
 ]
 
 
+# Grandchild tables that FK to one of the UNIQUE-conflict parents above.
+# When we DELETE a parent row on a UNIQUE conflict, its grandchildren
+# would orphan via FK violation unless we first repoint them onto the
+# survivor's matching parent row.
+#
+# This was the cause of the 13% FK-cascade failure rate on the first
+# `--apply` run: `service_at_location` has FOUR children that reference
+# it (contact, phone, schedule, service_area), and any cluster whose
+# merge involved a UNIQUE-conflicting SAL row with any of those
+# grandchildren would roll back.
+#
+# Same security rationale as CHILD_TABLES: identifiers are static
+# literals, no user input.
+GRANDCHILD_REPOINTS: dict[str, list[tuple[str, str]]] = {
+    "service_at_location": [
+        ("contact", "service_at_location_id"),
+        ("phone", "service_at_location_id"),
+        ("schedule", "service_at_location_id"),
+        ("service_area", "service_at_location_id"),
+    ],
+}
+
+
 # Append-only audit table. Created lazily on first --apply (CREATE TABLE
 # IF NOT EXISTS) so this script can ship without a cross-repo migration —
 # same pattern the Write API's `ingest_audit` table uses (per CLAUDE.md).
@@ -385,10 +408,14 @@ def repoint_child_rows(
             # (source_type, last_seen_at, payload columns, etc.) — those
             # are exactly the columns an operator needs to identify the
             # destroyed row if a fuzzy false-positive is reported.
+            #
+            # Also fetch `c.id AS survivor_row_id` so we can repoint any
+            # grandchildren (rows that FK to this row) onto the survivor's
+            # matching row BEFORE we delete the duplicate's row.
             unique_join = " AND ".join([f"d.{c} = c.{c}" for c in unique_cols])
             conflict_query = text(
                 f"""
-                SELECT d.id, row_to_json(d.*) AS payload
+                SELECT d.id, row_to_json(d.*) AS payload, c.id AS survivor_row_id
                 FROM {table} d
                 JOIN {table} c
                   ON c.{fk_col} = :canonical_id
@@ -397,7 +424,7 @@ def repoint_child_rows(
                 """  # noqa: S608  # nosec B608 - identifiers from static CHILD_TABLES
             )
             conflict_rows = [
-                (r[0], r[1])
+                (r[0], r[1], r[2])
                 for r in db.execute(
                     conflict_query,
                     {"canonical_id": canonical_id, "duplicate_id": duplicate_id},
@@ -406,8 +433,43 @@ def repoint_child_rows(
             skipped = len(conflict_rows)
 
             if apply and skipped > 0:
+                # Step 1: repoint grandchildren onto the survivor's
+                # matching row. Without this, the DELETE in step 3 would
+                # violate FK constraints (e.g.,
+                # schedule_service_at_location_id_fkey when SAL rows are
+                # being deleted). The repoint is audit-logged per row
+                # so undo can reverse it.
+                grandchild_specs = GRANDCHILD_REPOINTS.get(table, [])
+                for grand_table, grand_fk_col in grandchild_specs:
+                    for dup_row_id, _payload, surv_row_id in conflict_rows:
+                        result = db.execute(
+                            text(
+                                f"UPDATE {grand_table} "  # noqa: S608
+                                f"SET {grand_fk_col} = :surv "
+                                f"WHERE {grand_fk_col} = :dup "
+                                f"RETURNING id"
+                            ),  # nosec B608 - identifiers from static GRANDCHILD_REPOINTS
+                            {"surv": surv_row_id, "dup": dup_row_id},
+                        )
+                        moved_grand_ids = [r[0] for r in result]
+                        if audit_enabled:
+                            for gid in moved_grand_ids:
+                                _log_audit(
+                                    db,
+                                    run_id=run_id,  # type: ignore[arg-type]
+                                    cluster_id=cluster_id,  # type: ignore[arg-type]
+                                    survivor_id=canonical_id,
+                                    duplicate_id=duplicate_id,
+                                    table_name=grand_table,
+                                    row_id=str(gid),
+                                    action="repoint",
+                                    old_value={grand_fk_col: str(dup_row_id)},
+                                    new_value={grand_fk_col: str(surv_row_id)},
+                                )
+
+                # Step 2: audit-log the about-to-be-deleted parent rows.
                 if audit_enabled:
-                    for row_id, payload in conflict_rows:
+                    for row_id, payload, _surv in conflict_rows:
                         _log_audit(
                             db,
                             run_id=run_id,  # type: ignore[arg-type]
@@ -419,6 +481,8 @@ def repoint_child_rows(
                             action="delete",
                             old_value=payload,
                         )
+
+                # Step 3: DELETE the conflicting parent rows.
                 placeholders = ",".join([f":cid_{i}" for i in range(skipped)])
                 delete_params = {
                     f"cid_{i}": conflict_rows[i][0] for i in range(skipped)
