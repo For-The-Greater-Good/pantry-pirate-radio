@@ -16,7 +16,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.partners.ptf._allowlist import FANO_ALLOWLIST
 
 _MIN_LIMIT = 1
-_MAX_LIMIT = 200
+_MAX_LIMIT = 500
+
+# Tiered cluster-dedup thresholds. SRID-4326 degrees; ~111m per degree at
+# the equator, narrower at higher lats — close enough for CONUS pantry
+# spacing. Tight tier always merges; loose tier merges only when a
+# name/address gate fires.
+_DEDUP_TIGHT_DEG = 0.00045  # ~50m
+_DEDUP_LOOSE_DEG = 0.00180  # ~200m
+# pg_trgm similarity thresholds for the loose-tier gate. Names are
+# typically shorter and noisier than addresses (org suffixes, "Church of
+# X" vs "X Church") so use a lower bar for names than addresses.
+_NAME_SIM_THRESHOLD = 0.5
+_ADDR_SIM_THRESHOLD = 0.7
 
 
 def clamp_limit(value: int) -> int:
@@ -52,22 +64,36 @@ def clamp_offset(value: int) -> int:
 # endpoint as defense-in-depth: the reconciler's name-or-org-constrained
 # merge tier bails when independent scrapers produce different names AND
 # different orgs for the same physical pantry, so duplicates leak into
-# `location`. ST_ClusterDBSCAN(eps:=0.0005, minpoints:=1) groups rows
-# whose (lng,lat) sit within ~55m of each other (eps is in SRID-4326
-# degrees, ~111m per degree at the equator, narrower at higher lats);
-# minpoints=1 means isolated rows form their own singleton cluster so no
-# unique location is ever dropped. The survivor per cluster is picked by
+# `location`. The dedup is tiered:
+#
+#   * Tight tier (<= _DEDUP_TIGHT_DEG, ~50m): always an edge. Same
+#     parcel / same building — GPS fuzz dominates, names diverge.
+#   * Loose tier (50m < d <= _DEDUP_LOOSE_DEG, ~200m): an edge only if
+#     normalized names fuzzy-match (`similarity(...) > _NAME_SIM_THRESHOLD`)
+#     OR normalized address_1 fuzzy-matches
+#     (`similarity(...) > _ADDR_SIM_THRESHOLD`) AND 5-digit ZIPs agree.
+#     This catches reconciler-missed dupes on the opposite side of a
+#     parking lot / strip mall while leaving genuinely distinct
+#     neighboring pantries alone. Threshold values live as module
+#     constants above; the SQL binds them, never hard-codes the floats.
+#
+# Implementation: spatial-index-aware DBSCAN pre-clusters candidates at
+# `_DEDUP_LOOSE_DEG` (`loose_clusters` CTE) so the per-pair tier-rule
+# self-join only walks within-cluster pairs (small constant). Then a
+# recursive-CTE connected-components walk (`edges` → `edges_both` →
+# `reachable` → `components`) assigns each candidate a `component_id`.
+# Self-loops in `edges_both` ensure every candidate (including
+# singletons) ends up in the result. Survivor per component is picked by
 # `has_qualifying_source DESC, confidence_score DESC NULLS LAST, id ASC`
 # so the FANO enrichment block is never silently stripped when a non-FANO
-# sibling exists — matches the eps used by the inbound /sync endpoint
-# (`services.py:_build_qualified_cte`).
+# sibling exists.
 #
 # The CTE is inlined into both _LIST_SQL and _DETAIL_SQL rather than
 # string-concatenated so bandit's B608 (hardcoded_sql_expressions) heuristic
 # stays clean. Allowlist values are bound via SQLAlchemy `expanding=True`
 # (see `_bind_allowlist`); no scraper IDs are interpolated into SQL text.
 _LIST_SQL = """
-WITH qualifying_source AS (
+WITH RECURSIVE qualifying_source AS (
     SELECT location_id,
            BOOL_OR(true) AS has_qualifying_source
     FROM location_source
@@ -100,7 +126,50 @@ candidates AS (
         CASE WHEN COALESCE(qs.has_qualifying_source, false)
              THEN fa.fa_org_name END AS fa_org_name,
         COALESCE(qs.has_qualifying_source, false) AS has_qualifying_source,
-        (fa.fa_org_id IS NOT NULL) AS zip_matched_fa
+        (fa.fa_org_id IS NOT NULL) AS zip_matched_fa,
+        -- Inputs to the loose-tier fuzzy gate. Strip punctuation and
+        -- lowercase; keep stop-words like "church"/"ministry" because
+        -- they're often the only signal that two pantries are distinct.
+        -- `translate(...)` folds the common Latin diacritics to ASCII
+        -- BEFORE the regex strip so "San José" and "San Jose" share
+        -- trigrams instead of differing on `é`. This is portable (no
+        -- `unaccent` extension required) and covers ~Spanish, French,
+        -- Italian, Portuguese — the languages most relevant for US
+        -- food-pantry names. Add more pairs here if a new locale shows
+        -- up; one char per source position in each string.
+        lower(
+            regexp_replace(
+                translate(
+                    coalesce(l.name, ''),
+                    'áàâäãåÁÀÂÄÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜñÑçÇ',
+                    'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUnNcC'
+                ),
+                '[^a-zA-Z0-9 ]', '', 'g'
+            )
+        ) AS norm_name,
+        lower(
+            regexp_replace(
+                translate(
+                    coalesce(a.address_1, ''),
+                    'áàâäãåÁÀÂÄÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜñÑçÇ',
+                    'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUnNcC'
+                ),
+                '[^a-zA-Z0-9 ]', '', 'g'
+            )
+        ) AS norm_addr,
+        SUBSTR(a.postal_code, 1, 5) AS zip5,
+        -- Cached geometry so the downstream loose-cluster DBSCAN and
+        -- the per-pair ST_DWithin don't recompute the make-point each
+        -- row. The bbox filter below still uses the indexed expression
+        -- against `location l` directly, which is what hits the GIST
+        -- index `idx_location_coords`.
+        ST_SetSRID(
+            ST_MakePoint(
+                CAST(l.longitude AS float8),
+                CAST(l.latitude AS float8)
+            ),
+            4326
+        ) AS geom
     FROM location l
     LEFT JOIN organization o ON l.organization_id = o.id
     LEFT JOIN address a ON a.location_id = l.id AND a.address_type = 'physical'
@@ -138,48 +207,108 @@ candidates AS (
              fa.fa_org_id NULLS LAST,
              p.id NULLS LAST
 ),
-clustered AS (
+-- Loose pre-cluster: spatial-index-aware DBSCAN groups candidates
+-- within the loose-tier ceiling. ST_ClusterDBSCAN is a window function
+-- that internally walks the GIST index on `idx_location_coords` (when
+-- the planner can see through to the indexed expression), so this is
+-- O(N log N) rather than the O(N^2) of a naive self-join. The
+-- per-pair tier rule then only needs to look at within-cluster pairs,
+-- which in practice are 1-3 rows.
+loose_clusters AS (
     SELECT c.*,
            ST_ClusterDBSCAN(
-               ST_SetSRID(
-                   ST_MakePoint(
-                       CAST(c.longitude AS float8),
-                       CAST(c.latitude AS float8)
-                   ),
-                   4326
-               ),
-               eps := 0.0005,
+               c.geom,
+               eps := :dedup_loose_deg,
                minpoints := 1
-           ) OVER () AS cluster_id
+           ) OVER () AS loose_cluster_id
     FROM candidates c
+),
+-- Tier edges: a directed pair (a < b) gets an edge when (i) they sit
+-- in the same loose pre-cluster (within ~200m or transitively reachable
+-- via 200m hops) AND (ii) the tier rule fires. Tight tier (~50m) always
+-- contributes; loose tier requires the trigram-similarity gate. The
+-- intra-cluster join is small enough that the per-pair similarity()
+-- and tight-tier ST_DWithin calls are cheap.
+edges AS (
+    SELECT c1.id AS a_id, c2.id AS b_id
+    FROM loose_clusters c1
+    JOIN loose_clusters c2
+      ON c1.loose_cluster_id = c2.loose_cluster_id
+     AND c1.id < c2.id
+    -- Strict pairwise loose-tier cap. DBSCAN's transitive-neighbor
+    -- semantics can span more than `eps` end-to-end (A within 200m of
+    -- B, B within 200m of C, A 350m from C — all one cluster). The
+    -- explicit ST_DWithin keeps direct pair edges capped at 200m and
+    -- relies on the recursive components walk below for transitivity.
+    WHERE ST_DWithin(c1.geom, c2.geom, :dedup_loose_deg)
+      AND (
+          ST_DWithin(c1.geom, c2.geom, :dedup_tight_deg)
+          OR similarity(c1.norm_name, c2.norm_name) > :name_sim_threshold
+          OR (
+              -- Name gate fires regardless of ZIP — the 200m geo cap
+              -- is the proximity gate, and two same-named rows that
+              -- close together are nearly always the same physical
+              -- pantry pin even when ZIP boundaries split them.
+              -- Address gate requires ZIP agreement because address_1
+              -- alone is too easy to match coincidentally ("100 Main
+              -- St" exists in every town).
+              similarity(c1.norm_addr, c2.norm_addr) > :addr_sim_threshold
+              AND c1.zip5 IS NOT NULL
+              AND c1.zip5 = c2.zip5
+          )
+      )
+),
+-- Bidirectional edge set plus self-loops so singletons survive.
+edges_both AS (
+    SELECT id AS a, id AS b FROM candidates
+    UNION ALL
+    SELECT a_id AS a, b_id AS b FROM edges
+    UNION ALL
+    SELECT b_id AS a, a_id AS b FROM edges
+),
+-- Transitive closure: reachable[node] = every node in the same
+-- connected component. Recursion converges in O(component diameter)
+-- steps; in practice components are 1-3 rows so this is cheap.
+reachable AS (
+    SELECT a AS node, b AS reach FROM edges_both
+    UNION
+    SELECT r.node, e.b
+    FROM reachable r
+    JOIN edges_both e ON r.reach = e.a
+),
+components AS (
+    SELECT node, MIN(reach) AS component_id
+    FROM reachable
+    GROUP BY node
 )
-SELECT DISTINCT ON (cluster_id)
-    id,
-    name,
-    short_name,
-    description,
-    latitude,
-    longitude,
-    organization_id,
-    org_name,
-    org_description,
-    org_email,
-    org_website,
-    address_1,
-    address_2,
-    city,
-    state_province,
-    postal_code,
-    phone_number,
-    fa_org_id,
-    fa_org_name,
-    has_qualifying_source,
-    zip_matched_fa
-FROM clustered
-ORDER BY cluster_id,
-         has_qualifying_source DESC,
-         confidence_score DESC NULLS LAST,
-         id
+SELECT DISTINCT ON (comp.component_id)
+    c.id,
+    c.name,
+    c.short_name,
+    c.description,
+    c.latitude,
+    c.longitude,
+    c.organization_id,
+    c.org_name,
+    c.org_description,
+    c.org_email,
+    c.org_website,
+    c.address_1,
+    c.address_2,
+    c.city,
+    c.state_province,
+    c.postal_code,
+    c.phone_number,
+    c.fa_org_id,
+    c.fa_org_name,
+    c.has_qualifying_source,
+    c.zip_matched_fa
+FROM candidates c
+JOIN components comp ON comp.node = c.id
+ORDER BY comp.component_id,
+         c.has_qualifying_source DESC,
+         c.confidence_score DESC NULLS LAST,
+         c.id
 LIMIT :limit OFFSET :offset
 """
 
@@ -291,6 +420,10 @@ class PtfLocationsQuery:
             "limit": clamp_limit(limit),
             "offset": clamp_offset(offset),
             "allowlist": _FANO_ALLOWLIST_TUPLE,
+            "dedup_tight_deg": _DEDUP_TIGHT_DEG,
+            "dedup_loose_deg": _DEDUP_LOOSE_DEG,
+            "name_sim_threshold": _NAME_SIM_THRESHOLD,
+            "addr_sim_threshold": _ADDR_SIM_THRESHOLD,
         }
         bbox_clause = ""
         if bbox is not None:

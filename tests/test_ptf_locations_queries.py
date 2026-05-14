@@ -34,7 +34,11 @@ class TestClamps:
         assert clamp_limit(-100) == 1
 
     def test_limit_clamps_to_maximum(self):
-        assert clamp_limit(1000) == 200
+        # _MAX_LIMIT widened to 500 so a dense-urban viewport (3-mile
+        # floor + tier-2 dedup) can still return all pins in one page.
+        assert clamp_limit(1000) == 500
+        assert clamp_limit(500) == 500
+        assert clamp_limit(501) == 500
 
     def test_limit_passes_through_valid(self):
         assert clamp_limit(50) == 50
@@ -175,19 +179,38 @@ class TestQuerySQL:
     async def test_list_query_clusters_near_duplicate_canonicals(self):
         """Defense-in-depth: when the reconciler leaves near-duplicate
         location rows (different name AND different org so its widen-
-        radius merge bails), the endpoint must collapse them via
-        ST_ClusterDBSCAN with eps matching the inbound /sync endpoint."""
+        radius merge bails), the endpoint must collapse them via a
+        tiered connected-components walk (tight ~50m always-merge,
+        loose ~200m gated by trigram similarity on name or address)."""
         session = _capture_session()
         query = PtfLocationsQuery(session)
         await query.list_locations(limit=10, offset=0)
         sql_text = str(session.execute.call_args[0][0])
-        assert "ST_ClusterDBSCAN" in sql_text, "list query must run cluster-based dedup"
-        # eps must match the inbound /sync endpoint (services.py) so
-        # operators reason about one tolerance, not two.
-        assert "eps := 0.0005" in sql_text
-        # minpoints=1 means isolated rows form their own singleton
-        # cluster — no unique location is ever dropped.
-        assert "minpoints := 1" in sql_text
+        # Tier edges + recursive reachability are the contract.
+        assert (
+            "WITH RECURSIVE" in sql_text
+        ), "list query must use recursive CTE for tiered dedup"
+        # Loose pre-cluster keeps the per-pair self-join inside small
+        # spatial groups — without it, the edges CTE is O(N^2) and the
+        # GIST index can't help (the planner can't see through the
+        # CTE-materialized `geom` column).
+        assert (
+            "ST_ClusterDBSCAN" in sql_text
+        ), "loose pre-cluster must use ST_ClusterDBSCAN for index-aware grouping"
+        assert (
+            "ST_DWithin" in sql_text
+        ), "tier edges must use ST_DWithin against pre-cached geom"
+        assert (
+            "similarity(" in sql_text
+        ), "loose-tier gate must call pg_trgm similarity()"
+        # The tier thresholds must be bound (not hard-coded) so
+        # operators can tune via the module constants without editing
+        # SQL.
+        params = session.execute.call_args[0][1]
+        assert params["dedup_tight_deg"] == pytest.approx(0.00045)
+        assert params["dedup_loose_deg"] == pytest.approx(0.00180)
+        assert params["name_sim_threshold"] == pytest.approx(0.5)
+        assert params["addr_sim_threshold"] == pytest.approx(0.7)
         # Survivor pick must prefer FANO-qualifying rows so the
         # feeding_america_food_bank enrichment block is never silently
         # stripped in favor of a non-FANO sibling.
@@ -197,6 +220,9 @@ class TestQuerySQL:
         assert (
             "confidence_score DESC NULLS LAST" in norm
         ), "survivor pick must fall back to confidence_score after FANO"
+        # DISTINCT ON the component id (not the cluster id) keeps each
+        # connected component to a single representative row.
+        assert "DISTINCT ON (comp.component_id)" in sql_text
 
     @pytest.mark.asyncio
     async def test_list_query_keeps_confidence_score_for_survivor_ordering(self):
@@ -220,7 +246,13 @@ class TestQuerySQL:
         query = PtfLocationsQuery(session)
         await query.get_location("11111111-2222-3333-4444-555555555555")
         sql_text = str(session.execute.call_args[0][0])
+        # All three of these dedup primitives belong only on the list
+        # path. Inheriting them on the detail query would silently
+        # rewrite the response.id to a survivor and break consumers
+        # that cached non-survivor ids from a prior list.
         assert "ST_ClusterDBSCAN" not in sql_text
+        assert "WITH RECURSIVE" not in sql_text
+        assert "similarity(" not in sql_text
 
     @pytest.mark.asyncio
     async def test_get_by_id_binds_uuid_param(self):

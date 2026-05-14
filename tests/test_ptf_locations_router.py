@@ -16,6 +16,8 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.partners.ptf.locations_router import (
+    _BBOX_MIN_SIZE_DEG,
+    _pad_bbox_to_min,
     get_ptf_location,
     list_ptf_locations,
 )
@@ -121,7 +123,99 @@ class TestListEndpoint:
                 session=session,
             )
             kwargs = mock_q.list_locations.await_args.kwargs
+            # 1° x 2° is well above the 3-mile floor, so it passes through
+            # unchanged (modulo the min/max normalization, which is a
+            # no-op here since the values are already ordered).
             assert kwargs["bbox"] == (40.0, -75.0, 41.0, -73.0)
+
+    @pytest.mark.asyncio
+    async def test_tiny_bbox_padded_to_min(self):
+        """A pin-tight zoom (<3 mi on a side) must be expanded around its
+        center before the SQL runs, so neighboring pins don't drop off
+        the response as the client zooms in."""
+        session = MagicMock(spec=AsyncSession)
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+
+            # 0.001° x 0.001° — well under the floor.
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.7580,
+                lng1=-73.9858,
+                lat2=40.7585,
+                lng2=-73.9853,
+                q=None,
+                session=session,
+            )
+            kwargs = mock_q.list_locations.await_args.kwargs
+            padded = kwargs["bbox"]
+            # Side lengths must now meet the floor.
+            assert padded[2] - padded[0] >= _BBOX_MIN_SIZE_DEG - 1e-9
+            assert padded[3] - padded[1] >= _BBOX_MIN_SIZE_DEG - 1e-9
+            # Centered on the original center.
+            assert padded[0] + padded[2] == pytest.approx(40.7580 + 40.7585)
+            assert padded[1] + padded[3] == pytest.approx(-73.9858 + -73.9853)
+
+    @pytest.mark.asyncio
+    async def test_inverted_bbox_is_normalized(self):
+        """Swapped corners (lat2 < lat1) must yield a valid envelope, not
+        an inverted one. The query layer assumes min/max are correctly
+        ordered."""
+        session = MagicMock(spec=AsyncSession)
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=41.0,
+                lng1=-73.0,
+                lat2=40.0,
+                lng2=-75.0,
+                q=None,
+                session=session,
+            )
+            kwargs = mock_q.list_locations.await_args.kwargs
+            lat_min, lng_min, lat_max, lng_max = kwargs["bbox"]
+            assert lat_min < lat_max
+            assert lng_min < lng_max
+
+    @pytest.mark.asyncio
+    async def test_limit_500_accepted(self):
+        """Max page size widened to 500 so a 3-mile-padded urban viewport
+        can return all pins in one call."""
+        session = MagicMock(spec=AsyncSession)
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=500,
+                offset=0,
+                lat1=None,
+                lng1=None,
+                lat2=None,
+                lng2=None,
+                q=None,
+                session=session,
+            )
+            kwargs = mock_q.list_locations.await_args.kwargs
+            assert kwargs["limit"] == 500
 
     @pytest.mark.asyncio
     async def test_partial_bbox_rejected(self):
@@ -253,6 +347,200 @@ class TestDetailEndpoint:
                     session=session,
                 )
             assert ei.value.status_code == 404
+
+
+class TestPadBboxToMin:
+    """Direct unit tests for the bbox-padding helper."""
+
+    def test_large_bbox_unchanged(self):
+        bbox = (40.0, -75.0, 41.0, -73.0)
+        assert _pad_bbox_to_min(bbox) == bbox
+
+    def test_tiny_bbox_padded(self):
+        bbox = (40.7580, -73.9858, 40.7585, -73.9853)
+        padded = _pad_bbox_to_min(bbox)
+        assert padded[2] - padded[0] == pytest.approx(_BBOX_MIN_SIZE_DEG)
+        assert padded[3] - padded[1] == pytest.approx(_BBOX_MIN_SIZE_DEG)
+
+    def test_padding_centered(self):
+        bbox = (45.0, -100.0, 45.001, -99.999)
+        padded = _pad_bbox_to_min(bbox)
+        assert (padded[0] + padded[2]) / 2 == pytest.approx(45.0005)
+        assert (padded[1] + padded[3]) / 2 == pytest.approx(-99.9995)
+
+    def test_only_one_axis_under_floor(self):
+        # Lat span 0.01 (under floor), lng span 1.0 (above floor).
+        bbox = (45.0, -100.0, 45.01, -99.0)
+        padded = _pad_bbox_to_min(bbox)
+        # Lat padded.
+        assert padded[2] - padded[0] == pytest.approx(_BBOX_MIN_SIZE_DEG)
+        # Lng untouched.
+        assert padded[1] == pytest.approx(-100.0)
+        assert padded[3] == pytest.approx(-99.0)
+
+    def test_inverted_lat_normalized(self):
+        bbox = (41.0, -75.0, 40.0, -73.0)  # lat1 > lat2
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lat_min < lat_max
+
+    def test_inverted_lng_normalized(self):
+        bbox = (40.0, -73.0, 41.0, -75.0)  # lng1 > lng2
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lng_min < lng_max
+
+    def test_padding_near_north_pole_clamps_to_90(self):
+        """A near-pole input padded outward would push lat past 90°.
+        Helper must clamp so the resulting envelope is still a valid
+        SRID-4326 geometry."""
+        bbox = (89.99, -100.0, 89.999, -99.999)
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lat_max <= 90.0
+        assert lat_min >= -90.0
+
+    def test_padding_near_south_pole_clamps_to_minus_90(self):
+        bbox = (-89.999, 0.0, -89.99, 0.001)
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lat_min >= -90.0
+        assert lat_max <= 90.0
+
+    def test_padding_near_lng_edge_clamps(self):
+        """Near the dateline, padding must clamp to [-180, 180]."""
+        bbox = (40.0, 179.99, 41.0, 179.999)
+        lat_min, lng_min, lat_max, lng_max = _pad_bbox_to_min(bbox)
+        assert lng_min >= -180.0
+        assert lng_max <= 180.0
+
+
+class TestAntimeridianAndBboxPaddedFlag:
+    """Antimeridian warn + bbox_padded log-field type contract."""
+
+    @pytest.mark.asyncio
+    async def test_antimeridian_span_logs_warning(self):
+        """A bbox whose lng span > 180° is almost certainly a caller
+        passing `lng1=170, lng2=-170` and intending to wrap the
+        dateline. Sorting would normalize to (-170, 170) — a 340° envelope
+        covering most of the planet. We don't reject (PTF is US-only in
+        practice), but we must emit a warn-level log so misconfigured
+        clients are diagnosable."""
+        session = MagicMock(spec=AsyncSession)
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            # Need a child logger for the structured .info() chain to
+            # not blow up on the MagicMock.
+            mock_logger.bind.return_value = MagicMock()
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.0,
+                lng1=170.0,
+                lat2=41.0,
+                lng2=-170.0,
+                q=None,
+                session=session,
+            )
+            warn_calls = [
+                c
+                for c in mock_logger.warning.call_args_list
+                if c.args and c.args[0] == "ptf_bbox_antimeridian_suspect"
+            ]
+            assert (
+                len(warn_calls) == 1
+            ), "antimeridian-suspect bbox must emit exactly one warn"
+
+    @pytest.mark.asyncio
+    async def test_bbox_padded_is_none_when_no_bbox(self):
+        """`bbox_padded` is None (not False) when no bbox was provided
+        so CloudWatch filters can tell 'no bbox' apart from 'bbox
+        provided but not padded'."""
+        session = MagicMock(spec=AsyncSession)
+        bound = MagicMock()
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            mock_logger.bind.return_value = bound
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=None,
+                lng1=None,
+                lat2=None,
+                lng2=None,
+                q=None,
+                session=session,
+            )
+            bind_kwargs = mock_logger.bind.call_args.kwargs
+            assert bind_kwargs["bbox_padded"] is None
+
+    @pytest.mark.asyncio
+    async def test_bbox_padded_is_true_when_padding_fires(self):
+        session = MagicMock(spec=AsyncSession)
+        bound = MagicMock()
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            mock_logger.bind.return_value = bound
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.7580,
+                lng1=-73.9858,
+                lat2=40.7585,
+                lng2=-73.9853,
+                q=None,
+                session=session,
+            )
+            bind_kwargs = mock_logger.bind.call_args.kwargs
+            assert bind_kwargs["bbox_padded"] is True
+
+    @pytest.mark.asyncio
+    async def test_bbox_padded_is_false_when_bbox_above_floor(self):
+        session = MagicMock(spec=AsyncSession)
+        bound = MagicMock()
+        with patch(
+            "app.api.v1.partners.ptf.locations_router.PtfLocationsQuery"
+        ) as MockQuery, patch(
+            "app.api.v1.partners.ptf.locations_router.logger"
+        ) as mock_logger:
+            mock_q = MagicMock()
+            mock_q.list_locations = AsyncMock(return_value=[])
+            MockQuery.return_value = mock_q
+            mock_logger.bind.return_value = bound
+
+            await list_ptf_locations(
+                response=MagicMock(headers={}),
+                limit=50,
+                offset=0,
+                lat1=40.0,
+                lng1=-75.0,
+                lat2=41.0,
+                lng2=-73.0,
+                q=None,
+                session=session,
+            )
+            bind_kwargs = mock_logger.bind.call_args.kwargs
+            assert bind_kwargs["bbox_padded"] is False
 
 
 class TestRouterMounting:
