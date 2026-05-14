@@ -563,6 +563,21 @@ aws ssm start-session --target $INSTANCE_ID \
 ./bouy reconciler --force    # Force processing (bypass checks)
 ```
 
+**Backfill scripts** (one-shot cleanup for duplicates the reconciler historically created):
+```bash
+# Narrow same-org/same-name dupes (older script, ~111m radius)
+./bouy exec app python scripts/dedupe_same_org_locations.py             # dry-run
+./bouy exec app python scripts/dedupe_same_org_locations.py --apply     # commit
+
+# Tier 3 fuzzy dupes (different name AND different org, same physical pantry)
+./bouy exec app python scripts/dedupe_near_duplicate_locations.py            # dry-run
+./bouy exec app python scripts/dedupe_near_duplicate_locations.py --apply    # commit
+./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py    # prod dry-run
+./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py --apply  # prod commit
+```
+
+Both scripts pick a survivor canonical, repoint FK children onto it (location_source, address, phone, schedule, service_at_location, etc.), and soft-delete the duplicates via `is_canonical=FALSE`. Rows with `verified_by IN ('admin','source','claimed')` are exempt — never merged into. The Tier 3 script mirrors the reconciler's Tier 3 detection SQL (`app/reconciler/dedup.py`) and the PTF API's survivor pick (FANO > confidence > id), so prevent-on-ingest, hide-on-serve, and drain-the-backlog stay aligned.
+
 ### Scraper Development Workflow
 
 **Interactive Slash Command: `/scrape`**
