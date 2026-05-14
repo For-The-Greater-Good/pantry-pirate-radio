@@ -224,9 +224,13 @@ def test_find_matching_location_no_fallback_without_name_or_org(
 def test_find_matching_location_fallback_returns_none_when_no_match(
     mock_db: MagicMock,
 ) -> None:
-    """Strict miss + fallback miss → returns None (no false-positive merge)."""
+    """Strict miss + fallback miss + Tier 3 fuzzy miss → returns None
+    (no false-positive merge). Since `name` is provided, all three
+    tiers fire and we need mocks for all three SELECTs."""
     location_creator = LocationCreator(mock_db)
-    _setup_two_tier_match_mocks(mock_db, strict_hit=None, fallback_hit=None)
+    _setup_three_tier_match_mocks(
+        mock_db, tier1_hit=None, tier2_hit=None, tier3_hit=None
+    )
 
     result = location_creator.find_matching_location(
         37.7749,
@@ -236,7 +240,8 @@ def test_find_matching_location_fallback_returns_none_when_no_match(
     )
 
     assert result is None
-    assert mock_db.execute.call_count == 4
+    # acquire + tier1 + tier2 + tier3 + release = 5 calls
+    assert mock_db.execute.call_count == 5
 
 
 def test_find_matching_location_fallback_with_both_name_and_org(
@@ -288,6 +293,271 @@ def test_find_matching_location_fallback_name_is_lowercased_and_trimmed(
     fallback_sql = str(fallback_call[0][0])
     assert "LOWER(TRIM(name))" in fallback_sql
     assert "LOWER(TRIM(:name))" in fallback_sql
+
+
+def _setup_three_tier_match_mocks(
+    mock_db: MagicMock,
+    tier1_hit: tuple | None,
+    tier2_hit: tuple | None,
+    tier3_hit: tuple | None,
+) -> None:
+    """Configure mock_db.execute to simulate the 3-tier match path
+    plus advisory-lock acquire/release.
+
+    Call sequence: acquire_lock → tier1 → [tier2] → [tier3] → release.
+    Tier 2 only runs if tier1 misses; Tier 3 only runs if tier2 misses.
+    """
+    lock_result = MagicMock()
+    lock_result.scalar.return_value = "mock_lock_id"
+    release_result = MagicMock()
+
+    t1 = MagicMock()
+    t1.first.return_value = tier1_hit
+    t2 = MagicMock()
+    t2.first.return_value = tier2_hit
+    t3 = MagicMock()
+    t3.first.return_value = tier3_hit
+
+    if tier1_hit is not None:
+        mock_db.execute.side_effect = [lock_result, t1, release_result]
+    elif tier2_hit is not None:
+        mock_db.execute.side_effect = [lock_result, t1, t2, release_result]
+    else:
+        # Both upper tiers miss → Tier 3 runs (when there's anything to
+        # fuzzy-match on).
+        mock_db.execute.side_effect = [lock_result, t1, t2, t3, release_result]
+
+
+def test_find_matching_location_tier3_runs_after_tier2_miss(
+    mock_db: MagicMock,
+) -> None:
+    """When Tier 1 (strict coord) and Tier 2 (exact-name OR same-org)
+    both miss, Tier 3 (fuzzy name/address within ~200m) must run.
+    Catches dupes where two scrapers produced different names AND
+    different orgs for the same physical pantry."""
+    location_creator = LocationCreator(mock_db)
+    duplicate_id = str(uuid.uuid4())
+    _setup_three_tier_match_mocks(
+        mock_db, tier1_hit=None, tier2_hit=None, tier3_hit=(duplicate_id,)
+    )
+
+    result = location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="First Baptist Food Pantry",
+        address_1="123 Main St",
+        zip5="94105",
+    )
+
+    assert result == duplicate_id
+    # acquire + tier1 + tier2 + tier3 + release = 5 execute() calls
+    assert mock_db.execute.call_count == 5
+
+
+def test_find_matching_location_tier3_skipped_without_name_or_address(
+    mock_db: MagicMock,
+) -> None:
+    """Tier 3 must NOT run when the caller supplies neither name nor
+    address_1 — there'd be nothing to fuzzy-match on, and running an
+    unrestricted 200m geo query would risk merging unrelated pantries.
+
+    The Tier 2 guard already filters callers without name-or-org, but
+    Tier 3 has a separate guard because it doesn't accept org_id."""
+    location_creator = LocationCreator(mock_db)
+    lock_result = MagicMock()
+    lock_result.scalar.return_value = "mock_lock_id"
+    strict_result = MagicMock()
+    strict_result.first.return_value = None
+    release_result = MagicMock()
+    # No tier 2 SQL either (no name, no org), no tier 3 (no name, no addr).
+    mock_db.execute.side_effect = [lock_result, strict_result, release_result]
+
+    result = location_creator.find_matching_location(37.7749, -122.4194)
+
+    assert result is None
+    assert mock_db.execute.call_count == 3
+
+
+def test_find_matching_location_tier3_uses_dedup_module_sql(
+    mock_db: MagicMock,
+) -> None:
+    """The Tier 3 SQL must come from `app.reconciler.dedup.tier3_match_sql()`
+    so the threshold constants stay synced with the PTF API. Locking a
+    few signature strings catches a copy-paste regression."""
+    location_creator = LocationCreator(mock_db)
+    _setup_three_tier_match_mocks(
+        mock_db,
+        tier1_hit=None,
+        tier2_hit=None,
+        tier3_hit=(str(uuid.uuid4()),),
+    )
+    location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="First Baptist Food Pantry",
+        address_1="123 Main St",
+        zip5="94105",
+    )
+    tier3_call = mock_db.execute.call_args_list[3]
+    tier3_sql = str(tier3_call[0][0])
+    # Hallmarks of dedup.tier3_match_sql():
+    assert "similarity(" in tier3_sql
+    assert "ST_DWithin" in tier3_sql
+    assert "FOR UPDATE SKIP LOCKED" in tier3_sql
+    # And it must NOT be the Tier 2 fallback SQL — Tier 2 uses
+    # LOWER(TRIM(...)) for exact-name match; Tier 3 uses similarity().
+    assert "LOWER(TRIM(name))" not in tier3_sql
+
+
+def test_find_matching_location_tier3_binds_thresholds_as_params(
+    mock_db: MagicMock,
+) -> None:
+    """The fuzzy thresholds (name_sim, addr_sim, loose_deg) must be
+    bound as params from `app.reconciler.dedup`, not hard-coded into
+    the call site. A regression that hard-coded `0.5` here would
+    silently disable operator tuning."""
+    from app.reconciler.dedup import (
+        _ADDR_SIM_THRESHOLD,
+        _DEDUP_LOOSE_DEG,
+        _NAME_SIM_THRESHOLD,
+    )
+
+    location_creator = LocationCreator(mock_db)
+    _setup_three_tier_match_mocks(
+        mock_db,
+        tier1_hit=None,
+        tier2_hit=None,
+        tier3_hit=(str(uuid.uuid4()),),
+    )
+    location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="Anyplace Pantry",
+        address_1="500 Oak St",
+        zip5="94110",
+    )
+    tier3_call = mock_db.execute.call_args_list[3]
+    tier3_params = tier3_call[0][1]
+    assert tier3_params["name_sim"] == _NAME_SIM_THRESHOLD
+    assert tier3_params["addr_sim"] == _ADDR_SIM_THRESHOLD
+    assert tier3_params["loose_deg"] == _DEDUP_LOOSE_DEG
+    assert tier3_params["name"] == "Anyplace Pantry"
+    assert tier3_params["addr_1"] == "500 Oak St"
+    assert tier3_params["zip5"] == "94110"
+    assert tier3_params["lat1"] == 37.7749
+    assert tier3_params["lon1"] == -122.4194
+
+
+def test_find_matching_location_tier3_logs_structlog_event_on_hit(
+    mock_db: MagicMock,
+) -> None:
+    """When Tier 3 finds a match, the structlog event
+    `reconciler_tier3_fuzzy_merge` must fire so operators can grep
+    CloudWatch and audit fuzzy-merge volume."""
+    location_creator = LocationCreator(mock_db)
+    duplicate_id = str(uuid.uuid4())
+    _setup_three_tier_match_mocks(
+        mock_db, tier1_hit=None, tier2_hit=None, tier3_hit=(duplicate_id,)
+    )
+
+    with patch.object(location_creator, "logger") as mock_logger:
+        location_creator.find_matching_location(
+            37.7749,
+            -122.4194,
+            name="First Baptist Food Pantry",
+            address_1="123 Main St",
+            zip5="94105",
+        )
+        # info-level event; exact name `reconciler_tier3_fuzzy_merge`.
+        mock_logger.info.assert_called()
+        # Find at least one call whose message starts with the event name.
+        events = [
+            c.args[0]
+            for c in mock_logger.info.call_args_list
+            if c.args and isinstance(c.args[0], str)
+        ]
+        assert any("reconciler_tier3_fuzzy_merge" in e for e in events), (
+            f"expected `reconciler_tier3_fuzzy_merge` in logged events, "
+            f"got {events}"
+        )
+
+
+def test_find_matching_location_tier3_only_when_tier1_and_tier2_miss(
+    mock_db: MagicMock,
+) -> None:
+    """If Tier 1 hits, Tier 3 must NOT run — even with name/address
+    supplied. Saves a DB round-trip on the hot path."""
+    location_creator = LocationCreator(mock_db)
+    existing_id = str(uuid.uuid4())
+    _setup_three_tier_match_mocks(
+        mock_db,
+        tier1_hit=(existing_id,),
+        tier2_hit=None,
+        tier3_hit=None,
+    )
+
+    result = location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="First Baptist",
+        address_1="123 Main St",
+        zip5="94105",
+    )
+
+    assert result == existing_id
+    # Only acquire + tier1 + release; tier2 and tier3 must be skipped.
+    assert mock_db.execute.call_count == 3
+
+
+def test_find_matching_location_tier3_skipped_when_tier2_hits(
+    mock_db: MagicMock,
+) -> None:
+    """If Tier 2 (exact-name OR same-org) hits, Tier 3 must NOT run.
+    The exact-match tier is more conservative and should win first."""
+    location_creator = LocationCreator(mock_db)
+    tier2_hit_id = str(uuid.uuid4())
+    _setup_three_tier_match_mocks(
+        mock_db,
+        tier1_hit=None,
+        tier2_hit=(tier2_hit_id,),
+        tier3_hit=None,
+    )
+
+    result = location_creator.find_matching_location(
+        37.7749,
+        -122.4194,
+        name="First Baptist",
+        address_1="123 Main St",
+        zip5="94105",
+    )
+
+    assert result == tier2_hit_id
+    # acquire + tier1 + tier2 + release; tier3 must be skipped.
+    assert mock_db.execute.call_count == 4
+
+
+def test_find_matching_location_tier3_name_only_no_address(
+    mock_db: MagicMock,
+) -> None:
+    """Tier 3 must still run with only a name (no address) — the SQL's
+    address gate is a separate OR branch that degrades cleanly."""
+    location_creator = LocationCreator(mock_db)
+    duplicate_id = str(uuid.uuid4())
+    _setup_three_tier_match_mocks(
+        mock_db, tier1_hit=None, tier2_hit=None, tier3_hit=(duplicate_id,)
+    )
+
+    result = location_creator.find_matching_location(
+        37.7749, -122.4194, name="First Baptist Food Pantry"
+    )
+
+    assert result == duplicate_id
+    tier3_call = mock_db.execute.call_args_list[3]
+    tier3_params = tier3_call[0][1]
+    assert tier3_params["name"] == "First Baptist Food Pantry"
+    # Address and zip default to None when not supplied.
+    assert tier3_params["addr_1"] is None
+    assert tier3_params["zip5"] is None
 
 
 def test_create_location(

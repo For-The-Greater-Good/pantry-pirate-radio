@@ -166,10 +166,49 @@ class MonitoringStack(Stack):
         # Submarine log-based metrics
         self._create_submarine_metric_filters(env)
 
+        # Reconciler log-based metrics (tier distribution + Tier 3 fuzzy
+        # merges). These let operators see how often the new fuzzy-merge
+        # path fires without having to grep CloudWatch logs ad-hoc.
+        self._create_reconciler_metric_filters(env)
+
         # Create SNS topic, dashboard, and alarms via extracted modules
         self.alerts_topic = self._create_alerts_topic(alert_email)
         self.dashboard = build_dashboard(self)
         create_alarms(self)
+
+    def _create_reconciler_metric_filters(self, env: str) -> None:
+        """Create CloudWatch metric filters for reconciler tier events.
+
+        Mirrors `_create_submarine_metric_filters` — emits one
+        `PantryPirateRadio/Reconciler` namespace metric per tier hit.
+        The Tier 3 fuzzy-merge metric is the load-bearing one: a sudden
+        spike usually means a scraper started producing systematically
+        broken data and is dumping into the fuzzy-merge bucket.
+        """
+        ns = "PantryPirateRadio/Reconciler"
+        log_group = logs.LogGroup.from_log_group_name(
+            self,
+            "ReconcilerLogGroup",
+            f"/ecs/pantry-pirate-radio/reconciler-{env}",
+        )
+
+        filters = {
+            "Tier3FuzzyMerge": "reconciler_tier3_fuzzy_merge",
+            "Tier2NameOrOrgMerge": (
+                "Same-name/same-org fallback merged duplicate location"
+            ),
+        }
+        for metric_name, pattern in filters.items():
+            logs.MetricFilter(
+                self,
+                f"Reconciler{metric_name}Filter",
+                log_group=log_group,
+                filter_pattern=logs.FilterPattern.literal(pattern),
+                metric_namespace=ns,
+                metric_name=metric_name,
+                metric_value="1",
+                default_value=0,
+            )
 
     def _create_submarine_metric_filters(self, env: str) -> None:
         """Create CloudWatch metric filters on submarine log events.

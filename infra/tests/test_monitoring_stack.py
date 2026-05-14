@@ -664,3 +664,62 @@ class TestMonitoringStackRDSProxyDashboard:
         """Dashboard should synthesize without errors with new RDS Proxy section."""
         template = assertions.Template.from_stack(stack)
         template.resource_count_is("AWS::CloudWatch::Dashboard", 1)
+
+
+class TestMonitoringStackReconcilerDedup:
+    """Tests for reconciler dedup tier metric filters and dashboard widget.
+
+    Constitutional XIV: log-based metrics + dashboard widget so operators
+    see Tier 3 fuzzy-merge volume without grepping CloudWatch ad-hoc.
+    """
+
+    @pytest.fixture
+    def app(self):
+        return cdk.App()
+
+    @pytest.fixture
+    def stack(self, app):
+        return MonitoringStack(app, "DedupDashStack", environment_name="dev")
+
+    def test_creates_reconciler_metric_filter_for_tier3(self, stack):
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::Logs::MetricFilter",
+            {
+                "FilterPattern": "reconciler_tier3_fuzzy_merge",
+                "MetricTransformations": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "MetricNamespace": "PantryPirateRadio/Reconciler",
+                                "MetricName": "Tier3FuzzyMerge",
+                            }
+                        )
+                    ]
+                ),
+            },
+        )
+
+    def test_creates_reconciler_metric_filter_for_tier2(self, stack):
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::Logs::MetricFilter",
+            {
+                "MetricTransformations": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "MetricNamespace": "PantryPirateRadio/Reconciler",
+                                "MetricName": "Tier2NameOrOrgMerge",
+                            }
+                        )
+                    ]
+                ),
+            },
+        )
+
+    def test_dashboard_synthesizes_with_dedup_section(self, stack):
+        """Synthesizing the dashboard must not raise — covers the new
+        `add_reconciler_dedup_section` integration into build_dashboard."""
+        template = assertions.Template.from_stack(stack)
+        template.resource_count_is("AWS::CloudWatch::Dashboard", 1)

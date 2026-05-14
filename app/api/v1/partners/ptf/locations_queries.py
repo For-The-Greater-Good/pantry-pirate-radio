@@ -15,20 +15,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.partners.ptf._allowlist import FANO_ALLOWLIST
 
+# Tiered cluster-dedup thresholds are shared with the reconciler so the
+# "prevent on ingest" and "hide on serve" paths stay in lockstep. The
+# tight tier (~50m always-merge) is API-only — the reconciler relies on
+# its existing Tier 1 (~11m) + Tier 2 (~165m exact-name/same-org) for
+# the tight-bracket case.
+from app.reconciler.dedup import (
+    _ADDR_SIM_THRESHOLD,
+    _DEDUP_LOOSE_DEG,
+    _NAME_SIM_THRESHOLD,
+)
+
 _MIN_LIMIT = 1
 _MAX_LIMIT = 500
 
-# Tiered cluster-dedup thresholds. SRID-4326 degrees; ~111m per degree at
-# the equator, narrower at higher lats — close enough for CONUS pantry
-# spacing. Tight tier always merges; loose tier merges only when a
-# name/address gate fires.
+# API-only constant. The reconciler doesn't need a tight tier because
+# its Tier 1 already always-merges at ~11m.
 _DEDUP_TIGHT_DEG = 0.00045  # ~50m
-_DEDUP_LOOSE_DEG = 0.00180  # ~200m
-# pg_trgm similarity thresholds for the loose-tier gate. Names are
-# typically shorter and noisier than addresses (org suffixes, "Church of
-# X" vs "X Church") so use a lower bar for names than addresses.
-_NAME_SIM_THRESHOLD = 0.5
-_ADDR_SIM_THRESHOLD = 0.7
 
 
 def clamp_limit(value: int) -> int:
