@@ -16,3 +16,6 @@
 [submodule "plugins/ppr-lighthouse"]
 	path = plugins/ppr-lighthouse
 	url = https://github.com/For-The-Greater-Good/ppr-lighthouse.git
+[submodule "plugins/ppr-ptf-sync"]
+	path = plugins/ppr-ptf-sync
+	url = https://github.com/For-The-Greater-Good/ppr-ptf-sync.git
