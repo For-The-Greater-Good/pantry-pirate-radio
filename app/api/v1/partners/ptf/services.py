@@ -149,10 +149,20 @@ class PtfSyncService:
                                   WHERE ls.location_id = l.id
                                   AND ls.scraper_id != 'plentiful')
               )
+              -- Empty-string contact fields don't count: some scrapers
+              -- store '' rather than NULL for absent values.
               AND (
-                  EXISTS (SELECT 1 FROM phone p WHERE p.location_id = l.id)
-                  OR o.email IS NOT NULL
-                  OR o.website IS NOT NULL
+                  EXISTS (
+                      SELECT 1 FROM phone p
+                      WHERE p.location_id = l.id
+                        AND p.number IS NOT NULL AND p.number != ''
+                  )
+                  OR (o.email IS NOT NULL AND o.email != '')
+                  OR (o.website IS NOT NULL AND o.website != '')
+                  -- Schedule alone is also enough — the consuming app can
+                  -- still surface "open Tue 9-noon" without phone/email/site.
+                  -- Uses schedule_location_id_idx.
+                  OR EXISTS (SELECT 1 FROM schedule s WHERE s.location_id = l.id)
               )
               AND NOT (a.state_province = 'NY' AND UPPER(TRIM(a.city)) IN
                 ({city_literals}))
@@ -189,11 +199,18 @@ class PtfSyncService:
                                       WHERE ls.location_id = l.id
                                       AND ls.scraper_id != 'plentiful')
                   )
+                  -- Empty-string contact fields don't count.
                   AND (
                       EXISTS (SELECT 1 FROM phone p
-                              WHERE p.location_id = l.id)
-                      OR o.email IS NOT NULL
-                      OR o.website IS NOT NULL
+                              WHERE p.location_id = l.id
+                                AND p.number IS NOT NULL
+                                AND p.number != '')
+                      OR (o.email IS NOT NULL AND o.email != '')
+                      OR (o.website IS NOT NULL AND o.website != '')
+                      -- Schedule alone is also enough; uses
+                      -- schedule_location_id_idx.
+                      OR EXISTS (SELECT 1 FROM schedule s
+                                 WHERE s.location_id = l.id)
                   )
                   AND NOT (a.state_province = 'NY' AND UPPER(TRIM(a.city)) IN
                     __CITY_CLAUSE__)

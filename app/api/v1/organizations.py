@@ -11,7 +11,7 @@ from app.api.v1.utils import create_pagination_links
 from app.core.db import get_session
 from app.database.repositories import OrganizationRepository
 from app.models.hsds.organization import Organization
-from app.models.hsds.response import OrganizationResponse, Page, ServiceResponse
+from app.models.hsds.response import OrganizationResponse, Page
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -276,18 +276,48 @@ async def get_organization(
     if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    # Convert to response model
-    org_response = OrganizationResponse.model_validate(organization)
+    # Build dict explicitly from ORM attributes — avoids Pydantic's from_attributes
+    # recursing into unloaded nested relationships (e.g. service.locations) and
+    # tripping SQLAlchemy MissingGreenlet under async sessions.
+    org_dict: dict[str, Any] = {
+        "id": str(organization.id),
+        "name": organization.name,
+        "alternate_name": getattr(organization, "alternate_name", None),
+        "description": organization.description,
+        "email": organization.email,
+        "website": organization.website,
+        "tax_status": getattr(organization, "tax_status", None),
+        "tax_id": getattr(organization, "tax_id", None),
+        "year_incorporated": getattr(organization, "year_incorporated", None),
+        "legal_status": getattr(organization, "legal_status", None),
+        "metadata": {
+            "last_updated": (
+                organization.updated_at.isoformat()
+                if getattr(organization, "updated_at", None)
+                else None
+            )
+        },
+    }
 
     if include_services:
-        # Load services for this organization
+        # Shallow service dicts only — do NOT include `locations` (not eager-loaded).
         from app.database.repositories import ServiceRepository
 
         service_repo = ServiceRepository(session)
         services = await service_repo.get_services_by_organization(organization_id)
 
-        org_response.services = [
-            ServiceResponse.model_validate(service) for service in services
+        org_dict["services"] = [
+            {
+                "id": str(service.id),
+                "organization_id": str(service.organization_id),
+                "name": service.name,
+                "description": service.description,
+                "status": service.status,
+                "url": getattr(service, "url", None),
+                "email": getattr(service, "email", None),
+                "alternate_name": getattr(service, "alternate_name", None),
+            }
+            for service in services
         ]
 
-    return org_response
+    return OrganizationResponse.model_validate(org_dict)

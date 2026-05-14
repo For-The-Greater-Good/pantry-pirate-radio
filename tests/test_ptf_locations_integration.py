@@ -405,3 +405,441 @@ class TestFaCatalogueLoadedAtModuleImport:
         """Org 58 backs many NJ zips in the production crosswalk. If this
         ever breaks, regenerate via scripts/build_ptf_fa_catalogue.py."""
         assert 58 in FA_CATALOGUE or "58" in {str(k) for k in FA_CATALOGUE}
+
+
+class TestContactOrScheduleFilter:
+    """A location must have at least one of {phone, email, website, schedule}
+    to appear in the PTF feed. Locations with none of those are unreachable
+    by the consuming app and should be filtered out by both the list and
+    detail queries.
+    """
+
+    @pytest_asyncio.fixture
+    async def trio(self, db_session: AsyncSession):
+        """Seed three locations under a no-contact org:
+        - `bare_id`: nothing — should be filtered out
+        - `phone_id`: only a phone row
+        - `sched_id`: only a schedule row
+        Plus the `vivery_api` source on each so the FANO qualifying-source
+        CTE still considers them (matches the existing fixture pattern).
+        """
+        bare_org_id = str(uuid.uuid4())
+        bare_id = str(uuid.uuid4())
+        phone_id = str(uuid.uuid4())
+        sched_id = str(uuid.uuid4())
+
+        # Org with NO email, NO website.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, description, email, website)
+                VALUES (:id, :name, 'no-contact org', NULL, NULL)
+                """
+            ),
+            {"id": bare_org_id, "name": "No-Contact Pantries Inc"},
+        )
+
+        # Three locations under the bare org, far from any other test data.
+        # Use a distinct bbox region (somewhere in the Atlantic) so they
+        # don't get pulled in by other tests' bbox queries.
+        for loc_id, name, lat, lng in (
+            (bare_id, "Bare Location (filter-out)", 35.0, -60.0),
+            (phone_id, "Phone-Only Location", 35.001, -60.001),
+            (sched_id, "Schedule-Only Location", 35.002, -60.002),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name,
+                        latitude, longitude, location_type,
+                        validation_status, confidence_score
+                    )
+                    VALUES (:id, :org_id, :name, :lat, :lng,
+                            'physical', 'verified', 75)
+                    """
+                ),
+                {
+                    "id": loc_id,
+                    "org_id": bare_org_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc_id, 'vivery_api', :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc_id": loc_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+
+        # Phone-only: attach one phone row.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, type)
+                VALUES (:id, :loc_id, '5551234567', 'voice')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc_id": phone_id},
+        )
+
+        # Schedule-only: attach one schedule row.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO schedule (id, location_id, opens_at, closes_at, byday, freq)
+                VALUES (:id, :loc_id, '09:00', '12:00', 'TU', 'WEEKLY')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc_id": sched_id},
+        )
+
+        await db_session.flush()
+        return {"bare_id": bare_id, "phone_id": phone_id, "sched_id": sched_id}
+
+    @pytest.mark.asyncio
+    async def test_list_excludes_location_with_no_contact_or_schedule(
+        self, db_session, trio
+    ):
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(34.9, -60.5, 35.1, -59.5),  # the three seeded locations only
+        )
+        ids = {str(r.id) for r in rows}
+        assert trio["bare_id"] not in ids, "bare location should be filtered out"
+        assert trio["phone_id"] in ids, "phone-only location should pass"
+        assert trio["sched_id"] in ids, "schedule-only location should pass"
+
+    @pytest.mark.asyncio
+    async def test_detail_404s_for_location_with_no_contact_or_schedule(
+        self, db_session, trio
+    ):
+        query = PtfLocationsQuery(db_session)
+        # bare location: filter rejects -> get_location returns None (router 404s)
+        assert await query.get_location(trio["bare_id"]) is None
+        # phone-only and schedule-only both pass
+        assert await query.get_location(trio["phone_id"]) is not None
+        assert await query.get_location(trio["sched_id"]) is not None
+
+    @pytest.mark.asyncio
+    async def test_empty_string_contact_fields_dont_count(
+        self, db_session: AsyncSession
+    ):
+        """Some scrapers store '' rather than NULL for absent values. The
+        filter must treat empty strings as missing — a location with only
+        empty-string email/website and an empty-string phone number must
+        be filtered out the same as one with NULLs.
+        """
+        org_id = str(uuid.uuid4())
+        loc_id = str(uuid.uuid4())
+
+        # Org with empty-string email and website.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, description, email, website)
+                VALUES (:id, 'Empty-String Org', 'desc', '', '')
+                """
+            ),
+            {"id": org_id},
+        )
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO location (
+                    id, organization_id, name,
+                    latitude, longitude, location_type,
+                    validation_status, confidence_score
+                )
+                VALUES (:id, :org, 'Empty-String Pantry',
+                        45.0, -65.0, 'physical', 'verified', 75)
+                """
+            ),
+            {"id": loc_id, "org": org_id},
+        )
+        # Phone row with an empty number — should also be ignored.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, type)
+                VALUES (:id, :loc, '', 'voice')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": loc_id},
+        )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        # Detail must 404 — neither contact info nor schedule.
+        assert await query.get_location(loc_id) is None
+        # And the list must not include it.
+        rows = await query.list_locations(
+            limit=200, offset=0, bbox=(44.9, -65.5, 45.1, -64.5)
+        )
+        assert loc_id not in {str(r.id) for r in rows}
+
+
+class TestNearDuplicateCollapse:
+    """Defense-in-depth: when the reconciler leaves multiple `location`
+    rows for the same physical pantry (different scrapers, different
+    names, no shared org), the endpoint must collapse them to one row
+    via ST_ClusterDBSCAN so Plentiful's map doesn't show three pins on
+    top of each other.
+
+    Scenario mirrors the real Beaverton Adventist Church (SDA) case
+    that triggered this work: three slightly-different names at the
+    same lat/lng, only one of which has a FANO-allowlisted scraper
+    source. The survivor must be the FANO row so the
+    `feeding_america_food_bank` enrichment block isn't silently dropped.
+    """
+
+    @pytest_asyncio.fixture
+    async def beaverton_triple(self, db_session: AsyncSession):
+        # Three independent orgs — mirrors the reconciler-can't-merge
+        # case where same-name and same-org tier-2 dedup both fail.
+        org_ids = [str(uuid.uuid4()) for _ in range(3)]
+        loc_ids = [str(uuid.uuid4()) for _ in range(3)]
+
+        for oid, name in zip(
+            org_ids,
+            (
+                "Beaverton Adventist (Org A)",
+                "Oregon Food Bank Affiliate (Org B)",
+                "Beaverton SDA Org (Org C)",
+            ),
+            strict=True,
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO organization (id, name, description, email, website)
+                    VALUES (:id, :name, 'beaverton-triple test org',
+                            NULL, 'https://example.org')
+                    """
+                ),
+                {"id": oid, "name": name},
+            )
+
+        # Three locations, all within ~30m at 14645 SW Davis Rd.
+        # Latitude ~45.4869, longitude ~-122.8331 (real Beaverton coords).
+        # 0.0001 deg ≈ 11m, so 0.0002 deg ≈ 22m — well inside the
+        # 0.0005-deg (~55m) DBSCAN epsilon used by the query.
+        seeds = [
+            (
+                loc_ids[0],
+                org_ids[0],
+                "Beaverton Adventist Church (SDA)",
+                45.4869,
+                -122.8331,
+                70,
+                "no_fa_scraper",  # NOT in FANO allowlist
+            ),
+            (
+                loc_ids[1],
+                org_ids[1],
+                "Beaverton Adventist Church (SDA)",
+                45.4870,
+                -122.8332,
+                65,
+                "vivery_api",  # FANO-allowlisted
+            ),
+            (
+                loc_ids[2],
+                org_ids[2],
+                "Beaverton Seventh Day Adventist",
+                45.4871,
+                -122.8330,
+                80,  # Highest confidence — but still must lose to FANO row.
+                "no_fa_scraper",
+            ),
+        ]
+
+        for loc_id, org_id, name, lat, lng, conf, scraper in seeds:
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name, latitude, longitude,
+                        location_type, validation_status, confidence_score
+                    )
+                    VALUES (:id, :org, :name, :lat, :lng,
+                            'physical', 'verified', :conf)
+                    """
+                ),
+                {
+                    "id": loc_id,
+                    "org": org_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                    "conf": conf,
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO address (
+                        id, location_id, address_1, city,
+                        state_province, postal_code, country, address_type
+                    )
+                    VALUES (:id, :loc, :addr, 'Beaverton',
+                            'OR', :zip, 'US', 'physical')
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "addr": "14645 SW Davis Rd",
+                    # 97007 must NOT exist in feeding_america_zip_coverage
+                    # for this scenario so the only FA-block driver is the
+                    # qualifying_source CTE — keeps the assertions about
+                    # survivor pick clean. The fa_org_id stays NULL on the
+                    # row but `has_qualifying_source` still flips per the
+                    # CASE-gate.
+                    "zip": "97007",
+                },
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc, :scraper, :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "scraper": scraper,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+            # Each location needs one piece of contact info to pass the
+            # "must be reachable" filter. Org website is set above.
+
+        await db_session.flush()
+        return {
+            "loc_ids": loc_ids,
+            "fano_loc_id": loc_ids[1],
+            "highest_conf_loc_id": loc_ids[2],
+        }
+
+    @pytest.mark.asyncio
+    async def test_three_close_rows_collapse_to_one(self, db_session, beaverton_triple):
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(45.48, -122.84, 45.49, -122.82),  # tight on Beaverton seeds
+        )
+        seeded_ids = set(beaverton_triple["loc_ids"])
+        returned = {str(r.id) for r in rows if str(r.id) in seeded_ids}
+        assert (
+            len(returned) == 1
+        ), f"expected exactly one survivor from triple, got {len(returned)}: {returned}"
+
+    @pytest.mark.asyncio
+    async def test_survivor_is_fano_qualifying_row(self, db_session, beaverton_triple):
+        """Even though the FANO row has the LOWEST confidence_score (65)
+        of the three, it must win — Plentiful's only reason to call this
+        endpoint is the FA enrichment block, so dropping it in favor of
+        a higher-confidence sibling is a regression we never tolerate.
+        """
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(45.48, -122.84, 45.49, -122.82),
+        )
+        seeded_ids = set(beaverton_triple["loc_ids"])
+        survivors = [r for r in rows if str(r.id) in seeded_ids]
+        assert len(survivors) == 1
+        winner = survivors[0]
+        assert str(winner.id) == beaverton_triple["fano_loc_id"], (
+            f"survivor should be the FANO-allowlisted row, "
+            f"got {winner.id} (expected {beaverton_triple['fano_loc_id']})"
+        )
+        assert winner.has_qualifying_source is True
+
+    @pytest.mark.asyncio
+    async def test_far_apart_rows_are_not_merged(self, db_session: AsyncSession):
+        """Singleton clusters (minpoints=1) must not drop unique
+        locations. Two rows >55m apart must both come back."""
+        org_id = str(uuid.uuid4())
+        far_a = str(uuid.uuid4())
+        far_b = str(uuid.uuid4())
+
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO organization (id, name, description, website)
+                VALUES (:id, 'Far Org', 'far-apart test org',
+                        'https://example.org')
+                """
+            ),
+            {"id": org_id},
+        )
+        # ~0.01 deg apart (~1.1km) — well outside the 0.0005 epsilon.
+        for loc_id, lat, lng, name in (
+            (far_a, 38.0, -77.0, "Far Pantry A"),
+            (far_b, 38.01, -77.01, "Far Pantry B"),
+        ):
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location (
+                        id, organization_id, name, latitude, longitude,
+                        location_type, validation_status, confidence_score
+                    )
+                    VALUES (:id, :org, :name, :lat, :lng,
+                            'physical', 'verified', 75)
+                    """
+                ),
+                {"id": loc_id, "org": org_id, "name": name, "lat": lat, "lng": lng},
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO location_source (
+                        id, location_id, scraper_id, name, latitude, longitude
+                    )
+                    VALUES (:id, :loc, 'no_fa_scraper', :name, :lat, :lng)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "name": name,
+                    "lat": lat,
+                    "lng": lng,
+                },
+            )
+        await db_session.flush()
+
+        query = PtfLocationsQuery(db_session)
+        rows = await query.list_locations(
+            limit=200,
+            offset=0,
+            bbox=(37.9, -77.1, 38.1, -76.9),
+        )
+        ids = {str(r.id) for r in rows}
+        assert far_a in ids
+        assert far_b in ids

@@ -104,6 +104,11 @@ async def list_ptf_locations(
         returned=len(items),
         dropped=dropped,
         fa_matched=fa_matched,
+        # Near-duplicate canonicals are collapsed at query time via
+        # ST_ClusterDBSCAN — see `_LIST_SQL` in locations_queries.py.
+        # Flag included so CloudWatch can confirm the cluster path is
+        # live, and so a future drop in fa_matched can be correlated.
+        dedup_active=True,
     )
     response.headers["Cache-Control"] = _LIST_CACHE_CONTROL
     return items

@@ -3,6 +3,7 @@
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError as PydanticValidationError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.status import (
     HTTP_404_NOT_FOUND,
@@ -113,17 +114,43 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
         else:
             detail = "Internal server error"
 
-        # Log error with context
+        # Log error with context. For Pydantic ValidationError, include the
+        # field-path details so CloudWatch shows which field failed. For any
+        # unmapped exception (anything not an HTTPException), use logger.exception
+        # so the traceback is captured.
         correlation_id = getattr(request.state, "correlation_id", None)
-        logger.error(
-            "request_error",
-            error_type=error_type,
-            error_message=detail,
-            status_code=status_code,
-            path=request.url.path,
-            method=request.method,
-            correlation_id=correlation_id,
-        )
+        log_kwargs: dict = {
+            "error_type": error_type,
+            "error_message": detail,
+            "status_code": status_code,
+            "path": request.url.path,
+            "method": request.method,
+            "correlation_id": correlation_id,
+        }
+        if isinstance(exc, PydanticValidationError):
+            try:
+                log_kwargs["validation_errors"] = exc.errors()
+            except Exception:  # noqa: S110  # nosec B110
+                # exc.errors() is normally safe; never let logging hide the original failure.
+                pass
+
+        # For any non-HTTPException, include a truncated repr of the exception
+        # inline. `logger.exception` is supposed to attach a traceback via
+        # structlog's format_exc_info, but in this FastAPI exception-handler
+        # path sys.exc_info() can be cleared, so the traceback never makes it
+        # to CloudWatch. The repr (which includes SQLAlchemy's compiled SQL +
+        # the underlying asyncpg/psycopg error message) is enough to diagnose
+        # the vast majority of failures from logs alone.
+        if not isinstance(exc, HTTPException):
+            try:
+                log_kwargs["exc_repr"] = repr(exc)[:2000]
+            except Exception:  # noqa: S110  # nosec B110
+                pass
+
+        if isinstance(exc, HTTPException):
+            logger.error("request_error", **log_kwargs)
+        else:
+            logger.exception("request_error", **log_kwargs)
 
         # Create error response
         response = JSONResponse(

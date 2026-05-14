@@ -76,44 +76,20 @@ async def export_simple_locations(
     - Sources array with per-scraper data
     - Source count for quick reference
     """
-    # Build optimized query to fetch locations with sources
-    sql = """
-        WITH location_data AS (
-            SELECT
-                l.id,
-                l.latitude as lat,
-                l.longitude as lng,
-                l.name,
-                o.name as org_name,
-                CONCAT_WS(', ', a.address_1, a.city, a.state_province, a.postal_code) as address,
-                a.city,
-                a.state_province as state,
-                a.postal_code as zip,
-                p.number as phone,
-                l.url as website,
-                e.email,
-                l.description,
-                COALESCE(l.confidence_score, 50) as confidence_score,
-                COALESCE(l.validation_status, 'needs_review') as validation_status
-            FROM location l
-            LEFT JOIN organization o ON l.organization_id = o.id
-            LEFT JOIN address a ON a.location_id = l.id
-            LEFT JOIN LATERAL (
-                SELECT number FROM phone
-                WHERE location_id = l.id
-                LIMIT 1
-            ) p ON true
-            LEFT JOIN LATERAL (
-                SELECT email FROM email
-                WHERE location_id = l.id
-                LIMIT 1
-            ) e ON true
-            WHERE l.latitude IS NOT NULL
-              AND l.longitude IS NOT NULL
-              AND l.latitude BETWEEN -90 AND 90
-              AND l.longitude BETWEEN -180 AND 180
-              AND l.is_canonical = true
-              AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
+    # Build optimized query: first select + LIMIT the locations we'll return,
+    # then aggregate `location_source` rows only for those IDs. The old query
+    # aggregated *every* location_source row first and then applied LIMIT at
+    # the top, forcing Postgres to materialize the full source_data CTE.
+    location_filter_sql = """
+        SELECT l.id
+        FROM location l
+        LEFT JOIN address a ON a.location_id = l.id
+        WHERE l.latitude IS NOT NULL
+          AND l.longitude IS NOT NULL
+          AND l.latitude BETWEEN -90 AND 90
+          AND l.longitude BETWEEN -180 AND 180
+          AND l.is_canonical = true
+          AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
     """
 
     params: Dict[str, Any] = {}
@@ -126,7 +102,7 @@ async def export_simple_locations(
             and len(state.strip()) == 2
             and state.strip().isalpha()
         ):
-            sql += " AND a.state_province = :state"
+            location_filter_sql += " AND a.state_province = :state"
             params["state"] = state.upper().strip()
 
     # Add confidence filter with validation
@@ -134,15 +110,66 @@ async def export_simple_locations(
         try:
             confidence_val = int(min_confidence)
             if 0 <= confidence_val <= 100:
-                sql += " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
+                location_filter_sql += (
+                    " AND COALESCE(l.confidence_score, 50) >= :min_confidence"
+                )
                 params["min_confidence"] = confidence_val
         except (ValueError, TypeError):
             # Invalid confidence value - skip this filter
             pass
 
-    # Continue building query with parameterized limit
-    sql += """
+    location_filter_sql += """
+        ORDER BY COALESCE(l.confidence_score, 50) DESC, l.name
+        LIMIT :limit
+    """
+
+    # location_filter_sql is composed exclusively of static SQL fragments
+    # above; user-provided values are bound via :params, not string-formatted.
+    # nosec B608 / noqa: S608 markers below silence both bandit and ruff for
+    # the multi-line SQL concatenation; the SQL keywords are static.
+    sql = (
+        """
+        WITH filtered_ids AS (
+        """  # nosec B608  # noqa: S608
+        + location_filter_sql  # nosec B608
+        + """
+        ), location_data AS (
+            -- No `email` join: there is no `email` table in the schema; the
+            -- `email` field belongs to contact/organization/service as columns.
+            -- The old LATERAL was a phantom-table reference that raised
+            -- ProgrammingError on every invocation.
+            SELECT
+                l.id,
+                l.latitude as lat,
+                l.longitude as lng,
+                l.name,
+                o.name as org_name,
+                CONCAT_WS(', ', a.address_1, a.city, a.state_province, a.postal_code) as address,
+                a.city,
+                a.state_province as state,
+                a.postal_code as zip,
+                p.number as phone,
+                l.url as website,
+                o.email as email,
+                l.description,
+                COALESCE(l.confidence_score, 50) as confidence_score,
+                COALESCE(l.validation_status, 'needs_review') as validation_status
+            FROM location l
+            JOIN filtered_ids fi ON fi.id = l.id
+            LEFT JOIN organization o ON l.organization_id = o.id
+            LEFT JOIN address a ON a.location_id = l.id
+            LEFT JOIN LATERAL (
+                SELECT number FROM phone
+                WHERE location_id = l.id
+                LIMIT 1
+            ) p ON true
         ), source_data AS (
+            -- After the `source_type != 'submarine'` filter below, the
+            -- `location_source_scraper_unique_idx` partial unique index
+            -- (covers `source_type = 'scraper' OR source_type IS NULL`)
+            -- ensures at most one row per (location_id, scraper_id) pair.
+            -- COUNT(DISTINCT scraper_id) is defensive against a future
+            -- source_type sharing a scraper_id with a normal scraper row.
             SELECT
                 ls.location_id,
                 json_agg(
@@ -150,7 +177,7 @@ async def export_simple_locations(
                         'scraper', ls.scraper_id,
                         'name', ls.name,
                         'phone', p2.number,
-                        'email', e2.email,
+                        'email', o2.email,
                         'website', o2.website,
                         'address', CONCAT_WS(', ', a2.address_1, a2.city, a2.state_province, a2.postal_code),
                         'confidence_score', COALESCE(l2.confidence_score, 50),
@@ -159,17 +186,16 @@ async def export_simple_locations(
                     )
                     ORDER BY ls.updated_at DESC
                 ) as sources,
-                COUNT(DISTINCT ls.scraper_id) FILTER (WHERE ls.source_type IS NULL OR ls.source_type != 'submarine') as source_count
+                COUNT(DISTINCT ls.scraper_id) as source_count
             FROM location_source ls
+            JOIN filtered_ids fi ON fi.id = ls.location_id
             LEFT JOIN location l2 ON l2.id = ls.location_id
             LEFT JOIN organization o2 ON o2.id = l2.organization_id
             LEFT JOIN address a2 ON a2.location_id = l2.id
             LEFT JOIN LATERAL (
                 SELECT number FROM phone WHERE location_id = l2.id LIMIT 1
             ) p2 ON true
-            LEFT JOIN LATERAL (
-                SELECT email FROM email WHERE location_id = l2.id LIMIT 1
-            ) e2 ON true
+            WHERE ls.source_type IS NULL OR ls.source_type != 'submarine'
             GROUP BY ls.location_id
         )
         SELECT
@@ -179,8 +205,8 @@ async def export_simple_locations(
         FROM location_data ld
         LEFT JOIN source_data sd ON sd.location_id = ld.id
         ORDER BY ld.confidence_score DESC, ld.name
-        LIMIT :limit
     """
+    )
 
     # Validate and add limit parameter
     try:
