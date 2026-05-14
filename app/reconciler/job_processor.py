@@ -837,15 +837,41 @@ class JobProcessor:
                         and location["latitude"] is not None
                         and location["longitude"] is not None
                     ):
+                        # Pull address_1 + 5-digit ZIP from the first address
+                        # so the matcher can run Tier 3's fuzzy-address gate.
+                        # Tier 3 caps at ~200m and degrades to name-only when
+                        # address fields are missing, so absent values are
+                        # safe to pass as None.
+                        addr_payload = (
+                            location["address"][0]
+                            if isinstance(location.get("address"), list)
+                            and location["address"]
+                            else location.get("address") or {}
+                        )
+                        match_addr_1 = (
+                            addr_payload.get("address_1")
+                            if isinstance(addr_payload, dict)
+                            else None
+                        )
+                        match_postal = (
+                            addr_payload.get("postal_code")
+                            if isinstance(addr_payload, dict)
+                            else None
+                        )
+                        match_zip5 = match_postal[:5] if match_postal else None
                         # Check for existing location by coordinates. Pass name
                         # and org_id so the matcher can fall back to a wider
                         # same-name/same-org search when scraper coords drift
-                        # past the strict ~11m tolerance.
+                        # past the strict ~11m tolerance, and addr_1/zip5 so
+                        # Tier 3 can fuzzy-merge when names AND orgs diverge
+                        # across scrapers.
                         match_id = location_creator.find_matching_location(
                             float(location["latitude"]),
                             float(location["longitude"]),
                             name=location.get("name"),
                             organization_id=str(org_id) if org_id else None,
+                            address_1=match_addr_1,
+                            zip5=match_zip5,
                         )
                     else:
                         # No coordinates from validator - this location should have been rejected
@@ -857,9 +883,11 @@ class JobProcessor:
 
                     location_id = None
                     if match_id:
-                        # Update existing location
-                        LOCATION_MATCHES.labels(match_type="exact").inc()
-                        # Convert string ID to UUID
+                        # Update existing location. Tier-distribution
+                        # increments (tier1_strict / tier2_name_or_org /
+                        # tier3_fuzzy / none) live inside
+                        # find_matching_location_with_lock; this caller
+                        # no longer double-counts.
                         location_id = uuid.UUID(match_id)
 
                         # Check if location name is just the city name (common LLM issue)

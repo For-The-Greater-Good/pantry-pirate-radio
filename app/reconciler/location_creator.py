@@ -10,7 +10,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.reconciler.base import BaseReconciler
+from app.reconciler.dedup import (
+    _ADDR_SIM_THRESHOLD,
+    _DEDUP_LOOSE_DEG,
+    _NAME_SIM_THRESHOLD,
+    tier3_match_sql,
+)
 from app.reconciler.merge_strategy import MergeStrategy
+from app.reconciler.metrics import LOCATION_MATCHES
 from app.reconciler.version_tracker import VersionTracker
 
 
@@ -90,20 +97,31 @@ class LocationCreator(BaseReconciler):
         tolerance: float = None,
         name: str | None = None,
         organization_id: str | None = None,
+        address_1: str | None = None,
+        zip5: str | None = None,
     ) -> str | None:
         """Find matching location by coordinates (backward compatibility wrapper).
 
-        When `name` or `organization_id` is provided, a second-tier match
-        widens the search radius and constrains by same-name OR same-org —
-        catching real duplicates whose coordinates drifted between scrapers.
+        Three-tier match (each only runs if the previous tier missed):
+          1. Strict coord-only within `tolerance` (~11m).
+          2. Wider coord (~165m) + exact-name OR same-organization gate.
+          3. Wider coord (~200m) + pg_trgm fuzzy-name OR fuzzy-address-with-zip
+             gate (see `app.reconciler.dedup`). Catches dupes where two
+             scrapers produced different names AND different orgs for the
+             same physical pantry.
 
         Args:
             latitude: Location latitude
             longitude: Location longitude
             tolerance: Coordinate matching tolerance (uses config default if not specified)
-            name: Optional location name for same-name fallback match
+            name: Optional location name for Tier 2 exact-name fallback and
+                Tier 3 fuzzy-name match
             organization_id: Optional parent organization id (UUID string) for
-                same-org fallback match
+                Tier 2 same-org fallback
+            address_1: Optional first-line address for Tier 3 fuzzy-address match
+            zip5: Optional 5-digit ZIP code for the Tier 3 address gate. The
+                address gate only fires when zip5 agrees, to keep cross-town
+                "100 Main St" coincidences from merging.
 
         Returns:
             ID of matching location if found, None otherwise
@@ -116,6 +134,8 @@ class LocationCreator(BaseReconciler):
             tolerance,
             name=name,
             organization_id=organization_id,
+            address_1=address_1,
+            zip5=zip5,
         )
 
     def find_matching_location_with_lock(
@@ -125,25 +145,36 @@ class LocationCreator(BaseReconciler):
         tolerance: float = None,
         name: str | None = None,
         organization_id: str | None = None,
+        address_1: str | None = None,
+        zip5: str | None = None,
     ) -> str | None:
         """Find matching location by coordinates using advisory locks for consistency.
 
-        Performs a two-tier match:
+        Performs a three-tier match (each tier only runs if all previous
+        tiers missed):
           1. Strict coord-only match within ``tolerance`` (~11m default).
-          2. If no match AND ``name`` or ``organization_id`` is provided,
-             a wider coord match within ``self.duplicate_tolerance``
-             (~165m at the equator, narrower at higher latitudes)
+          2. If ``name`` or ``organization_id`` is provided, a wider
+             coord match within ``self.duplicate_tolerance`` (~165m)
              constrained to rows with the same name OR same organization.
-             This catches real duplicates that the strict tier misses when
-             different scrapers geocode the same pantry slightly differently.
+          3. If ``name`` or ``address_1+zip5`` is provided, a wider
+             coord match within ``_DEDUP_LOOSE_DEG`` (~200m) gated by
+             pg_trgm trigram similarity on name (>0.5) OR on
+             address_1 (>0.7) with zip5 agreement. Catches dupes where
+             two scrapers produced different names AND different orgs
+             for the same physical pantry. Excludes rows where
+             ``verified_by IN ('admin','source','claimed')`` so human-
+             curated data is never silently merged into.
 
         Args:
             latitude: Location latitude
             longitude: Location longitude
             tolerance: Coordinate matching tolerance (uses config default if not specified)
-            name: Optional location name for same-name fallback match
+            name: Optional location name for Tier 2 exact-name fallback and
+                Tier 3 fuzzy-name match
             organization_id: Optional parent organization id (UUID string) for
-                same-org fallback match
+                Tier 2 same-org fallback
+            address_1: Optional first-line address for Tier 3 fuzzy-address match
+            zip5: Optional 5-digit ZIP code for the Tier 3 address gate
 
         Returns:
             ID of matching location if found, None otherwise
@@ -174,6 +205,7 @@ class LocationCreator(BaseReconciler):
             )
             row = result.first()
             if row:
+                LOCATION_MATCHES.labels(match_type="tier1_strict").inc()
                 return row[0]
 
             # Tier 2: same-name OR same-org fallback within a wider radius.
@@ -183,7 +215,9 @@ class LocationCreator(BaseReconciler):
             # different names and different orgs won't merge even if nearby.
             has_name = bool(name and name.strip())
             has_org = bool(organization_id)
-            if not (has_name or has_org):
+            has_addr = bool(address_1 and address_1.strip() and zip5)
+            if not (has_name or has_org or has_addr):
+                LOCATION_MATCHES.labels(match_type="none").inc()
                 return None
 
             fallback_query = text(
@@ -218,6 +252,7 @@ class LocationCreator(BaseReconciler):
             )
             fallback_row = fallback_result.first()
             if fallback_row:
+                LOCATION_MATCHES.labels(match_type="tier2_name_or_org").inc()
                 self.logger.info(
                     "Same-name/same-org fallback merged duplicate location "
                     "(strict coord match missed)",
@@ -230,6 +265,47 @@ class LocationCreator(BaseReconciler):
                     },
                 )
                 return fallback_row[0]
+
+            # Tier 3: pg_trgm fuzzy match within ~200m. Catches dupes
+            # where two scrapers produced different names AND different
+            # orgs for the same physical pantry — the gap Tier 2's
+            # exact-name/same-org rule can't close. Skip if there's
+            # nothing to fuzzy-match on (a fuzzy gate with neither name
+            # nor address would degenerate to "200m geo match", merging
+            # unrelated nearby pantries).
+            if not (has_name or has_addr):
+                LOCATION_MATCHES.labels(match_type="none").inc()
+                return None
+
+            tier3_result = self.db.execute(
+                text(tier3_match_sql()),
+                {
+                    "lat1": latitude,
+                    "lon1": longitude,
+                    "loose_deg": _DEDUP_LOOSE_DEG,
+                    "name": name if has_name else None,
+                    "addr_1": address_1 if has_addr else None,
+                    "zip5": zip5 if has_addr else None,
+                    "name_sim": _NAME_SIM_THRESHOLD,
+                    "addr_sim": _ADDR_SIM_THRESHOLD,
+                },
+            )
+            tier3_row = tier3_result.first()
+            if tier3_row:
+                LOCATION_MATCHES.labels(match_type="tier3_fuzzy").inc()
+                self.logger.info(
+                    "reconciler_tier3_fuzzy_merge",
+                    extra={
+                        "matched_id": tier3_row[0],
+                        "lat": latitude,
+                        "lon": longitude,
+                        "location_name": name,
+                        "addr_1": address_1,
+                        "zip5": zip5,
+                    },
+                )
+                return tier3_row[0]
+            LOCATION_MATCHES.labels(match_type="none").inc()
             return None
 
         finally:

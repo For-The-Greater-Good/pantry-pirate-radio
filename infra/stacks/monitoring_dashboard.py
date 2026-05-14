@@ -425,6 +425,33 @@ def add_autoscaling_section(
     )
 
 
+def add_reconciler_dedup_section(
+    stack: MonitoringStack, db: cloudwatch.Dashboard
+) -> None:
+    """Section — Reconciler dedup tier distribution.
+
+    Reads from `PantryPirateRadio/Reconciler` log-based metrics emitted
+    by `_create_reconciler_metric_filters` in MonitoringStack. The Tier 3
+    fuzzy merge count is the load-bearing operational signal: a sudden
+    spike means a scraper started producing systematically broken data
+    and is dumping into the fuzzy-merge bucket.
+    """
+    ns = "PantryPirateRadio/Reconciler"
+    p5 = Duration.minutes(5)
+    dims: dict = {}
+
+    tier3 = metric(ns, "Tier3FuzzyMerge", dims, "Sum", p5)
+    tier2 = metric(ns, "Tier2NameOrOrgMerge", dims, "Sum", p5)
+
+    db.add_widgets(section("Reconciler Dedup"))
+    db.add_widgets(
+        graph(
+            "Reconciler Merge Tiers",
+            [tier2, tier3],
+        ),
+    )
+
+
 def add_submarine_section(
     stack: MonitoringStack, db: cloudwatch.Dashboard
 ) -> None:
@@ -596,6 +623,7 @@ def build_dashboard(stack: MonitoringStack) -> cloudwatch.Dashboard:
     add_lambda_api_section(stack, db)
     add_worker_section(stack, db)
     add_service_sections(stack, db)
+    add_reconciler_dedup_section(stack, db)
     add_sqs_queues_section(stack, db)
     add_pipeline_section(stack, db)
     add_aurora_section(stack, db)
