@@ -569,7 +569,7 @@ aws ssm start-session --target $INSTANCE_ID \
 ./bouy exec app python scripts/dedupe_same_org_locations.py             # dry-run
 ./bouy exec app python scripts/dedupe_same_org_locations.py --apply     # commit
 
-# Tier 3 fuzzy dupes (different name AND different org, same physical pantry)
+# Tier 3 fuzzy dupes (~200m radius, different name AND different org, same physical pantry)
 ./bouy exec app python scripts/dedupe_near_duplicate_locations.py            # dry-run
 ./bouy exec app python scripts/dedupe_near_duplicate_locations.py --apply    # commit
 ./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py    # prod dry-run
@@ -577,6 +577,84 @@ aws ssm start-session --target $INSTANCE_ID \
 ```
 
 Both scripts pick a survivor canonical, repoint FK children onto it (location_source, address, phone, schedule, service_at_location, etc.), and soft-delete the duplicates via `is_canonical=FALSE`. Rows with `verified_by IN ('admin','source','claimed')` are exempt — never merged into. The Tier 3 script mirrors the reconciler's Tier 3 detection SQL (`app/reconciler/dedup.py`) and the PTF API's survivor pick (FANO > confidence > id), so prevent-on-ingest, hide-on-serve, and drain-the-backlog stay aligned.
+
+#### Tier 3 dedup — operator runbook
+
+Tier 3 fuzzy dedup has real blast radius: every `--apply` run **hard-deletes** rows that conflict on UNIQUE constraints (same scraper_id on `location_source`, same service_id on `service_at_location`). Soft-deletes and FK repoints are reversible from `dedup_run_audit`; UNIQUE-skip DELETEs require Aurora PITR to actually restore. **Always run the staged rollout below for prod.**
+
+**Pre-flight (before every prod `--apply`):**
+
+1. **Manual Aurora snapshot** — explicit, labeled, doesn't expire on a 30-day clock:
+   ```bash
+   aws rds create-db-cluster-snapshot \
+     --db-cluster-identifier pantry-pirate-radio-prod \
+     --db-cluster-snapshot-identifier pre-tier3-dedup-$(date -u +%Y-%m-%d-%H%M)
+   ```
+2. **HAARRRvest dump freshness** — script checks this automatically; aborts if no `record_version` row was written in the last 12h. Override only in emergencies via `--skip-freshness-check`.
+3. **Diagnostic count** — every run prints `pair_count` and `locations_involved_proxy` before any writes. Read it.
+
+**Staged rollout:**
+
+```bash
+# Stage 1: 50-cluster canary. Run, wait 30 minutes, spot-check 5 random clusters.
+./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py \
+  --max-clusters 50 --apply
+# Note the run_id printed in the log.
+
+# Stage 2: 500-cluster ramp. Same drill, wait ~2h.
+./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py \
+  --max-clusters 500 --apply
+
+# Stage 3: full run.
+./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py \
+  --apply
+```
+
+**Dry-run with sample inspection** (eyeball N random clusters' before-state before any apply):
+
+```bash
+./bouy run-script --aws --prod scripts/dedupe_near_duplicate_locations.py \
+  --dry-run-sample 20
+```
+
+**Post-apply spot-check** (run after each stage):
+
+```sql
+-- Recently merged clusters from this run.
+SELECT cluster_id, survivor_id, COUNT(*) AS rows_logged
+FROM dedup_run_audit
+WHERE run_id = '<run_id>'
+GROUP BY cluster_id, survivor_id
+ORDER BY rows_logged DESC
+LIMIT 10;
+
+-- Pick a survivor, verify its fields look right.
+SELECT id, name, confidence_score, verified_by
+FROM location
+WHERE id = '<survivor_id>';
+```
+
+**Reversing a bad run:**
+
+```bash
+# Dry-run the undo first; review what would be reversed.
+./bouy run-script --aws --prod scripts/undo_dedup_run.py --run-id <uuid>
+
+# Commit the undo.
+./bouy run-script --aws --prod scripts/undo_dedup_run.py --run-id <uuid> --apply
+```
+
+`undo_dedup_run.py` reverses every repoint and soft-delete logged in `dedup_run_audit`. It also prints `RECOVERY_TICKET <json>` lines for each UNIQUE-skip DELETE — those rows are gone from the live DB and need Aurora PITR or a HAARRRvest SQL dump replay. The full row payload is in the ticket, so you know exactly what to restore.
+
+**"A pantry disappeared from the public site after the dedup run":**
+
+1. Find the location id (from `support_request` or via PTF API logs).
+2. Check `dedup_run_audit` for the row id:
+   ```sql
+   SELECT * FROM dedup_run_audit WHERE row_id = '<location_id>' OR duplicate_id = '<location_id>';
+   ```
+3. If `action='soft_delete'`: the pantry was correctly identified as a duplicate of the survivor in the same row. If the user expected this specific id, point them to the survivor. If the merge was wrong, run `undo_dedup_run.py --run-id <id>` for just that run.
+4. If no audit row: the disappearance is unrelated to this script (check `record_version`, `validation_status`, etc.).
 
 ### Scraper Development Workflow
 

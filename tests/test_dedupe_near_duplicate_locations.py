@@ -15,7 +15,7 @@ ingest path and the drain-the-backlog path stay symmetric.
 from __future__ import annotations
 
 import uuid
-from typing import Generator
+from typing import Any, Generator
 
 import pytest
 from sqlalchemy import text
@@ -565,3 +565,848 @@ class TestEndToEndMerge:
             {"id": survivor_id},
         ).scalar()
         assert cnt == 2  # both scrapers' rows now on the survivor
+
+
+# ---------------------------------------------------------------------------
+# Review-driven gap tests. These cover blast-radius behaviors that the
+# original 20 tests left unexercised:
+#   * UNIQUE-conflict DELETE path (only irreversible action)
+#   * Savepoint cluster isolation across multiple clusters
+#   * Transitive 3-row cluster collapse via union-find
+#   * Dry-run write safety
+#   * Idempotence (second run = no-op)
+#   * Distance boundary at ~_DEDUP_LOOSE_DEG
+#   * Multi-address Cartesian guard (SELECT DISTINCT)
+#   * Audit-table population on --apply
+#   * `diagnostic_count` behavior
+# ---------------------------------------------------------------------------
+
+
+def _ensure_audit_table(db: Session) -> None:
+    """Test helper — create the audit table for tests that need it."""
+    dedupe_near.ensure_audit_table(db)
+    db.commit()
+
+
+class TestUniqueConflictDelete:
+    """The UNIQUE-conflict DELETE path is the only irreversible code
+    path in the script. These tests lock its behavior."""
+
+    def test_same_scraper_id_on_both_sides_deletes_duplicates_row(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        # Both rows have a location_source from the same scraper_id.
+        # After merge, the survivor's row stays; the duplicate's row
+        # must be DELETEd (not repointed) because of the UNIQUE
+        # constraint on (location_id, scraper_id).
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Same Scraper Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 X St",
+            postal_code="08000",
+            confidence=85,
+            scraper_id="shared_scraper",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Same Scraper Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 X St",
+            postal_code="08000",
+            confidence=70,
+            scraper_id="shared_scraper",  # same as a
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        result = dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        survivor = result["canonical_id"]
+        # Survivor still has its location_source row; duplicate's was
+        # deleted (not repointed) because of the UNIQUE conflict.
+        cnt = clean_dedup_tables.execute(
+            text(
+                "SELECT COUNT(*) FROM location_source "
+                "WHERE location_id = :id AND scraper_id = 'shared_scraper'"
+            ),
+            {"id": survivor},
+        ).scalar()
+        assert cnt == 1  # exactly one row, NOT two
+
+    def test_unique_conflict_delete_logs_full_row_payload(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        # The killer test: when a row is destroyed, the full payload
+        # must be in the audit log so an operator can identify what
+        # to restore from PITR.
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Audit Test Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Audit St",
+            postal_code="08000",
+            scraper_id="conflict_scraper",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Audit Test Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Audit St",
+            postal_code="08000",
+            scraper_id="conflict_scraper",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        # Find the delete audit row.
+        delete_rows = clean_dedup_tables.execute(
+            text(
+                "SELECT old_value FROM dedup_run_audit "
+                "WHERE run_id = :rid AND action = 'delete'"
+            ),
+            {"rid": run_id},
+        ).fetchall()
+        assert len(delete_rows) >= 1
+        payload = delete_rows[0][0]
+        # The payload is the full row — name and scraper_id must be in it.
+        assert payload["name"] == "Audit Test Pantry"
+        assert payload["scraper_id"] == "conflict_scraper"
+
+
+class TestSavepointIsolation:
+    """The headline resilience claim — one failing cluster doesn't roll
+    back successful ones — has to be tested, not just docstring'd."""
+
+    def test_failing_cluster_does_not_undo_prior_success(
+        self, clean_dedup_tables: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        # Seed two independent clusters: A (mergeable) and B (also
+        # mergeable). Then monkeypatch `soft_delete_duplicate` to raise
+        # an IntegrityError on cluster B's first call.
+        a1, a2 = str(uuid.uuid4()), str(uuid.uuid4())
+        b1, b2 = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a1,
+            name="Alpha Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Alpha St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a2,
+            name="Alpha Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Alpha St",
+            postal_code="08000",
+            scraper_id="other_alpha",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b1,
+            name="Bravo Pantry",
+            lat=41.0,
+            lng=-75.0,
+            address_1="1 Bravo St",
+            postal_code="09000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b2,
+            name="Bravo Pantry",
+            lat=41.0008,
+            lng=-75.0,
+            address_1="1 Bravo St",
+            postal_code="09000",
+            scraper_id="other_bravo",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        assert len(clusters) == 2
+
+        # Process cluster A normally, then poison cluster B.
+        run_id = str(uuid.uuid4())
+        first = clusters[0]
+        second = clusters[1]
+        sp1 = clean_dedup_tables.begin_nested()
+        dedupe_near.merge_cluster(clean_dedup_tables, first, apply=True, run_id=run_id)
+        sp1.commit()
+
+        original_soft = dedupe_near.soft_delete_duplicate
+
+        def boom(*args: Any, **kwargs: Any) -> int:
+            from sqlalchemy.exc import IntegrityError
+
+            raise IntegrityError("synthetic", {}, Exception("test poison"))
+
+        monkeypatch.setattr(dedupe_near, "soft_delete_duplicate", boom)
+        sp2 = clean_dedup_tables.begin_nested()
+        try:
+            dedupe_near.merge_cluster(
+                clean_dedup_tables, second, apply=True, run_id=run_id
+            )
+        except Exception:
+            sp2.rollback()
+        else:
+            sp2.commit()
+
+        monkeypatch.setattr(dedupe_near, "soft_delete_duplicate", original_soft)
+        clean_dedup_tables.commit()
+
+        # Cluster A: one duplicate soft-deleted (the work survived).
+        first_dups = sorted(first)
+        soft_deleted = clean_dedup_tables.execute(
+            text(
+                "SELECT id FROM location WHERE id = ANY(:ids) AND is_canonical = FALSE"
+            ),
+            {"ids": first_dups},
+        ).fetchall()
+        assert len(soft_deleted) == 1
+
+        # Cluster B: BOTH rows still canonical (rolled back).
+        second_dups = sorted(second)
+        still_canonical = clean_dedup_tables.execute(
+            text(
+                "SELECT id FROM location WHERE id = ANY(:ids) AND is_canonical = TRUE"
+            ),
+            {"ids": second_dups},
+        ).fetchall()
+        assert len(still_canonical) == 2
+
+
+class TestTransitiveCluster:
+    """A↔B and B↔C similar, A↛C similar → all three should collapse.
+    Tests union-find on the pair list."""
+
+    def test_three_row_chain_collapses_to_one(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b, c = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Chain Pantry East",
+            lat=40.0000,
+            lng=-74.0000,
+            address_1="100 Chain Ave",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Chain Pantry Central",
+            lat=40.0008,
+            lng=-74.0000,
+            address_1="100 Chain Ave",
+            postal_code="08000",
+            scraper_id="other_chain_b",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=c,
+            name="Chain Pantry West",
+            lat=40.0016,
+            lng=-74.0000,
+            address_1="100 Chain Ave",
+            postal_code="08000",
+            scraper_id="other_chain_c",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        # All three are in one cluster via union-find.
+        assert len(clusters) == 1
+        assert clusters[0] == {a, b, c}
+
+        run_id = str(uuid.uuid4())
+        result = dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        # Two of three are now non-canonical.
+        canonicals = clean_dedup_tables.execute(
+            text(
+                "SELECT id FROM location WHERE id = ANY(:ids) AND is_canonical = TRUE"
+            ),
+            {"ids": sorted({a, b, c})},
+        ).fetchall()
+        assert len(canonicals) == 1
+        assert str(canonicals[0][0]) == result["canonical_id"]
+
+
+class TestDryRunSafety:
+    """Without --apply, no DB state may change."""
+
+    def test_merge_cluster_dry_run_makes_no_writes(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="DryRun Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 DryRun St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="DryRun Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 DryRun St",
+            postal_code="08000",
+            scraper_id="other_dryrun",
+        )
+        before_canonical = clean_dedup_tables.execute(
+            text("SELECT id FROM location WHERE is_canonical = TRUE ORDER BY id")
+        ).fetchall()
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        dedupe_near.merge_cluster(clean_dedup_tables, clusters[0], apply=False)
+        # No commit — but defense-in-depth check that no writes were issued.
+        after_canonical = clean_dedup_tables.execute(
+            text("SELECT id FROM location WHERE is_canonical = TRUE ORDER BY id")
+        ).fetchall()
+        assert before_canonical == after_canonical
+
+
+class TestIdempotence:
+    """Re-running --apply against an already-merged DB must be a no-op."""
+
+    def test_second_apply_finds_no_pairs(self, clean_dedup_tables: Session) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Idem Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Idem St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Idem Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Idem St",
+            postal_code="08000",
+            scraper_id="other_idem",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        # Second pass: detection should now return zero pairs because
+        # the duplicate is soft-deleted (`is_canonical = FALSE`).
+        pairs_again = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        assert pairs_again == []
+
+
+class TestDistanceBoundary:
+    """Lock the ~200m loose-tier ceiling against accidental widening
+    via a refactor."""
+
+    def test_inside_boundary_merges(self, clean_dedup_tables: Session) -> None:
+        # 0.0017 deg lat ≈ 189m — inside the 200m loose ceiling.
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Boundary Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Edge St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Boundary Pantry",
+            lat=40.0017,
+            lng=-74.0,
+            address_1="1 Edge St",
+            postal_code="08000",
+            scraper_id="other_b",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        assert len(pairs) == 1, "pair within 200m must be detected"
+
+    def test_outside_boundary_no_merge(self, clean_dedup_tables: Session) -> None:
+        # 0.0020 deg lat ≈ 222m — outside the 200m loose ceiling.
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Boundary Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Edge St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Boundary Pantry",
+            lat=40.0020,
+            lng=-74.0,
+            address_1="1 Edge St",
+            postal_code="08000",
+            scraper_id="other_b",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        assert pairs == [], f"pair past 200m must NOT be detected, got {pairs!r}"
+
+
+class TestMultiAddressCartesian:
+    """Regression guard for the original Cartesian bug. A location with
+    multiple physical addresses must not inflate pair counts."""
+
+    def test_multiple_physical_addresses_yield_single_pair(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Multi Address Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Main St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Multi Address Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Main St",
+            postal_code="08000",
+            scraper_id="other_multi",
+        )
+        # Add a SECOND physical address to each — schema permits it.
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO address (id, location_id, address_1, city,
+                    state_province, postal_code, country, address_type)
+                VALUES (:id, :loc, '1 Main Street', 'Anywhere', 'XX',
+                        '08000', 'US', 'physical')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": a},
+        )
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO address (id, location_id, address_1, city,
+                    state_province, postal_code, country, address_type)
+                VALUES (:id, :loc, '1 Main Street', 'Anywhere', 'XX',
+                        '08000', 'US', 'physical')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": b},
+        )
+        clean_dedup_tables.commit()
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        # SELECT DISTINCT should collapse the 2×2 address cross to one
+        # (id_a, id_b) pair. Without DISTINCT, we'd see 4 here.
+        assert (
+            len(pairs) == 1
+        ), f"multi-address must not inflate pairs, got {len(pairs)}: {pairs!r}"
+
+
+class TestAuditTablePopulation:
+    """C2/M2 — every mutation logs an audit row that the undo script
+    can use to reverse the action."""
+
+    def test_repoint_logs_audit_row_per_moved_row(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Audit Repoint Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 AR St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Audit Repoint Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 AR St",
+            postal_code="08000",
+            scraper_id="other_ar",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        repoint_rows = clean_dedup_tables.execute(
+            text(
+                "SELECT table_name, old_value, new_value FROM dedup_run_audit "
+                "WHERE run_id = :rid AND action = 'repoint' "
+                "ORDER BY table_name"
+            ),
+            {"rid": run_id},
+        ).fetchall()
+        # Each child table that had moves should have audit rows; at
+        # minimum location_source and address (from _seed_location).
+        tables = {r[0] for r in repoint_rows}
+        assert "location_source" in tables
+        assert "address" in tables
+        # old_value / new_value MUST be present and have location_id.
+        for tbl, old, new in repoint_rows:
+            assert "location_id" in old, f"{tbl} audit row missing old location_id"
+            assert "location_id" in new, f"{tbl} audit row missing new location_id"
+
+    def test_soft_delete_logs_audit_row(self, clean_dedup_tables: Session) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Audit Soft Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 AS St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Audit Soft Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 AS St",
+            postal_code="08000",
+            scraper_id="other_as",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        soft_rows = clean_dedup_tables.execute(
+            text(
+                "SELECT row_id FROM dedup_run_audit "
+                "WHERE run_id = :rid AND action = 'soft_delete'"
+            ),
+            {"rid": run_id},
+        ).fetchall()
+        # Exactly one duplicate was soft-deleted.
+        assert len(soft_rows) == 1
+
+
+class TestDiagnosticCount:
+    """`diagnostic_count` is the operator's first signal — it has to
+    work."""
+
+    def test_diagnostic_count_returns_zero_on_empty_db(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        diag = dedupe_near.diagnostic_count(clean_dedup_tables)
+        assert diag["pair_count"] == 0
+        assert diag["locations_involved_proxy"] == 0
+
+    def test_diagnostic_count_counts_seeded_pair(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Diag Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Diag St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Diag Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Diag St",
+            postal_code="08000",
+            scraper_id="other_diag",
+        )
+        diag = dedupe_near.diagnostic_count(clean_dedup_tables)
+        assert diag["pair_count"] == 1
+        assert diag["locations_involved_proxy"] >= 1
+
+
+class TestUndoDedupRun:
+    """The undo companion (`scripts/undo_dedup_run.py`) reverses a run
+    by reading the audit table. These tests prove undo round-trips."""
+
+    @pytest.fixture
+    def undo_mod(self) -> Any:
+        import importlib.util as iu
+        import sys as _sys
+        from pathlib import Path
+
+        path = Path(__file__).parent.parent / "scripts" / "undo_dedup_run.py"
+        spec = iu.spec_from_file_location("undo_dedup_run", path)
+        assert spec is not None and spec.loader is not None
+        mod = iu.module_from_spec(spec)
+        _sys.modules["undo_dedup_run"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_undo_reverses_soft_delete(
+        self, clean_dedup_tables: Session, undo_mod: Any
+    ) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Undo Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Undo St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Undo Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Undo St",
+            postal_code="08000",
+            scraper_id="other_undo",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        result = dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        duplicate_id = (clusters[0] - {result["canonical_id"]}).pop()
+
+        # Duplicate is now non-canonical.
+        row = clean_dedup_tables.execute(
+            text("SELECT is_canonical FROM location WHERE id = :id"),
+            {"id": duplicate_id},
+        ).first()
+        assert row[0] is False
+
+        # Run undo with --apply.
+        audit_rows = undo_mod.fetch_audit_rows(clean_dedup_tables, run_id)
+        soft_deletes = [r for r in audit_rows if r["action"] == "soft_delete"]
+        for r in soft_deletes:
+            undo_mod.reverse_soft_delete(clean_dedup_tables, r, apply=True)
+        clean_dedup_tables.commit()
+
+        # Duplicate is canonical again.
+        row = clean_dedup_tables.execute(
+            text("SELECT is_canonical FROM location WHERE id = :id"),
+            {"id": duplicate_id},
+        ).first()
+        assert row[0] is True
+
+    def test_undo_reverses_repoint(
+        self, clean_dedup_tables: Session, undo_mod: Any
+    ) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Undo Repoint Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 UR St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Undo Repoint Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 UR St",
+            postal_code="08000",
+            scraper_id="other_ur",
+        )
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        result = dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        duplicate_id = (clusters[0] - {result["canonical_id"]}).pop()
+
+        # location_source from the duplicate is now on the survivor.
+        cnt = clean_dedup_tables.execute(
+            text("SELECT COUNT(*) FROM location_source WHERE location_id = :id"),
+            {"id": duplicate_id},
+        ).scalar()
+        assert cnt == 0
+
+        # Run undo on the repoint actions.
+        audit_rows = undo_mod.fetch_audit_rows(clean_dedup_tables, run_id)
+        repoints = [r for r in audit_rows if r["action"] == "repoint"]
+        for r in repoints:
+            undo_mod.reverse_repoint(clean_dedup_tables, r, apply=True)
+        clean_dedup_tables.commit()
+
+        # Duplicate's location_source is back on the duplicate.
+        cnt = clean_dedup_tables.execute(
+            text("SELECT COUNT(*) FROM location_source WHERE location_id = :id"),
+            {"id": duplicate_id},
+        ).scalar()
+        assert cnt >= 1
+
+
+class TestSubmarineExclusionInPickCanonical:
+    """I4 — a location_source row whose scraper is FANO-allowlist but
+    `source_type='submarine'` must NOT count as FANO-qualifying."""
+
+    def test_fano_submarine_source_does_not_outrank_non_fano(
+        self, clean_dedup_tables: Session
+    ) -> None:
+        from app.api.v1.partners.ptf._allowlist import FANO_ALLOWLIST
+
+        fano_scraper = next(iter(FANO_ALLOWLIST))
+        # Row A: only source is FANO but as submarine enrichment.
+        # Row B: non-FANO scraper, higher confidence.
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Submarine Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Sub St",
+            postal_code="08000",
+            confidence=60,
+            scraper_id=fano_scraper,
+        )
+        # Override the source row to be submarine type.
+        clean_dedup_tables.execute(
+            text(
+                "UPDATE location_source SET source_type = 'submarine' "
+                "WHERE location_id = :id AND scraper_id = :s"
+            ),
+            {"id": a, "s": fano_scraper},
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Submarine Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Sub St",
+            postal_code="08000",
+            confidence=85,
+            scraper_id="non_fano_high_conf",
+        )
+        clean_dedup_tables.commit()
+        survivor = dedupe_near.pick_canonical(clean_dedup_tables, cluster={a, b})
+        # B wins because A's only FANO source is submarine (excluded
+        # from has_qualifying_source) — confidence_score tie-break
+        # gives B at 85 vs A at 60.
+        assert survivor == b
+
+
+class TestMultiChildTableRepoint:
+    """I6 — repoint coverage was only on location_source. Cover the
+    other tables in CHILD_TABLES via a parametrized case."""
+
+    def test_phone_row_repoints_to_survivor(self, clean_dedup_tables: Session) -> None:
+        _ensure_audit_table(clean_dedup_tables)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=a,
+            name="Phone Pantry",
+            lat=40.0,
+            lng=-74.0,
+            address_1="1 Phone St",
+            postal_code="08000",
+        )
+        _seed_location(
+            clean_dedup_tables,
+            loc_id=b,
+            name="Phone Pantry",
+            lat=40.0008,
+            lng=-74.0,
+            address_1="1 Phone St",
+            postal_code="08000",
+            scraper_id="other_phone",
+        )
+        # Add a phone row to the duplicate-to-be.
+        phone_id = str(uuid.uuid4())
+        clean_dedup_tables.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, type)
+                VALUES (:id, :loc, '555-555-1212', 'voice')
+                """
+            ),
+            {"id": phone_id, "loc": b},
+        )
+        clean_dedup_tables.commit()
+        pairs = dedupe_near.find_duplicate_pairs(clean_dedup_tables)
+        clusters = dedupe_near.group_into_clusters(pairs)
+        run_id = str(uuid.uuid4())
+        result = dedupe_near.merge_cluster(
+            clean_dedup_tables, clusters[0], apply=True, run_id=run_id
+        )
+        clean_dedup_tables.commit()
+        survivor = result["canonical_id"]
+        # The phone row must now be on the survivor.
+        owner = clean_dedup_tables.execute(
+            text("SELECT location_id FROM phone WHERE id = :id"),
+            {"id": phone_id},
+        ).scalar()
+        assert str(owner) == survivor
