@@ -44,9 +44,16 @@ def _decode_cursor(cursor: Optional[str]) -> tuple[Optional[int], Optional[str]]
         raise ValueError(f"Malformed pagination cursor: {e}") from e
 
 
-# Minimum quality: has coordinates, not rejected, has address
+# Minimum quality: has coordinates, not rejected, has address,
+# AND is the canonical row (Tier-3 dedupe soft-deletes duplicates by
+# flipping `is_canonical` to FALSE — those rows must never appear in
+# beacon's sync output. Previously this was filtered as a side-effect
+# of the address-repoint making `a.city IS NULL`; we make it explicit
+# here so a future maintenance change can't silently leak soft-deleted
+# rows back into the build).
 _BASE_WHERE = """
-    l.latitude IS NOT NULL AND l.longitude IS NOT NULL
+    l.is_canonical = TRUE
+    AND l.latitude IS NOT NULL AND l.longitude IS NOT NULL
     AND l.confidence_score >= :min_confidence
     AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
     AND a.city IS NOT NULL AND a.state_province IS NOT NULL
@@ -149,10 +156,24 @@ class BeaconSyncService:
             clauses += " AND a.state_province = :state_filter"
             params["state_filter"] = state_filter
 
+        # HSDS schema allows multiple physical addresses per location;
+        # after the Tier-3 dedupe backfill several hundred survivors have
+        # 2+ rows. A plain LEFT JOIN would fan out and inflate this count
+        # — pin to one address row per location via LATERAL + LIMIT 1
+        # (lowest UUID, deterministic).
+        # LATERAL subquery must select every address column referenced
+        # by `_BASE_WHERE` and any optional filter clauses — currently
+        # `city` and `state_province`. Missing a column makes its `IS
+        # NOT NULL` predicate evaluate against NULL and drops the row.
         sql = f"""
             SELECT COUNT(*) FROM location l
-            LEFT JOIN address a ON a.location_id = l.id
-                AND a.address_type = 'physical'
+            LEFT JOIN LATERAL (
+                SELECT city, state_province
+                FROM address
+                WHERE location_id = l.id AND address_type = 'physical'
+                ORDER BY id
+                LIMIT 1
+            ) a ON TRUE
             WHERE {clauses}
         """  # nosec B608  # noqa: S608
         result = await self._session.execute(text(sql), params)
@@ -186,6 +207,13 @@ class BeaconSyncService:
             params["cursor_conf"] = cursor_conf
             params["cursor_id"] = cursor_id
 
+        # Address join MUST be one row per location, otherwise the
+        # cursor-paginated downstream (`beacon` build) sees duplicate
+        # `l.id` values across the page list and `BatchWriteItem` on
+        # DynamoDB rejects them. Several hundred survivors have 2+
+        # physical addresses after the Tier-3 dedupe backfill. LATERAL
+        # + ORDER BY id LIMIT 1 picks the lowest-UUID address
+        # deterministically.
         sql = f"""
             SELECT l.id, l.name, l.description, l.latitude, l.longitude,
                    l.transportation, l.url, l.confidence_score,
@@ -197,8 +225,13 @@ class BeaconSyncService:
                    a.state_province, a.postal_code
             FROM location l
             LEFT JOIN organization o ON l.organization_id = o.id
-            LEFT JOIN address a ON a.location_id = l.id
-                AND a.address_type = 'physical'
+            LEFT JOIN LATERAL (
+                SELECT address_1, address_2, city, state_province, postal_code
+                FROM address
+                WHERE location_id = l.id AND address_type = 'physical'
+                ORDER BY id
+                LIMIT 1
+            ) a ON TRUE
             WHERE {clauses} {cursor_clause}
             ORDER BY l.confidence_score DESC, l.id DESC
             LIMIT :page_size
