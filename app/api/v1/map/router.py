@@ -344,6 +344,8 @@ async def get_map_location_detail(
         LEFT JOIN organization o ON o.id = l.organization_id
         LEFT JOIN phone p ON p.location_id = l.id
         WHERE l.id = :location_id
+          AND l.is_canonical = true
+          AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
     """
 
     from sqlalchemy import text

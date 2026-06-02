@@ -181,6 +181,7 @@ candidates AS (
            ON fa.zip = SUBSTR(a.postal_code, 1, 5)
     LEFT JOIN qualifying_source qs ON qs.location_id = l.id
     WHERE (l.validation_status != 'rejected' OR l.validation_status IS NULL)
+      AND l.is_canonical = TRUE
       AND l.latitude IS NOT NULL
       AND l.longitude IS NOT NULL
       AND NOT (l.latitude = 0 AND l.longitude = 0)
@@ -356,6 +357,8 @@ LEFT JOIN feeding_america_zip_coverage fa
        ON fa.zip = SUBSTR(a.postal_code, 1, 5)
 LEFT JOIN qualifying_source qs ON qs.location_id = l.id
 WHERE l.id = :location_id
+  AND l.is_canonical = TRUE
+  AND (l.validation_status != 'rejected' OR l.validation_status IS NULL)
   -- Mirror the list-query filter (including the empty-string check). A
   -- location with no contact info AND no schedule is not reachable and
   -- shouldn't be served. Returning empty here means the router responds
