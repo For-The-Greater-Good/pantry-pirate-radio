@@ -185,6 +185,31 @@ class TestUpdateLocation:
         params = db.execute.call_args[0][1]
         assert params["organization_id"] == str(org_id)
 
+    def test_does_not_null_organization_id_when_org_id_none(self):
+        """Regression (SUB-1): org_id=None must NOT wipe the existing org link.
+
+        Previously organization_id was always in the SET clause bound to NULL,
+        so an hours-only submarine enrichment orphaned the location from its
+        organization. With no org resolved, organization_id must not appear in
+        the UPDATE at all.
+        """
+        db = MagicMock(spec=Session)
+        handler = SubmarineLocationHandler(db)
+
+        location_id = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+        location = {
+            "name": "Grace Food Pantry",
+            "latitude": 39.78,
+            "longitude": -89.65,
+        }
+
+        handler.update_location(location_id, location, org_id=None)
+
+        sql_arg = str(db.execute.call_args[0][0].text)
+        params = db.execute.call_args[0][1]
+        assert "organization_id" not in sql_arg
+        assert "organization_id" not in params
+
 
 class TestPersistSchedules:
     """Test submarine schedule persistence to location."""
