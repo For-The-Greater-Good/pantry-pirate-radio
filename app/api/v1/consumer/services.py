@@ -309,6 +309,8 @@ class ConsumerLocationService:
                 LIMIT 1
             ) p ON true
             WHERE l.id = ANY(:location_ids)
+              AND l.is_canonical = true
+              AND (l.validation_status != 'rejected' OR l.validation_status IS NULL)
         """
 
         result = await self.session.execute(text(query), {"location_ids": location_ids})
