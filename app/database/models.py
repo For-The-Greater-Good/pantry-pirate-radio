@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -122,6 +123,14 @@ class LocationModel(Base):
         nullable=True,
     )
     geocoding_source = Column(Text, nullable=True)
+
+    # Canonical / soft-delete marker. The reconciler keeps one canonical
+    # survivor per real-world location and flips merged-away duplicates to
+    # is_canonical=FALSE. The DB column already existed; it was previously
+    # unmapped on the ORM model, so the HSDS read repositories could not
+    # filter on it and served duplicates. Public read paths default to
+    # is_canonical=TRUE (see LocationRepository visibility filter).
+    is_canonical = Column(Boolean, nullable=False, default=True)
 
     # Verification tracking (ppr-beacon quality gate)
     verified_by = Column(Text, nullable=True)  # 'auto', 'admin', 'source', 'claimed'
