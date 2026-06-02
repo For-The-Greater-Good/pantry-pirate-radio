@@ -549,6 +549,7 @@ class LocationCreator(BaseReconciler):
         longitude: float,
         metadata: dict[str, Any],
         organization_id: str | None = None,
+        per_job_confidence_score: int | None = None,
     ) -> tuple[str, bool]:
         """Process a location by finding a match or creating a new one.
 
@@ -563,6 +564,12 @@ class LocationCreator(BaseReconciler):
             longitude: Location longitude
             metadata: Additional metadata including scraper_id
             organization_id: Optional ID of the parent organization
+            per_job_confidence_score: The validator's confidence score for
+                *this* job — used as the base for source corroboration on
+                matched-existing rows. Passing the per-job score (rather
+                than reading the canonical row's possibly-already-bonused
+                score from the DB) keeps the merge idempotent and prevents
+                compounding bonuses on re-runs.
 
         Returns:
             Tuple of (location_id, is_new) where is_new indicates if a new location was created
@@ -688,20 +695,12 @@ class LocationCreator(BaseReconciler):
                 )
                 self.db.commit()
 
-            # Fetch current confidence score for source corroboration
-            current_score_query = text(
-                "SELECT confidence_score FROM location WHERE id = :id"
-            )
-            current_score_result = self.db.execute(
-                current_score_query, {"id": location_id}
-            )
-            current_score_row = current_score_result.first()
-            current_confidence = current_score_row[0] if current_score_row else None
-
-            # Merge source records to update canonical record
+            # Pass the per-job (validator) score, not the canonical row's
+            # score — using the canonical value would compound the
+            # corroboration bonus on every reprocess.
             merge_strategy = MergeStrategy(self.db)
             updated_score = merge_strategy.merge_location(
-                location_id, current_confidence
+                location_id, per_job_confidence_score
             )
             if updated_score is not None:
                 self.logger.info(

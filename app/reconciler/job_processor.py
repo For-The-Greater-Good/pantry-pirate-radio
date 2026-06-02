@@ -26,6 +26,7 @@ from app.reconciler.service_creator import ServiceCreator
 from app.reconciler.submarine_location_handler import SubmarineLocationHandler
 from app.reconciler.version_tracker import VersionTracker
 from app.utils.ical import normalize_byday, normalize_bymonthday
+from app.validator.scoring import ConfidenceScorer
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -187,6 +188,93 @@ class JobProcessor:
         Jobs are now processed directly by the RQ worker when they arrive.
         """
         self.logger.info("Method deprecated - jobs are processed by RQ worker")
+
+    def _apply_corroboration_bonus(
+        self, location_id: str, per_job_score: int | None
+    ) -> None:
+        """Recompute the source-corroboration bonus on the canonical row.
+
+        Uses ``per_job_score`` (the validator's output for *this* job)
+        as the base — not the canonical row's current score — so that
+        bonuses never compound on reprocesses.
+
+        Counts only ``source_type = 'scraper'`` (or NULL) rows; submarine,
+        portal_ingest, and human_update sources do not represent
+        independent scraper confirmation. Keep the filter in sync with
+        ``merge_strategy.py``.
+
+        No-op when ``per_job_score`` is None or fewer than 2 distinct
+        scrapers have confirmed the location. The UPDATE respects the
+        ``verified_by NOT IN ('admin','source','claimed')`` guard so
+        owner-curated canonical rows are never overwritten — a 0-row
+        UPDATE is logged as ``corroboration_skipped_owner_protected``.
+        """
+        if per_job_score is None:
+            return
+
+        count_result = self.db.execute(
+            text(
+                """
+                SELECT COUNT(DISTINCT scraper_id)
+                FROM location_source
+                WHERE location_id = :id
+                  AND (source_type = 'scraper' OR source_type IS NULL)
+                """
+            ),
+            {"id": str(location_id)},
+        )
+        distinct_scrapers = count_result.scalar() or 0
+
+        if distinct_scrapers < 2:
+            return
+
+        scorer = ConfidenceScorer()
+        corroborated = scorer.apply_source_corroboration(
+            per_job_score, distinct_scrapers
+        )
+        if corroborated == per_job_score:
+            return
+
+        result = self.db.execute(
+            text(
+                """
+                UPDATE location
+                SET confidence_score = :score,
+                    validation_status = CASE
+                        WHEN :score >= 80 THEN 'verified'
+                        ELSE validation_status
+                    END
+                WHERE id = :id
+                  AND (verified_by IS NULL
+                       OR verified_by NOT IN ('admin','source','claimed'))
+                """
+            ),
+            {"id": str(location_id), "score": corroborated},
+        )
+        self.db.commit()
+        if result.rowcount == 0:
+            # The human-curated guard filtered the row out. Operators
+            # investigating "why isn't corroboration applying for this id"
+            # need a discoverable signal that the guard fired.
+            logger.info(
+                "corroboration_skipped_owner_protected",
+                extra={
+                    "location_id": str(location_id),
+                    "scrapers": distinct_scrapers,
+                    "would_be_score": corroborated,
+                },
+            )
+            return
+
+        logger.info(
+            "corroboration_applied",
+            extra={
+                "location_id": str(location_id),
+                "scrapers": distinct_scrapers,
+                "per_job_score": per_job_score,
+                "new_score": corroborated,
+            },
+        )
 
     def _transform_schedule(self, schedule: dict) -> dict | None:
         """Transform schedule from various formats to expected format.
@@ -1021,6 +1109,30 @@ class JobProcessor:
                                 "source_type", "scraper"
                             ),
                         )
+
+                        # Must run after create_location_source so this
+                        # scraper is counted in the distinct-scraper total.
+                        # Submarine jobs are enrichment, not independent
+                        # confirmation (constitution v1.5.1), and excluded.
+                        # Wrapped so a bonus failure doesn't abort the
+                        # rest of the job — the canonical UPDATE has
+                        # already committed and the next scraper pass
+                        # will recompute the bonus idempotently.
+                        if not is_submarine:
+                            try:
+                                self._apply_corroboration_bonus(
+                                    location_id=str(location_id),
+                                    per_job_score=loc_confidence_score,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "corroboration_failed",
+                                    extra={
+                                        "location_id": str(location_id),
+                                        "per_job_score": loc_confidence_score,
+                                        "error": str(e),
+                                    },
+                                )
 
                     else:
                         # Create new location with all fields
