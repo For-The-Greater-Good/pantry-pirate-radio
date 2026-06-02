@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Generic, Optional, Sequence, TypeVar
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,6 +26,34 @@ from .models import (
 )
 
 ModelType = TypeVar("ModelType")
+
+
+def _visible_location_clause(model: type[LocationModel]) -> Any:
+    """Predicate for the public-visible subset of locations.
+
+    The reconciler soft-deletes merged-away duplicates (``is_canonical=FALSE``)
+    and the validator marks low-quality rows ``validation_status='rejected'``.
+    Every public-facing surface (map, PTF, consumer, export) hides both; the
+    HSDS read repository historically did not, leaking ~11k rows. Read paths
+    apply this clause by default and skip it only when ``include_hidden=True``.
+
+    ``validation_status`` is nullable; a NULL status is treated as visible
+    (it predates the validator and means "not yet rejected").
+
+    The status comparison casts to text so the predicate is portable across
+    deployments: prod stores ``validation_status`` as a named Postgres enum
+    (``location_validation_status_enum``) while other environments store it as
+    plain text. Casting to text avoids binding the literal as the named enum
+    type (which fails to prepare where that type is absent) and Postgres
+    coerces enum labels to text identically, so semantics are unchanged.
+    """
+    return and_(
+        model.is_canonical.is_(True),
+        or_(
+            model.validation_status.is_(None),
+            cast(model.validation_status, String) != "rejected",
+        ),
+    )
 
 
 class BaseRepository(ABC, Generic[ModelType]):
@@ -205,8 +233,15 @@ class LocationRepository(BaseRepository[LocationModel]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, LocationModel)
 
-    async def get_by_id(self, id: UUID) -> Optional[LocationModel]:
-        """Get location by ID with eager loading."""
+    async def get_by_id(
+        self, id: UUID, include_hidden: bool = False
+    ) -> Optional[LocationModel]:
+        """Get location by ID with eager loading.
+
+        Defaults to the public-visible subset (canonical, non-rejected) so a
+        soft-deleted duplicate or rejected row cannot be surfaced by id. Pass
+        ``include_hidden=True`` for admin/debug tooling that needs every row.
+        """
         query = (
             select(self.model)
             .options(
@@ -216,6 +251,8 @@ class LocationRepository(BaseRepository[LocationModel]):
             )
             .filter(self.model.id == str(id))
         )
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
@@ -224,13 +261,21 @@ class LocationRepository(BaseRepository[LocationModel]):
         skip: int = 0,
         limit: int = 100,
         filters: Optional[dict[str, Any]] = None,
+        include_hidden: bool = False,
     ) -> Sequence[LocationModel]:
-        """Get all locations with eager loading to prevent lazy load errors."""
+        """Get all locations with eager loading to prevent lazy load errors.
+
+        Defaults to canonical, non-rejected rows; ``include_hidden=True`` opts
+        back into the full set.
+        """
         query = select(self.model).options(
             selectinload(self.model.services_at_location)
             # Temporarily disabled schedules due to async loading issues
             # selectinload(self.model.schedules)
         )
+
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
 
         # Apply filters
         if filters:
@@ -244,6 +289,29 @@ class LocationRepository(BaseRepository[LocationModel]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def count(
+        self,
+        filters: Optional[dict[str, Any]] = None,
+        include_hidden: bool = False,
+    ) -> int:
+        """Count locations, matching get_all's default visibility filter.
+
+        Overrides BaseRepository.count so paginated totals stay consistent with
+        the rows actually returned (otherwise totals would count hidden rows).
+        """
+        query = select(func.count()).select_from(self.model)
+
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
+
+        if filters:
+            for key, value in filters.items():
+                if hasattr(self.model, key):
+                    query = query.filter(getattr(self.model, key) == value)
+
+        result = await self.session.execute(query)
+        return result.scalar() or 0
+
     async def get_locations_by_radius(
         self,
         center: GeoPoint,
@@ -251,8 +319,9 @@ class LocationRepository(BaseRepository[LocationModel]):
         skip: int = 0,
         limit: int = 100,
         filters: Optional[dict[str, Any]] = None,
+        include_hidden: bool = False,
     ) -> Sequence[LocationModel]:
-        """Get locations within radius of a point."""
+        """Get locations within radius of a point (canonical, non-rejected)."""
         if HAS_GEOALCHEMY2:
             # Use PostGIS for accurate distance calculations
             radius_meters = radius_miles * 1609.34
@@ -301,6 +370,9 @@ class LocationRepository(BaseRepository[LocationModel]):
                 )
             )
 
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
+
         # Apply additional filters
         if filters:
             for key, value in filters.items():
@@ -329,8 +401,9 @@ class LocationRepository(BaseRepository[LocationModel]):
         skip: int = 0,
         limit: int = 100,
         filters: Optional[dict[str, Any]] = None,
+        include_hidden: bool = False,
     ) -> Sequence[LocationModel]:
-        """Get locations within bounding box."""
+        """Get locations within bounding box (canonical, non-rejected)."""
         if HAS_GEOALCHEMY2:
             # Use PostGIS for accurate bounding box queries
             bbox_geom = func.ST_SetSRID(
@@ -357,6 +430,9 @@ class LocationRepository(BaseRepository[LocationModel]):
                 )
             )
 
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
+
         # Apply additional filters
         if filters:
             for key, value in filters.items():
@@ -370,21 +446,19 @@ class LocationRepository(BaseRepository[LocationModel]):
         return result.scalars().all()
 
     async def get_locations_with_services(
-        self, skip: int = 0, limit: int = 100
+        self, skip: int = 0, limit: int = 100, include_hidden: bool = False
     ) -> Sequence[LocationModel]:
-        """Get locations with their services."""
-        query = (
-            select(self.model)
-            .options(
-                selectinload(self.model.services_at_location).selectinload(
-                    ServiceAtLocationModel.service
-                )
-                # Temporarily disabled schedules due to async loading issues
-                # selectinload(self.model.schedules)
+        """Get locations with their services (canonical, non-rejected)."""
+        query = select(self.model).options(
+            selectinload(self.model.services_at_location).selectinload(
+                ServiceAtLocationModel.service
             )
-            .offset(skip)
-            .limit(limit)
+            # Temporarily disabled schedules due to async loading issues
+            # selectinload(self.model.schedules)
         )
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
+        query = query.offset(skip).limit(limit)
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -393,8 +467,9 @@ class LocationRepository(BaseRepository[LocationModel]):
         center: GeoPoint,
         radius_miles: float,
         filters: Optional[dict[str, Any]] = None,
+        include_hidden: bool = False,
     ) -> int:
-        """Count locations within radius of a point."""
+        """Count locations within radius of a point (canonical, non-rejected)."""
         if HAS_GEOALCHEMY2:
             # Use PostGIS for accurate distance calculations
             radius_meters = radius_miles * 1609.34
@@ -434,6 +509,9 @@ class LocationRepository(BaseRepository[LocationModel]):
                 )
             )
 
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
+
         # Apply additional filters
         if filters:
             for key, value in filters.items():
@@ -447,8 +525,9 @@ class LocationRepository(BaseRepository[LocationModel]):
         self,
         bbox: GeoBoundingBox,
         filters: Optional[dict[str, Any]] = None,
+        include_hidden: bool = False,
     ) -> int:
-        """Count locations within bounding box."""
+        """Count locations within bounding box (canonical, non-rejected)."""
         if HAS_GEOALCHEMY2:
             # Use PostGIS for accurate bounding box queries
             bbox_geom = func.ST_SetSRID(
@@ -482,6 +561,9 @@ class LocationRepository(BaseRepository[LocationModel]):
                     )
                 )
             )
+
+        if not include_hidden:
+            query = query.filter(_visible_location_clause(self.model))
 
         # Apply additional filters
         if filters:
