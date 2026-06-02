@@ -929,15 +929,15 @@ def test_process_location_with_organization_id(
         # Verify source was created
         mock_create_source.assert_called_once()
 
-        # Verify db.execute called for org_id update + confidence score query
-        assert mock_db.execute.call_count == 2
-        # First call: organization ID update
+        # Only the org_id update fires; corroboration receives the
+        # per-job score from the caller, no canonical-row SELECT.
+        assert mock_db.execute.call_count == 1
         org_call_args = mock_db.execute.call_args_list[0]
         assert isinstance(org_call_args[0][0], TextClause)
         assert org_call_args[0][1]["id"] == test_uuid
         assert org_call_args[0][1]["organization_id"] == org_id
 
-        # Verify merge was called with location_id and confidence score
+        # Verify merge was called with the location_id
         mock_merge_instance.merge_location.assert_called_once()
         merge_call_args = mock_merge_instance.merge_location.call_args
         assert merge_call_args[0][0] == test_uuid
@@ -1079,3 +1079,106 @@ def test_create_address_missing_postal_code(mock_db: MagicMock) -> None:
             assert address_call[0][1]["postal_code"] == "90001"  # Default for CA
             assert address_call[0][1]["address_1"] == "123 Test St"
             assert address_call[0][1]["location_id"] == location_id
+
+
+class TestProcessLocationCompoundingFix:
+    """Verifies ``process_location`` uses the caller-supplied per-job
+    score for corroboration and performs no canonical-row
+    ``confidence_score`` SELECT (the source of compounding)."""
+
+    def test_process_location_accepts_per_job_confidence_score_kwarg(
+        self, mock_db: MagicMock
+    ):
+        """The new parameter exists on process_location's signature."""
+        location_creator = LocationCreator(mock_db)
+        test_uuid = str(uuid.uuid4())
+
+        with patch.object(
+            location_creator, "_retry_with_backoff"
+        ) as mock_retry, patch.object(
+            location_creator, "create_location_source"
+        ) as mock_create_source, patch(
+            "app.reconciler.location_creator.MergeStrategy"
+        ) as mock_merge_strategy:
+            mock_retry.return_value = (test_uuid, False)
+            mock_create_source.return_value = "source-id"
+            mock_merge_strategy.return_value = MagicMock()
+
+            location_creator.process_location(
+                name="Test",
+                description="desc",
+                latitude=37.7,
+                longitude=-122.4,
+                metadata={"scraper_id": "test_scraper"},
+                per_job_confidence_score=66,
+            )
+
+    def test_process_location_passes_per_job_score_to_merge(self, mock_db: MagicMock):
+        """The per-job score is what reaches merge_location — NOT a
+        value read from the canonical row's confidence_score column."""
+        location_creator = LocationCreator(mock_db)
+        test_uuid = str(uuid.uuid4())
+
+        with patch.object(
+            location_creator, "_retry_with_backoff"
+        ) as mock_retry, patch.object(
+            location_creator, "create_location_source"
+        ) as mock_create_source, patch(
+            "app.reconciler.location_creator.MergeStrategy"
+        ) as mock_merge_strategy:
+            mock_retry.return_value = (test_uuid, False)
+            mock_create_source.return_value = "source-id"
+            mock_merge_instance = MagicMock()
+            mock_merge_strategy.return_value = mock_merge_instance
+
+            location_creator.process_location(
+                name="Test",
+                description="desc",
+                latitude=37.7,
+                longitude=-122.4,
+                metadata={"scraper_id": "test_scraper"},
+                per_job_confidence_score=66,
+            )
+
+            mock_merge_instance.merge_location.assert_called_once()
+            call = mock_merge_instance.merge_location.call_args
+            # Accept either positional (..., 66) or kwarg
+            per_job = call.kwargs.get("per_job_confidence_score")
+            if per_job is None and len(call.args) >= 2:
+                per_job = call.args[1]
+            assert per_job == 66
+
+    def test_process_location_does_not_select_confidence_score_from_db(
+        self, mock_db: MagicMock
+    ):
+        """The compounding-bug source — `SELECT confidence_score FROM
+        location WHERE id = :id` — must be gone after the fix."""
+        location_creator = LocationCreator(mock_db)
+        test_uuid = str(uuid.uuid4())
+
+        with patch.object(
+            location_creator, "_retry_with_backoff"
+        ) as mock_retry, patch.object(
+            location_creator, "create_location_source"
+        ) as mock_create_source, patch(
+            "app.reconciler.location_creator.MergeStrategy"
+        ) as mock_merge_strategy:
+            mock_retry.return_value = (test_uuid, False)
+            mock_create_source.return_value = "source-id"
+            mock_merge_strategy.return_value = MagicMock()
+
+            location_creator.process_location(
+                name="Test",
+                description="desc",
+                latitude=37.7,
+                longitude=-122.4,
+                metadata={"scraper_id": "test_scraper"},
+                per_job_confidence_score=66,
+            )
+
+            select_confidence_calls = [
+                c
+                for c in mock_db.execute.call_args_list
+                if "select confidence_score" in str(c.args[0]).lower()
+            ]
+            assert select_confidence_calls == []
