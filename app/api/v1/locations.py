@@ -26,6 +26,11 @@ from app.api.v1.utils import (
     build_filter_dict,
 )
 
+import structlog
+from pydantic import ValidationError
+
+logger = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/locations", tags=["locations"])
 
 
@@ -83,17 +88,33 @@ async def get_location_schedules(
 
     schedules = []
     for row in rows:
-        schedule = ScheduleInfo(
-            opens_at=str(row.opens_at) if row.opens_at else None,
-            closes_at=str(row.closes_at) if row.closes_at else None,
-            byday=row.byday,
-            bymonthday=row.bymonthday,
-            freq=row.freq,
-            description=row.description,
-            valid_from=row.valid_from.isoformat() if row.valid_from else None,
-            valid_to=row.valid_to.isoformat() if row.valid_to else None,
-            notes=row.notes,
-        )
+        # Fail soft: ScheduleInfo's byday/bymonthday validators RAISE on a value
+        # that the RFC 5545 normalizer can't parse. A single corrupt row (from
+        # any write path that bypassed normalization) must not 500 the whole
+        # page — skip it and log so the bad row is traceable. This matches the
+        # reconciler/submarine/normalizer fail-soft posture for the same fields.
+        try:
+            schedule = ScheduleInfo(
+                opens_at=str(row.opens_at) if row.opens_at else None,
+                closes_at=str(row.closes_at) if row.closes_at else None,
+                byday=row.byday,
+                bymonthday=row.bymonthday,
+                freq=row.freq,
+                description=row.description,
+                valid_from=row.valid_from.isoformat() if row.valid_from else None,
+                valid_to=row.valid_to.isoformat() if row.valid_to else None,
+                notes=row.notes,
+            )
+        except (ValidationError, ValueError, TypeError) as exc:
+            logger.warning(
+                "location_schedule_dropped_invalid",
+                location_id=str(location_id),
+                byday=row.byday,
+                bymonthday=row.bymonthday,
+                freq=row.freq,
+                error=str(exc),
+            )
+            continue
         schedules.append(schedule)
 
     return schedules
