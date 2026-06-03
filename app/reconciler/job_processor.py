@@ -1680,6 +1680,7 @@ class JobProcessor:
                                                 location_id=location_ids[loc_key],
                                                 metadata=job_result.job.metadata,
                                                 byday=byday,
+                                                bymonthday=schedule.get("bymonthday"),
                                                 description=description,
                                             )
                                         )
@@ -1915,6 +1916,7 @@ class JobProcessor:
                             service_at_location_id=service_at_location_id_for_schedule,
                             metadata=job_result.job.metadata,
                             byday=byday,
+                            bymonthday=schedule.get("bymonthday"),
                             description=description,
                         )
                     )

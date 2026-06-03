@@ -168,6 +168,7 @@ class SubmarineLocationHandler:
                 location_id=location_id,
                 service_at_location_id=None,
                 byday=transformed.get("byday"),
+                bymonthday=transformed.get("bymonthday"),
                 description=transformed.get("description"),
             )
             count += 1
