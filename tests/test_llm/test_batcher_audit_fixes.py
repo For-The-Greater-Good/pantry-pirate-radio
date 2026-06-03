@@ -35,6 +35,10 @@ class TestC2PoisonPillDlqForwarding:
         count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
+            s3_client=MagicMock(),
+            bucket="test-bucket",
+            recovery_id="exec_req-aaa",
+            source="scraper",
             dlq_url=dlq_url,
         )
 
@@ -74,6 +78,10 @@ class TestC2PoisonPillDlqForwarding:
         count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
+            s3_client=MagicMock(),
+            bucket="test-bucket",
+            recovery_id="exec_req-aaa",
+            source="scraper",
             dlq_url="",  # No DLQ
         )
 
@@ -106,6 +114,10 @@ class TestC2PoisonPillDlqForwarding:
         count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
+            s3_client=MagicMock(),
+            bucket="test-bucket",
+            recovery_id="exec_req-aaa",
+            source="scraper",
             dlq_url="https://sqs.../staging-dlq.fifo",
         )
 
@@ -141,6 +153,10 @@ class TestC2PoisonPillDlqForwarding:
         count, filepath, _queue_empty = _drain_staging_queue(
             mock_sqs,
             "https://sqs.../staging.fifo",
+            s3_client=MagicMock(),
+            bucket="test-bucket",
+            recovery_id="exec_req-aaa",
+            source="scraper",
             dlq_url="https://sqs.../staging-dlq.fifo",
         )
 
@@ -178,7 +194,9 @@ class TestM4BatchThresholdPerInvocation:
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
         tmp.close()
         mock_drain.return_value = (0, tmp.name, True)
-        mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+        _mock_s3 = MagicMock()
+        _mock_s3.list_objects_v2.return_value = {"Contents": [], "IsTruncated": False}
+        mock_clients.return_value = (MagicMock(), _mock_s3, MagicMock(), MagicMock())
 
         result = handler({"execution_id": "test-exec"}, None)
 
@@ -270,6 +288,7 @@ class TestOriginalJobsJsonlFormat:
 
         mock_sqs = MagicMock()
         mock_s3 = MagicMock()
+        mock_s3.list_objects_v2.return_value = {"Contents": [], "IsTruncated": False}
         mock_bedrock = MagicMock()
         mock_dynamodb = MagicMock()
         mock_clients.return_value = (mock_sqs, mock_s3, mock_bedrock, mock_dynamodb)
