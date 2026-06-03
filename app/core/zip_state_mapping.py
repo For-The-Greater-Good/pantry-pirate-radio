@@ -244,8 +244,16 @@ def resolve_state_conflict(
     if coord_state and city_state and coord_state == city_state:
         return coord_state, "coord_city_agreement"
 
-    # Trust ZIP if it exists (most specific)
+    # Trust ZIP if it exists (most specific) — but do NOT override a non-empty
+    # claimed state on the strength of the ZIP lookup alone. get_state_from_zip
+    # is a coarse 3-digit-prefix table with known gaps/collisions, so a bare
+    # ZIP-vs-claimed conflict (no coord/city agreement reached the checks
+    # above) is not enough evidence to rewrite a state the source asserted —
+    # doing so corrupted correct addresses. Require corroboration; otherwise
+    # keep the claimed state.
     if zip_state:
+        if claimed_state and zip_state != claimed_state.upper():
+            return claimed_state.upper(), "zip_conflict_unverified_kept_claimed"
         return zip_state, "zip_primary"
 
     # Trust coordinates next
