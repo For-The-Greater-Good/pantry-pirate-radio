@@ -464,6 +464,57 @@ class TestTransformScheduleWkstDefault:
         assert result["count"] == 1
 
 
+class TestSameRecurrence:
+    """FF-2: the in-memory schedule-collection dedup key must include
+    bymonthday, so two MONTHLY windows differing only in day-of-month are not
+    collapsed before reaching REC-2's DB upsert."""
+
+    def _base(self, **over):
+        s = {
+            "freq": "MONTHLY",
+            "wkst": "MO",
+            "opens_at": "09:00",
+            "closes_at": "12:00",
+            "byday": None,
+            "bymonthday": "1",
+        }
+        s.update(over)
+        return s
+
+    def test_identical_recurrence_matches(self):
+        assert JobProcessor._same_recurrence(self._base(), self._base()) is True
+
+    def test_differs_only_in_bymonthday_does_not_match(self):
+        # The bug this fixes: same hours/freq, byday NULL, only the
+        # day-of-month differs (1st vs 15th) — must be treated as distinct.
+        a = self._base(bymonthday="1")
+        b = self._base(bymonthday="15")
+        assert JobProcessor._same_recurrence(a, b) is False
+
+    def test_differs_only_in_byday_does_not_match(self):
+        a = self._base(freq="WEEKLY", bymonthday=None, byday="MO")
+        b = self._base(freq="WEEKLY", bymonthday=None, byday="TH")
+        assert JobProcessor._same_recurrence(a, b) is False
+
+    def test_differs_in_hours_does_not_match(self):
+        assert (
+            JobProcessor._same_recurrence(
+                self._base(opens_at="09:00"), self._base(opens_at="08:00")
+            )
+            is False
+        )
+
+    def test_missing_keys_treated_as_none(self):
+        # A dict without bymonthday matches one with bymonthday=None (both
+        # absent/None), but not one with a real bymonthday.
+        no_bmd = {"freq": "WEEKLY", "wkst": "MO", "opens_at": "9", "closes_at": "5"}
+        assert JobProcessor._same_recurrence(no_bmd, dict(no_bmd, byday=None)) is True
+        assert (
+            JobProcessor._same_recurrence(no_bmd, dict(no_bmd, bymonthday="15"))
+            is False
+        )
+
+
 class TestSubmarineDirectIdPath:
     """Test submarine's direct ID-based location matching path."""
 
