@@ -73,6 +73,49 @@ class TestScheduleUpdateOrCreate:
         assert result.byday == "MO,TU,WE,TH,FR"
         assert result.freq == "WEEKLY"
 
+    def test_create_new_schedule_persists_bymonthday(self, service_creator):
+        """SUB-6: a MONTHLY-by-day-of-month schedule's bymonthday must persist.
+
+        Previously create_schedule/update_or_create_schedule had no bymonthday
+        parameter, so a pantry open "the 1st and 15th" lost its recurrence
+        entirely (0 of 15k monthly schedules in prod had bymonthday set).
+        """
+        from app.reconciler.organization_creator import OrganizationCreator
+
+        org_creator = OrganizationCreator(service_creator.db)
+        org_id = org_creator.create_organization(
+            name="Bymonthday Org",
+            description="Test Description",
+            metadata={"source": "test"},
+        )
+        service_id = service_creator.create_service(
+            name="Bymonthday Service",
+            description="Test Description",
+            organization_id=org_id,
+            metadata={"source": "test"},
+        )
+
+        schedule_id, was_updated = service_creator.update_or_create_schedule(
+            freq="MONTHLY",
+            wkst="MO",
+            opens_at="09:00",
+            closes_at="17:00",
+            metadata={"source": "test"},
+            service_id=service_id,
+            bymonthday="1,15",
+            description="1st and 15th of the month",
+        )
+
+        assert was_updated is False
+        result = service_creator.db.execute(
+            text("SELECT bymonthday, byday, freq FROM schedule WHERE id = :id"),
+            {"id": str(schedule_id)},
+        ).first()
+        assert result is not None
+        assert result.bymonthday == "1,15"
+        assert result.byday is None
+        assert result.freq == "MONTHLY"
+
     def test_update_existing_schedule_with_changes(
         self, service_creator, sample_schedule_data
     ):

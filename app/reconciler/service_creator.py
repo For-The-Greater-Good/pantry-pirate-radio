@@ -769,6 +769,7 @@ class ServiceCreator(BaseReconciler):
         count: str | None = None,
         interval: int | None = None,
         byday: str | None = None,
+        bymonthday: str | None = None,
         description: str | None = None,
     ) -> uuid.UUID:
         """Create new schedule.
@@ -813,6 +814,7 @@ class ServiceCreator(BaseReconciler):
             count,
             interval,
             byday,
+            bymonthday,
             description
         ) VALUES (
             :id,
@@ -830,6 +832,7 @@ class ServiceCreator(BaseReconciler):
             :count,
             :interval,
             :byday,
+            :bymonthday,
             :description
         )
         """
@@ -859,6 +862,7 @@ class ServiceCreator(BaseReconciler):
                 "count": count,
                 "interval": interval,
                 "byday": byday,
+                "bymonthday": bymonthday,
                 "description": description,
             },
         )
@@ -913,6 +917,7 @@ class ServiceCreator(BaseReconciler):
         count: str | None = None,
         interval: int | None = None,
         byday: str | None = None,
+        bymonthday: str | None = None,
         description: str | None = None,
     ) -> tuple[uuid.UUID, bool]:
         """Update existing schedule or create new one with versioning.
@@ -945,7 +950,8 @@ class ServiceCreator(BaseReconciler):
         # Check for existing schedule with same entity relationship
         existing_query = text(
             """
-            SELECT id, freq, wkst, opens_at, closes_at, byday, description,
+            SELECT id, freq, wkst, opens_at, closes_at, byday, bymonthday,
+                   description,
                    valid_from, valid_to, dtstart, until, count, interval, location_id
             FROM schedule
             WHERE (
@@ -980,6 +986,7 @@ class ServiceCreator(BaseReconciler):
                 or existing.opens_at != opens_at_time
                 or existing.closes_at != closes_at_time
                 or existing.byday != byday
+                or existing.bymonthday != bymonthday
                 or existing.description != description
                 or existing.valid_from != valid_from
                 or existing.valid_to != valid_to
@@ -1001,6 +1008,7 @@ class ServiceCreator(BaseReconciler):
                         opens_at = :opens_at,
                         closes_at = :closes_at,
                         byday = :byday,
+                        bymonthday = :bymonthday,
                         description = :description,
                         valid_from = :valid_from,
                         valid_to = :valid_to,
@@ -1022,6 +1030,7 @@ class ServiceCreator(BaseReconciler):
                         "opens_at": opens_at_time,
                         "closes_at": closes_at_time,
                         "byday": byday,
+                        "bymonthday": bymonthday,
                         "description": description,
                         "valid_from": valid_from,
                         "valid_to": valid_to,
@@ -1057,6 +1066,7 @@ class ServiceCreator(BaseReconciler):
                         "count": count,
                         "interval": interval,
                         "byday": byday,
+                        "bymonthday": bymonthday,
                         "description": description,
                         **metadata,
                     },
@@ -1091,6 +1101,7 @@ class ServiceCreator(BaseReconciler):
                 count=count,
                 interval=interval,
                 byday=byday,
+                bymonthday=bymonthday,
                 description=description,
             )
             return schedule_id, False  # False = not updated (newly created)
