@@ -84,7 +84,10 @@ class BaseRepository(ABC, Generic[ModelType]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -163,7 +166,10 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -284,7 +290,10 @@ class LocationRepository(BaseRepository[LocationModel]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -380,7 +389,10 @@ class LocationRepository(BaseRepository[LocationModel]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         if HAS_GEOALCHEMY2:
@@ -440,7 +452,10 @@ class LocationRepository(BaseRepository[LocationModel]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -458,7 +473,10 @@ class LocationRepository(BaseRepository[LocationModel]):
         )
         if not include_hidden:
             query = query.filter(_visible_location_clause(self.model))
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -615,7 +633,10 @@ class ServiceRepository(BaseRepository[ServiceModel]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -757,7 +778,10 @@ class ServiceAtLocationRepository(BaseRepository[ServiceAtLocationModel]):
                     query = query.filter(getattr(self.model, key) == value)
 
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        # Stable ORDER BY so OFFSET/LIMIT can't skip/duplicate rows across
+        # pages. id is the PK (unique, non-null); where an upstream order_by
+        # (e.g. distance) already exists, this appends id as a tiebreaker.
+        query = query.order_by(self.model.id).offset(skip).limit(limit)  # type: ignore[attr-defined]
 
         result = await self.session.execute(query)
         return result.scalars().all()
