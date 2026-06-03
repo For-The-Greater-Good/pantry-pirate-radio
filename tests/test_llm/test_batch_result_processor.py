@@ -506,6 +506,60 @@ class TestFailureHandling:
         ]
         assert len(llm_calls) == 1
 
+    @patch("app.llm.queue.batch_result_processor._get_clients")
+    @patch("app.llm.queue.batch_result_processor.send_to_sqs")
+    @patch("app.llm.queue.batch_result_processor.settings")
+    def test_completed_requeues_record_missing_from_output(
+        self, mock_settings, mock_send, mock_get_clients
+    ):
+        """LLM-3: a 'Completed' batch missing an output line for an input record
+        must requeue that record. Previously reconciliation ran only for
+        PartiallyCompleted, so on Completed the dropped record was lost."""
+        mock_settings.VALIDATOR_ENABLED = True
+        mock_s3 = MagicMock()
+        mock_dynamodb = MagicMock()
+        mock_get_clients.return_value = (mock_s3, mock_dynamodb)
+        mock_send.return_value = "msg-id"
+
+        original_jobs = {
+            "job-1": _make_original_job("job-1"),
+            "job-2": _make_original_job("job-2"),  # no output line below
+        }
+        mock_dynamodb.get_item.return_value = {
+            "Item": {
+                "output_key_prefix": {"S": "output/exec-123/"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
+            }
+        }
+        # Output contains ONLY job-1; job-2's output line is missing.
+        _mock_s3_for_streaming(
+            mock_s3,
+            original_jobs,
+            [_make_batch_output_record("job-1", success=True)],
+        )
+
+        event = _make_event("Completed")
+        with patch.dict(
+            "os.environ",
+            {
+                "VALIDATOR_QUEUE_URL": "https://sqs/validator.fifo",
+                "RECONCILER_QUEUE_URL": "https://sqs/reconciler.fifo",
+                "RECORDER_QUEUE_URL": "https://sqs/recorder.fifo",
+                "LLM_QUEUE_URL": "https://sqs/llm.fifo",
+                "BATCH_BUCKET": "batch-bucket",
+                "SQS_JOBS_TABLE": "jobs-table",
+            },
+        ):
+            result = handler(event, None)
+
+        assert result["requeued"] == 1
+        llm_calls = [
+            c
+            for c in mock_send.call_args_list
+            if c[1].get("queue_url") == "https://sqs/llm.fifo"
+        ]
+        assert len(llm_calls) == 1
+
 
 class TestMissingOriginalJob:
     """Tests for records with missing original jobs."""
