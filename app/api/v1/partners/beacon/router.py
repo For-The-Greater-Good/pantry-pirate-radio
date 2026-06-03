@@ -8,8 +8,14 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.partners.beacon.models import BeaconSyncResponse
-from app.api.v1.partners.beacon.services import BeaconSyncService
+from app.api.v1.partners.beacon.models import (
+    BeaconRedirectsResponse,
+    BeaconSyncResponse,
+)
+from app.api.v1.partners.beacon.services import (
+    BeaconRedirectService,
+    BeaconSyncService,
+)
 from app.core.db import get_session
 
 logger = structlog.get_logger(__name__)
@@ -80,4 +86,36 @@ async def beacon_sync(
             "etag": etag,
             "cache-control": "private, max-age=300",
         },
+    )
+
+
+@router.get(
+    "/redirects",
+    response_model=BeaconRedirectsResponse,
+    summary="Dead-URL -> surviving-canonical map for beacon redirects",
+    description=(
+        "Returns soft-deleted (deduplicated) location ids mapped to their "
+        "surviving canonical location's address components. Beacon uses this to "
+        "publish 301 redirects for URLs whose pages it has deleted. Only "
+        "redirects with a live canonical survivor are returned; the transitive "
+        "survivor chain is followed to its terminal. Read-only; returns an empty "
+        "list when no dedup audit history exists."
+    ),
+)
+async def beacon_redirects(
+    cursor: Optional[str] = Query(
+        None, description="Pagination cursor (last dead_id) from previous response"
+    ),
+    page_size: int = Query(
+        5000, ge=1, le=10000, description="Records per page (max 10000)"
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Beacon dead-URL redirect map endpoint."""
+    service = BeaconRedirectService(session)
+    result = await service.redirects(page_size=page_size, cursor=cursor)
+    response_model = BeaconRedirectsResponse(**result)
+    return JSONResponse(
+        content=response_model.model_dump(mode="json"),
+        headers={"cache-control": "private, max-age=300"},
     )

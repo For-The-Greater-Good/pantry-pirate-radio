@@ -442,3 +442,162 @@ class BeaconSyncService:
             },
             "locations": locations,
         }
+
+
+# Guard against pathological audit chains (a survivor soft-deleted into another
+# survivor, repeatedly). 25 hops is far beyond any real dedup depth.
+_MAX_SURVIVOR_CHAIN_DEPTH = 25
+
+
+class BeaconRedirectService:
+    """Maps dedup-soft-deleted locations to their surviving canonical.
+
+    Beacon deletes a location's S3 pages when dedup soft-deletes it
+    (``is_canonical=FALSE``); those previously-indexed URLs then 404. Beacon
+    knows the dead URL (from its own DynamoDB build tracker) but not the
+    survivor — that lives in ``dedup_run_audit`` + the live ``location`` table,
+    which only the API can read. This service returns the survivor side so
+    beacon can publish a 301 to the CloudFront redirect KeyValueStore.
+
+    Read-only. Tolerates a missing ``dedup_run_audit`` table (created lazily by
+    the dedup scripts) by returning an empty result.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def redirects(
+        self,
+        page_size: int = 5000,
+        cursor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        log = logger.bind(page_size=page_size)
+        log.info("beacon_redirects_request")
+
+        if not await self._audit_table_exists():
+            log.info("beacon_redirects_no_audit_table")
+            return self._build_response([], page_size)
+
+        chain = await self._load_soft_delete_chain()
+        # Resolve each dead id to its terminal (never-soft-deleted) survivor.
+        terminal_by_dead: dict[str, str] = {}
+        for dead_id in chain:
+            terminal = self._resolve_terminal(dead_id, chain)
+            if terminal is not None:
+                terminal_by_dead[dead_id] = terminal
+
+        survivors = await self._fetch_canonical_survivors(
+            set(terminal_by_dead.values())
+        )
+
+        # Keep only redirects whose terminal survivor is still a live canonical
+        # location. Sorted by dead_id for stable keyset pagination.
+        entries = sorted(
+            (dead_id, survivors[term])
+            for dead_id, term in terminal_by_dead.items()
+            if term in survivors
+        )
+        if cursor:
+            entries = [e for e in entries if e[0] > cursor]
+
+        page = entries[:page_size]
+        has_more = len(entries) > page_size
+        redirects = [
+            {"dead_id": dead_id, "survivor": survivor} for dead_id, survivor in page
+        ]
+        next_cursor = page[-1][0] if (has_more and page) else None
+
+        log.info("beacon_redirects_complete", returned=len(redirects))
+        return self._build_response(redirects, page_size, cursor=next_cursor)
+
+    async def _audit_table_exists(self) -> bool:
+        result = await self._session.execute(
+            text("SELECT to_regclass('public.dedup_run_audit')")
+        )
+        return result.scalar() is not None
+
+    async def _load_soft_delete_chain(self) -> dict[str, str]:
+        """Map each soft-deleted location id -> its recorded survivor id.
+
+        DISTINCT ON keeps the most recent survivor per dead id, in case a row
+        was re-deduped across runs.
+        """
+        result = await self._session.execute(
+            text(
+                """
+                SELECT DISTINCT ON (row_id) row_id, survivor_id
+                FROM dedup_run_audit
+                WHERE table_name = 'location' AND action = 'soft_delete'
+                ORDER BY row_id, created_at DESC
+                """
+            )
+        )
+        return {str(r.row_id): str(r.survivor_id) for r in result.fetchall()}
+
+    def _resolve_terminal(self, dead_id: str, chain: dict[str, str]) -> Optional[str]:
+        """Follow dead->survivor links until a survivor that was never itself
+        soft-deleted. Returns None on a cycle or excessive depth (caller falls
+        back to a parent-page redirect / 410)."""
+        seen = {dead_id}
+        current = chain[dead_id]
+        depth = 0
+        while current in chain:
+            if current in seen or depth >= _MAX_SURVIVOR_CHAIN_DEPTH:
+                return None
+            seen.add(current)
+            current = chain[current]
+            depth += 1
+        return current
+
+    async def _fetch_canonical_survivors(
+        self, ids: set[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch live address components for survivor ids that are still
+        canonical. Non-canonical / missing ids are simply absent from the
+        result (their dead URLs fall through to beacon's parent/410 path)."""
+        if not ids:
+            return {}
+        result = await self._session.execute(
+            text(
+                """
+                SELECT l.id, l.name, a.city, a.state_province, a.postal_code
+                FROM location l
+                LEFT JOIN LATERAL (
+                    SELECT city, state_province, postal_code
+                    FROM address
+                    WHERE location_id = l.id AND address_type = 'physical'
+                    ORDER BY id
+                    LIMIT 1
+                ) a ON TRUE
+                WHERE l.id::text = ANY(:ids) AND l.is_canonical = TRUE
+                """
+            ),
+            {"ids": list(ids)},
+        )
+        out: dict[str, dict[str, Any]] = {}
+        for r in result.fetchall():
+            out[str(r.id)] = {
+                "id": str(r.id),
+                "name": r.name,
+                "city": r.city,
+                "state": r.state_province,
+                "postal_code": r.postal_code,
+            }
+        return out
+
+    def _build_response(
+        self,
+        redirects: list[dict[str, Any]],
+        page_size: int,
+        cursor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "meta": {
+                "returned": len(redirects),
+                "cursor": cursor,
+                "has_more": cursor is not None,
+                "generated_at": datetime.now(UTC),
+                "data_version": "1.0",
+            },
+            "redirects": redirects,
+        }
