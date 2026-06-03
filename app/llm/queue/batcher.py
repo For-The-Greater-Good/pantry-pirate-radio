@@ -38,6 +38,199 @@ logger = structlog.get_logger(__name__)
 
 _DEFAULT_BATCH_THRESHOLD = 100
 
+# LLM-2: durable-checkpoint constants.
+# Each drained batch is mirrored to S3 under recovery/{source}/{recovery_id}/
+# BEFORE it is deleted from the staging queue, so a Lambda crash between drain
+# and durable handoff (Bedrock submit / on-demand re-enqueue) can be recovered.
+_RECOVERY_PREFIX = "recovery"
+# An orphaned checkpoint prefix is only replayed once it is older than this.
+# The batcher Lambda timeout is 900s, so a prefix whose newest object is younger
+# than this CANNOT belong to a crashed run — it belongs to a still-running
+# (possibly concurrent) execution mid-handoff, which must not be replayed.
+_ORPHAN_MIN_AGE_S = 1200
+
+
+def _checkpoint_batch(
+    s3_client: Any,
+    bucket: str,
+    source: str,
+    recovery_id: str,
+    batch_seq: int,
+    raw_bodies: list[str],
+) -> None:
+    """Durably persist one drained batch to S3 BEFORE deleting it from SQS.
+
+    Stores the raw SQS message Body strings VERBATIM (one per line) so recovery
+    can replay byte-identical staging messages — never re-serialized through a
+    different envelope. A single put_object is atomic and durable on return
+    (the batch is ~10 messages, far under the multipart floor).
+
+    Raises on failure so the caller can skip the SQS delete (messages then
+    return via visibility timeout — no loss).
+    """
+    key = f"{_RECOVERY_PREFIX}/{source}/{recovery_id}/{batch_seq:06d}.jsonl"
+    body = ("\n".join(raw_bodies) + "\n").encode("utf-8")
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=body,
+        ContentType="application/x-ndjson",
+    )
+
+
+def _delete_checkpoint_prefix(
+    s3_client: Any, bucket: str, source: str, recovery_id: str
+) -> None:
+    """Delete this invocation's checkpoint objects after a durable handoff.
+
+    Best-effort: a leftover checkpoint only causes a bounded, idempotent replay
+    on a later run (never loss), and the bucket's 7-day lifecycle rule is the
+    final backstop. Never raises — cleanup must not fail the handler.
+    """
+    prefix = f"{_RECOVERY_PREFIX}/{source}/{recovery_id}/"
+    try:
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            resp = s3_client.list_objects_v2(**kwargs)
+            contents = resp.get("Contents") or []
+            keys = [{"Key": obj["Key"]} for obj in contents if obj.get("Key")]
+            for i in range(0, len(keys), 1000):
+                s3_client.delete_objects(
+                    Bucket=bucket, Delete={"Objects": keys[i : i + 1000]}
+                )
+            if resp.get("IsTruncated"):
+                token = resp.get("NextContinuationToken")
+            else:
+                break
+    except Exception as e:
+        logger.warning(
+            "checkpoint_cleanup_failed",
+            bucket=bucket,
+            prefix=prefix,
+            error=str(e),
+        )
+
+
+def _replay_group_id(source: str, raw_body: str) -> str:
+    """Derive the FIFO MessageGroupId for a verbatim replay of a staged body.
+
+    Scraper records group by their scraper_id (nested at job.metadata.scraper_id
+    — NOT a top-level field; a wrong path collapses all replays into one FIFO
+    group and serializes the whole replay). Submarine uses a single group.
+    """
+    if source == "submarine":
+        return "submarine"
+    try:
+        parsed = json.loads(raw_body)
+        group = parsed.get("job", {}).get("metadata", {}).get("scraper_id")
+        return group or "default"
+    except (json.JSONDecodeError, AttributeError):
+        return "default"
+
+
+def _recover_orphaned_checkpoints(
+    s3_client: Any,
+    sqs_client: Any,
+    bucket: str,
+    staging_queue_url: str,
+    source: str,
+    current_recovery_id: str,
+) -> int:
+    """Replay orphaned checkpoints from prior crashed runs back to staging.
+
+    Lists recovery/{source}/ prefixes (scoped to this source so it never
+    mis-routes another pipeline's records), groups by recovery_id, and replays
+    a prefix ONLY when (a) it is not the current invocation and (b) its newest
+    object is older than _ORPHAN_MIN_AGE_S — so an in-flight prefix from a
+    concurrent execution mid-handoff is never grabbed. Each record is re-sent
+    VERBATIM via raw send_message (no envelope wrapping), then its checkpoint
+    object is deleted. Best-effort: never raises (records stay in the
+    checkpoint for the next attempt if anything fails); never aborts the drain.
+
+    Returns the number of records replayed.
+    """
+    prefix = f"{_RECOVERY_PREFIX}/{source}/"
+    replayed = 0
+    try:
+        # Group objects by recovery_id with the newest LastModified per group.
+        groups: dict[str, dict[str, Any]] = {}
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            resp = s3_client.list_objects_v2(**kwargs)
+            for obj in resp.get("Contents") or []:
+                key = obj.get("Key", "")
+                # key = recovery/{source}/{recovery_id}/{seq}.jsonl
+                parts = key[len(prefix) :].split("/")
+                if len(parts) < 2 or not parts[1]:
+                    continue
+                rid = parts[0]
+                g = groups.setdefault(rid, {"keys": [], "newest": None})
+                g["keys"].append(key)
+                lm = obj.get("LastModified")
+                if lm is not None and (g["newest"] is None or lm > g["newest"]):
+                    g["newest"] = lm
+            if resp.get("IsTruncated"):
+                token = resp.get("NextContinuationToken")
+            else:
+                break
+
+        now = datetime.now(UTC)
+        for rid, g in groups.items():
+            if rid == current_recovery_id:
+                continue
+            newest = g["newest"]
+            if newest is not None:
+                age = (now - newest).total_seconds()
+                if age < _ORPHAN_MIN_AGE_S:
+                    # Too young — belongs to a still-running invocation.
+                    continue
+            for key in sorted(g["keys"]):
+                obj = s3_client.get_object(Bucket=bucket, Key=key)
+                payload = obj["Body"].read()
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8")
+                for line in payload.splitlines():
+                    if not line.strip():
+                        continue
+                    send_kwargs: dict[str, Any] = {
+                        "QueueUrl": staging_queue_url,
+                        "MessageBody": line,
+                        "MessageGroupId": _replay_group_id(source, line),
+                    }
+                    if staging_queue_url.endswith(".fifo"):
+                        try:
+                            jid = json.loads(line).get("job_id") or str(uuid4())
+                        except (json.JSONDecodeError, AttributeError):
+                            jid = str(uuid4())
+                        send_kwargs["MessageDeduplicationId"] = jid
+                    sqs_client.send_message(**send_kwargs)
+                    replayed += 1
+                # Delete each object only after its records are re-sent, so a
+                # mid-recovery crash leaves the not-yet-replayed objects intact.
+                s3_client.delete_object(Bucket=bucket, Key=key)
+
+        if replayed:
+            logger.warning(
+                "batcher_recovery_replayed",
+                source=source,
+                replayed=replayed,
+                orphan_prefixes=len([r for r in groups if r != current_recovery_id]),
+            )
+    except Exception as e:
+        logger.error(
+            "batcher_recovery_scan_failed",
+            source=source,
+            error=str(e),
+            replayed=replayed,
+        )
+    return replayed
+
 
 def _get_clients() -> tuple:
     """Create and return AWS service clients."""
@@ -92,21 +285,31 @@ def _forward_to_dlq(
 def _drain_staging_queue(
     sqs_client: Any,
     queue_url: str,
+    *,
+    s3_client: Any,
+    bucket: str,
+    recovery_id: str,
+    source: str,
     dlq_url: str = "",
     remaining_time_fn: Any = None,
     drain_budget_ms: int = 720_000,
 ) -> tuple[int, str, bool]:
     """Drain messages from the staging queue to a temp file.
 
-    **DATA LOSS RISK**: Messages are deleted from SQS during drain to unlock
-    the FIFO message group. If this Lambda crashes after drain but before the
-    batch is submitted to Bedrock, the drained records are unrecoverable.
-    A future improvement could checkpoint records to S3 before deleting from SQS.
-
     Receives messages in batches of 10. Each batch is deleted immediately
     after parsing to unlock the FIFO message group for subsequent receives.
     Without immediate deletion, in-flight messages block the entire group
     and the drain stalls after the first batch.
+
+    **Durable checkpoint (LLM-2):** before deleting each batch from SQS, the
+    batch's raw message bodies are written VERBATIM to a durable S3 checkpoint
+    (recovery/{source}/{recovery_id}/{seq}.jsonl). The delete still happens
+    per-batch (FIFO group keeps progressing) — just AFTER the durable put. If a
+    crash occurs after delete but before the batch is handed off to Bedrock /
+    on-demand, the next invocation replays the checkpoint (no loss). If the
+    checkpoint put itself fails, this batch's delete is SKIPPED and the loop
+    continues — the messages return via visibility timeout and are retried
+    (one transient S3 error degrades throughput, it never loses or wedges).
 
     Records are written one-per-line as JSONL to a temp file so memory stays
     constant regardless of queue depth.
@@ -120,6 +323,10 @@ def _drain_staging_queue(
     Args:
         sqs_client: boto3 SQS client
         queue_url: SQS queue URL
+        s3_client: boto3 S3 client for durable checkpointing
+        bucket: S3 bucket for checkpoints (BATCH_BUCKET)
+        recovery_id: globally-unique-per-invocation id for the checkpoint prefix
+        source: "scraper" or "submarine" — scopes the checkpoint prefix
         dlq_url: DLQ URL for poison pill forwarding
         remaining_time_fn: Callable returning remaining Lambda time in ms
             (typically context.get_remaining_time_in_millis)
@@ -135,10 +342,10 @@ def _drain_staging_queue(
     # Reserve 120s (2 min) for batch build + S3 upload + Bedrock submission
     _RESERVE_MS = 120_000
 
-    logger.warning(
+    logger.info(
         "staging_queue_drain_starting",
         queue_url=queue_url,
-        note="Messages deleted during drain are unrecoverable if Lambda crashes before batch submission",
+        note="Each batch is checkpointed to S3 before SQS delete (recoverable)",
     )
 
     tmp = tempfile.NamedTemporaryFile(
@@ -149,6 +356,7 @@ def _drain_staging_queue(
     record_count = 0
     poison_pill_count = 0
     queue_empty = False
+    batch_seq = 0
 
     try:
         while True:
@@ -179,12 +387,20 @@ def _drain_staging_queue(
                 break
 
             batch_delete_entries: list[dict[str, str]] = []
+            # Raw, verbatim message bodies for the durable checkpoint — stored
+            # exactly as received so recovery can replay byte-identical messages.
+            checkpoint_bodies: list[str] = []
+            # Parsed bodies buffered for the temp file. Written only AFTER the
+            # checkpoint succeeds, so a failed checkpoint (skipped delete) never
+            # leaves records in the working file that this invocation would hand
+            # off while they remain on the queue.
+            parsed_for_tmp: list[dict[str, Any]] = []
 
             for idx, msg in enumerate(messages):
                 try:
                     body = json.loads(msg["Body"])
-                    tmp.write(json.dumps(body) + "\n")
-                    record_count += 1
+                    parsed_for_tmp.append(body)
+                    checkpoint_bodies.append(msg["Body"])
                     batch_delete_entries.append(
                         {"Id": str(idx), "ReceiptHandle": msg["ReceiptHandle"]}
                     )
@@ -216,6 +432,38 @@ def _drain_staging_queue(
                         QueueUrl=queue_url,
                         ReceiptHandle=msg["ReceiptHandle"],
                     )
+
+            # Durably checkpoint this batch to S3 BEFORE deleting from SQS, so
+            # a crash after delete (but before handoff) is recoverable. If the
+            # put fails, SKIP the delete and CONTINUE — the messages return via
+            # visibility timeout and a later invocation retries them (no loss,
+            # no FIFO wedge from aborting the whole drain). The temp-file write
+            # and record_count happen only on a successful checkpoint, so a
+            # skipped batch is never handed off while still on the queue.
+            if checkpoint_bodies:
+                try:
+                    _checkpoint_batch(
+                        s3_client,
+                        bucket,
+                        source,
+                        recovery_id,
+                        batch_seq,
+                        checkpoint_bodies,
+                    )
+                    batch_seq += 1
+                except Exception as e:
+                    logger.error(
+                        "checkpoint_put_failed",
+                        recovery_id=recovery_id,
+                        batch_seq=batch_seq,
+                        records=len(checkpoint_bodies),
+                        error=str(e),
+                    )
+                    continue
+
+                for body in parsed_for_tmp:
+                    tmp.write(json.dumps(body) + "\n")
+                record_count += len(parsed_for_tmp)
 
             # Batch-delete valid messages to unlock the FIFO message group
             if batch_delete_entries:
@@ -304,6 +552,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     batch_ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     s3_safe_id = f"{base_id}_{batch_ts}"
 
+    # LLM-2: a GLOBALLY-unique-per-invocation id for the durable checkpoint
+    # prefix. The Lambda request id is unique across drain-loop re-invocations,
+    # same-second invocations, and Step Functions retries (which get a fresh id)
+    # — unlike the second-granularity s3_safe_id, which can collide and let one
+    # invocation overwrite another's checkpoint.
+    recovery_id = f"{base_id}_{getattr(context, 'aws_request_id', None) or uuid4().hex}"
+
     # Source-specific queue routing
     if source == "submarine":
         from app.llm.queue.submarine_batch import get_submarine_batcher_config
@@ -334,12 +589,30 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     sqs, s3, bedrock, dynamodb = _get_clients()
 
-    # 1. Drain staging queue to a temp file — messages are deleted immediately
-    #    per batch to unlock FIFO message groups for subsequent receives
+    # 0. LLM-2: recover any orphaned checkpoints from a prior crashed run by
+    #    replaying them (verbatim) back onto the staging queue BEFORE draining,
+    #    so this invocation's drain picks them up. Best-effort and age-gated so
+    #    it never grabs an in-flight prefix from a concurrent execution.
+    _recover_orphaned_checkpoints(
+        s3,
+        sqs,
+        batch_bucket,
+        staging_queue_url,
+        source,
+        recovery_id,
+    )
+
+    # 1. Drain staging queue to a temp file. Each batch is checkpointed to S3
+    #    (recovery/{source}/{recovery_id}/) BEFORE its SQS delete, then deleted
+    #    per batch to unlock FIFO message groups for subsequent receives.
     remaining_time_fn = context.get_remaining_time_in_millis if context else None
     record_count, staging_file, queue_empty = _drain_staging_queue(
         sqs,
         staging_queue_url,
+        s3_client=s3,
+        bucket=batch_bucket,
+        recovery_id=recovery_id,
+        source=source,
         dlq_url=staging_dlq_url,
         remaining_time_fn=remaining_time_fn,
     )
@@ -361,6 +634,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         )
 
         if record_count == 0:
+            # Nothing drained this invocation; clear any checkpoints defensively.
+            _delete_checkpoint_prefix(s3, batch_bucket, source, recovery_id)
             return {
                 "mode": "on-demand",
                 "record_count": 0,
@@ -414,6 +689,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                     failed=failed_count,
                     execution_id=execution_id,
                 )
+                # LLM-2: a failed re-enqueue means those records are NOT durably
+                # handed off. Leave the checkpoint so a later invocation replays
+                # them (byte-identical, downstream-deduped). Only a fully clean
+                # re-enqueue is a completed handoff.
+            else:
+                _delete_checkpoint_prefix(s3, batch_bucket, source, recovery_id)
 
             return {
                 "mode": "on-demand",
@@ -529,7 +810,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 },
             )
 
-            # 6. Staging messages were already deleted during drain
+            # 6. LLM-2 commit point: the batch is now durably handed off
+            #    (input in S3, Bedrock job submitted, metadata in DynamoDB).
+            #    Deleting the checkpoint prefix is the LAST step — a surviving
+            #    checkpoint therefore always means the handoff did NOT complete,
+            #    which is what makes recovery-replay safe.
+            _delete_checkpoint_prefix(s3, batch_bucket, source, recovery_id)
+
             return {
                 "mode": "batch",
                 "job_arn": job_arn,
