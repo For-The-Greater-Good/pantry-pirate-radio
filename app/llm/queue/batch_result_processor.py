@@ -93,10 +93,14 @@ def _route_success(
     validator_queue_url: str,
     reconciler_queue_url: str,
     recorder_queue_url: str,
-) -> None:
+) -> bool:
     """Route a successful batch result downstream.
 
     Mirrors the routing logic in processor.py lines 242-327.
+
+    Returns True if the result was routed as a completed success; returns
+    False if the response was truncated (hit the token limit) and therefore
+    must NOT be stored/routed — the caller re-enqueues it for on-demand retry.
 
     Args:
         record_id: Job ID / record ID
@@ -117,6 +121,19 @@ def _route_success(
         model_id=model_id,
         format_schema=format_schema,
     )
+
+    # LLM-1 parity with the on-demand worker (processor.py): a truncated
+    # response (stop_reason 'max_tokens') is parseable but silently omits
+    # locations. Do NOT store or route it as complete — signal the caller to
+    # re-enqueue for on-demand retry. Routing it would drop pantries AND cache
+    # the partial output in the content store, dedup-poisoning future scrapes.
+    if getattr(llm_response, "was_truncated", False):
+        logger.warning(
+            "batch_record_truncated",
+            record_id=record_id,
+            stop_reason=getattr(llm_response, "stop_reason", None),
+        )
+        return False
 
     from app.llm.queue.job import LLMJob
 
@@ -197,6 +214,8 @@ def _route_success(
                 job_id=record_id,
                 error=str(e),
             )
+
+    return True
 
 
 def _requeue_to_llm(original_job: dict[str, Any], llm_queue_url: str) -> None:
@@ -376,6 +395,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         processed = 0
         errors = 0
         failed_requeue_count = 0
+        truncated_requeued = 0
         output_record_ids: set[str] = set()
 
         with open(output_path) as f:
@@ -430,27 +450,69 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 try:
                     if source == "submarine":
                         from app.llm.queue.submarine_batch import (
+                            requeue_submarine_on_demand,
                             route_submarine_success,
                         )
 
-                        route_submarine_success(
+                        if route_submarine_success(
                             record_id=record_id,
                             output=model_output,
                             original_record=original_job,
                             model_id=model_id,
                             reconciler_queue_url=reconciler_queue_url,
-                        )
+                        ):
+                            processed += 1
+                        else:
+                            # LLM-1: truncated submarine extraction — re-enqueue
+                            # to the extraction queue instead of accepting partial.
+                            logger.warning(
+                                "batch_record_truncated_requeued",
+                                batch_job_arn=job_arn,
+                                record_id=record_id,
+                                source="submarine",
+                            )
+                            try:
+                                requeue_submarine_on_demand(
+                                    original_job, retry_queue_url
+                                )
+                                truncated_requeued += 1
+                            except Exception as re_err:
+                                failed_requeue_count += 1
+                                logger.error(
+                                    "batch_requeue_failed",
+                                    batch_job_arn=job_arn,
+                                    record_id=record_id,
+                                    error=str(re_err),
+                                )
+                    elif _route_success(
+                        record_id=record_id,
+                        output=model_output,
+                        original_job=original_job,
+                        model_id=model_id,
+                        validator_queue_url=validator_queue_url,
+                        reconciler_queue_url=reconciler_queue_url,
+                        recorder_queue_url=recorder_queue_url,
+                    ):
+                        processed += 1
                     else:
-                        _route_success(
+                        # LLM-1: truncated batch record — re-enqueue for
+                        # on-demand retry instead of accepting partial output.
+                        logger.warning(
+                            "batch_record_truncated_requeued",
+                            batch_job_arn=job_arn,
                             record_id=record_id,
-                            output=model_output,
-                            original_job=original_job,
-                            model_id=model_id,
-                            validator_queue_url=validator_queue_url,
-                            reconciler_queue_url=reconciler_queue_url,
-                            recorder_queue_url=recorder_queue_url,
                         )
-                    processed += 1
+                        try:
+                            _requeue_to_llm(original_job, retry_queue_url)
+                            truncated_requeued += 1
+                        except Exception as re_err:
+                            failed_requeue_count += 1
+                            logger.error(
+                                "batch_requeue_failed",
+                                batch_job_arn=job_arn,
+                                record_id=record_id,
+                                error=str(re_err),
+                            )
                 except Exception as e:
                     errors += 1
                     logger.error(
@@ -552,6 +614,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             processed=processed,
             errors=errors,
             requeued=requeued,
+            truncated_requeued=truncated_requeued,
         )
 
         result: dict[str, Any] = {
@@ -559,6 +622,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "processed": processed,
             "errors": errors,
             "requeued": requeued,
+            "truncated_requeued": truncated_requeued,
             "unparseable_count": unparseable_count,
         }
         if metadata_update_failed:

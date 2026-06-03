@@ -67,12 +67,16 @@ def route_submarine_success(
     original_record: dict[str, Any],
     model_id: str,
     reconciler_queue_url: str,
-) -> None:
+) -> bool:
     """Route a successful submarine batch result to the reconciler.
 
     Parses the Bedrock output, extracts fields using SubmarineExtractor,
     builds a JobResult via SubmarineResultBuilder, and sends to reconciler.
     Submarine bypasses the validator (Constitution v1.5.1).
+
+    Returns True if handled (routed or no-useful-data); returns False if the
+    response was truncated (hit the token limit) and must be re-enqueued for
+    on-demand extraction rather than accepted as partial output.
     """
     from app.llm.providers.bedrock import parse_messages_api_response
     from app.submarine.extractor import SubmarineExtractor
@@ -84,6 +88,16 @@ def route_submarine_success(
         response=output,
         model_id=model_id,
     )
+
+    # LLM-1 parity: a truncated extraction is partial. Re-enqueue for on-demand
+    # retry instead of persisting incomplete enrichment.
+    if getattr(llm_response, "was_truncated", False):
+        logger.warning(
+            "submarine_batch_record_truncated",
+            record_id=record_id,
+            stop_reason=getattr(llm_response, "stop_reason", None),
+        )
+        return False
 
     # Unwrap SQS envelope if present
     data = original_record.get("data", original_record)
@@ -126,7 +140,7 @@ def route_submarine_success(
             location_id=job.location_id,
         )
         _update_location_status(job.location_id, status)
-        return
+        return True
 
     send_to_sqs(
         queue_url=reconciler_queue_url,
@@ -145,6 +159,7 @@ def route_submarine_success(
         status=status.value,
         fields_extracted=list(extracted.keys()),
     )
+    return True
 
 
 def _get_database_url() -> str:

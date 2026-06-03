@@ -50,6 +50,22 @@ def _make_batch_output_record(
         }
 
 
+def _make_truncated_output_record(record_id: str) -> dict:
+    """A Bedrock batch output record that hit the token limit mid-generation.
+
+    Messages API sets stop_reason='max_tokens' and the partial output is a text
+    block (the tool_use never completes), so parse_messages_api_response returns
+    an LLMResponse with was_truncated=True and non-empty (but partial) text."""
+    return {
+        "recordId": record_id,
+        "modelOutput": {
+            "content": [{"type": "text", "text": '{"organization": [{"na'}],
+            "stop_reason": "max_tokens",
+            "usage": {"input_tokens": 100, "output_tokens": 4096},
+        },
+    }
+
+
 def _make_original_job(job_id: str) -> dict:
     """Create a mock original job record (as stored in DynamoDB)."""
     return {
@@ -396,6 +412,97 @@ class TestCompletedRouting:
             or (c[0] and c[0][0] == "https://sqs/recorder.fifo")
         ]
         assert len(recorder_calls) >= 1
+
+
+class TestTruncationHandling:
+    """LLM-1 parity on the batch path: a truncated batch record must be
+    re-enqueued for on-demand retry, never stored/routed as a completed
+    result (which would silently drop locations and poison the content
+    store with partial output)."""
+
+    @patch("app.content_store.config.get_content_store")
+    @patch("app.llm.queue.batch_result_processor._get_clients")
+    @patch("app.llm.queue.batch_result_processor.send_to_sqs")
+    @patch("app.llm.queue.batch_result_processor.settings")
+    def test_truncated_record_requeued_not_routed(
+        self, mock_settings, mock_send, mock_get_clients, mock_get_cs
+    ):
+        mock_settings.VALIDATOR_ENABLED = True
+        mock_s3 = MagicMock()
+        mock_dynamodb = MagicMock()
+        mock_get_clients.return_value = (mock_s3, mock_dynamodb)
+        mock_send.return_value = "msg-id"
+        mock_cs = MagicMock()
+        mock_get_cs.return_value = mock_cs
+
+        job_arn = "arn:aws:bedrock:us-east-1:123:model-invocation-job/test"
+        original_jobs = {"job-1": _make_original_job("job-1")}
+        mock_dynamodb.get_item.return_value = {
+            "Item": {
+                "output_key_prefix": {"S": "output/exec-123/"},
+                "original_jobs_key": {"S": "input/exec-123/original_jobs.jsonl"},
+            }
+        }
+        _mock_s3_for_streaming(
+            mock_s3, original_jobs, [_make_truncated_output_record("job-1")]
+        )
+
+        event = _make_event("Completed", job_arn)
+        with patch.dict(
+            "os.environ",
+            {
+                "VALIDATOR_QUEUE_URL": "https://sqs/validator.fifo",
+                "RECONCILER_QUEUE_URL": "https://sqs/reconciler.fifo",
+                "RECORDER_QUEUE_URL": "https://sqs/recorder.fifo",
+                "LLM_QUEUE_URL": "https://sqs/llm.fifo",
+                "BATCH_BUCKET": "batch-bucket",
+                "SQS_JOBS_TABLE": "jobs-table",
+            },
+        ):
+            result = handler(event, None)
+
+        def _queue_of(call):
+            return call[1].get("queue_url") or (call[0][0] if call[0] else None)
+
+        sent_queues = [_queue_of(c) for c in mock_send.call_args_list]
+        # Truncated record must NOT be routed downstream as a success...
+        assert "https://sqs/validator.fifo" not in sent_queues
+        assert "https://sqs/reconciler.fifo" not in sent_queues
+        # ...and MUST be re-enqueued to the on-demand LLM queue for retry.
+        assert "https://sqs/llm.fifo" in sent_queues
+        # Not counted as a clean success.
+        assert result["processed"] == 0
+        assert result["truncated_requeued"] == 1
+        # Truncated partial output must never be cached as a result.
+        mock_cs.store_result.assert_not_called()
+
+    def test_submarine_route_returns_false_on_truncation(self):
+        """The submarine batch router has the same gate: a truncated extraction
+        signals re-enqueue (False), before any extractor/DB work."""
+        from app.llm.providers.types import LLMResponse
+        from app.llm.queue.submarine_batch import route_submarine_success
+
+        truncated = LLMResponse(
+            text='{"hours": "Mon 9-',
+            model="m",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            was_truncated=True,
+        )
+        with patch(
+            "app.llm.providers.bedrock.parse_messages_api_response",
+            return_value=truncated,
+        ):
+            routed = route_submarine_success(
+                record_id="sub-1",
+                output={
+                    "content": [{"type": "text", "text": "x"}],
+                    "stop_reason": "max_tokens",
+                },
+                original_record={"data": {"submarine_job": {}, "missing_fields": []}},
+                model_id="m",
+                reconciler_queue_url="https://sqs/reconciler.fifo",
+            )
+        assert routed is False
 
 
 class TestFailureHandling:
