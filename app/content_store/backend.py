@@ -7,7 +7,7 @@ to be plugged in without changing the ContentStore logic.
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Protocol, TypedDict, runtime_checkable
 
@@ -183,6 +183,22 @@ class ContentStoreBackend(Protocol):
         """
         ...
 
+    def index_get_job_linked_at(self, content_hash: str) -> Optional[datetime]:
+        """Get the timestamp a job was last linked to this content.
+
+        Used by SQS-mode stale-link recovery: a job linked longer ago than the
+        safe processing threshold without a result is treated as terminally
+        failed and re-enqueued.
+
+        Args:
+            content_hash: SHA-256 hash
+
+        Returns:
+            Link timestamp, or None if no job is linked / the link predates
+            timestamp tracking (legacy rows).
+        """
+        ...
+
     def index_get_statistics(self) -> ContentStoreStatistics:
         """Get index statistics.
 
@@ -254,10 +270,19 @@ class FileContentStoreBackend:
                     result_path TEXT,
                     job_id TEXT,
                     created_at TIMESTAMP NOT NULL,
-                    processed_at TIMESTAMP
+                    processed_at TIMESTAMP,
+                    job_linked_at TIMESTAMP
                 )
             """
             )
+            # Migrate pre-existing indexes that lack the job_linked_at column
+            # (content-1 stale-link recovery). Idempotent: ignore if present.
+            try:
+                conn.execute(
+                    "ALTER TABLE content_index ADD COLUMN job_linked_at TIMESTAMP"
+                )
+            except sqlite3.OperationalError:
+                pass  # column already exists
             conn.commit()
 
     def _get_content_path(self, content_hash: str) -> Path:
@@ -389,15 +414,38 @@ class FileContentStoreBackend:
 
     @with_connection_retry
     def index_set_job_id(self, content_hash: str, job_id: str) -> None:
-        """Set job ID for content in index."""
+        """Set job ID for content in index, stamping the link time."""
         db_path = self._content_store_path / "index.db"
+        linked_at = datetime.now(UTC).isoformat()
 
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "UPDATE content_index SET job_id = ? WHERE hash = ?",
-                (job_id, content_hash),
+                "UPDATE content_index SET job_id = ?, job_linked_at = ? "
+                "WHERE hash = ?",
+                (job_id, linked_at, content_hash),
             )
             conn.commit()
+
+    def index_get_job_linked_at(self, content_hash: str) -> Optional[datetime]:
+        """Get the timestamp a job was last linked to this content."""
+        db_path = self._content_store_path / "index.db"
+
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                "SELECT job_linked_at FROM content_index WHERE hash = ?",
+                (content_hash,),
+            )
+            row = cursor.fetchone()
+
+        if not row or not row[0]:
+            return None
+        value = row[0]
+        if isinstance(value, datetime):
+            return value
+        try:
+            return datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
 
     @with_connection_retry
     def index_clear_job_id(self, content_hash: str) -> None:

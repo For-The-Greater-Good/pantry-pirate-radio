@@ -249,6 +249,57 @@ class TestContentStore:
         assert entry2.status == "pending"
         assert entry2.job_id == "sqs-job-456"
 
+    def test_sqs_link_records_timestamp(self, temp_store_path):
+        """content-1: link_job stamps a job_linked_at timestamp (round-trip)."""
+        from datetime import UTC, datetime
+
+        store = ContentStore(store_path=temp_store_path, redis_url=None)
+        content = '{"name": "Timestamped Pantry"}'
+        entry = store.store_content(content, {"scraper_id": "test_scraper"})
+
+        assert store.backend.index_get_job_linked_at(entry.hash) is None
+        store.link_job(entry.hash, "sqs-job-789")
+
+        linked_at = store.backend.index_get_job_linked_at(entry.hash)
+        assert linked_at is not None
+        if linked_at.tzinfo is None:
+            linked_at = linked_at.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - linked_at).total_seconds()
+        assert 0 <= age < 60
+
+    def test_stale_sqs_job_link_is_cleared_end_to_end(self, temp_store_path):
+        """content-1: a job linked past the threshold with no result re-enqueues."""
+        # Zero-hour threshold → the link (stamped a moment earlier) is stale.
+        store = ContentStore(
+            store_path=temp_store_path,
+            redis_url=None,
+            stale_job_threshold_hours=0,
+        )
+        content = '{"name": "Stale Job Pantry"}'
+        metadata = {"scraper_id": "test_scraper"}
+
+        entry1 = store.store_content(content, metadata)
+        store.link_job(entry1.hash, "stale-job-456")
+        assert store.get_job_id(entry1.hash) == "stale-job-456"
+
+        entry2 = store.store_content(content, metadata)
+        assert entry2.hash == entry1.hash
+        assert entry2.status == "pending"
+        assert entry2.job_id is None  # cleared → scraper will re-enqueue
+        assert store.get_job_id(entry1.hash) is None
+
+    def test_recent_sqs_job_link_survives_default_threshold(self, temp_store_path):
+        """content-1: a fresh link is preserved under the default threshold."""
+        store = ContentStore(store_path=temp_store_path, redis_url=None)
+        content = '{"name": "Fresh Job Pantry"}'
+        metadata = {"scraper_id": "test_scraper"}
+
+        entry1 = store.store_content(content, metadata)
+        store.link_job(entry1.hash, "fresh-job-456")
+
+        entry2 = store.store_content(content, metadata)
+        assert entry2.job_id == "fresh-job-456"  # in-flight → still skipped
+
     def test_should_cleanup_failed_job_and_allow_reprocessing(self, content_store):
         """Should clear failed job IDs and allow reprocessing."""
         content = '{"name": "Failed Job Pantry"}'

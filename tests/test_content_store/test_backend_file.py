@@ -246,6 +246,31 @@ class TestFileContentStoreBackend:
 
         assert backend.index_get_job_id(valid_hash) is None
 
+    def test_index_get_job_linked_at_none_before_set(self, backend, valid_hash: str):
+        """content-1: linked-at is None for content with no linked job."""
+        backend.index_insert_content(
+            valid_hash, "/path/content.json", datetime.utcnow()
+        )
+
+        assert backend.index_get_job_linked_at(valid_hash) is None
+
+    def test_index_set_job_id_records_linked_at(self, backend, valid_hash: str):
+        """content-1: index_set_job_id stamps a recent job_linked_at timestamp."""
+        from datetime import UTC, datetime
+
+        backend.index_insert_content(
+            valid_hash, "/path/content.json", datetime.utcnow()
+        )
+
+        backend.index_set_job_id(valid_hash, "job-new-123")
+
+        linked_at = backend.index_get_job_linked_at(valid_hash)
+        assert linked_at is not None
+        if linked_at.tzinfo is None:
+            linked_at = linked_at.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - linked_at).total_seconds()
+        assert 0 <= age < 60
+
     # --- Statistics Tests ---
 
     def test_index_get_statistics_empty_store(self, backend):

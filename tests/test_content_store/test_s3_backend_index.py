@@ -4,7 +4,7 @@ Tests for DynamoDB index operations: index_has_content, index_insert_content,
 index_update_result, index_get_job_id, index_set_job_id, index_clear_job_id.
 """
 
-from datetime import datetime
+from datetime import datetime, UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -114,6 +114,50 @@ class TestS3ContentStoreBackendIndexOperations:
             backend.index_set_job_id(content_hash, job_id)
 
         mock_dynamodb.update_item.assert_called_once()
+
+    def test_index_set_job_id_records_linked_at(self, backend):
+        """content-1: index_set_job_id should also persist a job_linked_at stamp."""
+        from datetime import datetime
+
+        mock_dynamodb = MagicMock()
+        content_hash = "abc123" + "0" * 58
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            backend.index_set_job_id(content_hash, "job-123")
+
+        kwargs = mock_dynamodb.update_item.call_args.kwargs
+        values = kwargs["ExpressionAttributeValues"]
+        assert ":linked" in values
+        # Must be a parseable ISO-8601 timestamp.
+        datetime.fromisoformat(values[":linked"]["S"])
+        assert "job_linked_at" in kwargs["UpdateExpression"]
+
+    def test_index_get_job_linked_at_returns_datetime(self, backend):
+        """content-1: index_get_job_linked_at parses the stored ISO timestamp."""
+        from datetime import datetime, timezone
+
+        stamp = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+        mock_dynamodb = MagicMock()
+        content_hash = "abc123" + "0" * 58
+        mock_dynamodb.get_item.return_value = {
+            "Item": {"job_linked_at": {"S": stamp.isoformat()}}
+        }
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            result = backend.index_get_job_linked_at(content_hash)
+
+        assert result == stamp
+
+    def test_index_get_job_linked_at_none_when_absent(self, backend):
+        """content-1: missing job_linked_at attribute → None (legacy rows)."""
+        mock_dynamodb = MagicMock()
+        content_hash = "abc123" + "0" * 58
+        mock_dynamodb.get_item.return_value = {"Item": {"job_id": {"S": "j"}}}
+
+        with patch.object(backend, "_get_dynamodb_client", return_value=mock_dynamodb):
+            result = backend.index_get_job_linked_at(content_hash)
+
+        assert result is None
 
     def test_index_clear_job_id_removes_job_id(self, backend):
         """index_clear_job_id() should remove job_id from item."""
