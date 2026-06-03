@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,11 +31,19 @@ class ContentStore:
     # SHA-256 produces 64 hex characters
     _HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
+    # Default age (hours) after which a result-less SQS job link is treated as
+    # a terminal failure and cleared. Must comfortably exceed the longest
+    # realistic end-to-end processing time (incl. Bedrock batch inference, which
+    # can run for hours) yet stay under the weekly scrape cadence so genuinely
+    # failed records recover on the next run.
+    _DEFAULT_STALE_JOB_THRESHOLD_HOURS = 72.0
+
     def __init__(
         self,
         store_path: Optional[Path] = None,
         redis_url: Optional[str] = "redis://cache:6379",
         backend: Optional[ContentStoreBackend] = None,
+        stale_job_threshold_hours: Optional[float] = None,
     ):
         """Initialize content store.
 
@@ -42,6 +51,9 @@ class ContentStore:
             store_path: Base path for content store (backward compat, creates FileBackend)
             redis_url: Redis connection URL for checking job status (None to skip Redis)
             backend: Storage backend (if None, FileContentStoreBackend is created from store_path)
+            stale_job_threshold_hours: SQS-mode age threshold for clearing a
+                result-less job link (defaults to the
+                CONTENT_STORE_STALE_JOB_THRESHOLD_HOURS env var or 72h).
 
         Raises:
             ValueError: If neither store_path nor backend is provided
@@ -53,6 +65,15 @@ class ContentStore:
             self._backend.initialize()
         else:
             raise ValueError("Either store_path or backend must be provided")
+
+        if stale_job_threshold_hours is None:
+            stale_job_threshold_hours = float(
+                os.getenv(
+                    "CONTENT_STORE_STALE_JOB_THRESHOLD_HOURS",
+                    str(self._DEFAULT_STALE_JOB_THRESHOLD_HOURS),
+                )
+            )
+        self._stale_job_threshold_hours = stale_job_threshold_hours
 
         self.redis_conn: Optional[redis.Redis[bytes]] = None
         if redis_url:
@@ -146,6 +167,24 @@ class ContentStore:
             )
             raise
 
+    def _is_job_link_stale(self, content_hash: str) -> bool:
+        """Whether a result-less SQS job link has outlived the safe threshold.
+
+        Used only in SQS mode, where we cannot probe RQ for liveness. A link
+        older than ``stale_job_threshold_hours`` is treated as a terminal
+        failure (the caller has already returned for content with a result).
+        Links with no recorded timestamp (legacy rows, pre-timestamp tracking)
+        are treated as NOT stale, so we never re-enqueue the entire historical
+        backlog at once (the 124k storm).
+        """
+        linked_at = self._backend.index_get_job_linked_at(content_hash)
+        if linked_at is None:
+            return False
+        if linked_at.tzinfo is None:
+            linked_at = linked_at.replace(tzinfo=UTC)
+        age_seconds = (datetime.now(UTC) - linked_at).total_seconds()
+        return age_seconds > self._stale_job_threshold_hours * 3600
+
     def has_content(self, content_hash: str) -> bool:
         """Check if content exists in store.
 
@@ -207,13 +246,26 @@ class ContentStore:
 
         # Read the persisted job_id (if any). In Redis mode we additionally
         # probe RQ to see if the job is still alive, and clear stale ids so
-        # dead jobs don't dedup-skip forever. In SQS mode we cannot query
-        # job status, so a previously-enqueued job_id stays — accept that
-        # silently-failed records may need operator recovery rather than
-        # re-enqueueing them on every scraper run.
+        # dead jobs don't dedup-skip forever. In SQS mode we cannot query job
+        # status, so we fall back to an age-based heuristic: a job linked
+        # longer ago than the safe processing threshold without producing a
+        # result (we returned above if a result existed) is a terminal failure
+        # — clear it so the content re-enqueues. Recent (in-flight) links and
+        # legacy links without a timestamp are left alone, so this never
+        # reproduces the historic 124k re-enqueue storm.
         existing_job_id = self.get_job_id(content_hash)
         if existing_job_id and not self._is_sqs_mode():
             if not self._is_job_active(existing_job_id):
+                self.clear_job_id(content_hash)
+                existing_job_id = None
+        elif existing_job_id and self._is_sqs_mode():
+            if self._is_job_link_stale(content_hash):
+                logger.info(
+                    "content_store_stale_job_link_cleared",
+                    content_hash=content_hash,
+                    job_id=existing_job_id,
+                    threshold_hours=self._stale_job_threshold_hours,
+                )
                 self.clear_job_id(content_hash)
                 existing_job_id = None
 

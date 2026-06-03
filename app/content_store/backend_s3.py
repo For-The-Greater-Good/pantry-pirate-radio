@@ -4,7 +4,7 @@ This module provides an S3-based storage backend with DynamoDB for indexing,
 enabling cloud-native deployment of the content store.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import structlog
@@ -398,9 +398,32 @@ class S3ContentStoreBackend:
         dynamodb.update_item(
             TableName=self.dynamodb_table,
             Key={"content_hash": {"S": content_hash}},
-            UpdateExpression="SET job_id = :jid",
-            ExpressionAttributeValues={":jid": {"S": job_id}},
+            UpdateExpression="SET job_id = :jid, job_linked_at = :linked",
+            ExpressionAttributeValues={
+                ":jid": {"S": job_id},
+                ":linked": {"S": datetime.now(UTC).isoformat()},
+            },
         )
+
+    @with_aws_retry
+    def index_get_job_linked_at(self, content_hash: str) -> Optional[datetime]:
+        """Get the timestamp a job was last linked to this content."""
+        self._ensure_initialized()
+        dynamodb = self._get_dynamodb_client()
+
+        response = dynamodb.get_item(
+            TableName=self.dynamodb_table,
+            Key={"content_hash": {"S": content_hash}},
+            ProjectionExpression="job_linked_at",
+        )
+
+        item = response.get("Item")
+        if item and "job_linked_at" in item:
+            try:
+                return datetime.fromisoformat(item["job_linked_at"]["S"])
+            except ValueError:
+                return None
+        return None
 
     @with_aws_retry
     def index_delete_entry(self, content_hash: str) -> None:

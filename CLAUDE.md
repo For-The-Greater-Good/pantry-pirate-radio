@@ -178,6 +178,7 @@ DATA_REPO_TOKEN=github_pat_xxx  # GitHub PAT with repo access
 # Content Store
 CONTENT_STORE_PATH=/path/to/content-store
 CONTENT_STORE_BACKEND=file  # Backend type: "file" (default) or "s3" (AWS deployment)
+CONTENT_STORE_STALE_JOB_THRESHOLD_HOURS=72  # SQS-mode: age after which a result-less job link is re-enqueued (default 72)
 
 # Submarine Enrichment
 SUBMARINE_ENABLED=false  # Enable/disable submarine enrichment (default: false)
@@ -771,6 +772,7 @@ routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
   - **Sample Scraper**: Example implementation available for all contributors
 - **Content Store**: SHA-256 deduplication preventing duplicate processing
   - **Backend Abstraction**: Pluggable `ContentStoreBackend` protocol supports local filesystem (`file`) or AWS S3+DynamoDB (`s3`)
+  - **Stale job-link recovery (SQS mode)**: `index_set_job_id` stamps a `job_linked_at` timestamp (SQLite column / DynamoDB attribute). In SQS mode (no Redis to probe RQ liveness) `store_content` clears a result-less `job_id` once it is older than `CONTENT_STORE_STALE_JOB_THRESHOLD_HOURS` (default 72) so a terminally-failed record re-enqueues instead of dedup-skipping forever. Recent (in-flight) links and legacy links with no timestamp are left alone, avoiding the historic 124k re-enqueue storm. Grep CloudWatch for `content_store_stale_job_link_cleared`.
 - **LLM Workers**: HSDS schema alignment with OpenAI/Claude/Bedrock providers
 - **Validator Service**: Confidence scoring, data enrichment, and quality control
 - **Reconciler**: Creates canonical records with version tracking
