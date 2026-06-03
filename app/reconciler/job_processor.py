@@ -15,6 +15,7 @@ from typing_extensions import TypedDict
 from app.core.config import settings
 from app.llm.queue.models import JobResult
 from app.reconciler.location_creator import LocationCreator
+from app.reconciler.merge_strategy import MergeStrategy
 from app.reconciler.metrics import (
     LOCATION_MATCHES,
     RECONCILER_JOBS,
@@ -26,7 +27,6 @@ from app.reconciler.service_creator import ServiceCreator
 from app.reconciler.submarine_location_handler import SubmarineLocationHandler
 from app.reconciler.version_tracker import VersionTracker
 from app.utils.ical import normalize_byday, normalize_bymonthday
-from app.validator.scoring import ConfidenceScorer
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -188,93 +188,6 @@ class JobProcessor:
         Jobs are now processed directly by the RQ worker when they arrive.
         """
         self.logger.info("Method deprecated - jobs are processed by RQ worker")
-
-    def _apply_corroboration_bonus(
-        self, location_id: str, per_job_score: int | None
-    ) -> None:
-        """Recompute the source-corroboration bonus on the canonical row.
-
-        Uses ``per_job_score`` (the validator's output for *this* job)
-        as the base — not the canonical row's current score — so that
-        bonuses never compound on reprocesses.
-
-        Counts only ``source_type = 'scraper'`` (or NULL) rows; submarine,
-        portal_ingest, and human_update sources do not represent
-        independent scraper confirmation. Keep the filter in sync with
-        ``merge_strategy.py``.
-
-        No-op when ``per_job_score`` is None or fewer than 2 distinct
-        scrapers have confirmed the location. The UPDATE respects the
-        ``verified_by NOT IN ('admin','source','claimed')`` guard so
-        owner-curated canonical rows are never overwritten — a 0-row
-        UPDATE is logged as ``corroboration_skipped_owner_protected``.
-        """
-        if per_job_score is None:
-            return
-
-        count_result = self.db.execute(
-            text(
-                """
-                SELECT COUNT(DISTINCT scraper_id)
-                FROM location_source
-                WHERE location_id = :id
-                  AND (source_type = 'scraper' OR source_type IS NULL)
-                """
-            ),
-            {"id": str(location_id)},
-        )
-        distinct_scrapers = count_result.scalar() or 0
-
-        if distinct_scrapers < 2:
-            return
-
-        scorer = ConfidenceScorer()
-        corroborated = scorer.apply_source_corroboration(
-            per_job_score, distinct_scrapers
-        )
-        if corroborated == per_job_score:
-            return
-
-        result = self.db.execute(
-            text(
-                """
-                UPDATE location
-                SET confidence_score = :score,
-                    validation_status = CASE
-                        WHEN :score >= 80 THEN 'verified'
-                        ELSE validation_status
-                    END
-                WHERE id = :id
-                  AND (verified_by IS NULL
-                       OR verified_by NOT IN ('admin','source','claimed'))
-                """
-            ),
-            {"id": str(location_id), "score": corroborated},
-        )
-        self.db.commit()
-        if result.rowcount == 0:
-            # The human-curated guard filtered the row out. Operators
-            # investigating "why isn't corroboration applying for this id"
-            # need a discoverable signal that the guard fired.
-            logger.info(
-                "corroboration_skipped_owner_protected",
-                extra={
-                    "location_id": str(location_id),
-                    "scrapers": distinct_scrapers,
-                    "would_be_score": corroborated,
-                },
-            )
-            return
-
-        logger.info(
-            "corroboration_applied",
-            extra={
-                "location_id": str(location_id),
-                "scrapers": distinct_scrapers,
-                "per_job_score": per_job_score,
-                "new_score": corroborated,
-            },
-        )
 
     def _transform_schedule(self, schedule: dict) -> dict | None:
         """Transform schedule from various formats to expected format.
@@ -1019,7 +932,17 @@ class JobProcessor:
                                 self._transform_schedule,
                             )
                         else:
-                            # Standard path: static UPDATE with all fields
+                            # Standard path. REC-4: the canonical content write
+                            # (name/description/coordinates) is delegated to
+                            # MergeStrategy.merge_location below, which
+                            # field-level-merges across ALL of this location's
+                            # scraper sources (majority-vote name, longest
+                            # description, most-recent coordinates) instead of
+                            # the old last-write-wins overwrite that let a
+                            # single later scrape relabel a pantry or move its
+                            # pin. Here we only (a) compute a description for the
+                            # source/version records and (b) FILL a missing
+                            # organization link.
                             update_description = location.get("description")
                             if update_description is None or update_description == "":
                                 update_description = (
@@ -1029,46 +952,33 @@ class JobProcessor:
                                     f"Missing description for location update {location['name']}, using generated description"
                                 )
 
-                            # Guard: skip canonical writes when the row is
-                            # curated by an authoritative human writer. The
-                            # scraper's data still lands in location_source
-                            # for provenance; the canonical row stays owned.
-                            # See app/validator/scoring.py:HUMAN_VERIFIED_SOURCES.
-                            query = text(
-                                """
-                                UPDATE location
-                                SET name=:name,
-                                    description=:description,
-                                    latitude=:latitude,
-                                    longitude=:longitude,
-                                    organization_id=:organization_id
-                                WHERE id=:id
-                                    AND (verified_by IS NULL
-                                         OR verified_by NOT IN
-                                            ('admin', 'source', 'claimed'))
-                                """
-                            )
-
-                            result = self.db.execute(
-                                query,
-                                {
-                                    "id": str(location_id),
-                                    "name": location["name"],
-                                    "description": update_description,
-                                    "latitude": float(location["latitude"]),
-                                    "longitude": float(location["longitude"]),
-                                    "organization_id": str(org_id) if org_id else None,
-                                },
-                            )
-                            if result.rowcount == 0:
-                                logger.info(
-                                    "location_update_owner_protected",
-                                    extra={
-                                        "location_id": str(location_id),
-                                        "scraper_name": location.get("name"),
+                            # Organization: fill-only. REC-4/SUB-1 class fix —
+                            # the old UPDATE bound organization_id=:org with None
+                            # when the job had no org, WIPING an existing link
+                            # (6,906 NULL-org canonical rows traced to this
+                            # class of bug). Set the org only when the canonical
+                            # row currently has none (enrichment); never
+                            # overwrite or clear an existing link, and never
+                            # touch an owner-curated row.
+                            if org_id:
+                                self.db.execute(
+                                    text(
+                                        """
+                                        UPDATE location
+                                        SET organization_id = :organization_id
+                                        WHERE id = :id
+                                            AND organization_id IS NULL
+                                            AND (verified_by IS NULL
+                                                 OR verified_by NOT IN
+                                                    ('admin', 'source', 'claimed'))
+                                        """
+                                    ),
+                                    {
+                                        "id": str(location_id),
+                                        "organization_id": str(org_id),
                                     },
                                 )
-                            self.db.commit()
+                                self.db.commit()
 
                         # For version tracking, use update_description if set,
                         # otherwise fall back to location description
@@ -1110,23 +1020,37 @@ class JobProcessor:
                             ),
                         )
 
-                        # Must run after create_location_source so this
-                        # scraper is counted in the distinct-scraper total.
-                        # Submarine jobs are enrichment, not independent
-                        # confirmation (constitution v1.5.1), and excluded.
-                        # Wrapped so a bonus failure doesn't abort the
-                        # rest of the job — the canonical UPDATE has
-                        # already committed and the next scraper pass
-                        # will recompute the bonus idempotently.
+                        # REC-4: route the canonical content + corroboration
+                        # write through the field-level MergeStrategy.
+                        # merge_location, which merges across ALL of this
+                        # location's scraper sources (majority name, longest
+                        # description, most-recent coordinates), applies the
+                        # source-corroboration bonus, and honors owner
+                        # protection — replacing the old last-write-wins
+                        # overwrite and the separate corroboration helper (which
+                        # together double-applied the bonus). MUST run after
+                        # create_location_source so this scraper is present in
+                        # location_source for both the field merge and the
+                        # distinct-scraper count. Submarine jobs are enrichment,
+                        # not independent confirmation (constitution v1.5.1),
+                        # and have their own selective-update handler — excluded.
+                        # The per-job validator score (not the canonical row's
+                        # already-bonused score) is passed so corroboration
+                        # stays idempotent across reprocesses. Wrapped so a
+                        # merge failure can't abort the rest of the job
+                        # (Principle XI); the scraper's data is already
+                        # persisted in location_source and the next pass
+                        # re-merges.
                         if not is_submarine:
                             try:
-                                self._apply_corroboration_bonus(
-                                    location_id=str(location_id),
-                                    per_job_score=loc_confidence_score,
+                                merge_strategy = MergeStrategy(self.db)
+                                merge_strategy.merge_location(
+                                    str(location_id),
+                                    loc_confidence_score,
                                 )
                             except Exception as e:
                                 logger.warning(
-                                    "corroboration_failed",
+                                    "merge_location_failed",
                                     extra={
                                         "location_id": str(location_id),
                                         "per_job_score": loc_confidence_score,
