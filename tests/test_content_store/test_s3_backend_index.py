@@ -4,7 +4,7 @@ Tests for DynamoDB index operations: index_has_content, index_insert_content,
 index_update_result, index_get_job_id, index_set_job_id, index_clear_job_id.
 """
 
-from datetime import datetime
+from datetime import datetime, UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -136,7 +136,7 @@ class TestS3ContentStoreBackendIndexOperations:
         """content-1: index_get_job_linked_at parses the stored ISO timestamp."""
         from datetime import datetime, timezone
 
-        stamp = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+        stamp = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
         mock_dynamodb = MagicMock()
         content_hash = "abc123" + "0" * 58
         mock_dynamodb.get_item.return_value = {

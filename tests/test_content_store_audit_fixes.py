@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.content_store.store import ContentStore
+from datetime import UTC
 
 
 class TestH2SqsModeDedup:
@@ -127,7 +128,7 @@ class TestContent1StaleJobLink:
         """A job linked longer ago than the threshold is cleared → re-enqueue."""
         from datetime import datetime, timedelta, timezone
 
-        old = datetime.now(timezone.utc) - timedelta(hours=200)
+        old = datetime.now(UTC) - timedelta(hours=200)
         mock_backend = self._pending_backend(old)
         store = self._make_store(redis_url=None, backend=mock_backend)  # 72h default
 
@@ -141,7 +142,7 @@ class TestContent1StaleJobLink:
         """A recently-linked (in-flight) job is preserved → still dedup-skipped."""
         from datetime import datetime, timedelta, timezone
 
-        recent = datetime.now(timezone.utc) - timedelta(hours=1)
+        recent = datetime.now(UTC) - timedelta(hours=1)
         mock_backend = self._pending_backend(recent)
         store = self._make_store(redis_url=None, backend=mock_backend)  # 72h default
 
@@ -164,7 +165,7 @@ class TestContent1StaleJobLink:
         """An explicit threshold overrides the default."""
         from datetime import datetime, timedelta, timezone
 
-        linked = datetime.now(timezone.utc) - timedelta(hours=10)
+        linked = datetime.now(UTC) - timedelta(hours=10)
         mock_backend = self._pending_backend(linked)
         # 5h threshold → a 10h-old link is stale.
         store = self._make_store(
@@ -181,7 +182,7 @@ class TestContent1StaleJobLink:
         import json
         from datetime import datetime, timedelta, timezone
 
-        old = datetime.now(timezone.utc) - timedelta(hours=200)
+        old = datetime.now(UTC) - timedelta(hours=200)
         mock_backend = self._pending_backend(old)
         mock_backend.read_result.return_value = json.dumps(
             {"result": "processed data", "job_id": "old-job-123"}
@@ -198,7 +199,7 @@ class TestContent1StaleJobLink:
         """In Redis mode staleness is decided by RQ liveness, not link age."""
         from datetime import datetime, timedelta, timezone
 
-        old = datetime.now(timezone.utc) - timedelta(hours=200)
+        old = datetime.now(UTC) - timedelta(hours=200)
         mock_backend = self._pending_backend(old)
         store = self._make_store(redis_url=None, backend=mock_backend)
         store.redis_conn = MagicMock()  # simulate Redis present
