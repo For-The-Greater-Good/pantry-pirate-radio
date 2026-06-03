@@ -301,3 +301,67 @@ class TestPersistSchedules:
 
         assert count == 1
         assert mock_service_creator.update_or_create_schedule.call_count == 1
+
+
+class TestPersistPhones:
+    """Test submarine phone persistence to location (SUB-2)."""
+
+    def test_persists_phones_via_create_phone(self):
+        db = MagicMock(spec=Session)
+        db.execute.return_value.scalar.return_value = None  # not owner-protected
+        handler = SubmarineLocationHandler(db)
+
+        location_id = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+        location = {"phones": [{"number": "212-555-1234", "type": "voice"}]}
+        mock_service_creator = MagicMock()
+
+        count = handler.persist_phones(
+            location_id, location, {"scraper_id": "submarine"}, mock_service_creator
+        )
+
+        assert count == 1
+        mock_service_creator.create_phone.assert_called_once()
+        kwargs = mock_service_creator.create_phone.call_args.kwargs
+        assert kwargs["number"] == "212-555-1234"
+        assert kwargs["location_id"] == location_id
+        assert kwargs["transaction"] is db
+
+    def test_skips_when_no_phones(self):
+        db = MagicMock(spec=Session)
+        handler = SubmarineLocationHandler(db)
+        mock_service_creator = MagicMock()
+
+        assert handler.persist_phones(uuid.uuid4(), {}, {}, mock_service_creator) == 0
+        mock_service_creator.create_phone.assert_not_called()
+
+    def test_skips_owner_protected_location(self):
+        """A human-curated location's phones are left untouched."""
+        db = MagicMock(spec=Session)
+        db.execute.return_value.scalar.return_value = "admin"
+        handler = SubmarineLocationHandler(db)
+
+        location = {"phones": [{"number": "212-555-1234", "type": "voice"}]}
+        mock_service_creator = MagicMock()
+
+        count = handler.persist_phones(uuid.uuid4(), location, {}, mock_service_creator)
+
+        assert count == 0
+        mock_service_creator.create_phone.assert_not_called()
+
+    def test_skips_blank_phone_numbers(self):
+        db = MagicMock(spec=Session)
+        db.execute.return_value.scalar.return_value = None
+        handler = SubmarineLocationHandler(db)
+
+        location = {
+            "phones": [
+                {"number": "", "type": "voice"},
+                {"number": "212-555-9999", "type": "voice"},
+            ]
+        }
+        mock_service_creator = MagicMock()
+
+        count = handler.persist_phones(uuid.uuid4(), location, {}, mock_service_creator)
+
+        assert count == 1
+        assert mock_service_creator.create_phone.call_count == 1
