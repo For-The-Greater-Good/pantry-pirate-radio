@@ -981,7 +981,15 @@ class ServiceCreator(BaseReconciler):
         opens_at_time = self._parse_time(opens_at)
         closes_at_time = self._parse_time(closes_at)
 
-        # Check for existing schedule with same entity relationship
+        # Check for an existing schedule with the same entity relationship AND
+        # the same *recurrence identity* (freq + byday + bymonthday). REC-2: the
+        # lookup used to match the entity alone with LIMIT 1, so a location's
+        # distinct windows (e.g. Mon 9-12 and Thu 1-5) all resolved to the same
+        # row — the second silently overwrote the first. Keying on the
+        # recurrence keeps distinct windows as distinct rows while an unchanged
+        # recurrence (corrected hours/description) still updates in place.
+        # `IS NOT DISTINCT FROM` is NULL-safe so a NULL byday matches a NULL
+        # byday rather than never matching.
         existing_query = text(
             """
             SELECT id, freq, wkst, opens_at, closes_at, byday, bymonthday,
@@ -993,6 +1001,9 @@ class ServiceCreator(BaseReconciler):
                 (service_id = :service_id AND :service_id IS NOT NULL AND service_at_location_id IS NULL) OR
                 (location_id = :location_id AND :location_id IS NOT NULL AND service_at_location_id IS NULL AND service_id IS NULL)
             )
+            AND freq IS NOT DISTINCT FROM :freq
+            AND byday IS NOT DISTINCT FROM :byday
+            AND bymonthday IS NOT DISTINCT FROM :bymonthday
             LIMIT 1
             """
         )
@@ -1005,6 +1016,9 @@ class ServiceCreator(BaseReconciler):
                 ),
                 "service_id": str(service_id) if service_id else None,
                 "location_id": str(location_id) if location_id else None,
+                "freq": freq,
+                "byday": byday,
+                "bymonthday": bymonthday,
             },
         )
         existing = result.first()

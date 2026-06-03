@@ -116,11 +116,111 @@ class TestScheduleUpdateOrCreate:
         assert result.byday is None
         assert result.freq == "MONTHLY"
 
-    def test_update_existing_schedule_with_changes(
+    def test_distinct_byday_windows_create_separate_rows(self, service_creator):
+        """REC-2: two windows on different days must NOT collapse into one row.
+
+        Previously update_or_create_schedule matched the existing row by entity
+        with LIMIT 1 and no recurrence predicate, so a Monday window and a
+        Thursday window for the same entity resolved to the same row — the
+        second silently overwrote the first. Recurrence identity (freq, byday,
+        bymonthday) now keeps distinct recurrences as distinct rows.
+        """
+        from app.reconciler.organization_creator import OrganizationCreator
+
+        org_creator = OrganizationCreator(service_creator.db)
+        org_id = org_creator.create_organization(
+            name="Distinct Windows Org",
+            description="Test Description",
+            metadata={"source": "test"},
+        )
+        service_id = service_creator.create_service(
+            name="Distinct Windows Service",
+            description="Test Description",
+            organization_id=org_id,
+            metadata={"source": "test"},
+        )
+
+        mon_id, mon_updated = service_creator.update_or_create_schedule(
+            freq="WEEKLY",
+            wkst="MO",
+            opens_at="09:00",
+            closes_at="12:00",
+            metadata={"source": "test"},
+            service_id=service_id,
+            byday="MO",
+            description="Monday morning",
+        )
+        thu_id, thu_updated = service_creator.update_or_create_schedule(
+            freq="WEEKLY",
+            wkst="MO",
+            opens_at="13:00",
+            closes_at="17:00",
+            metadata={"source": "test"},
+            service_id=service_id,
+            byday="TH",
+            description="Thursday afternoon",
+        )
+
+        assert mon_updated is False
+        assert thu_updated is False  # distinct recurrence → new row, not an update
+        assert mon_id != thu_id
+
+        rows = service_creator.db.execute(
+            text("SELECT byday FROM schedule WHERE service_id = :sid"),
+            {"sid": str(service_id)},
+        ).fetchall()
+        assert {r.byday for r in rows} == {"MO", "TH"}
+
+    def test_distinct_bymonthday_windows_create_separate_rows(self, service_creator):
+        """REC-2: monthly windows on different days-of-month are distinct rows."""
+        from app.reconciler.organization_creator import OrganizationCreator
+
+        org_creator = OrganizationCreator(service_creator.db)
+        org_id = org_creator.create_organization(
+            name="Distinct Monthday Org",
+            description="Test Description",
+            metadata={"source": "test"},
+        )
+        service_id = service_creator.create_service(
+            name="Distinct Monthday Service",
+            description="Test Description",
+            organization_id=org_id,
+            metadata={"source": "test"},
+        )
+
+        first_id, _ = service_creator.update_or_create_schedule(
+            freq="MONTHLY",
+            wkst="MO",
+            opens_at="09:00",
+            closes_at="12:00",
+            metadata={"source": "test"},
+            service_id=service_id,
+            bymonthday="1",
+            description="First of month",
+        )
+        fifteenth_id, was_updated = service_creator.update_or_create_schedule(
+            freq="MONTHLY",
+            wkst="MO",
+            opens_at="09:00",
+            closes_at="12:00",
+            metadata={"source": "test"},
+            service_id=service_id,
+            bymonthday="15",
+            description="Fifteenth of month",
+        )
+
+        assert was_updated is False
+        assert first_id != fifteenth_id
+
+    def test_same_recurrence_changed_hours_updates_in_place(
         self, service_creator, sample_schedule_data
     ):
-        """Test updating an existing schedule when data changes."""
-        # First create an organization and service that the schedule can reference
+        """Same recurrence with changed hours/description updates the SAME row.
+
+        Recurrence identity excludes opens_at/closes_at/description, so a hours
+        correction for an unchanged (freq, byday, bymonthday) recurrence is an
+        in-place update — not a new row.
+        """
         from app.reconciler.organization_creator import OrganizationCreator
 
         org_creator = OrganizationCreator(service_creator.db)
@@ -141,36 +241,36 @@ class TestScheduleUpdateOrCreate:
         initial_id, _ = service_creator.update_or_create_schedule(
             freq=sample_schedule_data["freq"],
             wkst=sample_schedule_data["wkst"],
-            opens_at=sample_schedule_data["opens_at"],
-            closes_at=sample_schedule_data["closes_at"],
+            opens_at="09:00",
+            closes_at="17:00",
             metadata=sample_schedule_data["metadata"],
             service_id=service_id,
-            byday="MO,WE,FR",  # Different days initially
+            byday="MO,WE,FR",
             description="Old description",
         )
 
-        # Update with new data
+        # Same recurrence (byday/freq), corrected hours + description
         updated_id, was_updated = service_creator.update_or_create_schedule(
             freq=sample_schedule_data["freq"],
             wkst=sample_schedule_data["wkst"],
-            opens_at=sample_schedule_data["opens_at"],
-            closes_at=sample_schedule_data["closes_at"],
+            opens_at="08:00",
+            closes_at="16:00",
             metadata=sample_schedule_data["metadata"],
             service_id=service_id,
-            byday=sample_schedule_data["byday"],  # Updated days
-            description=sample_schedule_data["description"],  # Updated description
+            byday="MO,WE,FR",  # unchanged recurrence
+            description="New description",
         )
 
         assert updated_id == initial_id  # Same schedule record
-        assert was_updated is True  # Was updated
+        assert was_updated is True  # Was updated in place
 
-        # Verify schedule was updated
         result = service_creator.db.execute(
             text("SELECT * FROM schedule WHERE id = :id"), {"id": str(updated_id)}
         ).first()
 
-        assert result.byday == "MO,TU,WE,TH,FR"
-        assert result.description == "Open Monday through Friday"
+        assert result.byday == "MO,WE,FR"
+        assert result.description == "New description"
+        assert result.opens_at == time(8, 0)
 
     def test_skip_update_when_no_changes(self, service_creator, sample_schedule_data):
         """Test that schedule is not updated when data is unchanged."""
@@ -294,26 +394,26 @@ class TestScheduleUpdateOrCreate:
         initial_id, _ = service_creator.update_or_create_schedule(
             freq=sample_schedule_data["freq"],
             wkst=sample_schedule_data["wkst"],
-            opens_at=sample_schedule_data["opens_at"],
-            closes_at=sample_schedule_data["closes_at"],
+            opens_at="09:00",
+            closes_at="17:00",
             metadata=sample_schedule_data["metadata"],
             service_id=service_id,
             byday="MO",
             description="Initial",
         )
 
-        # Update schedule
+        # Update schedule (same recurrence MO, corrected hours → in-place update)
         with patch(
             "app.reconciler.version_tracker.VersionTracker.create_version"
         ) as mock_version:
             _, was_updated = service_creator.update_or_create_schedule(
                 freq=sample_schedule_data["freq"],
                 wkst=sample_schedule_data["wkst"],
-                opens_at=sample_schedule_data["opens_at"],
-                closes_at=sample_schedule_data["closes_at"],
+                opens_at="08:00",
+                closes_at="16:00",
                 metadata=sample_schedule_data["metadata"],
                 service_id=service_id,
-                byday="MO,TU,WE,TH,FR",
+                byday="MO",
                 description="Updated",
             )
 
