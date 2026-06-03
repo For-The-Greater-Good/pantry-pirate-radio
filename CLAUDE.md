@@ -722,6 +722,10 @@ When services are running, the following endpoints are available:
 - `GET /api/v1/partners/ptf/locations/{location_id}` — single location detail
 - Both responses include a `feeding_america_food_bank` block (id + name, plus richer fields when in catalogue) when the location's ZIP matches `feeding_america_zip_coverage`; `null` otherwise.
 
+**Beacon partner endpoints** (internal; feed the static directory-site build):
+- `GET /api/v1/partners/beacon/sync` — full location records (schedules, phones, languages, accessibility) for static page rendering. Cursor-paginated, `is_canonical=TRUE` quality gate (`app/api/v1/partners/beacon/services.py`).
+- `GET /api/v1/partners/beacon/redirects` — dead (dedup-soft-deleted) location ids → surviving canonical address components, so beacon publishes 301s for URLs it deleted. Read-only; follows the transitive survivor chain to its terminal still-canonical row (cycle/depth-guarded) via `dedup_run_audit`; tolerates a missing audit table (returns `[]`). Beacon turns same-locality survivors into 301s and everything else into 410 at the CloudFront edge — see `plugins/ppr-beacon/CLAUDE.md` → "SEO indexing recovery" for the edge `noindex`/301/410 behavior and the English-first surface shrink.
+
 Datasette provides:
 - SQL interface to explore published HAARRRvest data
 - Read-only access to the SQLite database

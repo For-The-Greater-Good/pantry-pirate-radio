@@ -101,3 +101,56 @@ class BeaconSyncResponse(BaseModel):
                 f"locations count ({len(self.locations)})"
             )
         return self
+
+
+class BeaconRedirectSurvivor(BaseModel):
+    """The surviving canonical location a dead URL should redirect to.
+
+    Address components let beacon reconstruct the survivor's directory URL
+    via its own slug rules (slug logic stays in one place — beacon).
+    """
+
+    id: str
+    name: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+
+
+class BeaconRedirect(BaseModel):
+    """A soft-deleted location id and the canonical survivor it merged into.
+
+    Beacon already knows the dead URL (from its own build tracker at deletion
+    time); this only supplies the survivor side, which lives in the current DB.
+    Only redirects with a live canonical survivor are emitted — beacon
+    parent-redirects-or-410s anything not present here.
+    """
+
+    dead_id: str
+    survivor: BeaconRedirectSurvivor
+
+
+class BeaconRedirectsMeta(BaseModel):
+    """Pagination/response metadata for the redirects endpoint."""
+
+    returned: int
+    cursor: Optional[str] = None
+    has_more: bool
+    generated_at: datetime
+    data_version: str = "1.0"
+
+
+class BeaconRedirectsResponse(BaseModel):
+    """Top-level response for the beacon redirects endpoint."""
+
+    meta: BeaconRedirectsMeta
+    redirects: list[BeaconRedirect]
+
+    @model_validator(mode="after")
+    def check_returned_matches_count(self) -> "BeaconRedirectsResponse":
+        if self.meta.returned != len(self.redirects):
+            raise ValueError(
+                f"meta.returned ({self.meta.returned}) != "
+                f"redirects count ({len(self.redirects)})"
+            )
+        return self
