@@ -216,7 +216,12 @@ class AggregatedMapDataExporter:
                   AND l.longitude IS NOT NULL
                   AND l.latitude BETWEEN -90 AND 90
                   AND l.longitude BETWEEN -180 AND 180
-                  -- Include all locations, not just rejected ones
+                  -- Canonical survivors only: the reconciler soft-deletes
+                  -- merged-away duplicates (is_canonical=FALSE). Without this
+                  -- they get fetched, participate in clustering, and a
+                  -- cluster of only-non-canonical rows would emit a
+                  -- soft-deleted pin. Mirrors every sibling map export.
+                  AND l.is_canonical = true
                   AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
                 ORDER BY cluster_id, ls.scraper_id
             """,
