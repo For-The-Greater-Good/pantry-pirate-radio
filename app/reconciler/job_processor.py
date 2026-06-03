@@ -931,6 +931,16 @@ class JobProcessor:
                                 service_creator,
                                 self._transform_schedule,
                             )
+                            # Persist submarine phones (the standard phone
+                            # block runs only on location create, so the
+                            # update-existing path submarine always takes
+                            # would otherwise discard extracted phones).
+                            submarine_handler.persist_phones(
+                                location_id,
+                                location,
+                                job_result.job.metadata,
+                                service_creator,
+                            )
                         else:
                             # Standard path. REC-4: the canonical content write
                             # (name/description/coordinates) is delegated to

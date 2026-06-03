@@ -183,3 +183,66 @@ class SubmarineLocationHandler:
             )
 
         return count
+
+    def persist_phones(
+        self,
+        location_id: uuid.UUID,
+        location: dict[str, Any],
+        metadata: dict[str, Any],
+        service_creator: Any,
+    ) -> int:
+        """Persist submarine-extracted phones directly to the location.
+
+        Submarine results have no services, and the standard phone-creation
+        path in the reconciler only runs when a location is newly created — so
+        a submarine job (which always matches an EXISTING location by id) never
+        persisted the phone it extracted. This writes them via the existing
+        ``create_phone`` infrastructure, which dedupes on
+        (number, location_id, organization_id, service_id, contact_id,
+        service_at_location_id), so re-runs don't create duplicate rows.
+
+        Honors owner-protection: a human-curated location (verified_by in
+        admin/source/claimed) is left untouched, matching ``update_location``.
+
+        Returns:
+            Count of phones created (or already-present) for the location.
+        """
+        phones = location.get("phones")
+        if not phones:
+            return 0
+
+        verified_by = self.db.execute(
+            text("SELECT verified_by FROM location WHERE id = :id"),
+            {"id": str(location_id)},
+        ).scalar()
+        if verified_by in ("admin", "source", "claimed"):
+            logger.info(
+                "submarine_phones_skipped_owner_protected",
+                extra={"location_id": str(location_id)},
+            )
+            return 0
+
+        count = 0
+        for phone in phones:
+            number = phone.get("number")
+            if not number:
+                continue
+            service_creator.create_phone(
+                number=number,
+                phone_type=phone.get("type", "voice"),
+                location_id=location_id,
+                metadata=metadata,
+                transaction=self.db,
+            )
+            count += 1
+
+        if count:
+            logger.info(
+                "submarine_phones_persisted",
+                extra={
+                    "location_id": str(location_id),
+                    "phone_count": count,
+                },
+            )
+
+        return count
