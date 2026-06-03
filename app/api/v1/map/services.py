@@ -147,6 +147,7 @@ class MapDataService:
               AND l.longitude IS NOT NULL
               AND l.latitude BETWEEN -90 AND 90
               AND l.longitude BETWEEN -180 AND 180
+              AND l.is_canonical = true
               AND (l.validation_status IS NULL OR l.validation_status != 'rejected')
         """
 

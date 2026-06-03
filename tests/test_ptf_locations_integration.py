@@ -71,12 +71,12 @@ async def seeded(db_session: AsyncSession):
             INSERT INTO location (
                 id, organization_id, name, description,
                 latitude, longitude, location_type,
-                validation_status, confidence_score
+                validation_status, confidence_score, is_canonical
             )
             VALUES (
                 :id, :org_id, :name, :desc,
                 :lat, :lng, 'physical',
-                'verified', 75
+                'verified', 75, TRUE
             )
             """
         ),
@@ -96,11 +96,11 @@ async def seeded(db_session: AsyncSession):
             INSERT INTO location (
                 id, organization_id, name,
                 latitude, longitude, location_type,
-                validation_status
+                validation_status, is_canonical
             )
             VALUES (
                 :id, :org_id, :name,
-                :lat, :lng, 'physical', NULL
+                :lat, :lng, 'physical', NULL, TRUE
             )
             """
         ),
@@ -334,9 +334,10 @@ class TestFeedingAmericaJoinSemantics:
                 """
                 INSERT INTO location (
                     id, organization_id, name,
-                    latitude, longitude, location_type, validation_status
+                    latitude, longitude, location_type, validation_status,
+                    is_canonical
                 )
-                VALUES (:id, :org_id, :name, :lat, :lng, 'physical', NULL)
+                VALUES (:id, :org_id, :name, :lat, :lng, 'physical', NULL, TRUE)
                 """
             ),
             {
@@ -456,10 +457,10 @@ class TestContactOrScheduleFilter:
                     INSERT INTO location (
                         id, organization_id, name,
                         latitude, longitude, location_type,
-                        validation_status, confidence_score
+                        validation_status, confidence_score, is_canonical
                     )
                     VALUES (:id, :org_id, :name, :lat, :lng,
-                            'physical', 'verified', 75)
+                            'physical', 'verified', 75, TRUE)
                     """
                 ),
                 {
@@ -567,10 +568,10 @@ class TestContactOrScheduleFilter:
                 INSERT INTO location (
                     id, organization_id, name,
                     latitude, longitude, location_type,
-                    validation_status, confidence_score
+                    validation_status, confidence_score, is_canonical
                 )
                 VALUES (:id, :org, 'Empty-String Pantry',
-                        45.0, -65.0, 'physical', 'verified', 75)
+                        45.0, -65.0, 'physical', 'verified', 75, TRUE)
                 """
             ),
             {"id": loc_id, "org": org_id},
@@ -678,10 +679,11 @@ class TestNearDuplicateCollapse:
                     """
                     INSERT INTO location (
                         id, organization_id, name, latitude, longitude,
-                        location_type, validation_status, confidence_score
+                        location_type, validation_status, confidence_score,
+                        is_canonical
                     )
                     VALUES (:id, :org, :name, :lat, :lng,
-                            'physical', 'verified', :conf)
+                            'physical', 'verified', :conf, TRUE)
                     """
                 ),
                 {
@@ -818,10 +820,11 @@ class TestNearDuplicateCollapse:
                     """
                     INSERT INTO location (
                         id, organization_id, name, latitude, longitude,
-                        location_type, validation_status, confidence_score
+                        location_type, validation_status, confidence_score,
+                        is_canonical
                     )
                     VALUES (:id, :org, :name, :lat, :lng,
-                            'physical', 'verified', 70)
+                            'physical', 'verified', 70, TRUE)
                     """
                 ),
                 {
@@ -900,10 +903,11 @@ class TestNearDuplicateCollapse:
                     """
                     INSERT INTO location (
                         id, organization_id, name, latitude, longitude,
-                        location_type, validation_status, confidence_score
+                        location_type, validation_status, confidence_score,
+                        is_canonical
                     )
                     VALUES (:id, :org, :name, :lat, :lng,
-                            'physical', 'verified', 70)
+                            'physical', 'verified', 70, TRUE)
                     """
                 ),
                 {
@@ -1006,10 +1010,11 @@ class TestNearDuplicateCollapse:
                     """
                     INSERT INTO location (
                         id, organization_id, name, latitude, longitude,
-                        location_type, validation_status, confidence_score
+                        location_type, validation_status, confidence_score,
+                        is_canonical
                     )
                     VALUES (:id, :org, :name, :lat, :lng,
-                            'physical', 'verified', 70)
+                            'physical', 'verified', 70, TRUE)
                     """
                 ),
                 {
@@ -1094,10 +1099,11 @@ class TestNearDuplicateCollapse:
                     """
                     INSERT INTO location (
                         id, organization_id, name, latitude, longitude,
-                        location_type, validation_status, confidence_score
+                        location_type, validation_status, confidence_score,
+                        is_canonical
                     )
                     VALUES (:id, :org, :name, :lat, :lng,
-                            'physical', 'verified', 75)
+                            'physical', 'verified', 75, TRUE)
                     """
                 ),
                 {"id": loc_id, "org": org_id, "name": name, "lat": lat, "lng": lng},
@@ -1168,10 +1174,11 @@ async def _seed_location(
             """
             INSERT INTO location (
                 id, organization_id, name, latitude, longitude,
-                location_type, validation_status, confidence_score
+                location_type, validation_status, confidence_score,
+                is_canonical
             )
             VALUES (:id, :org, :name, :lat, :lng,
-                    'physical', 'verified', :conf)
+                    'physical', 'verified', :conf, TRUE)
             """
         ),
         {
@@ -1376,10 +1383,11 @@ class TestTieredDedupEdgeCases:
                     """
                     INSERT INTO location (
                         id, organization_id, name, latitude, longitude,
-                        location_type, validation_status, confidence_score
+                        location_type, validation_status, confidence_score,
+                        is_canonical
                     )
                     VALUES (:id, :org, NULL, :lat, :lng,
-                            'physical', 'verified', 70)
+                            'physical', 'verified', 70, TRUE)
                     """
                 ),
                 {"id": loc_id, "org": org_id, "lat": lat, "lng": lng},

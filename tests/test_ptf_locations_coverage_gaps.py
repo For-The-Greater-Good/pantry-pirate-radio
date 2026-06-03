@@ -365,8 +365,8 @@ async def double_seeded(db_session: AsyncSession):
         text(
             "INSERT INTO location ("
             "id, organization_id, name, latitude, longitude, "
-            "location_type, validation_status) "
-            "VALUES (:id, :org_id, :name, :lat, :lng, 'physical', NULL)"
+            "location_type, validation_status, is_canonical) "
+            "VALUES (:id, :org_id, :name, :lat, :lng, 'physical', NULL, TRUE)"
         ),
         {
             "id": loc_multifa,
@@ -400,8 +400,8 @@ async def double_seeded(db_session: AsyncSession):
         text(
             "INSERT INTO location ("
             "id, organization_id, name, latitude, longitude, "
-            "location_type, validation_status) "
-            "VALUES (:id, :org_id, :name, :lat, :lng, 'physical', NULL)"
+            "location_type, validation_status, is_canonical) "
+            "VALUES (:id, :org_id, :name, :lat, :lng, 'physical', NULL, TRUE)"
         ),
         {
             "id": loc_multiaddr,
