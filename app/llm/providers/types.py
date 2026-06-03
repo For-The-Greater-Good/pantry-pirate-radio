@@ -97,6 +97,19 @@ class LLMResponse(BaseModel):
     validation_details: ValidationDetails | None = Field(
         default=None, description="Validation details if validation was performed"
     )
+    stop_reason: str | None = Field(
+        default=None,
+        description="Provider finish/stop reason (e.g. end_turn, max_tokens, length)",
+    )
+    was_truncated: bool = Field(
+        default=False,
+        description=(
+            "True when the model stopped because it hit the token limit "
+            "(stop_reason max_tokens / finish_reason length). A truncated "
+            "response is parseable but may silently omit locations, so the "
+            "worker retries it rather than accepting partial data."
+        ),
+    )
 
     @field_validator("text")
     @classmethod
