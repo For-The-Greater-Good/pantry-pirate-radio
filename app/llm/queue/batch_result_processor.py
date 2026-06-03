@@ -478,9 +478,16 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 failed_requeue_count=failed_requeue_count,
             )
 
-        # For PartiallyCompleted, re-enqueue missing jobs
+        # Re-enqueue any input record that produced no usable output line, for
+        # EVERY terminal status that produced output (Completed AND
+        # PartiallyCompleted). Previously this ran only for PartiallyCompleted,
+        # so on a "Completed" batch any record whose output line was missing or
+        # unparseable (it never made it into output_record_ids) was silently
+        # dropped. The set difference catches all such records regardless of why
+        # they're missing — no need to parse recordIds out of malformed lines.
+        # (Failed batches are fully requeued earlier and return before here.)
         requeued = 0
-        if status == "PartiallyCompleted":
+        if status in ("PartiallyCompleted", "Completed"):
             missing_ids = original_jobs_keys_set - output_record_ids
             partial_failed_requeue_count = 0
             for missing_id in missing_ids:
@@ -506,8 +513,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 )
             if missing_ids:
                 logger.warning(
-                    "batch_partially_completed_requeued_missing",
+                    "batch_requeued_missing_records",
                     batch_job_arn=job_arn,
+                    batch_status=status,
                     missing_count=len(missing_ids),
                     missing_record_ids=sorted(missing_ids),
                 )
