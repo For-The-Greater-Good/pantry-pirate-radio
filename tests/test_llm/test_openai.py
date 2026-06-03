@@ -101,6 +101,40 @@ async def test_openai_generate_text(
     assert len(response.text) > 0
 
 
+def test_process_api_response_raises_on_api_error(
+    openai_provider: OpenAIProvider,
+) -> None:
+    """LLM-5: an API error must RAISE, not return the error text as success.
+
+    Returning it as a successful LLMResponse routed transient OpenRouter errors
+    downstream as garbage and never retried.
+    """
+    result = MagicMock()
+    result.error = {"message": "rate limit exceeded", "code": 429}
+    result.usage = None
+
+    with pytest.raises(ValueError, match="error"):
+        openai_provider._process_api_response(result, None)
+
+
+@pytest.mark.asyncio
+async def test_openai_generate_raises_on_api_error(
+    openai_provider: OpenAIProvider, mock_openai_client
+) -> None:
+    """generate() surfaces an API error as a raised exception (→ retried by the
+    processor / job fails), instead of returning the error string as success."""
+    mock_response = MagicMock()
+    mock_response.error = {"message": "provider temporarily unavailable"}
+    mock_response.choices = []
+    mock_response.usage = None
+    mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    with patch.object(OpenAIProvider, "model", new_callable=PropertyMock) as mock_model:
+        mock_model.return_value = mock_openai_client
+        with pytest.raises(ValueError):
+            await openai_provider.generate("Say hello.")
+
+
 @pytest.mark.asyncio
 async def test_openai_generate_structured(
     openai_provider: OpenAIProvider, mock_openai_client

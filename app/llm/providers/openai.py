@@ -444,17 +444,18 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         Returns:
             LLMResponse: Processed response
         """
-        # Handle API errors
+        # Handle API errors: RAISE rather than returning the error string as a
+        # successful response. generate() wraps this and
+        # processor.process_llm_job retries ValueError with backoff (up to 3x),
+        # then fails the job. Previously the error message was returned as a
+        # "successful" LLMResponse, so transient OpenRouter errors (rate limit,
+        # provider error, content filter) were never retried and got routed
+        # downstream as garbage "HSDS data" — the pantry silently produced no
+        # records while the job reported success.
         error = getattr(result, "error", None)
         if error:
             error_msg = _extract_error_message(error)
-            base_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            usage = _validate_usage(result.usage) if result.usage else base_usage
-            return LLMResponse(
-                text=error_msg,
-                model=self.config.model_name,
-                usage=usage,
-            )
+            raise ValueError(f"LLM API returned an error: {error_msg}")
 
         # Handle empty response
         if not result.choices or not result.choices[0].message:
