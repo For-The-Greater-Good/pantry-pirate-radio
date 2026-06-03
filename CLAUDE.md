@@ -763,6 +763,31 @@ Batch results are routed by a **Result Processor Lambda** (triggered by EventBri
 through the same validator/reconciler pipeline. No scraper code is changed — the
 routing is entirely infrastructure (CDK env var override for `SQS_QUEUE_URL`).
 
+**Durable drain (LLM-2, `app/llm/queue/batcher.py`):** the staging queue is FIFO, so
+`_drain_staging_queue` must delete each 10-message batch immediately to unlock the
+message group. To avoid losing scraped records if the Lambda crashes after delete but
+before the batch is handed off (Bedrock submit / on-demand re-enqueue), each batch's
+**raw message bodies are checkpointed to S3 verbatim** (`recovery/{source}/{recovery_id}/{seq}.jsonl`,
+single `put_object`) **before** the SQS delete. If the checkpoint put fails, that batch's
+delete is skipped and the drain continues (messages return via visibility timeout — no
+loss, no wedge). The checkpoint prefix is deleted only at the **commit point** — batch
+path after the DynamoDB metadata write; on-demand path only when every re-enqueue
+succeeded — so a surviving checkpoint always means the handoff did not complete. At the
+start of every invocation, `_recover_orphaned_checkpoints` replays orphaned checkpoints
+(from a prior crashed run) **verbatim via raw `send_message`** back to the staging queue
+(never `send_to_sqs`, which would re-wrap the envelope and corrupt the job). Recovery is
+**age-gated**: a prefix is replayed only when its newest object is older than
+`_ORPHAN_MIN_AGE_S` (1200s > the 900s Lambda timeout), so an in-flight prefix from a
+concurrent pipeline execution is never grabbed. `recovery_id` is derived from
+`context.aws_request_id` (globally unique per invocation), not the second-granularity
+`s3_safe_id`, so drain-loop re-invocations and retries can't overwrite each other's
+checkpoints. The 7-day S3 lifecycle on the batch bucket is the final backstop. Grep
+CloudWatch for `checkpoint_put_failed`, `batcher_recovery_replayed`, `batcher_recovery_scan_failed`,
+`checkpoint_cleanup_failed`. **Residual (documented, downstream-idempotent):** if a crash
+lands between a successful Bedrock submit+DynamoDB write and the checkpoint-prefix delete,
+a later run replays those records → a second Bedrock job; the result processor is per-record
+idempotent, so this is bounded waste, not loss or duplication of canonical data.
+
 ### Key Components
 
 #### Pantry Pirate Radio Core Services
