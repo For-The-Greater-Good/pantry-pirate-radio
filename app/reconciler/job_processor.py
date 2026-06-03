@@ -67,6 +67,7 @@ class ScheduleDict(TypedDict):
     opens_at: str
     closes_at: str
     byday: str | None
+    bymonthday: str | None
 
 
 class ServiceDict(TypedDict):
@@ -291,6 +292,27 @@ class JobProcessor:
                 transformed["bymonthday"] = normalized_bymonthday
 
         return transformed
+
+    @staticmethod
+    def _same_recurrence(a: dict, b: dict) -> bool:
+        """Whether two (already-transformed) schedule dicts are the same
+        recurrence for in-memory collection dedup.
+
+        Compares the full recurrence identity — freq, wkst, hours, AND both
+        byday and bymonthday — matching the DB-layer upsert key in
+        ``service_creator.update_or_create_schedule`` (REC-2). Without the
+        bymonthday term, two MONTHLY windows differing only in day-of-month
+        (e.g. the 1st vs the 15th, byday NULL on both) collapse here before
+        ever reaching the upsert, silently dropping the second window.
+        """
+        return (
+            a.get("freq") == b.get("freq")
+            and a.get("wkst") == b.get("wkst")
+            and a.get("opens_at") == b.get("opens_at")
+            and a.get("closes_at") == b.get("closes_at")
+            and a.get("byday") == b.get("byday")
+            and a.get("bymonthday") == b.get("bymonthday")
+        )
 
     def _extract_json_from_markdown(self, text: str) -> str:
         """Extract JSON content from markdown code blocks.
@@ -1139,7 +1161,9 @@ class JobProcessor:
                         )
                         location_id = uuid.UUID(location_id_str)
 
-                        # Create location addresses for both new and existing locations
+                        # Create location addresses (new locations only; this
+                        # block is inside the create-new branch — existing
+                        # locations are handled in the match_id branch above)
                         if location.get("address") and location_id:
                             location_id_str = str(location_id)
 
@@ -1232,7 +1256,8 @@ class JobProcessor:
                                         "from narrative text"
                                     )
 
-                        # Create location phones with languages (for both new and existing locations)
+                        # Create location phones with languages (new locations
+                        # only; this block is inside the create-new branch)
                         if location.get("phones") and location_id:
                             for phone in location["phones"]:
                                 # Use empty strings for missing fields
@@ -1505,24 +1530,15 @@ class JobProcessor:
                                             if not transformed_sched:
                                                 continue
                                             loc_schedule = transformed_sched
-                                            # Check if this schedule already exists
-                                            exists = False
-                                            for existing in schedules_to_create:
-                                                if (
-                                                    existing["freq"]
-                                                    == loc_schedule["freq"]
-                                                    and existing["wkst"]
-                                                    == loc_schedule["wkst"]
-                                                    and existing["opens_at"]
-                                                    == loc_schedule["opens_at"]
-                                                    and existing["closes_at"]
-                                                    == loc_schedule["closes_at"]
-                                                    and existing.get("byday")
-                                                    == loc_schedule.get("byday")
-                                                ):
-                                                    exists = True
-                                                    break
-                                            if not exists:
+                                            # Skip if an identical recurrence is
+                                            # already collected (full identity
+                                            # incl. byday + bymonthday).
+                                            if not any(
+                                                self._same_recurrence(
+                                                    existing, loc_schedule
+                                                )
+                                                for existing in schedules_to_create
+                                            ):
                                                 schedules_to_create.append(loc_schedule)
 
                                     # Add schedules from LLM service_at_location entries
@@ -1539,28 +1555,16 @@ class JobProcessor:
                                                 )
                                                 if not transformed_sched:
                                                     continue
-                                                # Deduplicate against already collected schedules
-                                                exists = False
-                                                for existing in schedules_to_create:
-                                                    if (
-                                                        existing["freq"]
-                                                        == transformed_sched["freq"]
-                                                        and existing["wkst"]
-                                                        == transformed_sched["wkst"]
-                                                        and existing["opens_at"]
-                                                        == transformed_sched["opens_at"]
-                                                        and existing["closes_at"]
-                                                        == transformed_sched[
-                                                            "closes_at"
-                                                        ]
-                                                        and existing.get("byday")
-                                                        == transformed_sched.get(
-                                                            "byday"
-                                                        )
-                                                    ):
-                                                        exists = True
-                                                        break
-                                                if not exists:
+                                                # Dedup against already-collected
+                                                # schedules on full recurrence
+                                                # identity (incl. byday +
+                                                # bymonthday).
+                                                if not any(
+                                                    self._same_recurrence(
+                                                        existing, transformed_sched
+                                                    )
+                                                    for existing in schedules_to_create
+                                                ):
                                                     schedules_to_create.append(
                                                         transformed_sched
                                                     )
