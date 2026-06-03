@@ -74,15 +74,27 @@ class SubmarineLocationHandler:
             "name=:name",
             "latitude=:latitude",
             "longitude=:longitude",
-            "organization_id=:organization_id",
         ]
         params: dict[str, Any] = {
             "id": str(location_id),
             "name": location["name"],
             "latitude": float(location["latitude"]),
             "longitude": float(location["longitude"]),
-            "organization_id": str(org_id) if org_id else None,
         }
+
+        # Only (re)link the organization when submarine actually resolved one.
+        # Previously organization_id was ALWAYS in the SET clause, bound to
+        # NULL when org_id was falsy. A submarine job that extracted no
+        # org-level data (the common hours-only case — result_builder emits no
+        # organization block unless an email was found) therefore NULLed the
+        # location's existing organization_id, orphaning canonical pantries
+        # from their org. Submarine's contract is to fill missing
+        # non-geographic text fields, not to re-parent locations
+        # (constitution VI, clarified v1.5.1), so leave the link untouched
+        # when there is nothing to set.
+        if org_id is not None:
+            set_clauses.append("organization_id=:organization_id")
+            params["organization_id"] = str(org_id)
 
         update_description = None
         if "description" in location:
