@@ -409,6 +409,24 @@ class TestParseConverseResponse:
         assert result.usage["prompt_tokens"] == 10
         assert result.usage["completion_tokens"] == 5
         assert result.usage["total_tokens"] == 15
+        # Normal completion is not truncated.
+        assert result.was_truncated is False
+        assert result.stop_reason == "end_turn"
+
+    def test_parse_converse_response_truncated_flags_max_tokens(self):
+        """LLM-1: stopReason 'max_tokens' marks the response truncated so the
+        worker retries instead of accepting a partial (location-dropping) JSON."""
+        response = {
+            "output": {"message": {"content": [{"text": '{"organization": [{"na'}]}},
+            "stopReason": "max_tokens",
+            "usage": {"inputTokens": 10, "outputTokens": 4096},
+        }
+        result = parse_converse_response(
+            response=response,
+            model_id="anthropic.claude-haiku-4-5-20251001-v1:0",
+        )
+        assert result.was_truncated is True
+        assert result.stop_reason == "max_tokens"
 
     def test_parse_converse_response_tool_use(self):
         """Structured output from tool_use blocks is parsed correctly."""

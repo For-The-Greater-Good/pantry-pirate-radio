@@ -180,12 +180,19 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     gen = cast(AsyncGenerator[LLMResponse, None], result)
                     llm_result = loop.run_until_complete(anext(gen))
 
-                # Validate the response — retry only on truly empty responses
-                if not llm_result.text or llm_result.text.strip() == "":
+                # Validate the response — retry on truly empty responses AND on
+                # truncated output (finish_reason "length" / stopReason
+                # "max_tokens"). A truncated response is parseable but silently
+                # omits locations, so accepting it drops pantries; retry, then
+                # fail rather than persist partial data.
+                is_empty = not llm_result.text or llm_result.text.strip() == ""
+                is_truncated = getattr(llm_result, "was_truncated", False)
+                if is_empty or is_truncated:
                     retry_count += 1
-                    last_error = "Received empty response from LLM"
+                    reason = "empty" if is_empty else "truncated (hit token limit)"
+                    last_error = f"Received {reason} response from LLM"
                     logger.warning(
-                        f"LLM returned empty response for job {job.id}, "
+                        f"LLM returned {reason} response for job {job.id}, "
                         f"retry {retry_count}/{max_retries}"
                     )
                     if retry_count < max_retries:
@@ -197,7 +204,8 @@ def process_llm_job(job: LLMJob, provider: BaseLLMProvider[Any, Any]) -> LLMResp
                     else:
                         # Max retries reached, fail the job
                         raise ValueError(
-                            f"LLM consistently returned empty response after {max_retries} attempts"
+                            f"LLM consistently returned {reason} response "
+                            f"after {max_retries} attempts"
                         )
 
                 # Response is valid, break out of retry loop

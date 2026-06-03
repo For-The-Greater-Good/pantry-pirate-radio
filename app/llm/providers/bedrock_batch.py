@@ -161,6 +161,8 @@ def parse_messages_api_response(
         "text": text,
         "model": model_id,
         "usage": usage,
+        "stop_reason": stop_reason or None,
+        "was_truncated": stop_reason == "max_tokens",
     }
     if parsed is not None:
         response_data["parsed"] = parsed

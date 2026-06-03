@@ -477,10 +477,19 @@ class OpenAIProvider(BaseLLMProvider[AsyncOpenAI, OpenAIConfig]):
         base_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         usage = _validate_usage(result.usage) if result.usage else base_usage
 
+        # finish_reason="length" means the model hit max_tokens and the JSON is
+        # truncated — parseable but may silently drop locations. Flag it so the
+        # worker retries rather than accepting partial output. Coerce to
+        # str-or-None: the SDK may return None, and stop_reason is typed str|None.
+        raw_finish = getattr(result.choices[0], "finish_reason", None)
+        finish_reason = raw_finish if isinstance(raw_finish, str) else None
+
         response_data: dict[str, Any] = {
             "text": processed_content,
             "model": self.config.model_name,
             "usage": usage,
+            "stop_reason": finish_reason,
+            "was_truncated": finish_reason == "length",
         }
         if parsed is not None:
             response_data["parsed"] = parsed

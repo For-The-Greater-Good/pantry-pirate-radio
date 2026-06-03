@@ -135,6 +135,36 @@ async def test_openai_generate_raises_on_api_error(
             await openai_provider.generate("Say hello.")
 
 
+def test_process_api_response_flags_truncation(openai_provider: OpenAIProvider) -> None:
+    """LLM-1: finish_reason='length' marks the response truncated so the worker
+    retries instead of accepting partial (location-dropping) output."""
+    result = MagicMock()
+    result.error = None
+    result.choices = [MagicMock(message=MagicMock(content='{"organization": [{"na'))]
+    result.choices[0].finish_reason = "length"
+    result.usage = MagicMock(
+        prompt_tokens=10, completion_tokens=4096, total_tokens=4106
+    )
+
+    resp = openai_provider._process_api_response(result, None)
+    assert resp.was_truncated is True
+    assert resp.stop_reason == "length"
+
+
+def test_process_api_response_not_truncated_on_stop(
+    openai_provider: OpenAIProvider,
+) -> None:
+    result = MagicMock()
+    result.error = None
+    result.choices = [MagicMock(message=MagicMock(content="done"))]
+    result.choices[0].finish_reason = "stop"
+    result.usage = MagicMock(prompt_tokens=5, completion_tokens=2, total_tokens=7)
+
+    resp = openai_provider._process_api_response(result, None)
+    assert resp.was_truncated is False
+    assert resp.stop_reason == "stop"
+
+
 @pytest.mark.asyncio
 async def test_openai_generate_structured(
     openai_provider: OpenAIProvider, mock_openai_client
