@@ -18,6 +18,14 @@ class TestTimeParsing:
             ("09:00:00", 9, 0),
             ("9AM", 9, 0),
             ("12:30 PM", 12, 30),
+            # REC-5: real-world forms that previously NULLed the hours.
+            ("noon", 12, 0),
+            ("midnight", 0, 0),
+            ("0900", 9, 0),
+            ("1700", 17, 0),
+            ("9 a.m.", 9, 0),
+            ("5 p.m.", 17, 0),
+            ("9:00 a.m.", 9, 0),
         ],
     )
     def test_parse_time_various_formats(self, time_str, expected_hour, expected_minute):

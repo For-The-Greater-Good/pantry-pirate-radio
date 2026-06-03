@@ -738,17 +738,51 @@ class ServiceCreator(BaseReconciler):
         return language_id
 
     def _parse_time(self, time_str: str | None) -> "datetime.time | None":
-        """Parse time string in various formats. Returns None for unparseable values."""
+        """Parse a time string in the formats real scrapers emit.
+
+        Returns None for unparseable values (the caller then stores NULL hours).
+        Beyond the strptime formats, handles the common real-world cases that
+        previously fell through to NULL — losing a pantry's hours: the words
+        "noon"/"midnight", periods in "a.m."/"p.m.", and bare HHMM ("0900").
+        """
         import datetime as dt_module
 
         if not time_str:
             return None
-        time_str = time_str.strip()
-        for fmt in ["%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p", "%I%p", "%I %p"]:
-            try:
-                return dt_module.datetime.strptime(time_str, fmt).time()
-            except ValueError:
-                continue
+        raw = time_str.strip()
+        if not raw:
+            return None
+
+        # Word forms that strptime can't handle.
+        lowered = raw.lower()
+        if lowered in ("noon", "12 noon", "12noon"):
+            return dt_module.time(12, 0)
+        if lowered in ("midnight", "12 midnight", "12midnight"):
+            return dt_module.time(0, 0)
+
+        # Try the raw string and a period-stripped variant ("9 a.m." -> "9 am")
+        # so the %p formats match (%p is case-insensitive in strptime).
+        candidates = [raw]
+        stripped = raw.replace(".", "").strip()
+        if stripped != raw:
+            candidates.append(stripped)
+
+        formats = [
+            "%H:%M",
+            "%H:%M:%S",
+            "%I:%M %p",
+            "%I:%M%p",
+            "%I%p",
+            "%I %p",
+            "%H%M",  # bare HHMM, e.g. "0900"
+        ]
+        for candidate in candidates:
+            for fmt in formats:
+                try:
+                    return dt_module.datetime.strptime(candidate, fmt).time()
+                except ValueError:
+                    continue
+
         self.logger.warning(f"Could not parse time string: '{time_str}'")
         return None
 
