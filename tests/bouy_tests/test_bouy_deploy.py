@@ -89,7 +89,7 @@ class TestBouyDeployArgParsing:
         # Create a minimal PATH that has basic utils but not aws
         fake_bin = tmp_path / "bin"
         fake_bin.mkdir()
-        for cmd in ["dirname", "basename", "xargs", "sed", "grep", "cat", "id", "tput"]:
+        for cmd in ["dirname", "basename", "xargs", "sed", "grep", "cat", "id", "tput", "cut", "date"]:
             src = f"/usr/bin/{cmd}"
             if os.path.exists(src):
                 (fake_bin / cmd).symlink_to(src)
@@ -197,7 +197,7 @@ class TestBouyScraperAwsArgParsing:
         env = os.environ.copy()
         fake_bin = tmp_path / "bin"
         fake_bin.mkdir()
-        for cmd in ["dirname", "basename", "xargs", "sed", "grep", "cat", "id", "tput"]:
+        for cmd in ["dirname", "basename", "xargs", "sed", "grep", "cat", "id", "tput", "cut", "date"]:
             src = f"/usr/bin/{cmd}"
             if os.path.exists(src):
                 (fake_bin / cmd).symlink_to(src)
