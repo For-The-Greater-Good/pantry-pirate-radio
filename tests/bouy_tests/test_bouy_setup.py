@@ -45,21 +45,31 @@ class TestBouySetup:
         test_env_example = Path(temp_dir) / ".env.example"
         shutil.copy(original_env_example, test_env_example)
 
+        # bouy aborts immediately unless a compose file exists; provide the
+        # minimal skeleton its detection check looks for.
+        compose_dir = Path(temp_dir) / ".docker" / "compose"
+        compose_dir.mkdir(parents=True)
+        (compose_dir / "base.yml").write_text("services: {}\n")
+
         return str(test_bouy)
 
     def test_prompt_with_default_function(self, test_env):
         """Test the prompt_with_default function."""
-        # Create a test script that uses prompt_with_default
-        test_script = """
+        # Source from an absolute path (the subprocess cwd is not guaranteed to
+        # be the repo root) and feed stdin with a here-string rather than a
+        # pipe: piping runs the function in a subshell, so the variable it sets
+        # would never reach the parent shell that reads it back.
+        functions_path = Path(__file__).parent.parent.parent / "bouy-functions.sh"
+        test_script = f"""
         #!/bin/bash
-        source ./bouy-functions.sh
+        source "{functions_path}"
 
         # Simulate user input
-        echo "test_value" | prompt_with_default "Enter value" "default" "TEST_VAR"
+        prompt_with_default "Enter value" "default" "TEST_VAR" <<< "test_value"
         echo "TEST_VAR=$TEST_VAR"
 
         # Test with empty input (should use default)
-        echo "" | prompt_with_default "Enter value" "default_value" "TEST_VAR2"
+        prompt_with_default "Enter value" "default_value" "TEST_VAR2" <<< ""
         echo "TEST_VAR2=$TEST_VAR2"
         """
 
@@ -109,9 +119,10 @@ class TestBouySetup:
             env=test_env,
         )
 
-        # Check that setup completed successfully
+        # Check that setup completed successfully. `output success` routes to
+        # stderr in normal mode, so check the combined streams.
         assert result.returncode == 0
-        assert ".env file created successfully!" in result.stdout
+        assert ".env file created successfully!" in result.stdout + result.stderr
 
         # Check that .env file was created
         env_file = Path(temp_dir) / ".env"
@@ -175,7 +186,11 @@ class TestBouySetup:
         )
 
         assert result.returncode == 0
-        assert "Setup cancelled. Existing .env file preserved." in result.stdout
+        # `output info` routes to stderr in normal mode.
+        assert (
+            "Setup cancelled. Existing .env file preserved."
+            in result.stdout + result.stderr
+        )
 
         # Verify original file is unchanged
         assert env_file.read_text() == "EXISTING=true\n"
@@ -210,7 +225,8 @@ class TestBouySetup:
         )
 
         assert result.returncode == 0
-        assert "Existing .env backed up" in result.stdout
+        # `output success` routes to stderr in normal mode.
+        assert "Existing .env backed up" in result.stdout + result.stderr
 
         # Check that backup was created
         backup_files = list(Path(temp_dir).glob(".env.backup.*"))
