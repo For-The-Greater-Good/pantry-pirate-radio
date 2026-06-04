@@ -179,6 +179,68 @@ load_env_from_1password() {
     load_env_lines <<< "$blob"
 }
 
+# Commands that never need the application environment (must NOT trigger a
+# 1Password biometric prompt when no override file exists).
+command_needs_env() {
+    case "$1" in
+        ""|setup|op|version|help|-h|--help|--version) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# Resolve the environment for this invocation.
+# Sets BOUY_ENV_SOURCE = file | 1password | none.
+# Precedence: override file on disk wins; otherwise (for env-needing commands)
+# 1Password; otherwise a hard error. --no-1password forces the file-only path;
+# --1password forces the vault path even if a file exists.
+load_environment() {
+    local args=("$@") cmd="$1" mode file force="auto" arg
+    for arg in "${args[@]}"; do
+        case "$arg" in
+            --no-1password) force="off" ;;
+            --1password) force="on" ;;
+        esac
+    done
+    if [ "${USE_1PASSWORD:-}" = "false" ]; then force="off"; fi
+    if [ "${USE_1PASSWORD:-}" = "true" ]; then force="on"; fi
+
+    resolve_op_pointer
+    mode=$(detect_mode "${args[@]}")
+    file=$(override_file_for_mode "$mode")
+    # prod falls back to .env when .env.prod is absent
+    if [ "$mode" = "prod" ] && [ ! -f "$file" ] && [ -f .env ]; then
+        file=".env"
+    fi
+    BOUY_ENV_SOURCE="none"
+
+    if [ "$force" != "on" ] && [ -f "$file" ]; then
+        load_env_lines < "$file"
+        BOUY_ENV_SOURCE="file"
+        return 0
+    fi
+
+    if [ "$force" = "off" ]; then
+        command_needs_env "$cmd" || return 0
+        output error "No $file found and --no-1password set. Run './bouy setup' to create it."
+        return 1
+    fi
+
+    command_needs_env "$cmd" || return 0
+
+    if onepassword_available; then
+        if load_env_from_1password "$mode"; then
+            BOUY_ENV_SOURCE="1password"
+            return 0
+        fi
+        output error "Failed to read op://$OP_VAULT/$OP_ITEM/$mode. Try './bouy op status'."
+        return 1
+    fi
+
+    output error "No $file on disk and 1Password is unavailable."
+    output error "Sign in (op signin --account $OP_ACCOUNT) or run './bouy setup' to create $file."
+    return 1
+}
+
 # Helper function to check database schema
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"

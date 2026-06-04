@@ -182,3 +182,66 @@ def test_load_env_from_1password_writes_no_file(tmp_path):
     # No file in the working dir should contain the secret value.
     leaked = [p for p in tmp_path.rglob("*") if p.is_file() and "abc123" in p.read_text(errors="ignore")]
     assert leaked == [], f"secret leaked to disk: {leaked}"
+
+
+def test_load_environment_file_wins_and_skips_1password(tmp_path):
+    (tmp_path / ".env").write_text("FROM_FILE=yes\n")
+    log = str(tmp_path / "op.log")
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'PROGRAMMATIC_MODE=1; JSON_OUTPUT=0; QUIET=1; NO_COLOR=1; '
+        f"load_environment up; "
+        f'echo "VAL=$FROM_FILE"; echo "SRC=$BOUY_ENV_SOURCE"',
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "FROM_VAULT=yes\n"},
+    )
+    assert "VAL=yes" in result.stdout
+    assert "SRC=file" in result.stdout
+    assert not Path(log).exists(), "op must not be called when .env exists"
+
+
+def test_load_environment_uses_1password_when_no_file(tmp_path):
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'PROGRAMMATIC_MODE=1; JSON_OUTPUT=0; QUIET=1; NO_COLOR=1; '
+        f"load_environment up; "
+        f'echo "VAL=$FROM_VAULT"; echo "SRC=$BOUY_ENV_SOURCE"',
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_READ_OUT": "FROM_VAULT=yes\n", "OP_MOCK_SIGNED_IN": "1"},
+    )
+    assert "VAL=yes" in result.stdout
+    assert "SRC=1password" in result.stdout
+
+
+def test_load_environment_skips_for_help(tmp_path):
+    # No .env, op available, but `help` doesn't need env => no prompt/fetch.
+    log = str(tmp_path / "op.log")
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; '
+        f"load_environment help; echo \"SRC=$BOUY_ENV_SOURCE\"",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "X=1\n"},
+    )
+    assert "SRC=none" in result.stdout
+    assert not Path(log).exists()
+
+
+def test_load_environment_no_file_no_op_errors(tmp_path):
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"load_environment up; echo RC=$?",
+        env={"BOUY_OP_CMD": "/nonexistent/op"},
+    )
+    assert "RC=1" in result.stdout or result.returncode == 1
+    assert "1Password" in result.stderr or "setup" in result.stderr
+
+
+def test_load_environment_no_1password_flag_forces_file_path(tmp_path):
+    # --no-1password with no file present => error, never touches op.
+    log = str(tmp_path / "op.log")
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"load_environment up --no-1password; echo RC=$?",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "X=1\n"},
+    )
+    assert not Path(log).exists()
