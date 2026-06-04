@@ -570,30 +570,26 @@ prompt_with_default() {
     local is_password="${4:-false}"
     local value=""
 
-    # Check if we're in a non-interactive environment (like a test)
     if [ ! -t 0 ]; then
-        # Read from stdin without prompting
-        if IFS= read -r value; then
-            :  # Successfully read value
-        else
-            value=""  # Nothing to read, use default
-        fi
+        # Non-interactive: read one line. A final line with no trailing
+        # newline makes `read` return non-zero (EOF) but still populates
+        # $value, so `|| true` keeps that partial read AND stays set -e safe;
+        # the empty-value check below falls back to the default at true EOF.
+        IFS= read -r value || true
     else
         if [ "$is_password" = "true" ]; then
             echo -n "$prompt [$default]: "
-            read -s value
+            read -s value || true
             echo  # New line after password input
         else
-            echo -n "$prompt [$default]: "
-            read value
+            read -p "$prompt [$default]: " value || true
         fi
     fi
 
-    # Use default if empty
     if [ -z "$value" ]; then
         value="$default"
     fi
 
-    # Export the variable
-    eval "export $var_name=\"\$value\""
+    printf -v "$var_name" '%s' "$value"
+    eval "export $var_name"
 }

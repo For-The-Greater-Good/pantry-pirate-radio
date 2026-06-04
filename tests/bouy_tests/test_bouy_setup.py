@@ -336,3 +336,19 @@ class TestBouySetup:
         assert "OP_ITEM=bouy-env" in body
         # No secret values in op.conf
         assert "test_key" not in body and "pirate" not in body
+
+    def test_setup_password_with_single_quote(self, test_env, bouy_path, temp_dir):
+        """A password containing a single quote must not abort the wizard."""
+        # db password (contains ') -> provider 1 -> API key -> HAARRRvest skip -> no 1Password
+        answers = "\n".join(["pir'ate", "1", "test_key", "skip", "n"]) + "\n"
+        result = subprocess.run(
+            [bouy_path, "setup"],
+            input=answers,
+            capture_output=True,
+            text=True,
+            cwd=temp_dir,
+            env=test_env,
+        )
+        env_file = Path(temp_dir) / ".env"
+        assert env_file.exists(), result.stdout + result.stderr
+        assert "pir'ate" in env_file.read_text()
