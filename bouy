@@ -1726,6 +1726,18 @@ EOF
                 done
                 set -- "${REMAINING_ARGS[@]}"
 
+                # Validate input BEFORE any AWS state-machine lookup so a
+                # missing scraper name yields usage, not an AWS error.
+                if [ -z "${1:-}" ]; then
+                    output error "No scraper specified."
+                    echo "Usage: ./bouy scraper --aws [--prod|--dev] NAME [NAME2 ...]"
+                    echo "       ./bouy scraper --aws [--prod|--dev] --all"
+                    echo "       ./bouy scraper --aws [--prod|--dev] scouting-party"
+                    echo "       ./bouy scraper --aws [--prod|--dev] --status [EXEC_ARN]"
+                    echo "       ./bouy scraper --aws [--prod|--dev] --logs"
+                    exit 1
+                fi
+
                 # Get state machine ARN
                 SM_NAME="pantry-pirate-scraper-pipeline-${DEPLOY_ENV}"
                 SM_ARN=$(aws stepfunctions list-state-machines \
@@ -1774,15 +1786,6 @@ EOF
                             | xargs -I{} basename {} _scraper.py \
                             | grep -vxE 'helm_portal' \
                             | python3 -c "import sys, json; print(json.dumps({'scrapers': sorted(l.strip() for l in sys.stdin if l.strip())}))")
-                        ;;
-                    "")
-                        output error "No scraper specified."
-                        echo "Usage: ./bouy scraper --aws [--prod|--dev] NAME [NAME2 ...]"
-                        echo "       ./bouy scraper --aws [--prod|--dev] --all"
-                        echo "       ./bouy scraper --aws [--prod|--dev] scouting-party"
-                        echo "       ./bouy scraper --aws [--prod|--dev] --status [EXEC_ARN]"
-                        echo "       ./bouy scraper --aws [--prod|--dev] --logs"
-                        exit 1
                         ;;
                     *)
                         # Collect all scraper names as positional arguments
