@@ -158,6 +158,18 @@ resolve_op_pointer() {
     export OP_ACCOUNT OP_VAULT OP_ITEM
 }
 
+# Single mockable seam for the 1Password CLI. Tests set BOUY_OP_CMD to a stub.
+op_cli() {
+    "${BOUY_OP_CMD:-op}" "$@"
+}
+
+# True iff the op binary exists and is signed into the configured account.
+onepassword_available() {
+    local bin="${BOUY_OP_CMD:-op}"
+    command -v "$bin" >/dev/null 2>&1 || return 1
+    op_cli account get --account "$OP_ACCOUNT" >/dev/null 2>&1
+}
+
 # Helper function to check database schema
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"

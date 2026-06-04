@@ -108,3 +108,30 @@ def test_resolve_op_pointer_builtin_defaults(tmp_path):
     assert result.stdout.strip() == (
         "plentiful.1password.com|Pantry Pirate Radio|bouy-env"
     )
+
+
+def test_onepassword_available_true_when_signed_in():
+    result = run_bash(
+        f"source {FUNCTIONS}; resolve_op_pointer; "
+        f"if onepassword_available; then echo YES; else echo NO; fi",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_SIGNED_IN": "1"},
+    )
+    assert result.stdout.strip() == "YES", result.stderr
+
+
+def test_onepassword_available_false_when_not_signed_in():
+    result = run_bash(
+        f"source {FUNCTIONS}; resolve_op_pointer; "
+        f"if onepassword_available; then echo YES; else echo NO; fi",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_SIGNED_IN": "0"},
+    )
+    assert result.stdout.strip() == "NO", result.stderr
+
+
+def test_onepassword_available_false_when_op_missing():
+    result = run_bash(
+        f"source {FUNCTIONS}; resolve_op_pointer; "
+        f"if onepassword_available; then echo YES; else echo NO; fi",
+        env={"BOUY_OP_CMD": "/nonexistent/op"},
+    )
+    assert result.stdout.strip() == "NO", result.stderr
