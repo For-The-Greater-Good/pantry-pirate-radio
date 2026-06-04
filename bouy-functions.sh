@@ -93,6 +93,8 @@ parse_mode() {
             COMPOSE_FILES="$COMPOSE_FILES -f .docker/compose/docker-compose.test.yml"
             ;;
     esac
+
+    maybe_add_passthrough_overlay
 }
 
 # Parse KEY=value lines from stdin, export valid ones, and record their names
@@ -239,6 +241,51 @@ load_environment() {
     output error "No $file on disk and 1Password is unavailable."
     output error "Sign in (op signin --account $OP_ACCOUNT) or run './bouy setup' to create $file."
     return 1
+}
+
+# Write a names-only Docker Compose overlay that passes BOUY env vars through to
+# each given service. Contains variable NAMES only — never secret values.
+#   $1 = output file, $2 = space-separated keys, $3.. = service names
+write_passthrough_overlay() {
+    local outfile="$1" keys="$2"; shift 2
+    local svc key
+    {
+        echo "services:"
+        for svc in "$@"; do
+            echo "  $svc:"
+            echo "    environment:"
+            for key in $keys; do
+                echo "      - \"$key\""
+            done
+        done
+    } > "$outfile"
+}
+
+# Service names in the currently-assembled compose configuration.
+get_active_services() {
+    $COMPOSE_CMD $COMPOSE_FILES config --services 2>/dev/null
+}
+
+# When running from 1Password, generate the passthrough overlay once and append
+# it to COMPOSE_FILES. No-op for the .env (file) path.
+maybe_add_passthrough_overlay() {
+    if [ "$BOUY_ENV_SOURCE" != "1password" ]; then
+        return 0
+    fi
+    if [ -n "$OP_PASSTHROUGH_ADDED" ]; then
+        return 0
+    fi
+    local services overlay
+    services=$(get_active_services)
+    if [ -z "$services" ]; then
+        return 0
+    fi
+    overlay=$(mktemp -t bouy-op-passthrough)
+    # shellcheck disable=SC2086
+    write_passthrough_overlay "$overlay" "$BOUY_ENV_KEYS" $services
+    COMPOSE_FILES="$COMPOSE_FILES -f $overlay"
+    CLEANUP_TEMP_FILES="$CLEANUP_TEMP_FILES $overlay"
+    OP_PASSTHROUGH_ADDED=1
 }
 
 # Helper function to check database schema

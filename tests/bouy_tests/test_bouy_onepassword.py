@@ -251,6 +251,31 @@ def test_load_environment_no_1password_flag_forces_file_path(tmp_path):
     assert "no-1password" in result.stderr or "setup" in result.stderr
 
 
+def test_write_passthrough_overlay_names_only(tmp_path):
+    out = tmp_path / "overlay.yml"
+    result = run_bash(
+        f"source {FUNCTIONS}; "
+        f'write_passthrough_overlay "{out}" "ALPHA BETA" app worker',
+    )
+    assert result.returncode == 0, result.stderr
+    text = out.read_text()
+    assert "app:" in text and "worker:" in text
+    assert "ALPHA" in text and "BETA" in text
+    # Crucially: variable NAMES only, never `NAME=value` pairs.
+    assert "=" not in text
+
+
+def test_maybe_add_passthrough_overlay_only_when_1password(tmp_path):
+    # source=file => no overlay, COMPOSE_FILES unchanged.
+    result = run_bash(
+        f"source {FUNCTIONS}; "
+        f'COMPOSE_CMD="echo"; COMPOSE_FILES="-f base.yml"; '
+        f'BOUY_ENV_SOURCE="file"; BOUY_ENV_KEYS="ALPHA"; '
+        f"maybe_add_passthrough_overlay; echo \"CF=$COMPOSE_FILES\"",
+    )
+    assert result.stdout.strip() == "CF=-f base.yml"
+
+
 COMPOSE_FILES_WITH_ENVFILE = [
     REPO_ROOT / ".docker/compose/base.yml",
     REPO_ROOT / ".docker/compose/docker-compose.prod.yml",
