@@ -591,5 +591,5 @@ prompt_with_default() {
     fi
 
     printf -v "$var_name" '%s' "$value"
-    eval "export $var_name"
+    export "$var_name"
 }
