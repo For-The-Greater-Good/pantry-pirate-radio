@@ -117,6 +117,31 @@ load_env_lines() {
     done
 }
 
+# Determine the active environment from CLI args: explicit --prod/--test flag
+# wins; otherwise the `test` command implies test mode; default dev.
+detect_mode() {
+    local mode="dev" arg
+    for arg in "$@"; do
+        case "$arg" in
+            --prod) echo "prod"; return 0 ;;
+            --test) echo "test"; return 0 ;;
+        esac
+    done
+    if [ "$1" = "test" ]; then
+        mode="test"
+    fi
+    echo "$mode"
+}
+
+# Map a mode to its on-disk override file (which always wins over 1Password).
+override_file_for_mode() {
+    case "$1" in
+        test) echo ".env.test" ;;
+        prod) echo ".env.prod" ;;
+        *)    echo ".env" ;;
+    esac
+}
+
 # Helper function to check database schema
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"

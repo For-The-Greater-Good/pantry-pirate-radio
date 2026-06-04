@@ -51,3 +51,28 @@ EOF
     assert "ALPHA" in result.stdout and "BETA" in result.stdout and "GAMMA" in result.stdout
     # The dash key is not a valid shell name and must be skipped entirely.
     assert "INVALID-KEY" not in result.stdout.split("KEYS=")[1]
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ("up", "dev"),
+        ("up --prod", "prod"),
+        ("up --test", "test"),
+        ("test --pytest", "test"),
+        ("logs worker", "dev"),
+        ("--prod down", "prod"),
+    ],
+)
+def test_detect_mode(args, expected):
+    result = run_bash(f"source {FUNCTIONS}; detect_mode {args}")
+    assert result.stdout.strip() == expected, result.stderr
+
+
+@pytest.mark.parametrize(
+    "mode,expected",
+    [("dev", ".env"), ("test", ".env.test"), ("prod", ".env.prod")],
+)
+def test_override_file_for_mode(mode, expected):
+    result = run_bash(f"source {FUNCTIONS}; override_file_for_mode {mode}")
+    assert result.stdout.strip() == expected, result.stderr
