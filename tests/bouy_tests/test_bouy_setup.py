@@ -299,3 +299,26 @@ class TestBouySetup:
         assert "POSTGRES_PASSWORD=p@$$w0rd!with#special" in env_content
         # Check DATABASE_URL encoding
         assert "postgres:p@$$w0rd!with#special@db:5432" in env_content
+
+    def test_setup_can_write_op_conf(self, test_env, bouy_path, temp_dir):
+        """Answering 'y' to the 1Password prompt writes config/op.conf (no secrets)."""
+        # Stdin feed (no .env exists, so no overwrite prompt):
+        # db password -> provider 1 (OpenRouter) -> API key -> HAARRRvest skip ->
+        # configure 1Password? y -> account -> vault -> item
+        answers = "\n".join(
+            ["pirate", "1", "test_key", "skip", "y",
+             "plentiful.1password.com", "Pantry Pirate Radio", "bouy-env"]
+        ) + "\n"
+        result = subprocess.run(
+            [bouy_path, "setup"],
+            input=answers, capture_output=True, text=True,
+            cwd=temp_dir, env=test_env,
+        )
+        op_conf = Path(temp_dir) / "config" / "op.conf"
+        assert op_conf.exists(), result.stdout + result.stderr
+        body = op_conf.read_text()
+        assert "OP_ACCOUNT=plentiful.1password.com" in body
+        assert "OP_VAULT=Pantry Pirate Radio" in body
+        assert "OP_ITEM=bouy-env" in body
+        # No secret values in op.conf
+        assert "test_key" not in body and "pirate" not in body

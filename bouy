@@ -984,6 +984,28 @@ case "$1" in
         # Clear cleanup list since we handled it
         CLEANUP_TEMP_FILES=""
 
+        echo ""
+        echo "=== 1Password (optional) ==="
+        echo "Store secrets in 1Password instead of relying on .env on disk?"
+        # EOF-safe: existing tests feed fewer input lines and stop before this
+        # prompt, so a bare 'read' would hit EOF and abort under 'set -e'.
+        read -p "Configure 1Password pointer now? (y/N): " want_op || want_op="n"
+        if [[ "$want_op" =~ ^[Yy]$ ]]; then
+            prompt_with_default "1Password account" "plentiful.1password.com" "SETUP_OP_ACCOUNT"
+            prompt_with_default "Vault" "Pantry Pirate Radio" "SETUP_OP_VAULT"
+            prompt_with_default "Item" "bouy-env" "SETUP_OP_ITEM"
+            mkdir -p config
+            cat > config/op.conf <<EOF
+# 1Password pointer for bouy (names only — NOT secrets).
+OP_ACCOUNT=$SETUP_OP_ACCOUNT
+OP_VAULT=$SETUP_OP_VAULT
+OP_ITEM=$SETUP_OP_ITEM
+EOF
+            output success "Wrote config/op.conf"
+            echo "Next: run './bouy op push' to upload your .env into the vault,"
+            echo "then you can delete .env to load secrets from 1Password."
+        fi
+
         output success ".env file created successfully!"
         echo ""
         echo "=== Next Steps ==="
