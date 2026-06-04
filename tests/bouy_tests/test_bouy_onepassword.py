@@ -405,3 +405,16 @@ def test_build_env_flags_from_keys():
         f"source {FUNCTIONS}; build_env_flags ALPHA BETA",
     )
     assert result.stdout.split() == ["-e", "ALPHA", "-e", "BETA"], result.stdout
+
+
+def test_test_handler_invokes_passthrough_overlay():
+    """The test) handler doesn't go through parse_mode, so it must call
+    maybe_add_passthrough_overlay itself before starting db/cache."""
+    bouy_text = (REPO_ROOT / "bouy").read_text()
+    test_handler = bouy_text.split("\n    test)\n", 1)[1]
+    up_idx = test_handler.find("up -d db cache")
+    assert up_idx != -1
+    call_idx = test_handler.find("maybe_add_passthrough_overlay")
+    assert call_idx != -1 and call_idx < up_idx, (
+        "test) handler must call maybe_add_passthrough_overlay before 'up -d db cache'"
+    )

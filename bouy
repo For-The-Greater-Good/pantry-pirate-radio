@@ -1477,6 +1477,10 @@ EOF
             output info "Starting database and cache services..."
         fi
         
+        # 1Password mode: db/cache must receive env via the passthrough overlay
+        # (the test handler doesn't go through parse_mode). No-op in file mode.
+        maybe_add_passthrough_overlay
+
         if [ $QUIET -eq 1 ] || [ $PROGRAMMATIC_MODE -eq 1 ]; then
             $COMPOSE_CMD $COMPOSE_FILES up -d db cache >/dev/null 2>&1
         else
