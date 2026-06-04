@@ -363,3 +363,38 @@ def test_maybe_add_passthrough_overlay_errors_on_zero_keys(tmp_path):
     )
     assert "RC=1" in result.stdout, result.stdout + result.stderr
     assert "zero variables" in result.stderr
+
+
+def test_op_status_reports_pointer_and_signin(tmp_path):
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; "
+        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"op_status",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_SIGNED_IN": "1", "OP_MOCK_READ_OUT": "X=1\n"},
+    )
+    assert "plentiful.1password.com" in (result.stdout + result.stderr)
+    assert "bouy-env" in (result.stdout + result.stderr)
+
+
+def test_op_push_invokes_item_with_field_assignment(tmp_path):
+    (tmp_path / ".env").write_text("A=1\nB=2\n")
+    log = str(tmp_path / "op.log")
+    run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"op_push --field dev",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_ITEM_RC": "0"},
+    )
+    logged = Path(log).read_text()
+    assert "item" in logged and "dev[text]=" in logged
+
+
+def test_op_pull_prints_field_to_stdout(tmp_path):
+    blob = "K1=v1\nK2=v2\n"
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; "
+        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"op_pull --field test",
+        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_READ_OUT": blob},
+    )
+    assert "K1=v1" in result.stdout and "K2=v2" in result.stdout

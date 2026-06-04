@@ -172,6 +172,90 @@ onepassword_available() {
     op_cli account get --account "$OP_ACCOUNT" >/dev/null 2>&1
 }
 
+# Print resolved pointer + sign-in + which fields exist. No secret values shown.
+op_status() {
+    resolve_op_pointer
+    output info "1Password account: $OP_ACCOUNT"
+    output info "Vault: $OP_VAULT"
+    output info "Item:  $OP_ITEM"
+    if onepassword_available; then
+        output success "Signed in to $OP_ACCOUNT"
+    else
+        output warning "Not signed in (run: op signin --account $OP_ACCOUNT)"
+        return 0
+    fi
+    local field
+    for field in dev test prod; do
+        if op_cli read "op://$OP_VAULT/$OP_ITEM/$field" --account "$OP_ACCOUNT" >/dev/null 2>&1; then
+            output info "  field '$field': present"
+        else
+            output info "  field '$field': missing"
+        fi
+    done
+}
+
+# Print a field blob to stdout (or --out FILE only when explicitly requested).
+op_pull() {
+    resolve_op_pointer
+    local field="dev" out=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --field) field="$2"; shift 2 ;;
+            --out) out="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    local blob
+    blob=$(op_cli read "op://$OP_VAULT/$OP_ITEM/$field" --account "$OP_ACCOUNT") || {
+        output error "Could not read op://$OP_VAULT/$OP_ITEM/$field"; return 1; }
+    if [ -n "$out" ]; then
+        printf '%s' "$blob" > "$out"
+        output success "Wrote $field to $out"
+    else
+        printf '%s\n' "$blob"
+    fi
+}
+
+# Upload local env file(s) into the 1Password item fields. --field dev|test|prod|all
+op_push() {
+    resolve_op_pointer
+    local field="all"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --field) field="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    local fields=()
+    case "$field" in
+        all) fields=(dev test prod) ;;
+        *) fields=("$field") ;;
+    esac
+    # Ensure the item exists (create empty Secure Note if missing).
+    if ! op_cli item get "$OP_ITEM" --vault "$OP_VAULT" --account "$OP_ACCOUNT" >/dev/null 2>&1; then
+        op_cli item create --category "Secure Note" --title "$OP_ITEM" \
+            --vault "$OP_VAULT" --account "$OP_ACCOUNT" >/dev/null 2>&1 || true
+    fi
+    local f src content
+    for f in "${fields[@]}"; do
+        src=$(override_file_for_mode "$f")
+        if [ "$f" = "prod" ] && [ ! -f "$src" ] && [ -f .env ]; then
+            src=".env"
+        fi
+        if [ ! -f "$src" ]; then
+            output warning "Skipping '$f': $src not found"
+            continue
+        fi
+        content=$(cat "$src")
+        if op_cli item edit "$OP_ITEM" --vault "$OP_VAULT" --account "$OP_ACCOUNT" \
+            "$f[text]=$content" >/dev/null 2>&1; then
+            output success "Pushed $src -> field '$f'"
+        else
+            output error "Failed to push field '$f'"
+        fi
+    done
+}
+
 # Fetch the blob for <field> (dev|test|prod) from 1Password and export it.
 # Reads the whole field with a single op call; the value lives only in memory.
 load_env_from_1password() {
