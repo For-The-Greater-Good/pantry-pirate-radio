@@ -249,3 +249,29 @@ def test_load_environment_no_1password_flag_forces_file_path(tmp_path):
     # and no file exists.
     assert "RC=1" in result.stdout
     assert "no-1password" in result.stderr or "setup" in result.stderr
+
+
+COMPOSE_FILES_WITH_ENVFILE = [
+    REPO_ROOT / ".docker/compose/base.yml",
+    REPO_ROOT / ".docker/compose/docker-compose.prod.yml",
+    REPO_ROOT / "plugins/ppr-lighthouse/.docker/compose.yml",
+    REPO_ROOT / "plugins/ppr-beacon/.docker/compose.yml",
+]
+
+
+def test_env_file_directives_are_optional():
+    """No bare `env_file: ../../.env`; all must be the required:false long form."""
+    # Plugin compose files are submodules dropped from the OSS core checkout;
+    # guard whichever of the listed files are actually present.
+    present = [p for p in COMPOSE_FILES_WITH_ENVFILE if p.exists()]
+    assert present, "expected at least one compose file with env_file directives"
+    for path in present:
+        text = path.read_text()
+        assert "env_file: ../../.env" not in text, f"bare env_file remains in {path}"
+        if "../../.env" in text:
+            assert "required: false" in text, f"{path} missing required:false"
+
+
+def test_env_prod_is_gitignored():
+    gi = (REPO_ROOT / ".gitignore").read_text().splitlines()
+    assert ".env.prod" in gi
