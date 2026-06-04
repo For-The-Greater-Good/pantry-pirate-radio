@@ -29,6 +29,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Initial Setup Commands
 ./bouy setup                 # Interactive setup wizard (creates .env file)
+./bouy op status             # 1Password: show pointer + sign-in + fields
+./bouy op push               # 1Password: upload local .env files into the vault
+./bouy op pull --field dev   # 1Password: print a stored field (stdout)
 ./bouy --help                # Show help with all commands
 ./bouy help                  # Same as --help (alternative syntax)
 ./bouy --version             # Show bouy version (v1.0.0)
@@ -147,6 +150,33 @@ The setup wizard will:
 5. **AWS-Only** → CDK only (SQS URLs, DB host, S3 buckets, etc.)
 
 Environment variables **always override** shared defaults. Never put secrets in `config/defaults.yml`.
+
+### 1Password secret loading (no `.env` on disk)
+
+bouy can source per-environment config from 1Password instead of a `.env` file:
+
+- **A `.env` (or `.env.test`/`.env.prod`) on disk always wins** — 1Password is not
+  consulted, so OSS contributors are unaffected. Prod falls back to `.env` when
+  `.env.prod` is absent.
+- With no override file, container-using commands read the matching field
+  (`dev`/`test`/`prod`) from a 1Password item via `op read` and inject the values
+  into containers through a runtime, names-only passthrough overlay. **Secrets are
+  never written to disk.** Auth is the `op` desktop-app biometric integration;
+  `help`/`version`/`setup`/`op` never trigger a prompt.
+- Pointer defaults (baked into bouy): account `plentiful.1password.com`, vault
+  `Pantry Pirate Radio`, item `bouy-env`. Override via `OP_ACCOUNT`/`OP_VAULT`/
+  `OP_ITEM` env vars or `config/op.conf` (precedence: env > op.conf > built-in).
+- `--no-1password` / `USE_1PASSWORD=false` force the file path; `--1password` /
+  `USE_1PASSWORD=true` force the vault. Auto-detect is the default.
+
+Commands:
+- `./bouy op status` — show pointer, sign-in state, which fields exist.
+- `./bouy op push [--field dev|test|prod|all]` — upload local `.env*` files into
+  the vault (one-command migration).
+- `./bouy op pull [--field dev] [--out FILE]` — print a field for inspection
+  (writes a file only with `--out`).
+
+CI and AWS are unchanged (GitHub Secrets and Secrets Manager respectively).
 
 ### Required Environment Variables
 
