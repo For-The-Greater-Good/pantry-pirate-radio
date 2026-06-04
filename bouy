@@ -115,6 +115,15 @@ load_env_lines() {
     done
 }
 
+# Emit valueless `-e KEY` flags so docker run passes each var through from the
+# current environment (used by the 1Password test path; no temp file needed).
+build_env_flags() {
+    local k
+    for k in "$@"; do
+        printf -- '-e %s ' "$k"
+    done
+}
+
 # Determine the active environment from CLI args: explicit --prod/--test flag
 # wins; otherwise the `test` command implies test mode; default dev.
 detect_mode() {
@@ -1416,10 +1425,10 @@ EOF
             fi
         fi
 
-        # Use test environment file
-        if [ ! -f .env.test ]; then
+        # Use test environment file, OR the env already loaded from 1Password.
+        if [ ! -f .env.test ] && [ "$BOUY_ENV_SOURCE" != "1password" ]; then
             output error ".env.test file not found!"
-            output error "Please ensure .env.test exists with proper test database configuration."
+            output error "Provide .env.test, or sign into 1Password (it will read the 'test' field)."
             exit 1
         fi
 
@@ -1428,7 +1437,10 @@ EOF
         ENV_FILE_TO_USE=".env.test"
         TEST_TEMP_ENV_FILE=""
         
-        if [ -f .env ]; then
+        # Only the file path merges keys into a temp .env.test copy. In
+        # 1Password mode there is no .env.test on disk, so skip this block
+        # (the OpenRouter key arrives via the exported env / -e passthrough).
+        if [ -f .env ] && [ -f .env.test ]; then
             # Extract OPENROUTER_API_KEY from .env if it exists and is not a placeholder
             OPENROUTER_KEY_FROM_ENV=$(grep "^OPENROUTER_API_KEY=" .env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
             if [ -n "$OPENROUTER_KEY_FROM_ENV" ] && [ "$OPENROUTER_KEY_FROM_ENV" != "test_key" ] && [ "$OPENROUTER_KEY_FROM_ENV" != "your_openrouter_api_key_here" ]; then
@@ -1563,11 +1575,21 @@ EOF
         # Use PYTHONUNBUFFERED=1 to ensure output is not buffered
         # Set RUNNING_IN_DOCKER=1 to skip bouy tests that can't run inside Docker
         # Explicitly set CONTENT_STORE_PATH to ensure tests don't use production data
+        # In 1Password mode there is no .env.test file: pass the already-exported
+        # test vars through as valueless -e flags. Otherwise use the env file.
+        ENV_INJECT_ARGS=()
+        if [ "$BOUY_ENV_SOURCE" = "1password" ] && [ ! -f .env.test ]; then
+            # shellcheck disable=SC2046
+            ENV_INJECT_ARGS=( $(build_env_flags $BOUY_ENV_KEYS) )
+        else
+            ENV_INJECT_ARGS=( --env-file "$ENV_FILE_TO_USE" )
+        fi
+
         docker run --rm $TTY_FLAG \
             -v "$(pwd)":/app:cached \
             -w /app \
             --network "$NETWORK_NAME" \
-            --env-file "$ENV_FILE_TO_USE" \
+            "${ENV_INJECT_ARGS[@]}" \
             -e PYTHONUNBUFFERED=1 \
             -e RUNNING_IN_DOCKER=1 \
             -e CONTENT_STORE_PATH=/tmp/test_content_store \

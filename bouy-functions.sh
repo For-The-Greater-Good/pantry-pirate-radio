@@ -119,6 +119,15 @@ load_env_lines() {
     done
 }
 
+# Emit valueless `-e KEY` flags so docker run passes each var through from the
+# current environment (used by the 1Password test path; no temp file needed).
+build_env_flags() {
+    local k
+    for k in "$@"; do
+        printf -- '-e %s ' "$k"
+    done
+}
+
 # Determine the active environment from CLI args: explicit --prod/--test flag
 # wins; otherwise the `test` command implies test mode; default dev.
 detect_mode() {

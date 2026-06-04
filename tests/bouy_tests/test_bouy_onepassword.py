@@ -398,3 +398,10 @@ def test_op_pull_prints_field_to_stdout(tmp_path):
         env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_READ_OUT": blob},
     )
     assert "K1=v1" in result.stdout and "K2=v2" in result.stdout
+
+
+def test_build_env_flags_from_keys():
+    result = run_bash(
+        f"source {FUNCTIONS}; build_env_flags ALPHA BETA",
+    )
+    assert result.stdout.split() == ["-e", "ALPHA", "-e", "BETA"], result.stdout
