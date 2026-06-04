@@ -76,3 +76,35 @@ def test_detect_mode(args, expected):
 def test_override_file_for_mode(mode, expected):
     result = run_bash(f"source {FUNCTIONS}; override_file_for_mode {mode}")
     assert result.stdout.strip() == expected, result.stderr
+
+
+def test_resolve_op_pointer_precedence(tmp_path):
+    conf = tmp_path / "config"
+    conf.mkdir()
+    (conf / "op.conf").write_text(
+        'OP_ACCOUNT=fromfile.1password.com\nOP_VAULT=FileVault\nOP_ITEM=file-item\n'
+    )
+    # Built-in default when neither env nor file present (file dir empty here):
+    base = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'echo "$OP_ACCOUNT|$OP_VAULT|$OP_ITEM"',
+    )
+    assert base.stdout.strip() == "fromfile.1password.com|FileVault|file-item"
+
+    # Env var overrides the file:
+    env_over = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'echo "$OP_VAULT"',
+        env={"OP_VAULT": "EnvVault"},
+    )
+    assert env_over.stdout.strip() == "EnvVault"
+
+
+def test_resolve_op_pointer_builtin_defaults(tmp_path):
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'echo "$OP_ACCOUNT|$OP_VAULT|$OP_ITEM"'
+    )
+    assert result.stdout.strip() == (
+        "plentiful.1password.com|Pantry Pirate Radio|bouy-env"
+    )

@@ -142,6 +142,22 @@ override_file_for_mode() {
     esac
 }
 
+# Resolve the 1Password pointer into OP_ACCOUNT/OP_VAULT/OP_ITEM.
+# Precedence: existing environment variable > config/op.conf > built-in default.
+resolve_op_pointer() {
+    local file_account="" file_vault="" file_item=""
+    if [ -f config/op.conf ]; then
+        # shellcheck disable=SC1091
+        file_account=$(grep -E '^OP_ACCOUNT=' config/op.conf | cut -d= -f2-)
+        file_vault=$(grep -E '^OP_VAULT=' config/op.conf | cut -d= -f2-)
+        file_item=$(grep -E '^OP_ITEM=' config/op.conf | cut -d= -f2-)
+    fi
+    OP_ACCOUNT="${OP_ACCOUNT:-${file_account:-plentiful.1password.com}}"
+    OP_VAULT="${OP_VAULT:-${file_vault:-Pantry Pirate Radio}}"
+    OP_ITEM="${OP_ITEM:-${file_item:-bouy-env}}"
+    export OP_ACCOUNT OP_VAULT OP_ITEM
+}
+
 # Helper function to check database schema
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"
