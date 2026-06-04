@@ -95,6 +95,28 @@ parse_mode() {
     esac
 }
 
+# Parse KEY=value lines from stdin, export valid ones, and record their names
+# in BOUY_ENV_KEYS. Must be called WITHOUT a pipe (use <<< or < file) so the
+# exports land in the current shell, not a subshell.
+load_env_lines() {
+    local key value
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        if [[ ! "$key" =~ ^[[:space:]]*# ]] && [[ -n "$key" ]]; then
+            key=$(echo "$key" | xargs)
+            if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                # Trim only surrounding whitespace from the value so a
+                # "KEY = value" line yields "value" while quotes/content
+                # are preserved verbatim. Plain "KEY=value" is unaffected.
+                value="${value#"${value%%[![:space:]]*}"}"
+                value="${value%"${value##*[![:space:]]}"}"
+                export "$key=$value"
+                BOUY_ENV_KEYS="${BOUY_ENV_KEYS:+$BOUY_ENV_KEYS }$key"
+            fi
+        fi
+    done
+}
+
 # Helper function to check database schema
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"

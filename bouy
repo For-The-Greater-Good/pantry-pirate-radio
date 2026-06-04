@@ -93,20 +93,31 @@ run_plugin_command() {
 # Discover plugin compose overlays
 discover_plugins
 
-# Export .env variables if the file exists
-if [ -f .env ]; then
-    # Use a safer method that handles special characters properly
+# Parse KEY=value lines from stdin, export valid ones, and record their names
+# in BOUY_ENV_KEYS. Must be called WITHOUT a pipe (use <<< or < file) so the
+# exports land in the current shell, not a subshell.
+load_env_lines() {
+    local key value
     while IFS='=' read -r key value; do
         # Skip comments and empty lines
         if [[ ! "$key" =~ ^[[:space:]]*# ]] && [[ -n "$key" ]]; then
-            # Remove leading/trailing whitespace from key
             key=$(echo "$key" | xargs)
-            # Export the variable if it's a valid name
             if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                # Trim only surrounding whitespace from the value so a
+                # "KEY = value" line yields "value" while quotes/content
+                # are preserved verbatim. Plain "KEY=value" is unaffected.
+                value="${value#"${value%%[![:space:]]*}"}"
+                value="${value%"${value##*[![:space:]]}"}"
                 export "$key=$value"
+                BOUY_ENV_KEYS="${BOUY_ENV_KEYS:+$BOUY_ENV_KEYS }$key"
             fi
         fi
-    done < .env
+    done
+}
+
+# Export .env variables if the file exists (replaced by load_environment in Task 6)
+if [ -f .env ]; then
+    load_env_lines < .env
 fi
 
 # Test mode support - allows overriding docker compose command for testing
