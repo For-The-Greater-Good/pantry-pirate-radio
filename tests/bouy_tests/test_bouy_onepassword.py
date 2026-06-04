@@ -46,9 +46,13 @@ EOF
     )
     assert result.returncode == 0, result.stderr
     assert "ALPHA=one" in result.stdout
-    assert "BETA=two" in result.stdout          # surrounding spaces trimmed
-    assert 'GAMMA="three"' in result.stdout      # value preserved verbatim
-    assert "ALPHA" in result.stdout and "BETA" in result.stdout and "GAMMA" in result.stdout
+    assert "BETA=two" in result.stdout  # surrounding spaces trimmed
+    assert 'GAMMA="three"' in result.stdout  # value preserved verbatim
+    assert (
+        "ALPHA" in result.stdout
+        and "BETA" in result.stdout
+        and "GAMMA" in result.stdout
+    )
     # The dash key is not a valid shell name and must be skipped entirely.
     assert "INVALID-KEY" not in result.stdout.split("KEYS=")[1]
 
@@ -82,7 +86,7 @@ def test_resolve_op_pointer_precedence(tmp_path):
     conf = tmp_path / "config"
     conf.mkdir()
     (conf / "op.conf").write_text(
-        'OP_ACCOUNT=fromfile.1password.com\nOP_VAULT=FileVault\nOP_ITEM=file-item\n'
+        "OP_ACCOUNT=fromfile.1password.com\nOP_VAULT=FileVault\nOP_ITEM=file-item\n"
     )
     # Built-in default when neither env nor file present (file dir empty here):
     base = run_bash(
@@ -93,8 +97,7 @@ def test_resolve_op_pointer_precedence(tmp_path):
 
     # Env var overrides the file:
     env_over = run_bash(
-        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'echo "$OP_VAULT"',
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; " f'echo "$OP_VAULT"',
         env={"OP_VAULT": "EnvVault"},
     )
     assert env_over.stdout.strip() == "EnvVault"
@@ -151,16 +154,18 @@ def test_load_env_from_1password_exports_blob():
     assert "POSTGRES_PASSWORD" in result.stdout and "LLM_PROVIDER" in result.stdout
 
 
-def test_load_env_from_1password_passes_correct_reference():
-    log = "/tmp/op_mock_ref.log"
-    Path(log).unlink(missing_ok=True)
+def test_load_env_from_1password_passes_correct_reference(tmp_path):
+    log = tmp_path / "op_mock_ref.log"
     run_bash(
         f"source {FUNCTIONS}; resolve_op_pointer; load_env_from_1password prod",
-        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "X=1\n"},
+        env={
+            "BOUY_OP_CMD": str(OP_MOCK),
+            "OP_MOCK_LOG": str(log),
+            "OP_MOCK_READ_OUT": "X=1\n",
+        },
     )
-    logged = Path(log).read_text()
+    logged = log.read_text()
     assert "read op://Pantry Pirate Radio/bouy-env/prod" in logged
-    Path(log).unlink(missing_ok=True)
 
 
 def test_load_env_from_1password_returns_nonzero_on_read_failure():
@@ -180,7 +185,11 @@ def test_load_env_from_1password_writes_no_file(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     # No file in the working dir should contain the secret value.
-    leaked = [p for p in tmp_path.rglob("*") if p.is_file() and "abc123" in p.read_text(errors="ignore")]
+    leaked = [
+        p
+        for p in tmp_path.rglob("*")
+        if p.is_file() and "abc123" in p.read_text(errors="ignore")
+    ]
     assert leaked == [], f"secret leaked to disk: {leaked}"
 
 
@@ -189,10 +198,14 @@ def test_load_environment_file_wins_and_skips_1password(tmp_path):
     log = str(tmp_path / "op.log")
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'PROGRAMMATIC_MODE=1; JSON_OUTPUT=0; QUIET=1; NO_COLOR=1; '
+        f"PROGRAMMATIC_MODE=1; JSON_OUTPUT=0; QUIET=1; NO_COLOR=1; "
         f"load_environment up; "
         f'echo "VAL=$FROM_FILE"; echo "SRC=$BOUY_ENV_SOURCE"',
-        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "FROM_VAULT=yes\n"},
+        env={
+            "BOUY_OP_CMD": str(OP_MOCK),
+            "OP_MOCK_LOG": log,
+            "OP_MOCK_READ_OUT": "FROM_VAULT=yes\n",
+        },
     )
     assert "VAL=yes" in result.stdout
     assert "SRC=file" in result.stdout
@@ -202,10 +215,14 @@ def test_load_environment_file_wins_and_skips_1password(tmp_path):
 def test_load_environment_uses_1password_when_no_file(tmp_path):
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'PROGRAMMATIC_MODE=1; JSON_OUTPUT=0; QUIET=1; NO_COLOR=1; '
+        f"PROGRAMMATIC_MODE=1; JSON_OUTPUT=0; QUIET=1; NO_COLOR=1; "
         f"load_environment up; "
         f'echo "VAL=$FROM_VAULT"; echo "SRC=$BOUY_ENV_SOURCE"',
-        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_READ_OUT": "FROM_VAULT=yes\n", "OP_MOCK_SIGNED_IN": "1"},
+        env={
+            "BOUY_OP_CMD": str(OP_MOCK),
+            "OP_MOCK_READ_OUT": "FROM_VAULT=yes\n",
+            "OP_MOCK_SIGNED_IN": "1",
+        },
     )
     assert "VAL=yes" in result.stdout
     assert "SRC=1password" in result.stdout
@@ -216,9 +233,13 @@ def test_load_environment_skips_for_help(tmp_path):
     log = str(tmp_path / "op.log")
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; '
-        f"load_environment help; echo \"SRC=$BOUY_ENV_SOURCE\"",
-        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "X=1\n"},
+        f"PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; "
+        f'load_environment help; echo "SRC=$BOUY_ENV_SOURCE"',
+        env={
+            "BOUY_OP_CMD": str(OP_MOCK),
+            "OP_MOCK_LOG": log,
+            "OP_MOCK_READ_OUT": "X=1\n",
+        },
     )
     assert "SRC=none" in result.stdout
     assert not Path(log).exists()
@@ -227,7 +248,7 @@ def test_load_environment_skips_for_help(tmp_path):
 def test_load_environment_no_file_no_op_errors(tmp_path):
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; "
         f"load_environment up; echo RC=$?",
         env={"BOUY_OP_CMD": "/nonexistent/op"},
     )
@@ -240,9 +261,13 @@ def test_load_environment_no_1password_flag_forces_file_path(tmp_path):
     log = str(tmp_path / "op.log")
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; "
         f"load_environment up --no-1password; echo RC=$?",
-        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "X=1\n"},
+        env={
+            "BOUY_OP_CMD": str(OP_MOCK),
+            "OP_MOCK_LOG": log,
+            "OP_MOCK_READ_OUT": "X=1\n",
+        },
     )
     assert not Path(log).exists()
     # Must hard-error, not silently succeed: the user forced the file path
@@ -271,7 +296,7 @@ def test_maybe_add_passthrough_overlay_only_when_1password(tmp_path):
         f"source {FUNCTIONS}; "
         f'COMPOSE_CMD="echo"; COMPOSE_FILES="-f base.yml"; '
         f'BOUY_ENV_SOURCE="file"; BOUY_ENV_KEYS="ALPHA"; '
-        f"maybe_add_passthrough_overlay; echo \"CF=$COMPOSE_FILES\"",
+        f'maybe_add_passthrough_overlay; echo "CF=$COMPOSE_FILES"',
     )
     assert result.stdout.strip() == "CF=-f base.yml"
 
@@ -308,7 +333,7 @@ def test_maybe_add_passthrough_overlay_appends_when_1password(tmp_path):
     fake_compose.chmod(0o755)
     result = run_bash(
         f"source {FUNCTIONS}; "
-        f'PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; JSON_OUTPUT=0; "
         f'COMPOSE_CMD="{fake_compose}"; COMPOSE_FILES="-f base.yml"; '
         f'BOUY_ENV_SOURCE="1password"; BOUY_ENV_KEYS="ALPHA BETA"; '
         f"maybe_add_passthrough_overlay; rc=$?; "
@@ -318,14 +343,15 @@ def test_maybe_add_passthrough_overlay_appends_when_1password(tmp_path):
         f'echo "CF2=$COMPOSE_FILES"',
     )
     assert "RC=0" in result.stdout, result.stderr
+    lines = result.stdout.splitlines()
     # COMPOSE_FILES gained exactly one -f <overlay> entry...
-    cf_line = [l for l in result.stdout.splitlines() if l.startswith("CF=")][0]
+    cf_line = next(line for line in lines if line.startswith("CF="))
     assert cf_line.count("bouy-op-passthrough") == 1
     # ...registered for trap cleanup...
-    clean_line = [l for l in result.stdout.splitlines() if l.startswith("CLEAN=")][0]
+    clean_line = next(line for line in lines if line.startswith("CLEAN="))
     assert "bouy-op-passthrough" in clean_line
     # ...and the second call added nothing (guard held).
-    cf2_line = [l for l in result.stdout.splitlines() if l.startswith("CF2=")][0]
+    cf2_line = next(line for line in lines if line.startswith("CF2="))
     assert cf2_line.replace("CF2=", "") == cf_line.replace("CF=", "")
     # The overlay file itself is names-only.
     overlay_path = clean_line.replace("CLEAN=", "").strip().split()[-1]
@@ -341,7 +367,7 @@ def test_maybe_add_passthrough_overlay_errors_when_services_unavailable(tmp_path
     fake_compose.chmod(0o755)
     result = run_bash(
         f"source {FUNCTIONS}; "
-        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; "
         f'COMPOSE_CMD="{fake_compose}"; COMPOSE_FILES="-f base.yml"; '
         f'BOUY_ENV_SOURCE="1password"; BOUY_ENV_KEYS="ALPHA"; '
         f"maybe_add_passthrough_overlay; echo RC=$?",
@@ -356,7 +382,7 @@ def test_maybe_add_passthrough_overlay_errors_on_zero_keys(tmp_path):
     fake_compose.chmod(0o755)
     result = run_bash(
         f"source {FUNCTIONS}; "
-        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; "
         f'COMPOSE_CMD="{fake_compose}"; COMPOSE_FILES="-f base.yml"; '
         f'BOUY_ENV_SOURCE="1password"; BOUY_ENV_KEYS=""; '
         f"maybe_add_passthrough_overlay; echo RC=$?",
@@ -368,9 +394,13 @@ def test_maybe_add_passthrough_overlay_errors_on_zero_keys(tmp_path):
 def test_op_status_reports_pointer_and_signin(tmp_path):
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; "
-        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; "
         f"op_status",
-        env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_SIGNED_IN": "1", "OP_MOCK_READ_OUT": "X=1\n"},
+        env={
+            "BOUY_OP_CMD": str(OP_MOCK),
+            "OP_MOCK_SIGNED_IN": "1",
+            "OP_MOCK_READ_OUT": "X=1\n",
+        },
     )
     assert "plentiful.1password.com" in (result.stdout + result.stderr)
     assert "bouy-env" in (result.stdout + result.stderr)
@@ -381,7 +411,7 @@ def test_op_push_invokes_item_with_field_assignment(tmp_path):
     log = str(tmp_path / "op.log")
     run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
-        f'PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; JSON_OUTPUT=0; "
         f"op_push --field dev",
         env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_ITEM_RC": "0"},
     )
@@ -393,7 +423,7 @@ def test_op_pull_prints_field_to_stdout(tmp_path):
     blob = "K1=v1\nK2=v2\n"
     result = run_bash(
         f"cd {tmp_path}; source {FUNCTIONS}; "
-        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f"PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; "
         f"op_pull --field test",
         env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_READ_OUT": blob},
     )
@@ -415,6 +445,6 @@ def test_test_handler_invokes_passthrough_overlay():
     up_idx = test_handler.find("up -d db cache")
     assert up_idx != -1
     call_idx = test_handler.find("maybe_add_passthrough_overlay")
-    assert call_idx != -1 and call_idx < up_idx, (
-        "test) handler must call maybe_add_passthrough_overlay before 'up -d db cache'"
-    )
+    assert (
+        call_idx != -1 and call_idx < up_idx
+    ), "test) handler must call maybe_add_passthrough_overlay before 'up -d db cache'"

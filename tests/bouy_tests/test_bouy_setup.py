@@ -305,14 +305,28 @@ class TestBouySetup:
         # Stdin feed (no .env exists, so no overwrite prompt):
         # db password -> provider 1 (OpenRouter) -> API key -> HAARRRvest skip ->
         # configure 1Password? y -> account -> vault -> item
-        answers = "\n".join(
-            ["pirate", "1", "test_key", "skip", "y",
-             "plentiful.1password.com", "Pantry Pirate Radio", "bouy-env"]
-        ) + "\n"
+        answers = (
+            "\n".join(
+                [
+                    "pirate",
+                    "1",
+                    "test_key",
+                    "skip",
+                    "y",
+                    "plentiful.1password.com",
+                    "Pantry Pirate Radio",
+                    "bouy-env",
+                ]
+            )
+            + "\n"
+        )
         result = subprocess.run(
             [bouy_path, "setup"],
-            input=answers, capture_output=True, text=True,
-            cwd=temp_dir, env=test_env,
+            input=answers,
+            capture_output=True,
+            text=True,
+            cwd=temp_dir,
+            env=test_env,
         )
         op_conf = Path(temp_dir) / "config" / "op.conf"
         assert op_conf.exists(), result.stdout + result.stderr
