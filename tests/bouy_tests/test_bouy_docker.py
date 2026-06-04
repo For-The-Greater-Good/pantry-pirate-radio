@@ -177,7 +177,8 @@ esac
     def test_bouy_status_json(self, bouy_path, mock_compose_wrapper):
         """Test bouy status command with JSON output."""
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = mock_compose_wrapper
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = mock_compose_wrapper
 
         result = subprocess.run(
             [bouy_path, "--json", "status"], capture_output=True, text=True, env=env
@@ -204,7 +205,8 @@ esac
     def test_bouy_up_programmatic(self, bouy_path, mock_compose_wrapper):
         """Test bouy up command in programmatic mode."""
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = mock_compose_wrapper
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = mock_compose_wrapper
 
         result = subprocess.run(
             [bouy_path, "--programmatic", "up"], capture_output=True, text=True, env=env
@@ -220,7 +222,8 @@ esac
     def test_bouy_scraper_list(self, bouy_path, mock_compose_wrapper):
         """Test bouy scraper list command."""
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = mock_compose_wrapper
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = mock_compose_wrapper
 
         result = subprocess.run(
             [bouy_path, "--programmatic", "scraper", "list"],
@@ -269,7 +272,8 @@ esac
         failing_wrapper.chmod(0o755)
 
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = str(failing_wrapper)
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = str(failing_wrapper)
 
         # Try to run reconciler which requires database
         result = subprocess.run(
