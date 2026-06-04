@@ -170,6 +170,15 @@ onepassword_available() {
     op_cli account get --account "$OP_ACCOUNT" >/dev/null 2>&1
 }
 
+# Fetch the blob for <field> (dev|test|prod) from 1Password and export it.
+# Reads the whole field with a single op call; the value lives only in memory.
+load_env_from_1password() {
+    local field="$1" blob
+    blob=$(op_cli read "op://$OP_VAULT/$OP_ITEM/$field" --account "$OP_ACCOUNT") || return 1
+    [ -n "$blob" ] || return 1
+    load_env_lines <<< "$blob"
+}
+
 # Helper function to check database schema
 check_database_schema() {
     local db_name="${1:-pantry_pirate_radio}"
