@@ -245,3 +245,7 @@ def test_load_environment_no_1password_flag_forces_file_path(tmp_path):
         env={"BOUY_OP_CMD": str(OP_MOCK), "OP_MOCK_LOG": log, "OP_MOCK_READ_OUT": "X=1\n"},
     )
     assert not Path(log).exists()
+    # Must hard-error, not silently succeed: the user forced the file path
+    # and no file exists.
+    assert "RC=1" in result.stdout
+    assert "no-1password" in result.stderr or "setup" in result.stderr
