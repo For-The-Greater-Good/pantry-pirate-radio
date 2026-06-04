@@ -12,7 +12,7 @@
 
 ## How this living plan is structured (read before executing)
 
-This feature spans seven phases across many sessions. Per the writing-plans Scope Check, it is **not** one bite-sized plan — it is a **living roadmap + per-phase plans**, each shipping working, tested software on its own:
+This feature spans phases P0–P7 plus the P0.5 hard-gate spike, across many sessions. Per the writing-plans Scope Check, it is **not** one bite-sized plan — it is a **living roadmap + per-phase plans**, each shipping working, tested software on its own:
 
 - **§Roadmap** maps all phases (P0–P7) with deliverables, file-map, acceptance, and dependencies. It is the durable index.
 - **P0 is fully task-decomposed below** (real code, TDD, no placeholders) — it is executable now and has zero external dependencies.
@@ -341,7 +341,7 @@ def _client():
 def test_well_known_discovery_served():
     r = _client().get("/.well-known/hsds-federation")
     assert r.status_code == 200
-    assert r.json()["hsds_version"] == "3.1.1"
+    assert isinstance(r.json()["hsds_versions"], list)  # §8.4 set-membership; pinned to the 3.2 line (see Task 0.5)
 
 
 def test_did_json_served():
