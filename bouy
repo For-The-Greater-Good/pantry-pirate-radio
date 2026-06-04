@@ -272,11 +272,15 @@ maybe_add_passthrough_overlay() {
         return 0
     fi
     local services overlay
-    services=$(get_active_services)
-    if [ -z "$services" ]; then
-        return 0
+    if [ -z "$BOUY_ENV_KEYS" ]; then
+        output error "1Password env loaded zero variables; cannot build passthrough overlay."
+        return 1
     fi
-    overlay=$(mktemp -t bouy-op-passthrough)
+    if ! services=$(get_active_services) || [ -z "$services" ]; then
+        output error "Could not determine active services for 1Password env passthrough (is Docker running and the compose config valid?)."
+        return 1
+    fi
+    overlay=$(mktemp "${TMPDIR:-/tmp}/bouy-op-passthrough.XXXXXX")
     # shellcheck disable=SC2086
     write_passthrough_overlay "$overlay" "$BOUY_ENV_KEYS" $services
     COMPOSE_FILES="$COMPOSE_FILES -f $overlay"

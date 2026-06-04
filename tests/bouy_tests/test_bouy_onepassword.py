@@ -300,3 +300,66 @@ def test_env_file_directives_are_optional():
 def test_env_prod_is_gitignored():
     gi = (REPO_ROOT / ".gitignore").read_text().splitlines()
     assert ".env.prod" in gi
+
+
+def test_maybe_add_passthrough_overlay_appends_when_1password(tmp_path):
+    fake_compose = tmp_path / "fake_compose.sh"
+    fake_compose.write_text("#!/bin/bash\necho app\necho worker\n")
+    fake_compose.chmod(0o755)
+    result = run_bash(
+        f"source {FUNCTIONS}; "
+        f'PROGRAMMATIC_MODE=1; QUIET=1; NO_COLOR=1; JSON_OUTPUT=0; '
+        f'COMPOSE_CMD="{fake_compose}"; COMPOSE_FILES="-f base.yml"; '
+        f'BOUY_ENV_SOURCE="1password"; BOUY_ENV_KEYS="ALPHA BETA"; '
+        f"maybe_add_passthrough_overlay; rc=$?; "
+        f'echo "RC=$rc"; echo "CF=$COMPOSE_FILES"; echo "CLEAN=$CLEANUP_TEMP_FILES"; '
+        # second call must be a no-op (once-per-run guard)
+        f"maybe_add_passthrough_overlay; "
+        f'echo "CF2=$COMPOSE_FILES"',
+    )
+    assert "RC=0" in result.stdout, result.stderr
+    # COMPOSE_FILES gained exactly one -f <overlay> entry...
+    cf_line = [l for l in result.stdout.splitlines() if l.startswith("CF=")][0]
+    assert cf_line.count("bouy-op-passthrough") == 1
+    # ...registered for trap cleanup...
+    clean_line = [l for l in result.stdout.splitlines() if l.startswith("CLEAN=")][0]
+    assert "bouy-op-passthrough" in clean_line
+    # ...and the second call added nothing (guard held).
+    cf2_line = [l for l in result.stdout.splitlines() if l.startswith("CF2=")][0]
+    assert cf2_line.replace("CF2=", "") == cf_line.replace("CF=", "")
+    # The overlay file itself is names-only.
+    overlay_path = clean_line.replace("CLEAN=", "").strip().split()[-1]
+    text = Path(overlay_path).read_text()
+    assert "app:" in text and "worker:" in text and "ALPHA" in text
+    assert "=" not in text
+    os.unlink(overlay_path)
+
+
+def test_maybe_add_passthrough_overlay_errors_when_services_unavailable(tmp_path):
+    fake_compose = tmp_path / "fake_compose_fail.sh"
+    fake_compose.write_text("#!/bin/bash\nexit 1\n")
+    fake_compose.chmod(0o755)
+    result = run_bash(
+        f"source {FUNCTIONS}; "
+        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f'COMPOSE_CMD="{fake_compose}"; COMPOSE_FILES="-f base.yml"; '
+        f'BOUY_ENV_SOURCE="1password"; BOUY_ENV_KEYS="ALPHA"; '
+        f"maybe_add_passthrough_overlay; echo RC=$?",
+    )
+    assert "RC=1" in result.stdout, result.stdout + result.stderr
+    assert "passthrough" in result.stderr.lower()
+
+
+def test_maybe_add_passthrough_overlay_errors_on_zero_keys(tmp_path):
+    fake_compose = tmp_path / "fake_compose_ok.sh"
+    fake_compose.write_text("#!/bin/bash\necho app\n")
+    fake_compose.chmod(0o755)
+    result = run_bash(
+        f"source {FUNCTIONS}; "
+        f'PROGRAMMATIC_MODE=1; QUIET=0; NO_COLOR=1; JSON_OUTPUT=0; '
+        f'COMPOSE_CMD="{fake_compose}"; COMPOSE_FILES="-f base.yml"; '
+        f'BOUY_ENV_SOURCE="1password"; BOUY_ENV_KEYS=""; '
+        f"maybe_add_passthrough_overlay; echo RC=$?",
+    )
+    assert "RC=1" in result.stdout, result.stdout + result.stderr
+    assert "zero variables" in result.stderr
