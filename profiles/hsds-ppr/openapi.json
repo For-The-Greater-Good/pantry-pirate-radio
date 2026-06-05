@@ -1,0 +1,56 @@
+{
+  "paths": {
+    "/api/v1/federation/export": {
+      "get": {
+        "summary": "Export HSDS records for federation peers",
+        "description": "Returns a signed, paginated export of canonical HSDS records for consumption by federation peers. Optional profile endpoint; lands fully in P1.",
+        "operationId": "federationExport",
+        "tags": ["federation"],
+        "responses": {
+          "200": {
+            "description": "A page of HSDS records with federation provenance."
+          }
+        }
+      }
+    },
+    "/api/v1/federation/inbox": {
+      "post": {
+        "summary": "Receive HSDS records from a federation peer",
+        "description": "Accepts signed HSDS record submissions from an authenticated federation peer. Optional profile endpoint; lands fully in P3.",
+        "operationId": "federationInbox",
+        "tags": ["federation"],
+        "responses": {
+          "202": {
+            "description": "Submission accepted for processing."
+          }
+        }
+      }
+    },
+    "/api/v1/federation/history": {
+      "get": {
+        "summary": "Change history for a federated record",
+        "description": "Returns the provenance and change history of a federated HSDS record. Optional profile endpoint; lands fully in P3.",
+        "operationId": "federationHistory",
+        "tags": ["federation"],
+        "responses": {
+          "200": {
+            "description": "Change history entries for the requested record."
+          }
+        }
+      }
+    },
+    "/api/v1/federation/actor": {
+      "get": {
+        "summary": "Federation actor / node identity",
+        "description": "Returns this node's federation actor document, including its DID and public signing keys. Optional profile endpoint; lands fully in P1.",
+        "operationId": "federationActor",
+        "tags": ["federation"],
+        "responses": {
+          "200": {
+            "description": "The federation actor document for this node."
+          }
+        }
+      }
+    }
+  }
+}

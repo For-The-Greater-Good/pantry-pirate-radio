@@ -1,0 +1,31 @@
+{
+  "properties": {
+    "confidence_score": {
+      "name": "confidence_score",
+      "type": "integer",
+      "title": "Confidence Score",
+      "description": "Pantry Pirate Radio data-quality confidence for this location, 0-100. Scraped data is capped at 90; values 91-100 are reserved for human corrections. Optional profile extension.",
+      "minimum": 0,
+      "maximum": 100,
+      "core": "N"
+    },
+    "verified_by": {
+      "name": "verified_by",
+      "type": "string",
+      "title": "Verified By",
+      "description": "Provenance of the most authoritative verification for this location. Optional profile extension.",
+      "enum": ["auto", "admin", "source", "claimed", "network"],
+      "core": "N"
+    },
+    "sources": {
+      "name": "sources",
+      "type": "array",
+      "title": "Sources",
+      "description": "Identifiers of the scrapers or networks that corroborated this location. Optional profile extension supporting multi-source corroboration.",
+      "items": {
+        "type": "string"
+      },
+      "core": "N"
+    }
+  }
+}
