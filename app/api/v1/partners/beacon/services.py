@@ -380,9 +380,15 @@ class BeaconSyncService:
             )
             for s in schedules.get(lid, [])
         ]
+        # `language.name` is a NULLABLE text column but BeaconLanguage.name
+        # is a required `str`; a NULL name makes BeaconLanguage(name=None)
+        # raise in Pydantic and drop the whole location via the except
+        # handler. A language with no name carries no usable info, so drop
+        # the nameless child and keep the location (Gauntlet bug-class).
         lang_list = [
             BeaconLanguage(name=lang.name, code=lang.code)
             for lang in languages.get(lid, [])
+            if lang.name is not None
         ]
         acc_row = accessibility.get(lid)
         acc = (

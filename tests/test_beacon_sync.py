@@ -779,6 +779,111 @@ class TestBeaconSyncPhoneExtension:
         assert by_id[loc_id].phones[0].extension is None
 
 
+class TestBeaconSyncNullLanguageName:
+    """Regression for the NULL language-name type mismatch that dropped
+    whole locations (third instance of the Gauntlet bug class).
+
+    `language.name` is a NULLABLE `text` column, but `BeaconLanguage.name`
+    is a REQUIRED non-Optional `str`. A single language row with a NULL
+    `name` made `BeaconLanguage(name=None)` raise a Pydantic
+    `ValidationError`, which `_transform` swallowed via its broad
+    `except Exception` → `beacon_transform_failed`, dropping the ENTIRE
+    location from the sync output (a hidden food pantry — Principle VI;
+    silent failure — Principle XI). The fix drops the unusable nameless
+    language child while KEEPING the location.
+    """
+
+    @pytest.mark.asyncio
+    async def test_location_with_null_language_name_not_dropped(
+        self, db_session: AsyncSession
+    ) -> None:
+        loc_id = str(uuid.uuid4())
+        org_id = str(uuid.uuid4())
+        await _seed_location_with_addresses(
+            db_session,
+            loc_id=loc_id,
+            org_id=org_id,
+            name="Null-Language Pantry",
+            lat=40.0,
+            lng=-74.0,
+            confidence=85,
+            address_count=1,
+        )
+        # A language row whose `name` IS NULL — permitted by the NULLABLE
+        # `language.name` column but rejected by the required `str` wire
+        # model. Pre-fix this dropped the whole location.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO language (id, location_id, name, code)
+                VALUES (:id, :loc, NULL, 'es')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": loc_id},
+        )
+        await db_session.commit()
+
+        service = BeaconSyncService(db_session, min_confidence=60)
+        result = await service.sync(page_size=1000)
+        by_id = {loc.id: loc for loc in result["locations"]}
+        assert loc_id in by_id, (
+            "location with a NULL-name language was dropped from the sync "
+            "output — BeaconLanguage(name=None) raises in Pydantic and "
+            "_transform swallows the whole location"
+        )
+        # The unusable nameless language is simply absent; a language needs
+        # a name to be useful, so it carries no info worth surfacing.
+        assert by_id[loc_id].languages == [], (
+            "the NULL-name language should be dropped, not surfaced — "
+            "a language with no name carries no usable information"
+        )
+
+    @pytest.mark.asyncio
+    async def test_named_language_survives_alongside_null_sibling(
+        self, db_session: AsyncSession
+    ) -> None:
+        # A valid named language on the SAME location must still come
+        # through — the guard drops only the nameless row, not the batch.
+        loc_id = str(uuid.uuid4())
+        org_id = str(uuid.uuid4())
+        await _seed_location_with_addresses(
+            db_session,
+            loc_id=loc_id,
+            org_id=org_id,
+            name="Mixed-Language Pantry",
+            lat=40.0,
+            lng=-74.0,
+            confidence=85,
+            address_count=1,
+        )
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO language (id, location_id, name, code)
+                VALUES
+                  (:id1, :loc, 'Spanish', 'es'),
+                  (:id2, :loc, NULL, 'fr')
+                """
+            ),
+            {
+                "id1": str(uuid.uuid4()),
+                "id2": str(uuid.uuid4()),
+                "loc": loc_id,
+            },
+        )
+        await db_session.commit()
+
+        service = BeaconSyncService(db_session, min_confidence=60)
+        result = await service.sync(page_size=1000)
+        by_id = {loc.id: loc for loc in result["locations"]}
+        assert loc_id in by_id
+        lang_names = [lang.name for lang in by_id[loc_id].languages]
+        assert lang_names == ["Spanish"], (
+            "the valid named language was dropped along with its nameless "
+            f"sibling — got {lang_names!r}"
+        )
+
+
 class TestBeaconSyncAccessibilityPerLocation:
     """Regression: `_q_accessibility` applied a single batch-wide
     `LIMIT 1`, so in any multi-location page AT MOST ONE location got
