@@ -2,7 +2,7 @@
 
 import urllib.parse
 import warnings
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -267,8 +267,10 @@ class Settings(BaseSettings):
     FEDERATION_PROFILE_URI: str = (
         "https://hsds-federation.pantrypirateradio.org/profile"
     )
-    # Allow-list policy: one of open | mutual | private.
-    FEDERATION_ALLOW_LIST_POLICY: str = "mutual"
+    # Allow-list policy: one of open | mutual | private. A Literal so a typo
+    # raises ValidationError at Settings construction (startup) rather than
+    # silently downgrading the advertised trust posture at serve time.
+    FEDERATION_ALLOW_LIST_POLICY: Literal["open", "mutual", "private"] = "mutual"
     # Operator contact (URL or email) advertised to peers; optional.
     FEDERATION_CONTACT: str | None = None
 

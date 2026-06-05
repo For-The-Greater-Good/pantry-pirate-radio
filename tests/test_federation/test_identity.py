@@ -66,6 +66,25 @@ def test_build_did_document_no_recovery_keys() -> None:
     assert methods[0]["id"] == "did:web:h.example#main-key"
 
 
+def test_build_did_document_uses_explicit_actor_url() -> None:
+    # When the node is served from a domain that differs from the DID host,
+    # alsoKnownAs must point at where the actor is actually served, not the
+    # did-host-derived fallback.
+    doc = build_did_document(
+        did="did:web:h.example",
+        public_key_multibase="zX",
+        actor_url="https://node.example/api/v1/federation/actor",
+    )
+    assert doc["alsoKnownAs"] == ["https://node.example/api/v1/federation/actor"]
+    assert "https://h.example/api/v1/federation/actor" not in doc["alsoKnownAs"]
+
+
+def test_build_did_document_actor_url_fallback_to_did_host() -> None:
+    # No actor_url provided: keep the did-host-derived fallback (P0.4 behavior).
+    doc = build_did_document(did="did:web:h.example", public_key_multibase="zX")
+    assert doc["alsoKnownAs"] == ["https://h.example/api/v1/federation/actor"]
+
+
 def test_load_signing_key_none_returns_none() -> None:
     assert load_signing_key(None) is None
 

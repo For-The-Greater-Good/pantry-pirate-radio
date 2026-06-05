@@ -22,6 +22,7 @@ Handlers read the module-level ``settings`` singleton at call time so tests can
 monkeypatch it.
 """
 
+import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -35,6 +36,8 @@ from app.federation.identity import (
     public_key_multibase,
 )
 
+_logger = structlog.get_logger(__name__)
+
 
 def _node_domain() -> str:
     """Resolve the node's public host, matching the discovery doc derivation."""
@@ -42,14 +45,26 @@ def _node_domain() -> str:
     return domain or "localhost"
 
 
+def _actor_url() -> str:
+    """The absolute actor URL this node serves (from the resolved node domain)."""
+    return f"https://{_node_domain()}/api/v1/federation/actor"
+
+
 def _signing_key_multibase() -> str | None:
     """Return the node's online public key as multibase, or ``None``.
 
     ``None`` when ``FEDERATION_DID`` is unset or no signing key is configured.
+    A *malformed* ``FEDERATION_SIGNING_KEY`` (``load_signing_key`` raises
+    ``ValueError``) is logged and treated as "no key" → callers 404 instead of
+    surfacing an opaque, un-logged 500 (Principle XI graceful / XII observable).
     """
     if not settings.FEDERATION_DID:
         return None
-    private_key = load_signing_key(settings.FEDERATION_SIGNING_KEY)
+    try:
+        private_key = load_signing_key(settings.FEDERATION_SIGNING_KEY)
+    except ValueError as exc:
+        _logger.error("federation_signing_key_invalid", error=str(exc))
+        return None
     if private_key is None:
         return None
     return public_key_multibase(private_key.public_key())
@@ -75,7 +90,7 @@ def register_federation_public_routes(app: FastAPI) -> None:
         if settings.FEDERATION_DID is None or mb is None:
             raise HTTPException(status_code=404, detail="DID not configured")
         return JSONResponse(
-            build_did_document(settings.FEDERATION_DID, mb),
+            build_did_document(settings.FEDERATION_DID, mb, actor_url=_actor_url()),
             media_type="application/json",
         )
 
@@ -86,9 +101,8 @@ def register_federation_public_routes(app: FastAPI) -> None:
         ``resource`` is a required query parameter — FastAPI returns 422 when
         it is absent.
         """
-        actor_url = f"https://{_node_domain()}/api/v1/federation/actor"
         return JSONResponse(
-            build_webfinger(resource, actor_url),
+            build_webfinger(resource, _actor_url()),
             media_type="application/jrd+json",
         )
 

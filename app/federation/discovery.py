@@ -16,8 +16,6 @@ slim-Lambda-safe (no Redis/LLM deps); Task 0.7 serves it from the slim Lambda.
 
 from app.core.config import Settings
 
-_ALLOWED_POLICIES = {"open", "mutual", "private"}
-
 
 def _host_from_did(did: str | None) -> str | None:
     """Derive the host from a ``did:web:<host>`` or ``https://<host>`` DID.
@@ -48,9 +46,9 @@ def build_discovery_doc(settings: Settings) -> dict:
 
     base = f"https://{domain}/api/v1/federation"
 
+    # FEDERATION_ALLOW_LIST_POLICY is a validated Literal on Settings, so a typo
+    # already failed at construction — use the value directly, no substitution.
     policy = settings.FEDERATION_ALLOW_LIST_POLICY
-    if policy not in _ALLOWED_POLICIES:
-        policy = "mutual"
 
     return {
         "did": settings.FEDERATION_DID,

@@ -117,6 +117,7 @@ def build_did_document(
     did: str,
     public_key_multibase: str,
     recovery_keys_multibase: list[str] | None = None,
+    actor_url: str | None = None,
 ) -> dict:
     """Build a W3C DID document with an ordered, priority-tagged key list.
 
@@ -124,6 +125,11 @@ def build_did_document(
     keys (offline, ``priority >= 10``) precede the online signing key
     (``#main-key``, ``priority == 1``). P3 enforces that a key change must be
     signed by a key of ``>=`` priority; P0 ships the schema only.
+
+    ``alsoKnownAs`` advertises where the actor doc is served. When ``actor_url``
+    is given it is used verbatim (the caller passes the URL built from the
+    resolved node domain, which may differ from the DID host); when ``None`` it
+    falls back to the did-host-derived URL.
     """
     main_key = {
         "id": f"{did}#main-key",
@@ -146,7 +152,9 @@ def build_did_document(
     # Highest priority first: recovery keys before the main key.
     verification_method = [*reversed(recovery_methods), main_key]
 
-    host = _host_from_did(did)
+    if actor_url is None:
+        host = _host_from_did(did)
+        actor_url = f"https://{host}/api/v1/federation/actor"
     return {
         "@context": [
             "https://www.w3.org/ns/did/v1",
@@ -156,7 +164,7 @@ def build_did_document(
         "verificationMethod": verification_method,
         "authentication": [f"{did}#main-key"],
         "assertionMethod": [f"{did}#main-key"],
-        "alsoKnownAs": [f"https://{host}/api/v1/federation/actor"],
+        "alsoKnownAs": [actor_url],
     }
 
 

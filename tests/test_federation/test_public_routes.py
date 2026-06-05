@@ -112,6 +112,17 @@ def test_did_json_404_when_did_set_but_no_signing_key(monkeypatch) -> None:
     assert client.get("/api/v1/federation/actor").status_code == 404
 
 
+def test_did_json_404_when_signing_key_malformed(monkeypatch) -> None:
+    # A misconfigured (malformed) signing key must be logged and treated as
+    # "no key" → 404, never an opaque 500 (Principle XI/XII).
+    settings = Settings(
+        FEDERATION_DID="did:web:node.example",
+        FEDERATION_SIGNING_KEY="not-a-valid-key",
+    )
+    client = _client_with_settings(monkeypatch, settings)
+    assert client.get("/.well-known/did.json").status_code == 404
+
+
 def test_webfinger_resolves_actor_url(monkeypatch) -> None:
     settings = Settings(FEDERATION_DOMAIN="node.public.example")
     client = _client_with_settings(monkeypatch, settings)

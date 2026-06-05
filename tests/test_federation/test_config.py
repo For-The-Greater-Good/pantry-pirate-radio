@@ -1,3 +1,6 @@
+import pydantic
+import pytest
+
 from app.core.config import Settings
 
 
@@ -10,3 +13,15 @@ def test_federation_settings_have_safe_defaults():
     assert s.FEDERATION_DID is None or s.FEDERATION_DID.startswith(
         ("did:web:", "https://")
     )
+
+
+def test_allow_list_policy_rejects_typo():
+    # A typo on this access-control field must error at construction (startup),
+    # not silently downgrade the advertised trust posture at serve time.
+    with pytest.raises(pydantic.ValidationError):
+        Settings(FEDERATION_ALLOW_LIST_POLICY="bogus")
+
+
+def test_allow_list_policy_accepts_valid_value():
+    s = Settings(FEDERATION_ALLOW_LIST_POLICY="private")
+    assert s.FEDERATION_ALLOW_LIST_POLICY == "private"
