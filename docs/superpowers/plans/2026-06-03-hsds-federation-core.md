@@ -10,6 +10,18 @@
 
 ---
 
+## Build status (updated 2026-06-05)
+
+> Next-session entry point: [`../NEXT-SESSION.md`](../NEXT-SESSION.md). Issue map in [`../federation-github-epic.md`](../federation-github-epic.md).
+
+- **P0 — Foundations: DONE, merged to `main`** (PR #545; phase #520 + tasks #529–#537 closed). Identity/discovery/WebFinger/actor in both envs, JCS canonicalization (fuzzed 1.52M values vs V8, 0 mismatches), RFC 9421/Ed25519 signing, SSRF-hardened fetch, multi-file HSDS Profile. Built via subagent-driven-development + the PR Gauntlet (all blocking findings fixed + re-verified, incl. a real SSRF IPv4-mapped-IPv6 bypass).
+- **P0.5 — De-risking spike: DONE → GO accepted** (phase #521 closed). Memo: [`../research/2026-06-05-federation-p05-go-no-go.md`](../research/2026-06-05-federation-p05-go-no-go.md). The **in-place dense-sequence advisory-lock append is proven** (gapless/skip-free under real concurrency; M5 impossible; write-cost p99 ~0.2 ms). §6.2f relay/CDC fallback NOT taken. P1–P7 hard-gate **cleared**.
+- **HSDS version decision:** pinned **3.1.1** (owner-confirmed on #522) — the models implement 3.1.1, not the submodule's 3.2.3; advertising 3.2 would violate Principle II. **This supersedes the design's "pin the 3.2 line" note** (design §7) — see #522. 3.2-model work is a separate follow-up.
+- **P1 — Verifiable publish: IN PROGRESS.** Bite-sized plan: [`2026-06-05-hsds-federation-p1-publish.md`](2026-06-05-hsds-federation-p1-publish.md) (15 tasks, 4-PR split). **PR-A (decomposition) is open as DRAFT #549** — `job_processor.py` 1892→1328, commit branches extracted to `app/reconciler/location_commit.py` (531) + `location_match.py` (193), suite green, no behavior change. Remaining on PR-A: the Task -1 HSDS-3.1.1 CI guard + the PR Gauntlet → mark ready. Then PR-B (RED-tier substrate) → PR-C (hooks/kill-switch/endpoints) → PR-D (cold-start/archive/HSDS-FX/reference-node/golden).
+- **Incidental (independent of federation):** the P0.5 spike surfaced two real Beacon data-loss bugs, fixed + merged (PR #546); deeper follow-ups filed (#547 CloudWatch alarm on `beacon_transform_failed`; #548 per-child isolation).
+
+---
+
 ## How this living plan is structured (read before executing)
 
 This feature spans phases P0–P7 plus the P0.5 hard-gate spike, across many sessions. Per the writing-plans Scope Check, it is **not** one bite-sized plan — it is a **living roadmap + per-phase plans**, each shipping working, tested software on its own:
