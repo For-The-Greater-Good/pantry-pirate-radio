@@ -195,7 +195,7 @@ Application source files MUST NOT exceed 600 lines of code.
 | File | Lines | Status |
 |------|-------|--------|
 | `app/haarrrvest_publisher/service.py` | 1669 | Needs decomposition |
-| `app/reconciler/job_processor.py` | 1328 | Partially decomposed — per-location commit & match logic extracted to `location_commit.py` (531) + `location_match.py` (195), both <600; further decomposition needed |
+| `app/reconciler/job_processor.py` | 1328 | Partially decomposed — per-location commit & match logic extracted to `location_commit.py` (531) + `location_match.py` (193), both <600; further decomposition needed |
 | `app/llm/hsds_aligner/schema_converter.py` | 1498 | Needs decomposition |
 | `app/datasette/exporter.py` | 1181 | Needs decomposition |
 | `app/reconciler/service_creator.py` | 990 | Needs decomposition |
