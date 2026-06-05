@@ -102,17 +102,21 @@ def verify_request(
     now: int,
 ) -> None:
     """Verify a signed request. Raise ``SignatureError`` on any failure."""
-    received_digest = headers.get("Content-Digest")
+    # ASGI/Starlette lowercases header keys, so normalize before lookup — a
+    # case-sensitive get would silently reject every valid signature from a
+    # real request.headers mapping.
+    h = {k.lower(): v for k, v in headers.items()}
+    received_digest = h.get("content-digest")
     if received_digest is None:
         raise SignatureError("missing Content-Digest header")
     # 1. Body integrity: recomputed digest must match the header.
     if _content_digest(body) != received_digest:
         raise SignatureError("content-digest mismatch (body tampered)")
 
-    signature_input = headers.get("Signature-Input")
+    signature_input = h.get("signature-input")
     if signature_input is None:
         raise SignatureError("missing Signature-Input header")
-    signature_header = headers.get("Signature")
+    signature_header = h.get("signature")
     if signature_header is None:
         raise SignatureError("missing Signature header")
 

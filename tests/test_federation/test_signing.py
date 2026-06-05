@@ -60,3 +60,27 @@ def test_sign_then_verify_roundtrips_and_rejects_tamper():
             max_skew_seconds=300,
             now=1780600060,
         )
+
+
+def test_verify_request_lowercased_headers():
+    # Real ASGI/Starlette headers are lowercased; verify must look them up
+    # case-insensitively so a P3 /inbox handler passing request.headers works.
+    priv, pub = _keys()
+    headers = sign_request(
+        priv,
+        "did:web:h.example#main-key",
+        "POST",
+        "https://h.example/federation/inbox",
+        body=b'{"x":1}',
+        created=1780600000,
+    )
+    lowered = {k.lower(): v for k, v in headers.items()}
+    verify_request(
+        pub,
+        "POST",
+        "https://h.example/federation/inbox",
+        lowered,
+        body=b'{"x":1}',
+        max_skew_seconds=300,
+        now=1780600060,
+    )

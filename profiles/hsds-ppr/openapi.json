@@ -42,7 +42,7 @@
     "/api/v1/federation/actor": {
       "get": {
         "summary": "Federation actor / node identity",
-        "description": "Returns this node's federation actor document, including its DID and public signing keys. Optional profile endpoint; lands fully in P1.",
+        "description": "Returns this node's federation actor document, including its DID and public signing keys. Served in P0; the data endpoints (/export, /inbox, /history) are forthcoming (P1/P3).",
         "operationId": "federationActor",
         "tags": ["federation"],
         "responses": {
