@@ -359,7 +359,7 @@ async def get_api_metadata() -> dict[str, str]:
     """
     return {
         "version": "3.1.1",
-        "profile": "https://docs.openhumanservices.org/hsds/",
+        "profile": settings.FEDERATION_PROFILE_URI,
         "openapi_url": "/openapi.json",
         "documentation_url": "/docs",
         "api_status": "healthy",

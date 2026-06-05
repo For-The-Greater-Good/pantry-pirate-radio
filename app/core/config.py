@@ -2,7 +2,7 @@
 
 import urllib.parse
 import warnings
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -239,6 +239,40 @@ class Settings(BaseSettings):
     SUBMARINE_COOLDOWN_ERROR_DAYS: int = Field(
         default=_SHARED["SUBMARINE_COOLDOWN_ERROR_DAYS"], ge=0
     )
+
+    # Federation Settings (HSDS federation core)
+    FEDERATION_ENABLED: bool = True
+    FEDERATION_DID: str | None = (
+        None  # did:web:<domain> for this node; None disables publish identity
+    )
+    FEDERATION_SIGNING_KEY: str | None = (
+        None  # Ed25519 private key (PEM/base64); secret — never committed
+    )
+    FEDERATION_RETENTION_DAYS: int = Field(default=365, ge=1)
+    FEDERATION_DATE_SKEW_SECONDS: int = Field(default=300, ge=1)
+    FEDERATION_INGEST_MAX_RECORDS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
+    FEDERATION_INGEST_MAX_LLM_JOBS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
+    FEDERATION_EXPORT_PAGE_SIZE: int = Field(default=1000, ge=1, le=10_000)
+    # Discovery document (.well-known/hsds-federation) — §8.4 / §6.7.
+    # HSDS versions advertised. Set-membership, NOT exact-match (§8.4): a peer
+    # accepts us if any advertised version is mutually supported. Default
+    # tracks the version the Pydantic models and API root genuinely implement
+    # (the docs/HSDS submodule is pinned at 3.2.3, but the models still omit
+    # decisive 3.2 fields — additional_websites / additional_urls / the
+    # attributes & metadata collections — so we do NOT advertise 3.2 here).
+    FEDERATION_HSDS_VERSIONS: list[str] = Field(default_factory=lambda: ["3.1.1"])
+    # Node public host for absolute endpoint URLs; falls back to the DID host.
+    FEDERATION_DOMAIN: str | None = None
+    # Canonical PPR HSDS profile URI (Task 0.8 aligns router.py to this value).
+    FEDERATION_PROFILE_URI: str = (
+        "https://hsds-federation.pantrypirateradio.org/profile"
+    )
+    # Allow-list policy: one of open | mutual | private. A Literal so a typo
+    # raises ValidationError at Settings construction (startup) rather than
+    # silently downgrading the advertised trust posture at serve time.
+    FEDERATION_ALLOW_LIST_POLICY: Literal["open", "mutual", "private"] = "mutual"
+    # Operator contact (URL or email) advertised to peers; optional.
+    FEDERATION_CONTACT: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

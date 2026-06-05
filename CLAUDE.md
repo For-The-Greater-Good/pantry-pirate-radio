@@ -953,6 +953,41 @@ The authenticated write API for location data management is now a separate plugi
 
 See `plugins/ppr-write-api/CLAUDE.md` for full documentation.
 
+## Federation (HSDS federation core)
+
+### Federation (core) — P0 foundations
+
+Every PPR deployment is (becoming) a federating node in an open HSDS food-resource network — peers discover each other, publish signed snapshots of their data, and pull/corroborate each other's records. Federation is a **core capability, on by default** (gated by nothing in P0; the `FEDERATION_ENABLED` kill switch the publish surface will sit behind is fully enforced in P1). Design of record: `docs/superpowers/specs/2026-06-03-hsds-federation-core-design.md`; living plan: `docs/superpowers/plans/2026-06-03-hsds-federation-core.md`; epic #519.
+
+**P0 surface shipped (discoverable in BOTH Uvicorn and the slim Lambda):** registered via `app/federation/routes_public.py:register_federation_public_routes`, wired into both apps.
+- `GET /.well-known/hsds-federation` — federation discovery doc.
+- `GET /.well-known/did.json` — `did:web` document with the ordered recovery-key schema (design §6.1a). Returns 404 until both `FEDERATION_DID` and `FEDERATION_SIGNING_KEY` are configured.
+- `GET /.well-known/webfinger?resource=` — RFC 7033 JRD.
+- `GET /api/v1/federation/actor` — ActivityStreams actor document.
+
+**Primitives in `app/federation/`:**
+- `fetch.py` — SSRF-hardened outbound egress helper: HTTPS-only, blocks internal IPs / CGNAT / IPv6-ULA. **Note:** the DNS-rebinding connect-pin and the streaming byte-cap are deferred to P2/P3 and are hard gates on the first real outbound fetch (no live peer fetch happens in P0).
+- `canonical.py` — RFC 8785 JCS canonicalization (minimal serializer, ES6 number formatting); the normative byte form used for hashing/signing. Entry point `jcs_bytes()`.
+- `signing.py` — minimal RFC 9421 Ed25519 HTTP Message Signatures + RFC 9530 `Content-Digest`.
+- `identity.py` — `did:web` doc, actor, WebFinger, Ed25519 key loading, base58btc multibase encoding.
+- `discovery.py` — the discovery-doc builder.
+
+**Config (on by default):**
+- `FEDERATION_ENABLED` (default `True`) — the publish-surface kill switch (fully enforced in P1).
+- `FEDERATION_DID`, `FEDERATION_SIGNING_KEY` (secret), `FEDERATION_HSDS_VERSIONS`, `FEDERATION_DOMAIN`, `FEDERATION_PROFILE_URI`, `FEDERATION_ALLOW_LIST_POLICY`, `FEDERATION_CONTACT`, `FEDERATION_RETENTION_DAYS`, `FEDERATION_DATE_SKEW_SECONDS`, `FEDERATION_INGEST_MAX_RECORDS_PER_PEER_PER_DAY`, `FEDERATION_INGEST_MAX_LLM_JOBS_PER_PEER_PER_DAY`, `FEDERATION_EXPORT_PAGE_SIZE`.
+
+**HSDS version note (Principle II):** the API advertises HSDS **3.1.1** because the Pydantic models in `app/models/hsds/` genuinely implement the 3.1.1 shape. The vendored `docs/HSDS/` submodule is v3.2.3 — a spec-only bump; the models do **not** yet carry 3.2's `additional_websites` / `additional_urls` / `attributes` / `metadata`, so advertising 3.2.3 would overstate conformance. The multi-file HSDS Profile lives at `profiles/hsds-ppr/` (RFC 7386 merge patches adding optional `confidence_score` / `verified_by` / `sources`) and is advertised via the API root `profile` field (`= settings.FEDERATION_PROFILE_URI`).
+
+**`source_type='federated_node'`:** the reserved `location_source.source_type` value that federated peers' records will carry once ingest lands (P2). Reserved only — **not yet wired in P0**.
+
+**Forthcoming (NOT in P0):**
+- **P1** — the verifiable Merkle log + signed checkpoints + `/api/v1/federation/export | state.txt | checkpoint | history`.
+- **P2** — pull ingest + corroboration (and the `federated_node` source_type wiring).
+- **P3** — `/inbox` push delivery.
+- **P4** — the `./bouy federation` peer-add/remove/list/status command family.
+
+**`federation_*` structlog grep targets:** none emitted in P0; these will be enumerated per phase starting P1 (per design §14) — e.g. (P1+: `federation_checkpoint_published`, `federation_proof_failed`, `federation_consistency_failed`, `federation_killswitch_active`, …).
+
 ## Plugin System
 
 Plugins extend Pantry Pirate Radio with additional commands, compose overlays, and CDK stacks.
