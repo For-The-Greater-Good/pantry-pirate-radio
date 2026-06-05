@@ -101,6 +101,7 @@ class TestBouyDeployArgParsing:
             "tput",
             "cut",
             "date",
+            "echo",
         ]:
             src = shutil.which(cmd)
             assert src, f"required tool missing from host: {cmd}"
@@ -225,6 +226,7 @@ class TestBouyScraperAwsArgParsing:
             "tput",
             "cut",
             "date",
+            "echo",
         ]:
             src = shutil.which(cmd)
             assert src, f"required tool missing from host: {cmd}"
