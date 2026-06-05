@@ -777,3 +777,105 @@ class TestBeaconSyncPhoneExtension:
         assert loc_id in by_id
         assert len(by_id[loc_id].phones) == 1
         assert by_id[loc_id].phones[0].extension is None
+
+
+class TestBeaconSyncAccessibilityPerLocation:
+    """Regression: `_q_accessibility` applied a single batch-wide
+    `LIMIT 1`, so in any multi-location page AT MOST ONE location got
+    its accessibility data — every other location returned
+    `accessibility: null` even when it had accessibility rows."""
+
+    @pytest.mark.asyncio
+    async def test_each_location_keeps_its_own_accessibility(
+        self, db_session: AsyncSession
+    ) -> None:
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        for loc_id, name in ((loc_a, "Accessible A"), (loc_b, "Accessible B")):
+            await _seed_location_with_addresses(
+                db_session,
+                loc_id=loc_id,
+                org_id=str(uuid.uuid4()),
+                name=name,
+                lat=40.0,
+                lng=-74.0,
+                confidence=85,
+                address_count=1,
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO accessibility
+                        (id, location_id, description, details, url)
+                    VALUES (:id, :loc, :desc, 'Ramp at side entrance',
+                            'https://example.com/access')
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "desc": f"Accessible entrance for {name}",
+                },
+            )
+        await db_session.commit()
+
+        service = BeaconSyncService(db_session, min_confidence=60)
+        acc = await service._q_accessibility([loc_a, loc_b])
+        # Pre-fix: the batch-wide LIMIT 1 means only ONE of the two ids
+        # is a key in the dict.
+        assert loc_a in acc, (
+            "location A missing accessibility — batch-wide LIMIT 1 only "
+            "returned one accessibility row for the whole page"
+        )
+        assert loc_b in acc, (
+            "location B missing accessibility — batch-wide LIMIT 1 only "
+            "returned one accessibility row for the whole page"
+        )
+
+    @pytest.mark.asyncio
+    async def test_both_locations_populated_in_sync_output(
+        self, db_session: AsyncSession
+    ) -> None:
+        # End-to-end: both locations on the same page must carry their
+        # accessibility block through `sync()`.
+        loc_a = str(uuid.uuid4())
+        loc_b = str(uuid.uuid4())
+        for loc_id, name in ((loc_a, "Sync Access A"), (loc_b, "Sync Access B")):
+            await _seed_location_with_addresses(
+                db_session,
+                loc_id=loc_id,
+                org_id=str(uuid.uuid4()),
+                name=name,
+                lat=40.0,
+                lng=-74.0,
+                confidence=85,
+                address_count=1,
+            )
+            await db_session.execute(
+                text(
+                    """
+                    INSERT INTO accessibility
+                        (id, location_id, description, details, url)
+                    VALUES (:id, :loc, :desc, NULL, NULL)
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),
+                    "loc": loc_id,
+                    "desc": f"Wheelchair accessible — {name}",
+                },
+            )
+        await db_session.commit()
+
+        service = BeaconSyncService(db_session, min_confidence=60)
+        result = await service.sync(page_size=1000)
+        by_id = {loc.id: loc for loc in result["locations"]}
+        assert loc_a in by_id and loc_b in by_id
+        assert by_id[loc_a].accessibility is not None, (
+            "location A lost its accessibility — batch-wide LIMIT 1 "
+            "populated only one location per page"
+        )
+        assert by_id[loc_b].accessibility is not None, (
+            "location B lost its accessibility — batch-wide LIMIT 1 "
+            "populated only one location per page"
+        )

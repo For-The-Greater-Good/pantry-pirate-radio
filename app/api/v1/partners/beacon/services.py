@@ -316,10 +316,16 @@ class BeaconSyncService:
         return out
 
     async def _q_accessibility(self, ids: list[str]) -> dict[str, Any]:
+        # One accessibility row PER location. A bare `LIMIT 1` was
+        # batch-wide, so only ONE location per multi-location page got
+        # accessibility data. DISTINCT ON keeps one deterministic row per
+        # location (lowest id tiebreak, mirroring the address LATERAL pick).
         r = await self._session.execute(
             text(
-                "SELECT location_id, description, details, url "
-                "FROM accessibility WHERE location_id = ANY(:ids) LIMIT 1"
+                "SELECT DISTINCT ON (location_id) "
+                "location_id, description, details, url "
+                "FROM accessibility WHERE location_id = ANY(:ids) "
+                "ORDER BY location_id, id"
             ),
             {"ids": ids},
         )
