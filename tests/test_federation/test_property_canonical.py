@@ -53,7 +53,7 @@ def _shuffle_dict_order(d, ordering):
         return dict(d)
     perm = ordering % math.factorial(len(keys)) if len(keys) <= 7 else ordering
     # Simple rotation-based reordering is enough to exercise insertion order:
-    rotated = keys[perm % len(keys):] + keys[: perm % len(keys)]
+    rotated = keys[perm % len(keys) :] + keys[: perm % len(keys)]
     return {k: d[k] for k in rotated}
 
 
@@ -85,7 +85,9 @@ def test_canonical_output_is_valid_utf8_and_round_trips(obj):
 
 
 @settings(max_examples=200)
-@given(x=st.floats(allow_nan=False, allow_infinity=False, min_value=-1e15, max_value=1e15))
+@given(
+    x=st.floats(allow_nan=False, allow_infinity=False, min_value=-1e15, max_value=1e15)
+)
 def test_finite_floats_round_trip_by_value(x):
     """A finite float canonicalizes to a token that parses back to the same value."""
     raw = jcs_bytes({"n": x})

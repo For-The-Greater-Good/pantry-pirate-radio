@@ -37,7 +37,11 @@ def _fresh_keys() -> tuple[Ed25519PrivateKey, object]:
 
 
 @settings(max_examples=200)
-@given(body=_bodies, created=_epochs, drift=st.integers(min_value=-_MAX_SKEW, max_value=_MAX_SKEW))
+@given(
+    body=_bodies,
+    created=_epochs,
+    drift=st.integers(min_value=-_MAX_SKEW, max_value=_MAX_SKEW),
+)
 def test_sign_then_verify_always_roundtrips_within_skew(body, created, drift):
     """A freshly signed request verifies whenever ``now`` is within the skew."""
     private_key, public_key = _fresh_keys()
@@ -54,7 +58,12 @@ def test_sign_then_verify_always_roundtrips_within_skew(body, created, drift):
 
 
 @settings(max_examples=200)
-@given(body=_bodies, created=_epochs, index=st.integers(min_value=0), flip=st.integers(min_value=1, max_value=255))
+@given(
+    body=_bodies,
+    created=_epochs,
+    index=st.integers(min_value=0),
+    flip=st.integers(min_value=1, max_value=255),
+)
 def test_flipping_any_body_byte_is_rejected(body, created, index, flip):
     """Mutating any byte of a non-empty body fails the content-digest check."""
     assume(len(body) > 0)
@@ -100,7 +109,9 @@ def test_verifying_with_a_different_key_is_rejected(body, created):
 
 
 @settings(max_examples=200)
-@given(body=_bodies, created=_epochs, overshoot=st.integers(min_value=1, max_value=10_000))
+@given(
+    body=_bodies, created=_epochs, overshoot=st.integers(min_value=1, max_value=10_000)
+)
 def test_created_outside_skew_is_rejected_at_the_boundary(body, created, overshoot):
     """Exactly ``== max_skew`` passes; one second beyond (either side) fails."""
     private_key, public_key = _fresh_keys()
@@ -108,20 +119,35 @@ def test_created_outside_skew_is_rejected_at_the_boundary(body, created, oversho
 
     # Boundary: |now - created| == max_skew must still verify.
     verify_request(
-        public_key, _METHOD, _URI, headers,
-        body=body, max_skew_seconds=_MAX_SKEW, now=created + _MAX_SKEW,
+        public_key,
+        _METHOD,
+        _URI,
+        headers,
+        body=body,
+        max_skew_seconds=_MAX_SKEW,
+        now=created + _MAX_SKEW,
     )
     verify_request(
-        public_key, _METHOD, _URI, headers,
-        body=body, max_skew_seconds=_MAX_SKEW, now=created - _MAX_SKEW,
+        public_key,
+        _METHOD,
+        _URI,
+        headers,
+        body=body,
+        max_skew_seconds=_MAX_SKEW,
+        now=created - _MAX_SKEW,
     )
 
     # One past the window in either direction must be rejected.
     for now in (created + _MAX_SKEW + overshoot, created - _MAX_SKEW - overshoot):
         with pytest.raises(SignatureError):
             verify_request(
-                public_key, _METHOD, _URI, headers,
-                body=body, max_skew_seconds=_MAX_SKEW, now=now,
+                public_key,
+                _METHOD,
+                _URI,
+                headers,
+                body=body,
+                max_skew_seconds=_MAX_SKEW,
+                now=now,
             )
 
 
@@ -130,7 +156,9 @@ def test_created_outside_skew_is_rejected_at_the_boundary(body, created, oversho
     body=_bodies,
     created=_epochs,
     header_name=st.sampled_from(["Signature", "Content-Digest", "Signature-Input"]),
-    corruption=st.sampled_from(["", "garbage", "sig1=:!!!notb64!!!:", "sig1=:YWJjZA==:", "x" * 80]),
+    corruption=st.sampled_from(
+        ["", "garbage", "sig1=:!!!notb64!!!:", "sig1=:YWJjZA==:", "x" * 80]
+    ),
 )
 def test_corrupting_a_signed_header_raises_signature_error_not_a_crash(
     body, created, header_name, corruption
