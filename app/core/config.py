@@ -253,6 +253,24 @@ class Settings(BaseSettings):
     FEDERATION_INGEST_MAX_RECORDS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
     FEDERATION_INGEST_MAX_LLM_JOBS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
     FEDERATION_EXPORT_PAGE_SIZE: int = Field(default=1000, ge=1, le=10_000)
+    # Discovery document (.well-known/hsds-federation) — §8.4 / §6.7.
+    # HSDS versions advertised. Set-membership, NOT exact-match (§8.4): a peer
+    # accepts us if any advertised version is mutually supported. Default
+    # tracks the version the Pydantic models and API root genuinely implement
+    # (the docs/HSDS submodule is pinned at 3.2.3, but the models still omit
+    # decisive 3.2 fields — additional_websites / additional_urls / the
+    # attributes & metadata collections — so we do NOT advertise 3.2 here).
+    FEDERATION_HSDS_VERSIONS: list[str] = Field(default_factory=lambda: ["3.1.1"])
+    # Node public host for absolute endpoint URLs; falls back to the DID host.
+    FEDERATION_DOMAIN: str | None = None
+    # Canonical PPR HSDS profile URI (Task 0.8 aligns router.py to this value).
+    FEDERATION_PROFILE_URI: str = (
+        "https://hsds-federation.pantrypirateradio.org/profile"
+    )
+    # Allow-list policy: one of open | mutual | private.
+    FEDERATION_ALLOW_LIST_POLICY: str = "mutual"
+    # Operator contact (URL or email) advertised to peers; optional.
+    FEDERATION_CONTACT: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
