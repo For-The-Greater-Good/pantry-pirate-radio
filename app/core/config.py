@@ -240,6 +240,20 @@ class Settings(BaseSettings):
         default=_SHARED["SUBMARINE_COOLDOWN_ERROR_DAYS"], ge=0
     )
 
+    # Federation Settings (HSDS federation core)
+    FEDERATION_ENABLED: bool = True
+    FEDERATION_DID: str | None = (
+        None  # did:web:<domain> for this node; None disables publish identity
+    )
+    FEDERATION_SIGNING_KEY: str | None = (
+        None  # Ed25519 private key (PEM/base64); secret — never committed
+    )
+    FEDERATION_RETENTION_DAYS: int = Field(default=365, ge=1)
+    FEDERATION_DATE_SKEW_SECONDS: int = Field(default=300, ge=1)
+    FEDERATION_INGEST_MAX_RECORDS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
+    FEDERATION_INGEST_MAX_LLM_JOBS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
+    FEDERATION_EXPORT_PAGE_SIZE: int = Field(default=1000, ge=1, le=10_000)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
