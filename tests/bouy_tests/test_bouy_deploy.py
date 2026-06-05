@@ -6,6 +6,7 @@ or Docker.
 """
 
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -89,10 +90,27 @@ class TestBouyDeployArgParsing:
         # Create a minimal PATH that has basic utils but not aws
         fake_bin = tmp_path / "bin"
         fake_bin.mkdir()
-        for cmd in ["dirname", "basename", "xargs", "sed", "grep", "cat", "id", "tput"]:
-            src = f"/usr/bin/{cmd}"
-            if os.path.exists(src):
-                (fake_bin / cmd).symlink_to(src)
+        for cmd in [
+            "dirname",
+            "basename",
+            "xargs",
+            "sed",
+            "grep",
+            "cat",
+            "id",
+            "tput",
+            "cut",
+            "date",
+            "echo",
+        ]:
+            src = shutil.which(cmd)
+            assert src, f"required tool missing from host: {cmd}"
+            (fake_bin / cmd).symlink_to(src)
+        # Stage a docker stub that always succeeds so bouy's docker check
+        # passes and the flow reaches the AWS CLI check under test.
+        fake_docker = fake_bin / "docker"
+        fake_docker.write_text("#!/bin/bash\nexit 0\n")
+        fake_docker.chmod(0o755)
         env["PATH"] = str(fake_bin)
 
         result = subprocess.run(
@@ -197,10 +215,27 @@ class TestBouyScraperAwsArgParsing:
         env = os.environ.copy()
         fake_bin = tmp_path / "bin"
         fake_bin.mkdir()
-        for cmd in ["dirname", "basename", "xargs", "sed", "grep", "cat", "id", "tput"]:
-            src = f"/usr/bin/{cmd}"
-            if os.path.exists(src):
-                (fake_bin / cmd).symlink_to(src)
+        for cmd in [
+            "dirname",
+            "basename",
+            "xargs",
+            "sed",
+            "grep",
+            "cat",
+            "id",
+            "tput",
+            "cut",
+            "date",
+            "echo",
+        ]:
+            src = shutil.which(cmd)
+            assert src, f"required tool missing from host: {cmd}"
+            (fake_bin / cmd).symlink_to(src)
+        # Stage a docker stub that always succeeds so bouy's docker check
+        # passes and the flow reaches the AWS CLI check under test.
+        fake_docker = fake_bin / "docker"
+        fake_docker.write_text("#!/bin/bash\nexit 0\n")
+        fake_docker.chmod(0o755)
         env["PATH"] = str(fake_bin)
 
         result = subprocess.run(

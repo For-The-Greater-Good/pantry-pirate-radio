@@ -628,7 +628,7 @@ jobs:
       - name: Run bouy unit tests
         run: |
           # Run Python unit tests for bouy functions using isolated runner
-          poetry run python run_bouy_tests.py test_bouy_unit.py test_bouy_simplified.py
+          poetry run python run_bouy_tests.py test_bouy_unit.py test_bouy_simplified.py test_bouy_onepassword.py test_bouy_setup.py test_bouy_deploy.py
 
       - name: Run bouy integration tests
         run: |

@@ -397,7 +397,8 @@ exit 1
     def test_service_not_running_error(self, failing_compose, bouy_path):
         """Test error when service is not running."""
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = failing_compose
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = failing_compose
         env["PROGRAMMATIC_MODE"] = "1"
 
         result = subprocess.run(
@@ -488,7 +489,8 @@ class TestBouyModes:
     def test_verbose_mode(self, mock_compose, bouy_path):
         """Test verbose mode shows extra output."""
         env = os.environ.copy()
-        env["COMPOSE_CMD"] = mock_compose
+        env["BOUY_TEST_MODE"] = "1"
+        env["BOUY_TEST_COMPOSE_CMD"] = mock_compose
 
         result = subprocess.run(
             [bouy_path, "--verbose", "status"],

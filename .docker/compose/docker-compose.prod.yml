@@ -9,7 +9,9 @@ services:
     command: ["app"]
     ports:
       - "8000:8000"
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     depends_on:
       - db
       - cache
@@ -28,7 +30,9 @@ services:
     command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     networks:
       - backend
     environment:
@@ -62,7 +66,9 @@ services:
   recorder:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["recorder"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -79,7 +85,9 @@ services:
   reconciler:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["reconciler"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -96,7 +104,9 @@ services:
   scraper:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["scraper"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -115,7 +125,9 @@ services:
   validator:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["validator"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -136,7 +148,9 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -161,7 +175,9 @@ services:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["rq-dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 9181:rq-dashboard:9181 user@server
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - REDIS_URL=${REDIS_URL}
     depends_on:
@@ -173,7 +189,9 @@ services:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["dashboard"]
     # NO PORTS EXPOSED - access via SSH tunnel: ssh -L 5050:content-store-dashboard:5050 user@server
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -191,7 +209,9 @@ services:
   haarrrvest-publisher:
     image: ${DOCKER_REGISTRY:-ghcr.io/for-the-greater-good/pantry-pirate-radio}:${DOCKER_TAG:-latest}
     command: ["publisher"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - DATA_REPO_PATH=/data-repo

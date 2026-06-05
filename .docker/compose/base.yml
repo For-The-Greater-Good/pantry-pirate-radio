@@ -9,7 +9,9 @@ services:
     command: ["app"]
     ports:
       - "8000:8000"
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Allow override of content store path (defaults to /data-repo)
       - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
@@ -31,7 +33,9 @@ services:
     command: ["worker"]
     ports:
       - "8080-8089:8080"  # Claude health check port range for scaling
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Worker-specific overrides
       - CLAUDE_HEALTH_SERVER=true
@@ -53,7 +57,9 @@ services:
   recorder:
     image: pantry-pirate-radio:latest
     command: ["recorder"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Recorder-specific paths
       - OUTPUT_DIR=/app/outputs
@@ -76,7 +82,9 @@ services:
   scraper:
     image: pantry-pirate-radio:latest
     command: ["scraper"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Allow override of content store path (defaults to /data-repo)
       - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
@@ -96,7 +104,9 @@ services:
   reconciler:
     image: pantry-pirate-radio:latest
     command: ["reconciler"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Allow override of content store path (defaults to /data-repo)
       - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
@@ -115,7 +125,9 @@ services:
   validator:
     image: pantry-pirate-radio:latest
     command: ["validator"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Enable debug logging for validator
       - LOG_LEVEL=DEBUG
@@ -138,7 +150,9 @@ services:
   submarine:
     image: pantry-pirate-radio:latest
     command: ["submarine"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - LOG_LEVEL=DEBUG
       - CONTENT_STORE_PATH=${CONTENT_STORE_PATH:-/data-repo}
@@ -156,7 +170,9 @@ services:
   haarrrvest-publisher:
     image: pantry-pirate-radio:latest
     command: ["publisher"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Publisher-specific paths and defaults
       - OUTPUT_DIR=/app/outputs
@@ -183,7 +199,9 @@ services:
 
   db:
     image: postgis/postgis:15-3.3
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     # Database credentials loaded from .env file
     shm_size: 2gb  # Shared memory for PostGIS operations (clustering queries need substantial space)
     volumes:
@@ -200,7 +218,9 @@ services:
   db-init:
     image: pantry-pirate-radio:latest
     command: ["db-init"]
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       # Database connection overrides for init
       - POSTGRES_HOST=db
@@ -242,7 +262,9 @@ services:
     command: ["rq-dashboard"]
     ports:
       - "9181:9181"
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     # Redis URL loaded from .env file
     depends_on:
       - cache
@@ -252,7 +274,9 @@ services:
     command: ["dashboard"]
     ports:
       - "5050:5050"
-    env_file: ../../.env
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       - DASHBOARD_HOST=0.0.0.0  # Required for container networking
       - DASHBOARD_PORT=5050

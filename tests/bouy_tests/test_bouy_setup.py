@@ -45,21 +45,31 @@ class TestBouySetup:
         test_env_example = Path(temp_dir) / ".env.example"
         shutil.copy(original_env_example, test_env_example)
 
+        # bouy aborts immediately unless a compose file exists; provide the
+        # minimal skeleton its detection check looks for.
+        compose_dir = Path(temp_dir) / ".docker" / "compose"
+        compose_dir.mkdir(parents=True)
+        (compose_dir / "base.yml").write_text("services: {}\n")
+
         return str(test_bouy)
 
     def test_prompt_with_default_function(self, test_env):
         """Test the prompt_with_default function."""
-        # Create a test script that uses prompt_with_default
-        test_script = """
+        # Source from an absolute path (the subprocess cwd is not guaranteed to
+        # be the repo root) and feed stdin with a here-string rather than a
+        # pipe: piping runs the function in a subshell, so the variable it sets
+        # would never reach the parent shell that reads it back.
+        functions_path = Path(__file__).parent.parent.parent / "bouy-functions.sh"
+        test_script = f"""
         #!/bin/bash
-        source ./bouy-functions.sh
+        source "{functions_path}"
 
         # Simulate user input
-        echo "test_value" | prompt_with_default "Enter value" "default" "TEST_VAR"
+        prompt_with_default "Enter value" "default" "TEST_VAR" <<< "test_value"
         echo "TEST_VAR=$TEST_VAR"
 
         # Test with empty input (should use default)
-        echo "" | prompt_with_default "Enter value" "default_value" "TEST_VAR2"
+        prompt_with_default "Enter value" "default_value" "TEST_VAR2" <<< ""
         echo "TEST_VAR2=$TEST_VAR2"
         """
 
@@ -109,9 +119,10 @@ class TestBouySetup:
             env=test_env,
         )
 
-        # Check that setup completed successfully
+        # Check that setup completed successfully. `output success` routes to
+        # stderr in normal mode, so check the combined streams.
         assert result.returncode == 0
-        assert ".env file created successfully!" in result.stdout
+        assert ".env file created successfully!" in result.stdout + result.stderr
 
         # Check that .env file was created
         env_file = Path(temp_dir) / ".env"
@@ -175,7 +186,11 @@ class TestBouySetup:
         )
 
         assert result.returncode == 0
-        assert "Setup cancelled. Existing .env file preserved." in result.stdout
+        # `output info` routes to stderr in normal mode.
+        assert (
+            "Setup cancelled. Existing .env file preserved."
+            in result.stdout + result.stderr
+        )
 
         # Verify original file is unchanged
         assert env_file.read_text() == "EXISTING=true\n"
@@ -210,7 +225,8 @@ class TestBouySetup:
         )
 
         assert result.returncode == 0
-        assert "Existing .env backed up" in result.stdout
+        # `output success` routes to stderr in normal mode.
+        assert "Existing .env backed up" in result.stdout + result.stderr
 
         # Check that backup was created
         backup_files = list(Path(temp_dir).glob(".env.backup.*"))
@@ -283,3 +299,56 @@ class TestBouySetup:
         assert "POSTGRES_PASSWORD=p@$$w0rd!with#special" in env_content
         # Check DATABASE_URL encoding
         assert "postgres:p@$$w0rd!with#special@db:5432" in env_content
+
+    def test_setup_can_write_op_conf(self, test_env, bouy_path, temp_dir):
+        """Answering 'y' to the 1Password prompt writes config/op.conf (no secrets)."""
+        # Stdin feed (no .env exists, so no overwrite prompt):
+        # db password -> provider 1 (OpenRouter) -> API key -> HAARRRvest skip ->
+        # configure 1Password? y -> account -> vault -> item
+        answers = (
+            "\n".join(
+                [
+                    "pirate",
+                    "1",
+                    "test_key",
+                    "skip",
+                    "y",
+                    "plentiful.1password.com",
+                    "Pantry Pirate Radio",
+                    "bouy-env",
+                ]
+            )
+            + "\n"
+        )
+        result = subprocess.run(
+            [bouy_path, "setup"],
+            input=answers,
+            capture_output=True,
+            text=True,
+            cwd=temp_dir,
+            env=test_env,
+        )
+        op_conf = Path(temp_dir) / "config" / "op.conf"
+        assert op_conf.exists(), result.stdout + result.stderr
+        body = op_conf.read_text()
+        assert "OP_ACCOUNT=plentiful.1password.com" in body
+        assert "OP_VAULT=Pantry Pirate Radio" in body
+        assert "OP_ITEM=bouy-env" in body
+        # No secret values in op.conf
+        assert "test_key" not in body and "pirate" not in body
+
+    def test_setup_password_with_single_quote(self, test_env, bouy_path, temp_dir):
+        """A password containing a single quote must not abort the wizard."""
+        # db password (contains ') -> provider 1 -> API key -> HAARRRvest skip -> no 1Password
+        answers = "\n".join(["pir'ate", "1", "test_key", "skip", "n"]) + "\n"
+        result = subprocess.run(
+            [bouy_path, "setup"],
+            input=answers,
+            capture_output=True,
+            text=True,
+            cwd=temp_dir,
+            env=test_env,
+        )
+        env_file = Path(temp_dir) / ".env"
+        assert env_file.exists(), result.stdout + result.stderr
+        assert "pir'ate" in env_file.read_text()
