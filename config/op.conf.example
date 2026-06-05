@@ -1,0 +1,9 @@
+# bouy 1Password pointer (OPTIONAL — only if you load secrets from 1Password
+# instead of a .env file). Copy this to config/op.conf and set your values.
+# config/op.conf is gitignored — it's your local pointer, like .env.
+#
+# OP_ACCOUNT may be left blank: bouy then omits `op --account ...` and the op
+# CLI uses your default signed-in account. Set it if you have multiple accounts.
+OP_ACCOUNT=
+OP_VAULT=Pantry Pirate Radio
+OP_ITEM=bouy-env
