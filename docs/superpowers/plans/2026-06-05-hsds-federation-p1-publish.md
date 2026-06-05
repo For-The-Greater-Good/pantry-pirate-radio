@@ -9,6 +9,14 @@
 > verifiable log): the PR Gauntlet phases 1–4 are mandatory, and the P1 verifiable-substrate PR is the one place
 > the playbook recommends a one-off external security / distributed-systems spot-audit.
 
+## Status (updated 2026-06-05)
+
+- **Task -1 (HSDS version pin): RESOLVED → pin 3.1.1** (owner-confirmed, #522). The models implement 3.1.1, not the submodule's 3.2.3; advertising 3.2 would violate Principle II. Remaining: land the CI guard test (advertised version == the 3.1.1-shaped models) in PR-A.
+- **Task 0 (Principle-IX decomposition): DONE → PR-A draft #549.** `job_processor.py` 1892→1328; both commit branches extracted to `app/reconciler/location_commit.py` (531) + `location_match.py` (193), both <600; pure refactor, full suite green, no behavior change. Remaining on PR-A: the Task -1 guard + the PR Gauntlet → mark ready for owner merge.
+- **Next:** finish PR-A, then **PR-B** (RED-tier substrate: `FederationLog` + dense-sequence advisory-lock append [proven GO in the P0.5 memo] + RFC-6962 Merkle + C2SP checkpoints + proofs + aggregate + wire spec/fixtures) → **PR-C** (hooks + kill switch + endpoints) → **PR-D** (cold-start + archive + HSDS-FX + reference node + golden test). Entry point: [`../NEXT-SESSION.md`](../NEXT-SESSION.md).
+
+---
+
 **Objective.** Turn PPR from *discoverable* (P0) into ***verifiably readable***. Write a JCS-canonical,
 content-addressed, origin-signed activity object into an append-only Merkle log (`federation_log`) at the
 canonical-commit hooks; publish the head as a C2SP-signed checkpoint (`state.txt` + `/federation/checkpoint`);
