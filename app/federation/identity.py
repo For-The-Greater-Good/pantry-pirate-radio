@@ -183,3 +183,23 @@ def build_actor(did: str, domain: str, public_key_multibase: str) -> dict:
             "publicKeyMultibase": public_key_multibase,
         },
     }
+
+
+def build_webfinger(resource: str, actor_url: str) -> dict:
+    """Build a WebFinger JRD (RFC 7033) resolving an ``acct:`` handle.
+
+    A peer queries ``/.well-known/webfinger?resource=acct:<handle>`` to
+    discover the actor document URL — the discovery entry point alongside
+    ``did.json``. This is a pure shape builder; query parsing and the
+    ``resource``-absent 422 are HTTP concerns handled by the route (Task 0.7).
+    """
+    return {
+        "subject": resource,
+        "links": [
+            {
+                "rel": "self",
+                "type": "application/activity+json",
+                "href": actor_url,
+            },
+        ],
+    }

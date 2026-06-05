@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from app.federation.identity import (
     build_actor,
     build_did_document,
+    build_webfinger,
     load_signing_key,
     public_key_multibase,
 )
@@ -134,3 +135,15 @@ def test_build_actor_shape() -> None:
     assert actor["publicKey"]["owner"] == "did:web:h.example"
     assert actor["publicKey"]["id"] == "did:web:h.example#main-key"
     assert actor["publicKey"]["publicKeyMultibase"] == "zTEST"
+
+
+def test_build_webfinger_returns_jrd_with_self_link() -> None:
+    jrd = build_webfinger(
+        "acct:north-jersey-fb@h.example",
+        "https://h.example/api/v1/federation/actor",
+    )
+    assert jrd["subject"] == "acct:north-jersey-fb@h.example"
+    self_links = [link for link in jrd["links"] if link["rel"] == "self"]
+    assert len(self_links) == 1
+    assert self_links[0]["type"] == "application/activity+json"
+    assert self_links[0]["href"] == "https://h.example/api/v1/federation/actor"
