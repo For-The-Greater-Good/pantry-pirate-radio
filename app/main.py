@@ -9,6 +9,7 @@ from starlette import status
 from app.api.v1.router import router as v1_router
 from app.core.config import Settings
 from app.core.events import create_start_app_handler, create_stop_app_handler
+from app.federation.routes_public import register_federation_public_routes
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
 from app.middleware.metrics import MetricsMiddleware
@@ -76,3 +77,6 @@ app.add_event_handler("shutdown", create_stop_app_handler(app))
 
 # Include routers - mount v1 routes under prefix
 app.include_router(v1_router, prefix=settings.api_prefix)
+
+# Root-level public federation discovery routes (Principle XV: identical to Lambda)
+register_federation_public_routes(app)
