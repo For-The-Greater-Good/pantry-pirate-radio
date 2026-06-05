@@ -108,9 +108,28 @@ def test_resolve_op_pointer_builtin_defaults(tmp_path):
         f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
         f'echo "$OP_ACCOUNT|$OP_VAULT|$OP_ITEM"'
     )
-    assert result.stdout.strip() == (
-        "plentiful.1password.com|Pantry Pirate Radio|bouy-env"
+    assert result.stdout.strip() == ("|Pantry Pirate Radio|bouy-env")
+
+
+def test_resolve_op_pointer_no_account_omits_flag(tmp_path):
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'echo "N=${{#OP_ACCOUNT_ARGS[@]}}"; echo "A=[$OP_ACCOUNT]"',
     )
+    assert "N=0" in result.stdout, result.stderr  # empty array -> no --account
+    assert "A=[]" in result.stdout
+
+
+def test_resolve_op_pointer_with_account_sets_flag(tmp_path):
+    result = run_bash(
+        f"cd {tmp_path}; source {FUNCTIONS}; resolve_op_pointer; "
+        f'printf "%s\\n" "${{OP_ACCOUNT_ARGS[@]}}"',
+        env={"OP_ACCOUNT": "x.1password.com"},
+    )
+    assert result.stdout.split("\n")[:2] == [
+        "--account",
+        "x.1password.com",
+    ], result.stdout
 
 
 def test_onepassword_available_true_when_signed_in():
@@ -400,9 +419,10 @@ def test_op_status_reports_pointer_and_signin(tmp_path):
             "BOUY_OP_CMD": str(OP_MOCK),
             "OP_MOCK_SIGNED_IN": "1",
             "OP_MOCK_READ_OUT": "X=1\n",
+            "OP_ACCOUNT": "example.1password.com",
         },
     )
-    assert "plentiful.1password.com" in (result.stdout + result.stderr)
+    assert "example.1password.com" in (result.stdout + result.stderr)
     assert "bouy-env" in (result.stdout + result.stderr)
 
 

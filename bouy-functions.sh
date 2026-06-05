@@ -163,10 +163,19 @@ resolve_op_pointer() {
         file_vault=$(grep -E '^OP_VAULT=' config/op.conf | cut -d= -f2-)
         file_item=$(grep -E '^OP_ITEM=' config/op.conf | cut -d= -f2-)
     fi
-    OP_ACCOUNT="${OP_ACCOUNT:-${file_account:-plentiful.1password.com}}"
+    # No hardcoded account default (it is org-specific). When unset, bouy omits
+    # the `op --account` flag and the op CLI uses its default account. Vault and
+    # item have neutral, project-generic defaults.
+    OP_ACCOUNT="${OP_ACCOUNT:-$file_account}"
     OP_VAULT="${OP_VAULT:-${file_vault:-Pantry Pirate Radio}}"
     OP_ITEM="${OP_ITEM:-${file_item:-bouy-env}}"
     export OP_ACCOUNT OP_VAULT OP_ITEM
+    # Optional --account flag (empty array when no account configured).
+    if [ -n "$OP_ACCOUNT" ]; then
+        OP_ACCOUNT_ARGS=(--account "$OP_ACCOUNT")
+    else
+        OP_ACCOUNT_ARGS=()
+    fi
 }
 
 # Single mockable seam for the 1Password CLI. Tests set BOUY_OP_CMD to a stub.
@@ -178,24 +187,24 @@ op_cli() {
 onepassword_available() {
     local bin="${BOUY_OP_CMD:-op}"
     command -v "$bin" >/dev/null 2>&1 || return 1
-    op_cli account get --account "$OP_ACCOUNT" >/dev/null 2>&1
+    op_cli account get "${OP_ACCOUNT_ARGS[@]}" >/dev/null 2>&1
 }
 
 # Print resolved pointer + sign-in + which fields exist. No secret values shown.
 op_status() {
     resolve_op_pointer
-    output info "1Password account: $OP_ACCOUNT"
+    output info "1Password account: ${OP_ACCOUNT:-(op CLI default)}"
     output info "Vault: $OP_VAULT"
     output info "Item:  $OP_ITEM"
     if onepassword_available; then
-        output success "Signed in to $OP_ACCOUNT"
+        output success "Signed in to ${OP_ACCOUNT:-your default 1Password account}"
     else
-        output warning "Not signed in (run: op signin --account $OP_ACCOUNT)"
+        output warning "Not signed in (run: op signin --account ${OP_ACCOUNT:-your default 1Password account})"
         return 0
     fi
     local field
     for field in dev test prod; do
-        if op_cli read "op://$OP_VAULT/$OP_ITEM/$field" --account "$OP_ACCOUNT" >/dev/null 2>&1; then
+        if op_cli read "op://$OP_VAULT/$OP_ITEM/$field" "${OP_ACCOUNT_ARGS[@]}" >/dev/null 2>&1; then
             output info "  field '$field': present"
         else
             output info "  field '$field': missing"
@@ -215,7 +224,7 @@ op_pull() {
         esac
     done
     local blob
-    blob=$(op_cli read "op://$OP_VAULT/$OP_ITEM/$field" --account "$OP_ACCOUNT") || {
+    blob=$(op_cli read "op://$OP_VAULT/$OP_ITEM/$field" "${OP_ACCOUNT_ARGS[@]}") || {
         output error "Could not read op://$OP_VAULT/$OP_ITEM/$field"; return 1; }
     if [ -n "$out" ]; then
         printf '%s' "$blob" > "$out"
@@ -241,9 +250,9 @@ op_push() {
         *) fields=("$field") ;;
     esac
     # Ensure the item exists (create empty Secure Note if missing).
-    if ! op_cli item get "$OP_ITEM" --vault "$OP_VAULT" --account "$OP_ACCOUNT" >/dev/null 2>&1; then
+    if ! op_cli item get "$OP_ITEM" --vault "$OP_VAULT" "${OP_ACCOUNT_ARGS[@]}" >/dev/null 2>&1; then
         op_cli item create --category "Secure Note" --title "$OP_ITEM" \
-            --vault "$OP_VAULT" --account "$OP_ACCOUNT" >/dev/null 2>&1 || true
+            --vault "$OP_VAULT" "${OP_ACCOUNT_ARGS[@]}" >/dev/null 2>&1 || true
     fi
     local f src content
     for f in "${fields[@]}"; do
@@ -256,7 +265,7 @@ op_push() {
             continue
         fi
         content=$(cat "$src")
-        if op_cli item edit "$OP_ITEM" --vault "$OP_VAULT" --account "$OP_ACCOUNT" \
+        if op_cli item edit "$OP_ITEM" --vault "$OP_VAULT" "${OP_ACCOUNT_ARGS[@]}" \
             "$f[text]=$content" >/dev/null 2>&1; then
             output success "Pushed $src -> field '$f'"
         else
@@ -269,7 +278,7 @@ op_push() {
 # Reads the whole field with a single op call; the value lives only in memory.
 load_env_from_1password() {
     local field="$1" blob
-    blob=$(op_cli read "op://$OP_VAULT/$OP_ITEM/$field" --account "$OP_ACCOUNT") || return 1
+    blob=$(op_cli read "op://$OP_VAULT/$OP_ITEM/$field" "${OP_ACCOUNT_ARGS[@]}") || return 1
     [ -n "$blob" ] || return 1
     load_env_lines <<< "$blob"
 }
@@ -332,7 +341,7 @@ load_environment() {
     fi
 
     output error "No $file on disk and 1Password is unavailable."
-    output error "Sign in (op signin --account $OP_ACCOUNT) or run './bouy setup' to create $file."
+    output error "Sign in (op signin --account ${OP_ACCOUNT:-your default 1Password account}) or run './bouy setup' to create $file."
     return 1
 }
 

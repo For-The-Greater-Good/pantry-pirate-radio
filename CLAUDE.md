@@ -163,9 +163,12 @@ bouy can source per-environment config from 1Password instead of a `.env` file:
   into containers through a runtime, names-only passthrough overlay. **Secrets are
   never written to disk.** Auth is the `op` desktop-app biometric integration;
   `help`/`version`/`setup`/`op` never trigger a prompt.
-- Pointer defaults (baked into bouy): account `plentiful.1password.com`, vault
-  `Pantry Pirate Radio`, item `bouy-env`. Override via `OP_ACCOUNT`/`OP_VAULT`/
-  `OP_ITEM` env vars or `config/op.conf` (precedence: env > op.conf > built-in).
+- Pointer config: the **account has no built-in default** (it is org-specific) —
+  set it via `config/op.conf` (a gitignored local pointer like `.env`, copied from
+  the committed `config/op.conf.example`) or the `OP_ACCOUNT` env var; blank means
+  bouy omits the `op --account` flag and the op CLI uses its default account. Vault
+  and item still default to `Pantry Pirate Radio` / `bouy-env`. Precedence:
+  env > op.conf > built-in.
 - `--no-1password` / `USE_1PASSWORD=false` force the file path; `--1password` /
   `USE_1PASSWORD=true` force the vault. Auto-detect is the default.
 
