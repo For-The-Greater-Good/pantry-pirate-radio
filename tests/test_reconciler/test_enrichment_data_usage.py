@@ -85,7 +85,7 @@ class TestEnrichmentDataUsage:
             patch("app.reconciler.job_processor.OrganizationCreator") as MockOrg,
             patch("app.reconciler.job_processor.LocationCreator") as MockLoc,
             patch("app.reconciler.job_processor.ServiceCreator"),
-            patch("app.reconciler.job_processor.VersionTracker"),
+            patch("app.reconciler.location_commit.VersionTracker"),
         ):
             mock_org = MockOrg.return_value
             mock_org.process_organization.return_value = (
@@ -151,7 +151,7 @@ class TestEnrichmentDataUsage:
             patch("app.reconciler.job_processor.OrganizationCreator") as MockOrg,
             patch("app.reconciler.job_processor.LocationCreator") as MockLoc,
             patch("app.reconciler.job_processor.ServiceCreator"),
-            patch("app.reconciler.job_processor.VersionTracker"),
+            patch("app.reconciler.location_commit.VersionTracker"),
         ):
             mock_org = MockOrg.return_value
             mock_org.process_organization.return_value = (

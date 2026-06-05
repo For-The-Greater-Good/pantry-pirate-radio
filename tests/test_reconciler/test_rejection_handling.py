@@ -107,7 +107,7 @@ class TestReconcilerRejectionHandling:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ) as MockSvcCreator, patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ) as MockVersionTracker:
 
             # Setup mocks
@@ -208,7 +208,7 @@ class TestReconcilerRejectionHandling:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ) as MockSvcCreator, patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ) as MockVersionTracker:
 
             # Setup organization creator mock
@@ -271,7 +271,7 @@ class TestReconcilerRejectionHandling:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ) as MockSvcCreator, patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ) as MockVersionTracker:
 
             # Setup mocks to return proper values
@@ -339,7 +339,7 @@ class TestReconcilerRejectionHandling:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ) as MockSvcCreator, patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ) as MockVersionTracker:
 
             # Setup organization creator mock
@@ -418,7 +418,7 @@ class TestReconcilerRejectionHandling:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ) as MockSvcCreator, patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ) as MockVersionTracker:
 
             # Setup organization creator mock

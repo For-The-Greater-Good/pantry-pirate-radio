@@ -173,7 +173,7 @@ class TestRejectionPipelineIntegration:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ), patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ):
 
             mock_org_creator = Mock()
@@ -333,7 +333,7 @@ class TestRejectionPipelineIntegration:
             ) as MockLocCreator, patch(
                 "app.reconciler.job_processor.ServiceCreator"
             ), patch(
-                "app.reconciler.job_processor.VersionTracker"
+                "app.reconciler.location_commit.VersionTracker"
             ), patch(
                 "app.reconciler.job_processor.settings.VALIDATION_REJECTION_THRESHOLD",
                 20,
@@ -392,7 +392,7 @@ class TestRejectionPipelineIntegration:
         ) as MockLocCreator, patch(
             "app.reconciler.job_processor.ServiceCreator"
         ), patch(
-            "app.reconciler.job_processor.VersionTracker"
+            "app.reconciler.location_commit.VersionTracker"
         ):
 
             mock_org_creator = Mock()
