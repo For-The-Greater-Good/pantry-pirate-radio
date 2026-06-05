@@ -13,6 +13,12 @@ from app.federation.fetch import is_blocked_ip, FederationFetchError
         "::1",
         "fc00::1",
         "fe80::1",
+        # IPv4-mapped-IPv6 must be un-mapped before range checks (SSRF bypass).
+        "::ffff:127.0.0.1",
+        "::ffff:10.0.0.5",
+        "::ffff:192.168.1.1",
+        "::ffff:169.254.169.254",  # IMDS via mapped literal
+        "::ffff:100.64.0.1",  # CGNAT via mapped literal
     ],
 )
 def test_internal_ips_are_blocked(ip):

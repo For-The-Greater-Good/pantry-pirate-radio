@@ -28,6 +28,13 @@ class FederationFetchError(Exception):
 
 def is_blocked_ip(ip: str) -> bool:
     addr = ipaddress.ip_address(ip)
+    # Un-map IPv4-mapped IPv6 (::ffff:a.b.c.d) before any range check: such an
+    # address has version==6, so the v4-only CGNAT branch and (on some Python
+    # versions) the private/loopback/link-local checks are skipped, letting an
+    # attacker reach internal IPs (incl. IMDS 169.254.169.254) via a mapped
+    # literal. Unwrap to the v4 address so every check below applies (SSRF).
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
     if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
         return True
     if addr.is_multicast or addr.is_unspecified:
