@@ -686,3 +686,94 @@ class TestBeaconSyncBuildTrackerDiff:
         for loc in api_locations:
             deduped[loc["id"]] = loc
         assert len(deduped) == 1
+
+
+class TestBeaconSyncPhoneExtension:
+    """Regression for the extension type mismatch that dropped whole
+    locations.
+
+    `phone.extension` is a NUMERIC column, but `BeaconPhone.extension`
+    is declared `Optional[str]`. When a phone HAS an extension, the raw
+    Decimal flowed straight into `BeaconPhone(...)`, Pydantic raised
+    (Decimal is not a valid str in v2 lax mode), `_transform` caught the
+    error and logged `beacon_transform_failed`, and the ENTIRE location
+    was dropped from the sync output. So any pantry with an extensioned
+    phone silently vanished from beacon's static build.
+    """
+
+    @pytest.mark.asyncio
+    async def test_location_with_extensioned_phone_not_dropped(
+        self, db_session: AsyncSession
+    ) -> None:
+        loc_id = str(uuid.uuid4())
+        org_id = str(uuid.uuid4())
+        await _seed_location_with_addresses(
+            db_session,
+            loc_id=loc_id,
+            org_id=org_id,
+            name="Extensioned Phone Pantry",
+            lat=40.0,
+            lng=-74.0,
+            confidence=85,
+            address_count=1,
+        )
+        # NUMERIC extension — the exact shape the DB column produces and
+        # the wire model (Optional[str]) can't accept un-coerced.
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, extension, type)
+                VALUES (:id, :loc, '555-0100', 4242, 'voice')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": loc_id},
+        )
+        await db_session.commit()
+
+        service = BeaconSyncService(db_session, min_confidence=60)
+        result = await service.sync(page_size=1000)
+        by_id = {loc.id: loc for loc in result["locations"]}
+        assert loc_id in by_id, (
+            "location with an extensioned (NUMERIC) phone was dropped from "
+            "the sync output — BeaconPhone(extension=Decimal(...)) raises in "
+            "Pydantic v2 and _transform swallows the whole location"
+        )
+        loc = by_id[loc_id]
+        assert len(loc.phones) == 1
+        # Coerced to a None-safe string, per the declared Optional[str].
+        assert loc.phones[0].extension == "4242"
+
+    @pytest.mark.asyncio
+    async def test_phone_without_extension_stays_none(
+        self, db_session: AsyncSession
+    ) -> None:
+        # The coercion must leave a NULL extension as None (not "None").
+        loc_id = str(uuid.uuid4())
+        org_id = str(uuid.uuid4())
+        await _seed_location_with_addresses(
+            db_session,
+            loc_id=loc_id,
+            org_id=org_id,
+            name="No-Extension Phone Pantry",
+            lat=40.0,
+            lng=-74.0,
+            confidence=85,
+            address_count=1,
+        )
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO phone (id, location_id, number, type)
+                VALUES (:id, :loc, '555-0101', 'voice')
+                """
+            ),
+            {"id": str(uuid.uuid4()), "loc": loc_id},
+        )
+        await db_session.commit()
+
+        service = BeaconSyncService(db_session, min_confidence=60)
+        result = await service.sync(page_size=1000)
+        by_id = {loc.id: loc for loc in result["locations"]}
+        assert loc_id in by_id
+        assert len(by_id[loc_id].phones) == 1
+        assert by_id[loc_id].phones[0].extension is None

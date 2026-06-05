@@ -352,8 +352,15 @@ class BeaconSyncService:
     ) -> BeaconLocation:
         lid = loc.id
 
+        # `phone.extension` is NUMERIC but BeaconPhone.extension is the
+        # declared Optional[str]; coerce so a numeric extension doesn't raise
+        # in Pydantic and drop the whole location via the except handler.
         phone_list = [
-            BeaconPhone(number=p.number, type=p.type, extension=p.extension)
+            BeaconPhone(
+                number=p.number,
+                type=p.type,
+                extension=str(p.extension) if p.extension is not None else None,
+            )
             for p in phones.get(lid, [])
         ]
         sched_list = [
