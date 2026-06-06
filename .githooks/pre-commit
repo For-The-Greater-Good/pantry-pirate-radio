@@ -56,18 +56,21 @@ PII_PATTERNS=(
     "[0-9]+[[:space:]]+[A-Z][a-z]+[[:space:]]+(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Place|Pl|Court|Ct)"
 )
 
-# Files to check (excluding .env which should be gitignored)
-FILES_TO_CHECK=$(git diff --cached --name-only --diff-filter=ACM | grep -vE '(\.env$|\.env\..*$|.*\.pem$|.*\.key$)')
+# Files to check (excluding .env which should be gitignored, and this hook
+# itself — it legitimately contains the secret-marker patterns as definitions)
+FILES_TO_CHECK=$(git diff --cached --name-only --diff-filter=ACM | grep -vE '(\.env$|\.env\..*$|.*\.pem$|.*\.key$|^\.githooks/pre-commit$)')
 
 FOUND_SECRETS=0
 
 for file in $FILES_TO_CHECK; do
     if [ -f "$file" ]; then
         for pattern in "${SECRET_PATTERNS[@]}"; do
-            if grep -qE "$pattern" "$file"; then
+            # `--` stops grep from treating patterns that begin with '-'
+            # (e.g. "-----BEGIN EC PRIVATE KEY-----") as command-line options.
+            if grep -qE -- "$pattern" "$file"; then
                 echo -e "${RED}ERROR: Potential secret found in $file${NC}"
                 echo -e "${YELLOW}Pattern matched: $pattern${NC}"
-                grep -nE "$pattern" "$file" | head -5
+                grep -nE -- "$pattern" "$file" | head -5
                 FOUND_SECRETS=1
             fi
         done
