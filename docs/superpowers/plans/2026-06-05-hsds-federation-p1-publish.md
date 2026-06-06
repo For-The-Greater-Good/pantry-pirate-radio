@@ -548,6 +548,10 @@ def test_submarine_enrichment_emits_update(processed_submarine_job, db_session):
   `app/federation/{log,aggregate}` + DB; **no Redis/LLM** so the slim Lambda stays slim).
 - Modify: `app/api/v1/router.py` (`router.include_router(federation_router)` in the L335–L350 block).
 - Test: `tests/test_federation/test_export_endpoints.py`.
+- **Cross-impl interop (issue #558, the cheap high-signal add):** once `/checkpoint` exists, add a CI test that
+  verifies our live checkpoint + a consistency proof with an **off-the-shelf Go transparency tool**
+  (`golang.org/x/mod/sumdb/tlog` and/or `transparency-dev/witness`) — a genuinely different RFC-6962+C2SP impl,
+  Go toolchain only, no second stack. This is the first real different-implementation gate.
 
 **Design refs §6.3.** `GET /export?_since=<seq>` → keyset-paginated NDJSON of signed objects **+ inclusion proofs**;
 headers `X-Federation-Next-Cursor`, `X-Federation-Sequence` (= signed-checkpoint tree_size = safe-high-water),
@@ -786,7 +790,10 @@ HSDS-FX artifact + governance annex (STD-3 scope — DRY with `fixtures/`). The 
 
 **Files:**
 - Create: `tests/test_federation/reference_node/` (a minimal fixture peer serving `/export` + `state.txt` +
-  `/checkpoint` from the fixtures corpus — also the P7 clone-able example).
+  `/checkpoint` from the fixtures corpus — also the P7 clone-able example). **(issue #558)** Run it over a
+  **real HTTP transport** (httpx ASGITransport against the Task-7 router) and write the verify side as a
+  **deliberately independent re-implementation** of Merkle/inclusion/consistency (NO `app.federation` imports) —
+  a same-code shim would not catch the spec-interpretation divergence this test exists to catch.
 - Create: `tests/test_federation/test_golden_journey_p1.py` (`@pytest.mark.integration` — the literal phase gate).
 - Test: itself.
 
@@ -879,6 +886,23 @@ byte-identical reconciler); and the Aurora-throughput re-measure result + cold-s
    defect and confirm the Gauntlet catches it.
 4. **Recovery-key verify-side enforcement** stays scheduled to P3 (playbook pending-decision 2) — P1 only consumes
    the P0 recovery-key *schema* for checkpoint signing; no change requested, noted for completeness.
+5. **System-to-system (two-instance / cross-implementation) federation testing** — tracked in **this repo's
+   issue #558** ("Federation cross-implementation / two-node interop testing — ladder + decisions"; NOTE: distinct
+   from the OpenReferral spec `#558` referenced under STD-1 — that one is `openreferral/specification#558`).
+   Decision from the 4-lens evaluation (2026-06-06): do NOT stand up a same-code two-instance test (it shares the
+   JCS/Merkle/proof code, so it cannot catch spec-interpretation divergence — the exact JCS-near-miss class — and
+   gives false confidence; every comparable system warns about this). Phase the ladder instead:
+   - **PR-B (now):** the in-process independent-verifier integration test (shipped) + the external KATs
+     (cyberphone JCS, Go `sumdb/note` checkpoint) ARE the cross-impl coverage for now.
+   - **PR-C (Task 7), the cheap high-signal add:** verify our live `/checkpoint` + a consistency proof with an
+     **off-the-shelf Go transparency tool** (`golang.org/x/mod/sumdb/tlog` and/or `transparency-dev/witness`) — a
+     genuinely *different* RFC-6962+C2SP implementation, needs only a Go toolchain in CI (no second DB/app stack).
+   - **PR-D (Task 11b):** the in-repo reference node MUST run over a **real HTTP transport** (httpx ASGITransport
+     against the Task-7 router), as a **deliberately independent re-implementation** of Merkle/inclusion/
+     consistency (no `app.federation` imports), not an in-process function-call shim.
+   - **P2:** the true two-INSTANCE test — two `./bouy up` nodes, separate Postgres + DIDs/keys, B pull-ingests A →
+     `federated_node` `location_source` → corroboration; plus the **live Feeding America HSDS feed** as real node
+     #2 (already the P2 acceptance test). Likely nightly/manual, not per-PR (two DBs + LLM nondeterminism).
 
 ## Execution handoff
 
