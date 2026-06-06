@@ -201,6 +201,21 @@ def test_export_tree_size_beyond_head_is_400(client, seeded_log):
     assert r.json()["detail"]["error"] == "tree_size_exceeds_head"
 
 
+def test_checkpoint_consistency_proof_410_not_500_on_trimmed_prefix(client, seeded_log):
+    """Gauntlet round-4 MEDIUM regression: /checkpoint?from_tree_size= must 410
+    (not 500) when the prefix it needs has been trimmed."""
+    sess = _sync_session()
+    try:
+        sess.execute(text("DELETE FROM federation_log WHERE sequence <= 2"))
+        sess.commit()
+    finally:
+        sess.close()
+    # from_tree_size=3 needs leaves 1..3 (1,2 trimmed) -> consistency proof can't build.
+    r = client.get("/api/v1/federation/checkpoint?from_tree_size=3")
+    assert r.status_code == 410
+    assert r.json()["detail"]["error"] == "below_live_window"
+
+
 def test_checkpoint_state_history_410_not_500_on_trimmed_prefix(client, seeded_log):
     """Gauntlet round-3 HIGH regression: a trimmed prefix must yield a clean 410 on
     /checkpoint, /state.txt, AND /history — not a 500 (I only fixed /export before)."""
@@ -297,6 +312,34 @@ def test_consistency_proof_detects_rewritten_log(client, seeded_log):
         merkle.verify_consistency(old_size, new["tree_size"], proof, old_root, new_root)
         is False
     )
+
+
+def test_history_is_bounded(client, seeded_log, monkeypatch):
+    """Gauntlet round-4: /history caps its result set (no unbounded payload /
+    proof-generation for a hot federation_id)."""
+    monkeypatch.setattr(log, "_HISTORY_MAX_ROWS", 2)
+    sess = _sync_session()
+    try:
+        for i in range(4):  # 4 activities for one federation_id
+            log.append(
+                sess,
+                activity_type="Update",
+                federation_id="node.example:hot",
+                obj={"id": "hot", "name": f"v{i}"},
+                origin_did=_NODE_DID,
+                signing_key=_key(),
+                context=_CONTEXT,
+                license=_LICENSE,
+                published="2026-06-06T00:00:00Z",
+            )
+    finally:
+        sess.close()
+    r = client.get("/api/v1/federation/history/node.example:hot")
+    body = r.json()
+    assert len(body["activities"]) == 2  # capped
+    # Most-recent kept, returned oldest-first within the cap.
+    seqs = [a["sequence"] for a in body["activities"]]
+    assert seqs == sorted(seqs)
 
 
 def test_history_returns_proof_backed_activities(client, seeded_log):

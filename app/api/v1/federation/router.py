@@ -194,17 +194,21 @@ def checkpoint(
     }
     session = _session()
     try:
-        body["live_window_floor"] = log.live_window_floor(session)
+        floor = log.live_window_floor(session)
+        body["live_window_floor"] = floor
         # §6.3: serve the proof material a consumer needs to verify the log only
         # GREW (RFC-6962 consistency) from a prior checkpoint it holds.
         if from_tree_size is not None and 0 < from_tree_size <= tree_size:
-            body["consistency_from"] = from_tree_size
-            body["consistency_proof"] = [
-                h.hex()
-                for h in log.build_consistency_proof(
+            try:
+                proof = log.build_consistency_proof(
                     session, first_size=from_tree_size, second_size=tree_size
                 )
-            ]
+            except ValueError:
+                # Trimmed prefix (Task 9): the proof needs trimmed leaves -> 410,
+                # never a 500 (mirrors /export, /history, _current_note).
+                raise _below_window_410(floor)
+            body["consistency_from"] = from_tree_size
+            body["consistency_proof"] = [h.hex() for h in proof]
         elif from_tree_size is not None and from_tree_size > tree_size:
             # The consumer holds a LARGER checkpoint than we now advertise: the
             # log regressed/truncated (a possible equivocation). Flag it loudly

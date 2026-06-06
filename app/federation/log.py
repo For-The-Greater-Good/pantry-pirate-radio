@@ -294,24 +294,37 @@ def read_export(
     return out, tree_size, next_cursor
 
 
+#: Hard cap on /history rows per response — bounds the per-row proof cost and the
+#: payload for a hot federation_id. Most-recent-capped (audit surface). Full
+#: history pagination + the memoized proof cache are the scale-hardening follow-up.
+_HISTORY_MAX_ROWS = 1000
+
+
 def read_history(
     session: Session, federation_id: str
 ) -> tuple[list[dict[str, Any]], int]:
-    """All activities for ``federation_id`` (oldest-first), each a full signed
-    envelope + its inclusion proof, plus the ``tree_size`` the proofs are anchored
-    to (so a consumer can verify them against the matching checkpoint root)."""
+    """The most-recent activities (up to ``_HISTORY_MAX_ROWS``, oldest-first) for
+    ``federation_id``, each a full signed envelope + its inclusion proof, plus the
+    ``tree_size`` the proofs are anchored to (verify against the matching
+    checkpoint root)."""
     tree_size = safe_high_water(session)
     if tree_size == 0:
         return [], 0
     leaves = leaf_data(session, tree_size)
-    db_rows = session.execute(
-        text(
-            "SELECT sequence, leaf_hash, preimage_canonical, object_canonical"
-            " FROM federation_log WHERE federation_id = :fid AND sequence <= :ts"
-            " ORDER BY sequence"
-        ),
-        {"fid": federation_id, "ts": tree_size},
-    ).all()
+    # Cap to the most-recent N (then re-order oldest-first) so a hot federation_id
+    # cannot return an unbounded result set / unbounded proof-generation cost.
+    db_rows = list(
+        reversed(
+            session.execute(
+                text(
+                    "SELECT sequence, leaf_hash, preimage_canonical, object_canonical"
+                    " FROM federation_log WHERE federation_id = :fid AND sequence <= :ts"
+                    " ORDER BY sequence DESC LIMIT :lim"
+                ),
+                {"fid": federation_id, "ts": tree_size, "lim": _HISTORY_MAX_ROWS},
+            ).all()
+        )
+    )
     out: list[dict[str, Any]] = []
     for row in db_rows:
         env = _reconstruct_envelope(row)
