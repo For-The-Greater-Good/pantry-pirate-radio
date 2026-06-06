@@ -451,16 +451,24 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
 
+      - name: Upgrade build tools to patched versions before audit
+        # pip/wheel CVEs were previously only ignored because the runner's system
+        # build tools are uncontrolled; patch them in the audited env instead.
+        run: python -m pip install --upgrade "pip>=26.1.2" "wheel>=0.46.2"
+
       - name: Run Safety security check
-        # Ignore 79883 (pip CVE-2025-8869) - pip upgraded to >=26.0 in Dockerfile
-        # Ignore 84961 (wheel CVE-2026-24049) - wheel pinned >=0.46.2 in Dockerfile; CI runner system wheel uncontrolled
-        # Ignore 89047 (black CVE-2026-32274) - path-traversal in cache file name; dev-only tool, not exposed to untrusted input
-        # Ignore SFTY-20260122-20373 (pytest /tmp race) - dev-only, CI runner is single-tenant, no untrusted local users
-        # Ignore SFTY-20260322-35073 (pygments CVE-2026-4539) - dev-only tool (syntax highlighter in docs build); matches the parallel GHSA-5239-wwwm-4pmq pip-audit ignore, no fix available in 2.19.2
-        # Ignore SFTY-20260427-69629 (pip CVE-2026-6357) - pip is a build tool; fix 26.1 installed in Dockerfile, CI runner system pip uncontrolled (parallels GHSA-jp4c-xjxw-mgf9 pip-audit ignore)
-        # Ignore SFTY-20260420-60812 (pip CVE-2026-3219) - pip is a build tool; pip upgraded in Dockerfile, CI runner system pip uncontrolled (parallels GHSA-58qw-9mgm-455v pip-audit ignore)
-        # (python-dotenv 94066 / pillow 93093 cleared by poetry update -> python-dotenv 1.2.2 / pillow 12.2.0)
-        run: poetry run safety check --ignore 79883 --ignore 84961 --ignore 89047 --ignore SFTY-20260122-20373 --ignore SFTY-20260322-35073 --ignore SFTY-20260427-69629 --ignore SFTY-20260420-60812
+        # Only two ignores remain, both dev-only with deferred major-bump fixes.
+        # Ignore 89047 (black CVE-2026-32274, path-traversal in the cache file name) -
+        #   dev-only formatter (group.dev), run only via ./bouy test --black + pre-commit
+        #   over our own trusted source; fix 26.3.1 is a two-major bump (24->26) with a
+        #   codebase-wide reformat, deferred to its own PR.
+        # Ignore SFTY-20260122-20373 (pytest /tmp predictable-path) - dev-only test runner,
+        #   CI runner is single-tenant (no untrusted local users); fix 9.0.3 is a 7->8->9
+        #   migration that also needs lifting the pytest-asyncio/-benchmark caps, deferred.
+        # (pip 79883/SFTY-20260427-69629/SFTY-20260420-60812 + wheel 84961 cleared by the
+        #  build-tool upgrade above; pygments SFTY-20260322-35073 cleared by ->2.20.0;
+        #  python-dotenv 94066 / pillow 93093 cleared previously.)
+        run: poetry run safety check --ignore 89047 --ignore SFTY-20260122-20373
 
   pip-audit:
     needs: setup
@@ -506,17 +514,24 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi
 
+      - name: Upgrade pip to patched version before audit
+        # The pip CVEs were previously only ignored because the runner's system pip
+        # is uncontrolled; patch it in the audited env instead.
+        run: python -m pip install --upgrade "pip>=26.1.2"
+
       - name: Run pip-audit security check
-        # Ignore GHSA-4xh5-x5gv-qwph (pip CVE-2025-8869) - pip upgraded in Dockerfile
-        # Ignore GHSA-3936-cmfr-pm3m (black ReDoS) - dev-only tool, not in production
-        # Ignore GHSA-5239-wwwm-4pmq (pygments ReDoS in ADL lexer) - dev-only, no fix available (2.19.2 is latest)
-        # Ignore GHSA-p423-j2cm-9vmq (cryptography) - fix is 46.0.7, pending poetry update
-        # Ignore GHSA-6w46-j5rx-g56g (pytest) - fix is 9.0.3 (major bump); dev-only, breaking change
-        # Ignore PYSEC-2026-161 (starlette) - fix is 1.0.1, unreachable: fastapi 0.121.0 pins starlette <0.50.0 (latest fastapi still <0.51.0); revisit when fastapi supports starlette 1.x
-        # Ignore GHSA-58qw-9mgm-455v (pip) - no fixed version available upstream yet; pip upgraded in Dockerfile so runtime is unaffected
-        # Ignore GHSA-jp4c-xjxw-mgf9 (pip) - fix is 26.1; pip is a build tool, upgraded in Dockerfile so runtime is unaffected
-        # (pillow GHSA-whj4/wjx4/5xmw/r73j/pwv6 and python-dotenv GHSA-mf9w cleared by poetry update -> pillow 12.2.0 / python-dotenv 1.2.2; idna + pyjwt likewise upgraded to fixed versions)
-        run: poetry run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-5239-wwwm-4pmq --ignore-vuln GHSA-p423-j2cm-9vmq --ignore-vuln GHSA-6w46-j5rx-g56g --ignore-vuln PYSEC-2026-161 --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9
+        # Only two ignores remain, both dev-only with deferred major-bump fixes.
+        # Ignore GHSA-3936-cmfr-pm3m (black CVE-2026-32274, path-traversal in the cache
+        #   file name) - dev-only formatter, run only over our own trusted source; fix
+        #   26.3.1 is a two-major bump (24->26) with a codebase-wide reformat, deferred.
+        # Ignore GHSA-6w46-j5rx-g56g (pytest /tmp predictable-path) - dev-only test runner,
+        #   CI runner single-tenant; fix 9.0.3 is a 7->8->9 migration that also needs lifting
+        #   the pytest-asyncio/-benchmark caps, deferred to its own PR.
+        # (cryptography GHSA-p423-j2cm-9vmq cleared by ->48.0.0; pygments GHSA-5239-wwwm-4pmq
+        #  by ->2.20.0; starlette PYSEC-2026-161 by ->1.2.1; pip GHSA-4xh5/GHSA-58qw/GHSA-jp4c
+        #  by the pip upgrade above. lxml PYSEC-2026-87 is crawl4ai-only — absent from this
+        #  poetry-only audit env — and is tracked in a separate PR.)
+        run: poetry run pip-audit --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-6w46-j5rx-g56g
 
   xenon:
     needs: setup

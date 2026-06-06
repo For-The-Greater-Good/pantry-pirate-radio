@@ -316,10 +316,16 @@ class BeaconSyncService:
         return out
 
     async def _q_accessibility(self, ids: list[str]) -> dict[str, Any]:
+        # One accessibility row PER location. A bare `LIMIT 1` was
+        # batch-wide, so only ONE location per multi-location page got
+        # accessibility data. DISTINCT ON keeps one deterministic row per
+        # location (lowest id tiebreak, mirroring the address LATERAL pick).
         r = await self._session.execute(
             text(
-                "SELECT location_id, description, details, url "
-                "FROM accessibility WHERE location_id = ANY(:ids) LIMIT 1"
+                "SELECT DISTINCT ON (location_id) "
+                "location_id, description, details, url "
+                "FROM accessibility WHERE location_id = ANY(:ids) "
+                "ORDER BY location_id, id"
             ),
             {"ids": ids},
         )
@@ -352,8 +358,15 @@ class BeaconSyncService:
     ) -> BeaconLocation:
         lid = loc.id
 
+        # `phone.extension` is NUMERIC but BeaconPhone.extension is the
+        # declared Optional[str]; coerce so a numeric extension doesn't raise
+        # in Pydantic and drop the whole location via the except handler.
         phone_list = [
-            BeaconPhone(number=p.number, type=p.type, extension=p.extension)
+            BeaconPhone(
+                number=p.number,
+                type=p.type,
+                extension=str(p.extension) if p.extension is not None else None,
+            )
             for p in phones.get(lid, [])
         ]
         sched_list = [
@@ -367,9 +380,15 @@ class BeaconSyncService:
             )
             for s in schedules.get(lid, [])
         ]
+        # `language.name` is a NULLABLE text column but BeaconLanguage.name
+        # is a required `str`; a NULL name makes BeaconLanguage(name=None)
+        # raise in Pydantic and drop the whole location via the except
+        # handler. A language with no name carries no usable info, so drop
+        # the nameless child and keep the location (Gauntlet bug-class).
         lang_list = [
             BeaconLanguage(name=lang.name, code=lang.code)
             for lang in languages.get(lid, [])
+            if lang.name is not None
         ]
         acc_row = accessibility.get(lid)
         acc = (

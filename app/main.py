@@ -8,7 +8,7 @@ from starlette import status
 
 from app.api.v1.router import router as v1_router
 from app.core.config import Settings
-from app.core.events import create_start_app_handler, create_stop_app_handler
+from app.core.events import lifespan
 from app.federation.routes_public import register_federation_public_routes
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.errors import ErrorHandlingMiddleware
@@ -28,6 +28,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
     default_response_class=JSONResponse,
     redirect_slashes=True,  # Enable automatic trailing slash redirection
+    lifespan=lifespan,  # startup/shutdown (Starlette 1.0 removed add_event_handler)
 )
 
 # Middleware stack (last added = outermost wrapper):
@@ -70,9 +71,7 @@ async def root_redirect() -> Response:
     )
 
 
-# Event handlers
-app.add_event_handler("startup", create_start_app_handler(app))
-app.add_event_handler("shutdown", create_stop_app_handler(app))
+# Startup/shutdown are wired via the lifespan handler passed to FastAPI() above.
 
 
 # Include routers - mount v1 routes under prefix
