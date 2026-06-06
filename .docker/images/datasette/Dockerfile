@@ -9,11 +9,10 @@ RUN pip install \
     datasette-leaflet \
     datasette-vega
 
-# Copy and install custom plugin
-WORKDIR /tmp/plugin
-COPY plugins/setup.py plugins/datasette_custom_nav.py ./
-RUN pip install -e .
-WORKDIR /
+# Note: the former datasette-custom-nav plugin (plugins/setup.py,
+# plugins/datasette_custom_nav.py) was removed in #398. Navigation is now
+# driven by datasette-metadata.json ("custom_nav_links") + datasette-custom.css,
+# so no custom plugin is baked into the image.
 
 # Default command (will be overridden by docker-compose)
 CMD ["datasette", "--help"]

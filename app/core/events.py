@@ -6,7 +6,8 @@ It must NOT be imported in Lambda environments (use app/api/lambda_app.py instea
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from typing import Any, Protocol, TypeVar, cast
 
 from prometheus_client import Gauge
@@ -327,11 +328,20 @@ def create_stop_app_handler(app: Any) -> Callable[[], Awaitable[None]]:
     return stop_app
 
 
-def init_app_events(app: Any) -> None:
-    """Initialize application events.
+@asynccontextmanager
+async def lifespan(app: Any) -> AsyncIterator[None]:
+    """ASGI lifespan: run startup handlers, serve, then run shutdown handlers.
+
+    Replaces the deprecated ``add_event_handler("startup"/"shutdown", ...)`` API
+    (removed in Starlette 1.0). Pass to ``FastAPI(lifespan=lifespan)``. Startup/
+    shutdown ordering and semantics are preserved: the start handler completes
+    before the app serves; the stop handler always runs on shutdown.
 
     Args:
         app: FastAPI application instance
     """
-    app.add_event_handler("startup", create_start_app_handler(app))
-    app.add_event_handler("shutdown", create_stop_app_handler(app))
+    await create_start_app_handler(app)()
+    try:
+        yield
+    finally:
+        await create_stop_app_handler(app)()

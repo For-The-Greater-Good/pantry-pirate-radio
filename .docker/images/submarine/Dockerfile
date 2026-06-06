@@ -68,8 +68,8 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install pip, wheel, poetry
-RUN pip install --upgrade pip>=26.0 wheel>=0.46.2 && pip install 'distlib<0.4.0' poetry
+# Install pip, wheel, poetry (pip>=26.1.2 fixes the pip 26.1.x CVEs)
+RUN pip install --upgrade pip>=26.1.2 wheel>=0.46.2 && pip install 'distlib<0.4.0' poetry
 
 ENV POETRY_VIRTUALENVS_CREATE=false
 
