@@ -76,12 +76,24 @@ def _note_signature(note: str) -> str:
 def export(
     since: int = Query(0, ge=0, alias="_since"),
     limit: int | None = Query(None, ge=1, le=10_000),
+    tree_size: int | None = Query(None, ge=1),
 ) -> Response:
     _require_enabled()
     page = limit or settings.FEDERATION_EXPORT_PAGE_SIZE
     session = _session()
     try:
         floor = log.live_window_floor(session)
+        # A pinned tree_size beyond the current head can't be proven (the tree
+        # doesn't exist yet) — a client error, distinct from the trimmed-prefix
+        # 410 below.
+        if tree_size is not None and tree_size > log.safe_high_water(session):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "tree_size_exceeds_head",
+                    "head": log.safe_high_water(session),
+                },
+            )
         # Below the live window: the requested prefix has been archived (§6.2g).
         # The verifiable cold-start snapshot (Task 9) is the archive surface.
         if floor > 0 and since + 1 < floor:
@@ -94,22 +106,19 @@ def export(
                 },
             )
         try:
+            # tree_size PINS proofs to a checkpoint the consumer holds (§6.6 pull
+            # contract): GET /checkpoint -> (N, root@N) then /export?tree_size=N so
+            # every inclusion proof verifies against root@N. Unpinned defaults to
+            # the head (proofs only verifiable if the caller pins separately).
             rows, tree_size, next_cursor = log.read_export(
-                session, since=since, limit=page
+                session, since=since, limit=page, tree_size=tree_size
             )
         except ValueError:
             # The live window can't rebuild the requested tree (the prefix has
             # been archived/trimmed — proofs need leaves the live log no longer
             # holds). Treat as below-window: 410 + archive pointer, never a 500.
             # (Archive serving of trimmed leaves is Task 9.)
-            raise HTTPException(
-                status_code=410,
-                detail={
-                    "error": "below_live_window",
-                    "live_window_floor": floor,
-                    "archive": "cold-start snapshot (see discovery doc; §6.3)",
-                },
-            )
+            raise _below_window_410(floor)
     finally:
         session.close()
 
@@ -127,16 +136,37 @@ def export(
     return Response(content=body, media_type="application/x-ndjson", headers=headers)
 
 
+def _below_window_410(floor: int) -> HTTPException:
+    """410 for a request that needs leaves the live log has trimmed (§6.2g).
+    Consistent across /export, /checkpoint, /state.txt, /history — never a 500."""
+    return HTTPException(
+        status_code=410,
+        detail={
+            "error": "below_live_window",
+            "live_window_floor": floor,
+            "archive": "cold-start snapshot (see discovery doc; §6.3)",
+        },
+    )
+
+
 def _current_note() -> str:
-    """Sign the current checkpoint, or 404 if no identity / disabled."""
+    """Sign the current checkpoint, or 404 if no identity / disabled.
+
+    A trimmed prefix (leaf_data can't rebuild the tree — Task 9 archival) raises
+    ValueError inside signed_checkpoint; surface it as a clean 410, never a 500
+    (mirrors /export), so a Go note tool gets a defined error, not a 500.
+    """
     key = _signing_key()
     if settings.FEDERATION_DID is None or key is None:
         raise HTTPException(status_code=404, detail="no federation signing identity")
     session = _session()
     try:
-        note = log.signed_checkpoint(
-            session, origin_did=settings.FEDERATION_DID, signing_key=key
-        )
+        try:
+            note = log.signed_checkpoint(
+                session, origin_did=settings.FEDERATION_DID, signing_key=key
+            )
+        except ValueError:
+            raise _below_window_410(log.live_window_floor(session))
     finally:
         session.close()
     if note is None:  # kill switch raced between _require_enabled and here
@@ -197,7 +227,11 @@ def history(federation_id: str) -> JSONResponse:
     _require_enabled()
     session = _session()
     try:
-        activities, tree_size = log.read_history(session, federation_id)
+        try:
+            activities, tree_size = log.read_history(session, federation_id)
+        except ValueError:
+            # Trimmed prefix (Task 9): proofs need trimmed leaves -> clean 410.
+            raise _below_window_410(log.live_window_floor(session))
     finally:
         session.close()
     _require_enabled()  # kill-switch TOCTOU re-check after the read

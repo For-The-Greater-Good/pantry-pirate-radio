@@ -152,6 +152,73 @@ def test_below_window_floor_returns_410(client, seeded_log):
     assert r.json()["detail"]["live_window_floor"] == 4
 
 
+def test_export_pinned_tree_size_verifies_against_held_checkpoint(client, seeded_log):
+    """Gauntlet round-3 HIGH regression: the §6.6 pull contract. A consumer fetches
+    /checkpoint (N, root@N), then /export?tree_size=N, and every inclusion proof
+    verifies against the HELD root@N — even though the head keeps advancing. This is
+    the only way proofs are verifiable on a live (continuously-appending) node."""
+    from app.federation.canonical import jcs_bytes
+
+    cp = client.get("/api/v1/federation/checkpoint").json()
+    n, root = cp["tree_size"], bytes.fromhex(cp["root_hash"])
+
+    # Head advances after the consumer pinned the checkpoint.
+    sess = _sync_session()
+    try:
+        log.append(
+            sess,
+            activity_type="Update",
+            federation_id="node.example:loc-new",
+            obj={"id": "loc-new", "name": "New"},
+            origin_did=_NODE_DID,
+            signing_key=_key(),
+            context=_CONTEXT,
+            license=_LICENSE,
+            published="2026-06-06T00:00:00Z",
+        )
+    finally:
+        sess.close()
+    assert client.get("/api/v1/federation/checkpoint").json()["tree_size"] == n + 1
+
+    # Pull pinned to N: every proof verifies against the held root@N.
+    r = client.get(f"/api/v1/federation/export?_since=0&tree_size={n}")
+    assert int(r.headers["X-Federation-Sequence"]) == n
+    rows = [json.loads(line) for line in r.text.splitlines() if line]
+    assert len(rows) == n  # the new row (n+1) is excluded — pinned to N
+    for row in rows:
+        env = {k: v for k, v in row.items() if k != "inclusion_proof"}
+        leaf = {k: v for k, v in env.items() if k not in ("id", "proof")}
+        proof = [bytes.fromhex(h) for h in row["inclusion_proof"]]
+        assert merkle.verify_inclusion(
+            jcs_bytes(leaf), row["sequence"] - 1, n, proof, root
+        )
+
+
+def test_export_tree_size_beyond_head_is_400(client, seeded_log):
+    """A pinned tree_size beyond the head can't be proven — client error, not 410."""
+    r = client.get(f"/api/v1/federation/export?tree_size={seeded_log + 10}")
+    assert r.status_code == 400
+    assert r.json()["detail"]["error"] == "tree_size_exceeds_head"
+
+
+def test_checkpoint_state_history_410_not_500_on_trimmed_prefix(client, seeded_log):
+    """Gauntlet round-3 HIGH regression: a trimmed prefix must yield a clean 410 on
+    /checkpoint, /state.txt, AND /history — not a 500 (I only fixed /export before)."""
+    sess = _sync_session()
+    try:
+        sess.execute(text("DELETE FROM federation_log WHERE sequence <= 2"))
+        sess.commit()
+    finally:
+        sess.close()
+    for path in (
+        "/api/v1/federation/checkpoint",
+        "/api/v1/federation/state.txt",
+        "/api/v1/federation/history/node.example:loc-3",
+    ):
+        r = client.get(path)
+        assert r.status_code == 410, f"{path} -> {r.status_code} (want 410)"
+
+
 def test_export_above_floor_with_trimmed_prefix_returns_410_not_500(client, seeded_log):
     """Gauntlet HIGH regression: a trimmed prefix (proofs can't be rebuilt) must
     yield a clean 410, never a 500, even for _since at/above the floor."""

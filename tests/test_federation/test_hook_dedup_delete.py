@@ -249,6 +249,41 @@ def test_publish_pending_deletes_fail_soft_on_chain_error(
     assert db_session.execute(text("SELECT 1")).scalar() == 1
 
 
+def test_fallback_survivor_followed_through_its_own_chain(db_session, configured):
+    """Gauntlet round-3 MEDIUM regression: dead id NOT in the audit chain (e.g.
+    same-org script), but its immediate survivor WAS merged onward by another run.
+    The resolver must follow the survivor's own chain to the terminal canonical
+    row, not stop at the now-non-canonical immediate survivor (-> null)."""
+    dead = _insert_location(db_session, is_canonical=False)
+    mid = _insert_location(db_session, is_canonical=False)  # survivor, since merged on
+    terminal = _insert_location(db_session, is_canonical=True)
+    # Only mid->terminal is in the audit chain; dead has NO audit row.
+    _audit_soft_delete(db_session, mid, terminal)
+
+    seq = publish_location_delete(
+        db_session, dead_location_id=dead, survivor_location_id=mid
+    )
+    assert seq is not None
+    obj = _delete_rows(db_session)[0].object_canonical["object"]
+    # Followed mid -> terminal, not stopped at the non-canonical mid.
+    assert obj["redirectTo"] == f"{_HOST}:{terminal}"
+
+
+def test_survivor_chain_cycle_yields_null_redirect(db_session, configured):
+    """Gauntlet round-3 MEDIUM (critic): a cycle in the audit chain (a->b->a) must
+    terminate and yield redirectTo null — never loop/hang."""
+    dead = _insert_location(db_session, is_canonical=False)
+    other = _insert_location(db_session, is_canonical=False)
+    _audit_soft_delete(db_session, dead, other)
+    _audit_soft_delete(db_session, other, dead)  # cycle
+
+    seq = publish_location_delete(
+        db_session, dead_location_id=dead, survivor_location_id=other
+    )
+    assert seq is not None
+    assert _delete_rows(db_session)[0].object_canonical["object"]["redirectTo"] is None
+
+
 def test_dedup_script_dry_run_no_delete(db_session, configured):
     """Dry-run (apply=False) never emits a Delete."""
     survivor = _insert_location(db_session, is_canonical=True)

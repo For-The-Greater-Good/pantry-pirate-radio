@@ -248,16 +248,29 @@ def _reconstruct_envelope(row: Any) -> dict[str, Any]:
 
 
 def read_export(
-    session: Session, *, since: int, limit: int
+    session: Session, *, since: int, limit: int, tree_size: int | None = None
 ) -> tuple[list[dict[str, Any]], int, int | None]:
     """A keyset page of ``/export`` rows for sequences in ``(since, tree_size]``.
 
     Each row is the full signed wire envelope plus its RFC-6962 ``inclusion_proof``
-    (hex audit path) against the CURRENT tree (``tree_size`` == safe-high-water ==
-    the signed checkpoint's size). Returns ``(rows, tree_size, next_cursor)`` where
-    ``next_cursor`` is the last sequence emitted when more remain, else ``None``.
+    (hex audit path) against the size-``tree_size`` tree. Returns
+    ``(rows, tree_size, next_cursor)`` where ``next_cursor`` is the last sequence
+    emitted when more remain, else ``None``.
+
+    ``tree_size`` PINS the tree the proofs are built against — the RFC-6962 / tlog
+    pull contract (§6.6): a consumer fetches a signed checkpoint at size N, then
+    pulls ``/export?tree_size=N`` so every inclusion proof verifies against the
+    checkpoint root@N (the head keeps advancing, so proofs anchored to an unpinned
+    live head would be unverifiable against any signed root). ``None`` defaults to
+    the current head (the simple "give me everything now" case; proofs are then
+    only verifiable if the caller separately pins). A ``tree_size`` greater than
+    the current head raises ValueError (cannot prove against a future tree).
     """
-    tree_size = safe_high_water(session)
+    head = safe_high_water(session)
+    if tree_size is None:
+        tree_size = head
+    elif tree_size > head:
+        raise ValueError(f"tree_size {tree_size} exceeds current head {head}")
     if tree_size == 0:
         return [], 0, None
     leaves = leaf_data(session, tree_size)

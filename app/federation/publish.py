@@ -174,19 +174,32 @@ def _resolve_terminal_survivor(
     """
     if chain is None:
         chain = _load_soft_delete_chain(db)
-    if dead_id in chain:
-        seen = {dead_id}
-        current = chain[dead_id]
+
+    def _walk(start: str) -> str | None:
+        """Follow start -> ... to the terminal not-further-merged id; None on a
+        cycle or excessive depth. ``start`` itself need not be in the chain."""
+        seen = {start}
+        current = start
         depth = 0
         while current in chain:
-            if current in seen or depth >= _MAX_SURVIVOR_CHAIN_DEPTH:
+            nxt = chain[current]
+            if nxt in seen or depth >= _MAX_SURVIVOR_CHAIN_DEPTH:
                 return None
-            seen.add(current)
-            current = chain[current]
+            seen.add(nxt)
+            current = nxt
             depth += 1
-        terminal: str | None = current
+        return current
+
+    if dead_id in chain:
+        terminal = _walk(dead_id)
+    elif fallback_survivor_id is not None:
+        # The dead id has no audit row (e.g. the same-org script writes none), but
+        # the immediate survivor may itself have been merged onward by a different
+        # run that DID write audit — follow ITS chain to the terminal too, so we
+        # never redirect to a now-non-canonical intermediate (Gauntlet MEDIUM).
+        terminal = _walk(fallback_survivor_id)
     else:
-        terminal = fallback_survivor_id
+        terminal = None
     if terminal is None:
         return None
     row = db.execute(
@@ -258,7 +271,17 @@ def publish_pending_deletes(db: Session, deletes: list[tuple[str, str | None]]) 
     savepoints; an inline append (which commits) would fold that transaction and
     abort the run (Gauntlet CRITICAL). So the scripts COLLECT pairs during the run
     and call this once post-commit. The survivor chain is loaded ONCE here (not
-    per Delete — avoids the O(N^2) scan). Never raises (Principle XI)."""
+    per Delete — avoids the O(N^2) scan). Never raises (Principle XI).
+
+    KNOWN CRASH WINDOW (documented, follow-on): the soft-delete is committed before
+    this replay, so a process death (OOM/SIGKILL) between the commit and the append
+    leaves a soft-deleted row with a published Update but no Tombstone. A peer's
+    record goes stale rather than redirected — bounded, not data loss, and
+    correctable: a reconciliation pass (find is_canonical=FALSE rows that have an
+    Update but no Delete in federation_log and emit the missing Tombstones) is the
+    fix, tracked alongside the Task 9 archive work — the same offline-backfill shape
+    as the existing dedupe_* scripts. Re-running the dedup script does NOT re-emit
+    (the soft-delete is idempotent), so the backfill is the recovery path."""
     if not deletes:
         return
     try:
