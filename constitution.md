@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.7.0 — 2026-06-06
+- **Amended Principle III**: Standards-conformance testing — when implementing an external standard (RFC, W3C spec, C2SP spec, HSDS, etc.), the implementation MUST be tested against the standard's own published test vectors, reference implementations, or conformance suites in all viable cases, vendored with pinned provenance. A self-derived oracle written alongside the implementation shares its author's blind spots and does not count as conformance evidence on its own. (Motivating incident: the RFC 8785 UTF-16 key-ordering defect shipped green against self-derived tests and was caught only by the official cyberphone conformance suite, PR #555.)
+
 ### v1.6.0 — 2026-03-29
 - **Amended Principle IV**: Submarine stage now has two internal sub-stages: crawl (Fargate, real-time) and extract (Bedrock batch inference, 50% cost savings). Output contract unchanged: JobResult → Reconciler queue. On AWS, crawled content is staged to a submarine-staging queue; the batcher Lambda submits Bedrock batch jobs. On local Docker, inline extraction is preserved.
 
@@ -64,6 +67,7 @@ Tests MUST be written before implementation code. The Red-Green-Refactor cycle i
 - Pull requests without corresponding tests SHALL NOT be merged
 - Code coverage MUST NOT regress (enforced by ratcheting mechanism with 2% tolerance)
 - Coverage reports MUST be generated with `./bouy test --pytest` and analyzed with `./bouy test --coverage`
+- When implementing an external standard (RFC, W3C spec, C2SP spec, HSDS, etc.), the implementation MUST be tested against the standard's own published test vectors, reference implementations, or conformance suites in all viable cases. Vendor the vectors into the repo with pinned provenance (source URL, commit/version, license) so CI stays hermetic. A self-derived oracle written alongside the implementation shares its author's blind spots and does not count as conformance evidence on its own.
 
 **Testing Infrastructure**:
 - **Unit Tests**: Business logic, models, utilities (majority of tests)
@@ -71,8 +75,9 @@ Tests MUST be written before implementation code. The Red-Green-Refactor cycle i
 - **Scraper Tests**: VCR-recorded HTTP interactions, mock data validation
 - **Async Tests**: Use `pytest-asyncio` with `asyncio_mode=auto`
 - **Property Tests**: Use Hypothesis for HSDS model validation
+- **Standards-Conformance Tests**: Vendored official vectors/suites for any implemented external standard (e.g. `tests/test_federation/vendor/jcs_rfc8785/` for RFC 8785; transparency-dev vectors for RFC 6962; the Go `sumdb/note` reference for C2SP signed notes; RFC 9421 Appendix B vectors)
 
-**Rationale**: The pipeline processes real-world data that directly affects people's ability to find food. Untested code in the reconciler could silently drop valid locations. Untested validation rules could reject legitimate food pantries. Untested scrapers could silently fail and leave communities without updated data. TDD ensures every behavior is captured as an executable specification before it ships.
+**Rationale**: The pipeline processes real-world data that directly affects people's ability to find food. Untested code in the reconciler could silently drop valid locations. Untested validation rules could reject legitimate food pantries. Untested scrapers could silently fail and leave communities without updated data. TDD ensures every behavior is captured as an executable specification before it ships. For external standards, the standard's own vectors ARE the executable specification: an implementation and a same-author oracle can share a misreading and pass each other — the RFC 8785 UTF-16 key-ordering defect shipped green against self-derived tests and was caught only by the official conformance suite (PR #555).
 
 **Exception**: Exploratory spikes for evaluating new scraping patterns or LLM providers MAY defer testing, but MUST be rewritten with tests before merging.
 
