@@ -195,7 +195,7 @@ Application source files MUST NOT exceed 600 lines of code.
 | File | Lines | Status |
 |------|-------|--------|
 | `app/haarrrvest_publisher/service.py` | 1669 | Needs decomposition |
-| `app/reconciler/job_processor.py` | 1568 | Needs decomposition |
+| `app/reconciler/job_processor.py` | 1328 | Partially decomposed — per-location commit & match logic extracted to `location_commit.py` (531) + `location_match.py` (193), both <600; further decomposition needed |
 | `app/llm/hsds_aligner/schema_converter.py` | 1498 | Needs decomposition |
 | `app/datasette/exporter.py` | 1181 | Needs decomposition |
 | `app/reconciler/service_creator.py` | 990 | Needs decomposition |
@@ -203,7 +203,7 @@ Application source files MUST NOT exceed 600 lines of code.
 
 **Exemptions**: Generated files, migration files, and test fixtures are excluded from line limits. Test files have a soft limit of 800 lines.
 
-**Rationale**: Large files concentrate too many responsibilities, making them difficult to understand, test in isolation, and modify safely. The reconciler's `job_processor.py` at 1568 lines handles the critical path of data persistence. Smaller files enforce single responsibility and reduce the blast radius of changes. The 600-line limit is higher than the reference constitutions' 400-500 line limits because Python pipeline code often has legitimate density (config, logging, error handling) that inflates line counts.
+**Rationale**: Large files concentrate too many responsibilities, making them difficult to understand, test in isolation, and modify safely. The reconciler's `job_processor.py` (1328 lines after partial decomposition) handles the critical path of data persistence. Smaller files enforce single responsibility and reduce the blast radius of changes. The 600-line limit is higher than the reference constitutions' 400-500 line limits because Python pipeline code often has legitimate density (config, logging, error handling) that inflates line counts.
 
 ---
 

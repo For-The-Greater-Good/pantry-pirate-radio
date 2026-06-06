@@ -752,8 +752,8 @@ class TestExistingMatchPathCallsCorroboration:
     @patch("app.reconciler.job_processor.OrganizationCreator")
     @patch("app.reconciler.job_processor.LocationCreator")
     @patch("app.reconciler.job_processor.ServiceCreator")
-    @patch("app.reconciler.job_processor.SubmarineLocationHandler")
-    @patch("app.reconciler.job_processor.VersionTracker")
+    @patch("app.reconciler.location_commit.SubmarineLocationHandler")
+    @patch("app.reconciler.location_commit.VersionTracker")
     @patch("app.reconciler.job_processor.logger")
     def test_submarine_job_skips_corroboration_bonus(
         self,
@@ -838,7 +838,7 @@ class TestExistingMatchPathCallsCorroboration:
         verify_result.first.return_value = (target_location_id,)
         processor.db.execute.return_value = verify_result
 
-        with patch("app.reconciler.job_processor.MergeStrategy") as mock_merge_cls:
+        with patch("app.reconciler.location_commit.MergeStrategy") as mock_merge_cls:
             processor.process_job_result(job_result)
 
         # Submarine jobs must NOT route through merge_location — submarine is
@@ -912,11 +912,11 @@ class TestExistingMatchPathScoreBump:
             and "name=:name" in str(c.args[0]).lower()
         ]
 
-    @patch("app.reconciler.job_processor.MergeStrategy")
+    @patch("app.reconciler.location_commit.MergeStrategy")
     @patch("app.reconciler.job_processor.OrganizationCreator")
     @patch("app.reconciler.job_processor.LocationCreator")
     @patch("app.reconciler.job_processor.ServiceCreator")
-    @patch("app.reconciler.job_processor.VersionTracker")
+    @patch("app.reconciler.location_commit.VersionTracker")
     @patch("app.reconciler.job_processor.logger")
     def test_matched_path_routes_through_merge_location(
         self,
@@ -970,11 +970,11 @@ class TestExistingMatchPathScoreBump:
         assert len(merge_calls) == 2
         assert all(c.args == (existing_loc_id, validator_score) for c in merge_calls)
 
-    @patch("app.reconciler.job_processor.MergeStrategy")
+    @patch("app.reconciler.location_commit.MergeStrategy")
     @patch("app.reconciler.job_processor.OrganizationCreator")
     @patch("app.reconciler.job_processor.LocationCreator")
     @patch("app.reconciler.job_processor.ServiceCreator")
-    @patch("app.reconciler.job_processor.VersionTracker")
+    @patch("app.reconciler.location_commit.VersionTracker")
     @patch("app.reconciler.job_processor.logger")
     def test_no_org_rescrape_does_not_wipe_org(
         self,
@@ -1018,11 +1018,11 @@ class TestExistingMatchPathScoreBump:
             f"(would risk wiping an existing link); found: {org_writes}"
         )
 
-    @patch("app.reconciler.job_processor.MergeStrategy")
+    @patch("app.reconciler.location_commit.MergeStrategy")
     @patch("app.reconciler.job_processor.OrganizationCreator")
     @patch("app.reconciler.job_processor.LocationCreator")
     @patch("app.reconciler.job_processor.ServiceCreator")
-    @patch("app.reconciler.job_processor.VersionTracker")
+    @patch("app.reconciler.location_commit.VersionTracker")
     @patch("app.reconciler.job_processor.logger")
     def test_missing_org_is_filled_not_overwritten(
         self,
@@ -1075,12 +1075,12 @@ class TestExistingMatchPathScoreBump:
         assert "verified_by" in sql
         assert org_fill[0].args[1]["organization_id"] == "org-uuid"
 
-    @patch("app.reconciler.job_processor.MergeStrategy")
+    @patch("app.reconciler.location_commit.MergeStrategy")
     @patch("app.reconciler.job_processor.OrganizationCreator")
     @patch("app.reconciler.job_processor.LocationCreator")
     @patch("app.reconciler.job_processor.ServiceCreator")
-    @patch("app.reconciler.job_processor.VersionTracker")
-    @patch("app.reconciler.job_processor.logger")
+    @patch("app.reconciler.location_commit.VersionTracker")
+    @patch("app.reconciler.location_commit.logger")
     def test_merge_location_failure_does_not_abort_job(
         self,
         mock_logger,
