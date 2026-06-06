@@ -117,6 +117,38 @@ jobs:
       - name: Run Ruff linter
         run: poetry run ruff check app tests
 
+      - name: Federation standards-conformance registry gate (REG-1)
+        run: |
+          # Constitution v1.7.0: every external standard the federation code
+          # implements MUST be listed in the conformance registry. Fails if a
+          # standard token in app/federation/*.py is absent from REGISTRY.md.
+          # KNOWN LIMITATION: only catches standards whose reference matches the
+          # token regex below; a standard named some other way must still be added
+          # to REGISTRY.md by the author (reconcile the regex when adding one).
+          python - <<'PYEOF'
+          import glob, re, sys
+
+          REGISTRY = "tests/test_federation/vendor/REGISTRY.md"
+          TOKEN_RE = re.compile(
+              r"RFC[ -]?\d{3,5}|C2SP|did:web|did:key|multibase|base58btc"
+              r"|multicodec|ActivityStreams|WebFinger"
+          )
+          norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+
+          src = "\n".join(open(p, encoding="utf-8").read()
+                          for p in glob.glob("app/federation/*.py"))
+          tokens = {norm(t) for t in TOKEN_RE.findall(src)}
+
+          registry = norm(open(REGISTRY, encoding="utf-8").read())
+          missing = sorted(t for t in tokens if t not in registry)
+          if missing:
+              print("Standards implemented in app/federation/ but NOT listed in "
+                    f"{REGISTRY}: {missing}")
+              print("Add a row per constitution v1.7.0 (Principle III).")
+              sys.exit(1)
+          print(f"REG-1 OK: all {len(tokens)} federation standard tokens are registered.")
+          PYEOF
+
 
   mypy:
     needs: setup

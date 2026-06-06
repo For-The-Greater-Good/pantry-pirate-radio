@@ -71,4 +71,31 @@ else
     echo "✅ Created coverage baseline at ${CURRENT_COVERAGE}%"
 fi
 
+# --- Per-path floor: RED-tier federation crypto is held to a higher bar than
+# the project aggregate (constitution v1.7.0 quality machinery). The global
+# ratchet alone cannot see a single module decaying inside the average — e.g.
+# fetch.py sat at 46% undetected before this floor existed.
+FEDERATION_FLOOR=95
+echo "🔍 Checking per-file floor (${FEDERATION_FLOOR}%) for app/federation/ ..."
+python3 - "$FEDERATION_FLOOR" <<'PYEOF'
+import json
+import sys
+
+floor = float(sys.argv[1])
+with open("coverage.json") as f:
+    data = json.load(f)
+failures = []
+for path, info in data.get("files", {}).items():
+    if "app/federation/" in path.replace("\\", "/"):
+        pct = info["summary"]["percent_covered"]
+        if pct < floor:
+            failures.append((path, pct))
+if failures:
+    for path, pct in sorted(failures):
+        print(f"❌ {path}: {pct:.2f}% < federation floor {floor}%")
+    print("   RED-tier modules must not decay below the floor; add tests.")
+    sys.exit(1)
+print(f"✅ All app/federation/ files meet the {floor}% floor")
+PYEOF
+
 echo "✅ Coverage check passed!"

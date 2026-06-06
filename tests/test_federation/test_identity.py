@@ -1,3 +1,7 @@
+import base64
+import json
+from pathlib import Path
+
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -5,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from app.federation import identity
 from app.federation.identity import (
     build_actor,
     build_did_document,
@@ -12,6 +17,8 @@ from app.federation.identity import (
     load_signing_key,
     public_key_multibase,
 )
+
+_VENDOR = Path(__file__).resolve().parent / "vendor"
 
 _B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
@@ -166,3 +173,69 @@ def test_build_webfinger_returns_jrd_with_self_link() -> None:
     assert len(self_links) == 1
     assert self_links[0]["type"] == "application/activity+json"
     assert self_links[0]["href"] == "https://h.example/api/v1/federation/actor"
+
+
+# --- CONF-1: pin load_signing_key's base64-seed branch to EXTERNAL truth.
+# The primitive (Ed25519 seed->pubkey->signature) is already anchored by the Go
+# note + RFC 9421 KATs, but the load_signing_key base64 WRAPPER was tested only
+# self-consistently. Reuse the already-vendored RFC 9421 raw-hex seed (no new
+# vendored files) so a seed/decoding regression in this wrapper is caught.
+def test_load_signing_key_base64_seed_matches_rfc9421_vector() -> None:
+    v = json.loads(
+        (_VENDOR / "rfc9421_appendix_b" / "vector.json").read_text(encoding="utf-8")
+    )
+    seed = bytes.fromhex(v["private_key_raw_hex"])
+    key = load_signing_key(base64.b64encode(seed).decode("ascii"))
+    assert key is not None
+    raw_pub = key.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    # External truth: the seed derives the published public key...
+    assert raw_pub.hex() == v["public_key_raw_hex"]
+    # ...and re-signs the vendored signature base to the published signature.
+    sig = key.sign(v["signature_base"].encode("utf-8"))
+    assert base64.b64encode(sig).decode("ascii") == v["signature_b64"]
+
+
+# --- CONF-2: pin the base58btc encoder + did:key composition to EXTERNAL truth.
+# The hand-rolled _b58encode (the prod fallback path) was pinned only by a
+# self-derived decoder in this same file; a leading-zero/pad refactor could
+# silently emit a publicKeyMultibase every peer rejects.
+_B58_VECTORS = json.loads(
+    (_VENDOR / "base58btc" / "vectors.json").read_text(encoding="utf-8")
+)["vectors"]
+
+
+@pytest.mark.parametrize("vec", _B58_VECTORS)
+def test_b58encode_matches_external_base58_vectors(vec) -> None:
+    """_b58encode reproduces the canonical base58btc vectors (incl. leading-zero)."""
+    assert identity._b58encode(bytes.fromhex(vec["input_hex"])) == vec["base58"]
+
+
+# The canonical W3C did:key Ed25519 example (did-key-spec, "Create" section).
+_W3C_DID_KEY_ED25519 = "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+
+
+def test_public_key_multibase_reproduces_w3c_did_key_vector() -> None:
+    """public_key_multibase re-encodes the W3C-published z6Mk… string exactly.
+
+    We recover the raw key by decoding the published multibase, then re-encode
+    with the (externally-pinned, see above) encoder and assert byte-equality with
+    the published string — so a composition bug (multicodec prefix / 'z' prefix /
+    base58) cannot pass. The decoder is only a means to recover candidate bytes;
+    correctness rests on reproducing the published string via the pinned encoder.
+    """
+    body = _b58decode(_W3C_DID_KEY_ED25519[1:])  # strip the 'z' multibase prefix
+    assert body[:2] == b"\xed\x01"  # ed25519-pub multicodec varint
+    raw = body[2:]
+    assert len(raw) == 32
+    pub = Ed25519PublicKey.from_public_bytes(raw)
+    assert public_key_multibase(pub) == _W3C_DID_KEY_ED25519
+
+
+def test_all_ed25519_did_keys_share_the_z6mk_prefix() -> None:
+    """Documented external invariant: every Ed25519 did:key starts 'z6Mk'
+    (base58btc of the 0xed01 multicodec prefix)."""
+    for seed in (bytes(range(32)), bytes([7]) * 32, bytes([255]) * 32):
+        pub = Ed25519PrivateKey.from_private_bytes(seed).public_key()
+        assert public_key_multibase(pub).startswith("z6Mk")

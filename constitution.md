@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.7.1 — 2026-06-06
+- **Amended Principle III**: Added the RED-tier test-level bar (building on the v1.7.0 standards-conformance clause). Named RED-tier modules (`app/federation/*`, `app/reconciler/*`, `app/validator/*`, `app/content_store/*`, `app/llm/queue/*`) MUST, where applicable, carry the full test-level set, a byte-identity/round-trip invariant at every canonicalization/serialization boundary, negative/guard-path tests asserting hostile input returns a safe value (not raises), a kill-switch no-op proof for every node-data signing entry point, a per-file CI coverage floor (not the global ratchet alone), and a `tests/<area>/vendor/REGISTRY.md` entry per implemented standard. Rationale: the JCS UTF-16 (#555) and JSONB-float defects both shipped green because no official vector / byte-identity invariant forced the check.
+
 ### v1.7.0 — 2026-06-06
 - **Amended Principle III**: Standards-conformance testing — when implementing an external standard (RFC, W3C spec, C2SP spec, HSDS, etc.), the implementation MUST be tested against the standard's own published test vectors, reference implementations, or conformance suites in all viable cases, vendored with pinned provenance. A self-derived oracle written alongside the implementation shares its author's blind spots and does not count as conformance evidence on its own. (Motivating incident: the RFC 8785 UTF-16 key-ordering defect shipped green against self-derived tests and was caught only by the official cyberphone conformance suite, PR #555.)
 
@@ -76,6 +79,14 @@ Tests MUST be written before implementation code. The Red-Green-Refactor cycle i
 - **Async Tests**: Use `pytest-asyncio` with `asyncio_mode=auto`
 - **Property Tests**: Use Hypothesis for HSDS model validation
 - **Standards-Conformance Tests**: Vendored official vectors/suites for any implemented external standard (e.g. `tests/test_federation/vendor/jcs_rfc8785/` for RFC 8785; transparency-dev vectors for RFC 6962; the Go `sumdb/note` reference for C2SP signed notes; RFC 9421 Appendix B vectors)
+
+**RED-tier modules**: `app/federation/*`, `app/reconciler/*`, `app/validator/*`, `app/content_store/*`, `app/llm/queue/*` carry data-integrity, crypto, concurrency, or cost-amplification risk a solo maintainer cannot deep-review. Pull requests touching them MUST, where applicable, provide:
+- the full test-level set: unit + Hypothesis property + external-KAT + DB-backed + real-OS-process concurrency + independent-verifier integration + negative/guard-path;
+- a **byte-identity / round-trip invariant** at every canonicalization or serialization boundary (the gap class behind the JCS UTF-16 and JSONB-float ships-green defects);
+- **negative-path** tests asserting each hostile-input guard returns a safe value (False/None/empty) rather than raising;
+- a **kill-switch no-op proof** for every entry point that produces a signature over node data (assert `sign()` is never called when the relevant feature flag is off);
+- a **per-file coverage floor enforced in CI** (the global ratchet cannot see a single module decaying inside the average);
+- a row in `tests/<area>/vendor/REGISTRY.md` for each implemented external standard (vendored vector path, or a justified absence).
 
 **Rationale**: The pipeline processes real-world data that directly affects people's ability to find food. Untested code in the reconciler could silently drop valid locations. Untested validation rules could reject legitimate food pantries. Untested scrapers could silently fail and leave communities without updated data. TDD ensures every behavior is captured as an executable specification before it ships. For external standards, the standard's own vectors ARE the executable specification: an implementation and a same-author oracle can share a misreading and pass each other — the RFC 8785 UTF-16 key-ordering defect shipped green against self-derived tests and was caught only by the official conformance suite (PR #555).
 

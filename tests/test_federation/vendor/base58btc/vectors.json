@@ -1,0 +1,9 @@
+{
+  "_comment": "base58btc (Bitcoin alphabet) ENCODE vectors. Pin app/federation/identity.py:_b58encode (the prod fallback path used by public_key_multibase when the optional `base58` package is absent). The leading-zero case exercises the '1'-pad branch. input_hex -> base58 string.",
+  "alphabet": "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+  "vectors": [
+    { "input_hex": "", "base58": "" },
+    { "input_hex": "68656c6c6f20776f726c64", "base58": "StV1DL6CwTryKyV" },
+    { "input_hex": "000068656c6c6f20776f726c64", "base58": "11StV1DL6CwTryKyV" }
+  ]
+}

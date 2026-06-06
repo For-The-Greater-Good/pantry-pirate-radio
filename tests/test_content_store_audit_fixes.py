@@ -125,18 +125,28 @@ class TestContent1StaleJobLink:
         return mock_backend
 
     def test_stale_sqs_link_with_no_result_is_cleared(self):
-        """A job linked longer ago than the threshold is cleared → re-enqueue."""
+        """A job linked longer ago than the threshold is cleared → re-enqueue.
+
+        Also asserts the runbook event `content_store_stale_job_link_cleared`
+        fires (OBS-2: it is a documented CloudWatch grep target, so its name is a
+        contract — not just the clearing behavior)."""
         from datetime import datetime, timedelta, timezone
+
+        from structlog.testing import capture_logs
 
         old = datetime.now(UTC) - timedelta(hours=200)
         mock_backend = self._pending_backend(old)
         store = self._make_store(redis_url=None, backend=mock_backend)  # 72h default
 
-        result = store.store_content("test content", {"scraper_id": "test"})
+        with capture_logs() as logs:
+            result = store.store_content("test content", {"scraper_id": "test"})
 
         mock_backend.index_clear_job_id.assert_called_once()
         assert result.job_id is None
         assert result.status == "pending"
+        assert any(
+            e.get("event") == "content_store_stale_job_link_cleared" for e in logs
+        ), "expected the documented stale-link-cleared event"
 
     def test_recent_sqs_link_is_not_cleared(self):
         """A recently-linked (in-flight) job is preserved → still dedup-skipped."""

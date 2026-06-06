@@ -17,6 +17,24 @@ from pytest import (
 
 from app.core.logging import configure_logging
 
+# --- Hypothesis determinism (HYP-1): register a fixed CI profile so a property
+# suite's "green" is a FIXED contract, not a fresh random sample each run (the
+# nondeterministic-green flakiness the quality audit flagged). Per-test
+# @settings(max_examples=...) still apply; this only fixes the seed. Override
+# with HYPOTHESIS_PROFILE=dev for randomized local exploration.
+try:
+    from hypothesis import settings as _hyp_settings
+
+    _hyp_settings.register_profile(
+        "ci", derandomize=True, print_blob=True, deadline=None
+    )
+    _hyp_settings.register_profile(
+        "dev", derandomize=False, print_blob=True, deadline=None
+    )
+    _hyp_settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "ci"))
+except ImportError:  # hypothesis is a dev dep; absent only in trimmed envs
+    pass
+
 # Load .env.test file for tests, but preserve API keys from .env
 try:
     from dotenv import load_dotenv
