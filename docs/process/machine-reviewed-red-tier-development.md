@@ -16,7 +16,7 @@ trade safe.
 
 ## 0. The mandate (non-negotiable)
 
-When this process is invoked, two rules are not optional:
+When this process is invoked, three rules are not optional:
 
 1. **The Gauntlet runs at least once per PR, before merge.** Once per PR is the
    *floor*, not the target — re-run it after any critical or structural
@@ -27,7 +27,19 @@ When this process is invoked, two rules are not optional:
    after the last Gauntlet, the Gauntlet is stale — run it again on what will
    actually merge.
 
-2. **Multi-agent orchestration is authorized by default and preferred.** Running
+2. **Passing CI is the Gauntlet's FLOOR, not its goal.** The Gauntlet's
+   completeness phase MUST run the *entire* CI gate set — every test, plus
+   coverage floors, linters, type-check, dead-code, security, and complexity
+   gates — as a precondition, so that **a clean Gauntlet provably implies green
+   CI**. If the Gauntlet checks fewer gates than CI, CI can fail what the Gauntlet
+   passed (it will, eventually — that is a Gauntlet defect, not bad luck). But
+   green CI is merely the floor the Gauntlet must clear on its way to its real
+   goal: *adversarial correctness no gate can express* — forged signatures,
+   transaction folding, byte-divergence, equivocation. Clearing every gate and
+   stopping there is failing the assignment. Run the gates first, mechanically;
+   spend the intelligence on what the gates cannot see.
+
+3. **Multi-agent orchestration is authorized by default and preferred.** Running
    the review (and much of the build) as parallel agent workflows — "ultracode" in
    this project's tooling — is the standing default for substantive work under this
    process, not a special-case escalation. Optimize for the most exhaustive,
@@ -35,7 +47,7 @@ When this process is invoked, two rules are not optional:
    speed and token cost. Reserve solo, single-context work for trivial or purely
    mechanical changes.
 
-These two rules are what make "the machine is the reviewer" real rather than
+These rules are what make "the machine is the reviewer" real rather than
 aspirational. Write them into your project's governing doc so they bind future
 contributors (human and agent), not just the person who set the process up.
 
@@ -122,11 +134,26 @@ worthless.
 
 ### 4.3 Phase 3 — Completeness critic
 
-One agent that assumes the lenses and attackers missed something: runs the
-**executable truth** (full suite + the conformance vectors + the concurrency test;
-report the count), then asks *what is not covered* — an untested guard branch, an
-integration seam, an error path, a deferred item that must stay tracked. What it
-finds becomes the next round of work.
+One agent that assumes the lenses and attackers missed something. It does two
+things, in order:
+
+1. **Run the FULL CI gate set and report each result** (the §0.2 floor). Not "the
+   test suite" — the *entire* gate set CI enforces: tests, **per-file/RED-tier
+   coverage floors**, lint, format, type-check, dead-code, security, complexity.
+   Run the gates the way CI runs them (same command, same scope — e.g. coverage
+   floors are evaluated over the *full* suite, not a sub-package run, or a
+   RED-tier file reads 0% and the floor trips). **Any gate the critic does not run
+   is a gate that can fail after a green Gauntlet** — the exact defect that makes
+   the Gauntlet a liar. Enumerate your CI gates once and make the critic run all
+   of them.
+2. **Then** ask *what no gate can see*: an untested guard branch the coverage
+   number happens to clear, an integration seam, an error path, a cross-module
+   interaction, a deferred item that must stay tracked. That is the critic's real
+   value; the gates are just the floor it clears first.
+
+What it finds becomes the next round of work. A critic that reports "tests pass"
+without running the coverage floor (or lint, or type-check) has done a fraction of
+its job — see the anti-pattern in §9.
 
 ### 4.4 Structured output
 
@@ -274,6 +301,15 @@ the context window.
 - **Transaction folding / fail-soft poisoning.** A "side" hook commits or aborts
   the caller's transaction. → run side effects after the resource commit; on
   failure, roll back so the caller's session survives; prove it with a test (§4.6).
+- **The Gauntlet that passes what CI fails.** The completeness critic ran the test
+  suite but not the coverage floor (or lint, or type-check), reported green, and
+  CI then failed the un-run gate — making the Gauntlet a liar and forcing a
+  post-"approval" scramble. *Real incident:* a clean 4-round Gauntlet was followed
+  by a CI failure on the project's own RED-tier per-file coverage floor, because
+  new guard branches were untested and the critic never ran the floor. → the
+  completeness critic MUST run the **entire** CI gate set (§0.2, §4.3); a green
+  Gauntlet must provably imply green CI, with green CI as the floor — never the
+  goal.
 
 ---
 
@@ -288,9 +324,14 @@ the context window.
 - Keep the **shape**: parallel lenses → real in-sandbox attackers → completeness
   critic → structured findings → red-first remediation → re-Gauntlet → green CI →
   human merge.
-- Keep the **mandate (§0)**: the Gauntlet runs at least once per PR before merge,
-  and multi-agent orchestration is the authorized default. Those two are what make
-  the whole thing trustworthy when you carry it to a new repo.
+- Keep the **mandate (§0)**: the Gauntlet runs at least once per PR before merge;
+  passing CI is its floor, not its goal (the completeness critic runs the whole CI
+  gate set); and multi-agent orchestration is the authorized default. Those are
+  what make the whole thing trustworthy when you carry it to a new repo.
+- **Enumerate your CI gates** and wire every one into the completeness critic
+  before first use — tests, coverage floors, lint, format, type-check, dead-code,
+  security, complexity. The critic that runs fewer gates than CI is the most common
+  way this process quietly breaks.
 
 ---
 
@@ -307,7 +348,14 @@ const attacks = await parallel(ATTACKS.map(a => () =>
         { phase: 'RedTeam', schema: ATTACK_SCHEMA })))
 const breaches = attacks.filter(a => a.succeeded)   // any => blocking
 
-// Phase 3: completeness critic — runs the executable truth, finds the gaps
+// Phase 3: completeness critic — FIRST run the full CI gate set (the floor),
+// THEN hunt what no gate can see. The prompt must enumerate every CI gate:
+//   "Run, the way CI runs them, and report each: full test suite; the per-file/
+//    RED-tier COVERAGE FLOORS over the full suite; lint; format; type-check;
+//    dead-code; security; complexity. A green Gauntlet MUST imply green CI — any
+//    gate you do not run can fail after approval. THEN find what the gates cannot
+//    express (untested guard branches a coverage % clears, integration seams,
+//    error paths, deferred items to track)."
 const critic = await agent(CTX + criticPrompt, { phase: 'Critic', schema: FINDING_SCHEMA })
 
 return { reviews, attacks, breaches, critic }
