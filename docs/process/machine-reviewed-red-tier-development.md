@@ -2,7 +2,9 @@
 
 A portable process for building high-assurance code with one human and a fleet of
 AI agents. Distilled from a federation/crypto build, but the method is
-stack-agnostic — swap the examples for your domain.
+stack-agnostic — swap the examples for your domain. Companion:
+[Adversarial Design & Planning](./adversarial-design-and-planning.md) governs the
+design phase that precedes this build phase.
 
 The premise: **a solo builder cannot deep-review crypto, concurrency, or
 data-integrity code alone, so the machine becomes the reviewer.** The human owns
