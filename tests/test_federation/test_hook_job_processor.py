@@ -76,6 +76,50 @@ def _log_rows(session):
     ).all()
 
 
+def _insert_schedule(session, location_id: str) -> None:
+    session.execute(
+        text(
+            "INSERT INTO schedule (id, location_id, freq, byday, opens_at, closes_at)"
+            " VALUES (:id, :loc, 'WEEKLY', 'MO', '09:00', '12:00')"
+        ),
+        {"id": str(uuid.uuid4()), "loc": location_id},
+    )
+    session.commit()
+
+
+def test_published_update_includes_schedules_when_published_after_schedule_write(
+    db_session, configured
+):
+    """Gauntlet round-2 MEDIUM regression: the federation Update must be published
+    AFTER schedules are written, so the signed aggregate carries the location's
+    hours. Publishing with schedules present yields a non-empty schedules[]."""
+    loc_id = _insert_location(db_session)
+    _insert_schedule(db_session, loc_id)
+    seq = publish_location_update(db_session, loc_id, source_type="scraper")
+    assert seq == 1
+    stored = db_session.execute(
+        text("SELECT object_canonical FROM federation_log WHERE sequence = 1")
+    ).scalar_one()
+    schedules = stored["object"]["schedules"]
+    assert len(schedules) == 1 and schedules[0]["byday"] == "MO"
+
+
+def test_publish_pending_updates_publishes_all_committed(db_session, configured):
+    """The handler batches committed ids and publishes them all (the post-schedule
+    final pass), each independently guarded."""
+    from app.reconciler.location_commit import LocationCommitHandler
+
+    loc_a = _insert_location(db_session)
+    loc_b = _insert_location(db_session)
+    handler = object.__new__(LocationCommitHandler)
+    handler.db = db_session
+    handler.metadata = {"source_type": "scraper"}
+    handler.committed_location_ids = [uuid.UUID(loc_a), uuid.UUID(loc_b)]
+    handler.publish_pending_updates()
+    rows = _log_rows(db_session)
+    assert len(rows) == 2 and all(r.type == "Update" for r in rows)
+
+
 def test_ppr_origin_commit_appends_update(db_session, configured):
     loc_id = _insert_location(db_session)
     seq = publish_location_update(db_session, loc_id, source_type="scraper")

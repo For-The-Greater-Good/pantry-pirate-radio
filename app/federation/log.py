@@ -281,12 +281,15 @@ def read_export(
     return out, tree_size, next_cursor
 
 
-def read_history(session: Session, federation_id: str) -> list[dict[str, Any]]:
+def read_history(
+    session: Session, federation_id: str
+) -> tuple[list[dict[str, Any]], int]:
     """All activities for ``federation_id`` (oldest-first), each a full signed
-    envelope + its inclusion proof against the current tree (audit surface)."""
+    envelope + its inclusion proof, plus the ``tree_size`` the proofs are anchored
+    to (so a consumer can verify them against the matching checkpoint root)."""
     tree_size = safe_high_water(session)
     if tree_size == 0:
-        return []
+        return [], 0
     leaves = leaf_data(session, tree_size)
     db_rows = session.execute(
         text(
@@ -303,4 +306,4 @@ def read_history(session: Session, federation_id: str) -> list[dict[str, Any]]:
             h.hex() for h in merkle.inclusion_proof(leaves, row.sequence - 1)
         ]
         out.append(env)
-    return out
+    return out, tree_size

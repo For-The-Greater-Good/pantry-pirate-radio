@@ -1303,6 +1303,15 @@ class JobProcessor:
                             f"Schedule {schedule_id} from top-level array unchanged or newly created"
                         )
 
+            # Federation Update publish (PR-C, §6.2d/e + §9). Done HERE — after the
+            # full canonical state for the job (locations AND their schedules /
+            # services-at-location) is committed — so each signed/published HSDS
+            # aggregate is COMPLETE (publishing at per-location commit time would
+            # sign a schedule-less object). Each publish is independently guarded +
+            # fail-soft, so it can never abort the (already-succeeded) job.
+            if "location" in data:
+                location_commit_handler.publish_pending_updates()
+
             # Update success metric and return result
             scraper_id = job_result.job.metadata.get("scraper_id", "unknown")
             RECONCILER_JOBS.labels(scraper_id=scraper_id, status="success").inc()

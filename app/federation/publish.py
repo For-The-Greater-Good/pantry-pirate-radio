@@ -224,11 +224,13 @@ def publish_location_delete(
     host = _node_host()
     if host is None or settings.FEDERATION_DID is None:
         return None
-    # Defensive: a Tombstone is only for an actually soft-deleted row. If the
-    # dead id is still canonical, do not tombstone a live location.
-    if _is_canonical(db, dead_location_id):
-        return None
     try:
+        # Defensive: a Tombstone is only for an actually soft-deleted row. If the
+        # dead id is still canonical, do not tombstone a live location. (Inside the
+        # try so a poisoned-session gate query is swallowed, not raised — the
+        # documented never-raises contract; mirrors publish_location_update.)
+        if _is_canonical(db, dead_location_id):
+            return None
         terminal = _resolve_terminal_survivor(
             db, dead_location_id, survivor_location_id, chain=chain
         )
@@ -239,6 +241,8 @@ def publish_location_delete(
             "redirectTo": f"{host}:{terminal}" if terminal else None,
         }
     except Exception as exc:  # never abort the caller (Principle XI)
+        with contextlib.suppress(Exception):
+            db.rollback()
         logger.warning(
             "federation_append_failed", location_id=dead_location_id, error=str(exc)
         )
@@ -257,7 +261,13 @@ def publish_pending_deletes(db: Session, deletes: list[tuple[str, str | None]]) 
     per Delete — avoids the O(N^2) scan). Never raises (Principle XI)."""
     if not deletes:
         return
-    chain = _load_soft_delete_chain(db)
+    try:
+        chain = _load_soft_delete_chain(db)
+    except Exception as exc:  # never raise post-commit into the dedup script
+        with contextlib.suppress(Exception):
+            db.rollback()
+        logger.warning("federation_append_failed", error=str(exc))
+        return
     for dead_id, survivor_id in deletes:
         publish_location_delete(
             db,

@@ -238,6 +238,9 @@ def test_history_returns_proof_backed_activities(client, seeded_log):
     body = r.json()
     assert body["federation_id"] == "node.example:loc-2"
     assert len(body["activities"]) == 1
+    # Proofs are anchored: tree_size in body + header (else unverifiable on a live node).
+    assert body["tree_size"] == seeded_log
+    assert int(r.headers["X-Federation-Sequence"]) == seeded_log
     act = body["activities"][0]
     assert act["federation_id"] == "node.example:loc-2"
     assert "inclusion_proof" in act

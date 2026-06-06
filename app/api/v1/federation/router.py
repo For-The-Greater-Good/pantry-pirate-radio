@@ -197,8 +197,17 @@ def history(federation_id: str) -> JSONResponse:
     _require_enabled()
     session = _session()
     try:
-        activities = log.read_history(session, federation_id)
+        activities, tree_size = log.read_history(session, federation_id)
     finally:
         session.close()
     _require_enabled()  # kill-switch TOCTOU re-check after the read
-    return JSONResponse({"federation_id": federation_id, "activities": activities})
+    # tree_size anchors the inclusion proofs (verify against the matching
+    # checkpoint root); without it the proofs are unverifiable on a live node.
+    return JSONResponse(
+        {
+            "federation_id": federation_id,
+            "tree_size": tree_size,
+            "activities": activities,
+        },
+        headers={"X-Federation-Sequence": str(tree_size)},
+    )

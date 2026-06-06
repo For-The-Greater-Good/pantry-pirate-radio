@@ -213,6 +213,42 @@ def test_publish_failure_does_not_poison_caller_session(
     assert db_session.execute(text("SELECT 1")).scalar() == 1
 
 
+def test_publish_location_delete_fail_soft_on_poisoned_session(db_session, configured):
+    """Gauntlet round-2 MEDIUM regression: the is_canonical gate is inside the
+    try/except, so a poisoned (aborted-transaction) session yields None — never a
+    raise — honoring the documented 'Never raises' contract."""
+    import contextlib
+
+    dead = _insert_location(db_session, is_canonical=False)
+    surv = _insert_location(db_session, is_canonical=True)
+    with contextlib.suppress(Exception):  # poison: failing stmt, not rolled back
+        db_session.execute(text("SELECT * FROM no_such_table_zzz"))
+    assert (
+        publish_location_delete(
+            db_session, dead_location_id=dead, survivor_location_id=surv
+        )
+        is None
+    )
+    assert db_session.execute(text("SELECT 1")).scalar() == 1  # session recovered
+
+
+def test_publish_pending_deletes_fail_soft_on_chain_error(
+    db_session, configured, monkeypatch
+):
+    """Gauntlet round-2 MEDIUM regression: a failure loading the survivor chain
+    must NOT crash the (already-committed) dedup run — publish_pending_deletes
+    swallows it (honors 'Never raises')."""
+    from app.federation import publish as publish_mod
+
+    def _boom(*a, **k):
+        raise RuntimeError("chain load exploded")
+
+    monkeypatch.setattr(publish_mod, "_load_soft_delete_chain", _boom)
+    # Must not raise.
+    publish_mod.publish_pending_deletes(db_session, [(str(uuid.uuid4()), None)])
+    assert db_session.execute(text("SELECT 1")).scalar() == 1
+
+
 def test_dedup_script_dry_run_no_delete(db_session, configured):
     """Dry-run (apply=False) never emits a Delete."""
     survivor = _insert_location(db_session, is_canonical=True)
