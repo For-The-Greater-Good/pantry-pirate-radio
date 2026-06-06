@@ -149,11 +149,19 @@ def test_killswitch_off_no_delete(db_session, configured, monkeypatch):
     assert _delete_rows(db_session) == []
 
 
-def test_dedup_script_soft_delete_emits_delete(db_session, configured):
-    """Wiring: the near-duplicate script's soft_delete_duplicate (--apply) emits a
-    Delete with redirectTo the (canonical) survivor."""
+def test_soft_delete_collects_does_not_publish_inline(db_session, configured):
+    """Gauntlet CRITICAL regression: soft_delete_duplicate must NOT publish inline
+    (an inline append commits the session, folding the dedup run's savepoint and
+    aborting the run). It COLLECTS the (dead, survivor) pair; publish_pending_
+    deletes replays post-commit. Verified inside a begin_nested() that must
+    SURVIVE the call (no folded transaction)."""
+    from app.federation.publish import publish_pending_deletes
+
     survivor = _insert_location(db_session, is_canonical=True)
-    dup = _insert_location(db_session, is_canonical=True)  # flipped by the call
+    dup = _insert_location(db_session, is_canonical=True)
+    collected: list = []
+
+    savepoint = db_session.begin_nested()
     rowcount = soft_delete_duplicate(
         db_session,
         dup,
@@ -161,14 +169,48 @@ def test_dedup_script_soft_delete_emits_delete(db_session, configured):
         run_id=str(uuid.uuid4()),
         cluster_id="cluster-1",
         survivor_id=survivor,
+        federation_deletes=collected,
     )
+    # The savepoint is still live — no inline append folded the transaction.
+    savepoint.commit()
+
     assert rowcount == 1
+    assert collected == [(dup, survivor)]  # collected, not published
+    assert _delete_rows(db_session) == []  # nothing appended inline
+
+    # Post-commit replay publishes the Delete with the resolved redirect.
+    publish_pending_deletes(db_session, collected)
     rows = _delete_rows(db_session)
     assert len(rows) == 1
     obj = rows[0].object_canonical["object"]
     assert obj["type"] == "Tombstone"
     assert obj["federation_id"] == f"{_HOST}:{dup}"
     assert obj["redirectTo"] == f"{_HOST}:{survivor}"
+
+
+def test_publish_failure_does_not_poison_caller_session(
+    db_session, configured, monkeypatch
+):
+    """Gauntlet HIGH regression: a failed append must rollback so the caller's
+    session stays usable (fail-soft must not leave an aborted transaction)."""
+    from app.federation import publish as publish_mod
+
+    dead = _insert_location(db_session, is_canonical=False)
+    surv = _insert_location(db_session, is_canonical=True)
+
+    def _boom(*a, **k):
+        raise RuntimeError("append exploded")
+
+    monkeypatch.setattr(publish_mod.log, "append", _boom)
+    # Must not raise, must return None.
+    assert (
+        publish_location_delete(
+            db_session, dead_location_id=dead, survivor_location_id=surv
+        )
+        is None
+    )
+    # The session is NOT poisoned — a subsequent query works.
+    assert db_session.execute(text("SELECT 1")).scalar() == 1
 
 
 def test_dedup_script_dry_run_no_delete(db_session, configured):

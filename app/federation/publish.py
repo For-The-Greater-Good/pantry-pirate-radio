@@ -17,6 +17,8 @@ Guards (in order):
 
 from __future__ import annotations
 
+import contextlib
+
 import structlog
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -85,6 +87,12 @@ def _append(
             license=settings.FEDERATION_LICENSE,
         )
     except Exception as exc:  # never abort the caller (Principle XI)
+        # Roll back the failed append so the caller's session is not left in an
+        # aborted-transaction state (Gauntlet HIGH: fail-soft must not poison the
+        # caller). Safe because every call site invokes the append AFTER its own
+        # resource commit, so there is no pending caller work to lose.
+        with contextlib.suppress(Exception):  # rollback of a dead session
+            db.rollback()
         logger.warning(
             "federation_append_failed",
             activity_type=activity_type,
@@ -116,6 +124,8 @@ def publish_location_update(
             return None
         obj = build_location_aggregate(db, location_id)
     except Exception as exc:  # never abort the caller (Principle XI)
+        with contextlib.suppress(Exception):
+            db.rollback()
         logger.warning(
             "federation_append_failed", location_id=location_id, error=str(exc)
         )
@@ -147,14 +157,23 @@ def _load_soft_delete_chain(db: Session) -> dict[str, str]:
 
 
 def _resolve_terminal_survivor(
-    db: Session, dead_id: str, fallback_survivor_id: str | None
+    db: Session,
+    dead_id: str,
+    fallback_survivor_id: str | None,
+    *,
+    chain: dict[str, str] | None = None,
 ) -> str | None:
     """Follow ``dead_id`` through the soft-delete chain to the terminal survivor
     (mirrors Beacon ``_resolve_terminal``), falling back to the caller-supplied
     immediate survivor when ``dead_id`` is not yet in the audit chain. Returns the
     terminal id only if it is still canonical; otherwise ``None`` (→ redirectTo
-    null) on a cycle, excessive depth, or a non-canonical/missing terminal."""
-    chain = _load_soft_delete_chain(db)
+    null) on a cycle, excessive depth, or a non-canonical/missing terminal.
+
+    ``chain`` may be supplied pre-loaded (batch replay) to avoid an O(N^2)
+    full-table scan per Delete; otherwise it is loaded once here.
+    """
+    if chain is None:
+        chain = _load_soft_delete_chain(db)
     if dead_id in chain:
         seen = {dead_id}
         current = chain[dead_id]
@@ -180,7 +199,11 @@ def _resolve_terminal_survivor(
 
 
 def publish_location_delete(
-    db: Session, *, dead_location_id: str, survivor_location_id: str | None
+    db: Session,
+    *,
+    dead_location_id: str,
+    survivor_location_id: str | None,
+    chain: dict[str, str] | None = None,
 ) -> int | None:
     """Append a ``Delete`` (Tombstone) for a dedup-script soft-deleted location.
 
@@ -189,6 +212,10 @@ def publish_location_delete(
     through the ``dedup_run_audit`` survivor chain to the terminal still-canonical
     row. No echo suppression — Deletes are produced only by PPR's own dedup
     scripts, never relayed peer data. Never raises (Principle XI).
+
+    MUST be called AFTER the dedup run's transaction has COMMITTED (the append
+    commits the session, which would fold an open dedup savepoint mid-run — the
+    dedup scripts collect pairs and replay via :func:`publish_pending_deletes`).
     """
     from app.core.config import settings
 
@@ -197,9 +224,13 @@ def publish_location_delete(
     host = _node_host()
     if host is None or settings.FEDERATION_DID is None:
         return None
+    # Defensive: a Tombstone is only for an actually soft-deleted row. If the
+    # dead id is still canonical, do not tombstone a live location.
+    if _is_canonical(db, dead_location_id):
+        return None
     try:
         terminal = _resolve_terminal_survivor(
-            db, dead_location_id, survivor_location_id
+            db, dead_location_id, survivor_location_id, chain=chain
         )
         dead_fid = f"{host}:{dead_location_id}"
         obj = {
@@ -213,3 +244,24 @@ def publish_location_delete(
         )
         return None
     return _append(db, activity_type="Delete", federation_id=dead_fid, obj=obj)
+
+
+def publish_pending_deletes(db: Session, deletes: list[tuple[str, str | None]]) -> None:
+    """Replay collected ``(dead_id, survivor_id)`` Deletes AFTER the dedup run's
+    outer transaction has committed.
+
+    The dedup scripts batch a whole run in one transaction with per-cluster
+    savepoints; an inline append (which commits) would fold that transaction and
+    abort the run (Gauntlet CRITICAL). So the scripts COLLECT pairs during the run
+    and call this once post-commit. The survivor chain is loaded ONCE here (not
+    per Delete — avoids the O(N^2) scan). Never raises (Principle XI)."""
+    if not deletes:
+        return
+    chain = _load_soft_delete_chain(db)
+    for dead_id, survivor_id in deletes:
+        publish_location_delete(
+            db,
+            dead_location_id=dead_id,
+            survivor_location_id=survivor_id,
+            chain=chain,
+        )

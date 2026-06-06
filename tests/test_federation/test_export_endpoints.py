@@ -152,6 +152,31 @@ def test_below_window_floor_returns_410(client, seeded_log):
     assert r.json()["detail"]["live_window_floor"] == 4
 
 
+def test_export_above_floor_with_trimmed_prefix_returns_410_not_500(client, seeded_log):
+    """Gauntlet HIGH regression: a trimmed prefix (proofs can't be rebuilt) must
+    yield a clean 410, never a 500, even for _since at/above the floor."""
+    sess = _sync_session()
+    try:
+        sess.execute(text("DELETE FROM federation_log WHERE sequence <= 3"))
+        sess.commit()
+    finally:
+        sess.close()
+    # _since=4 is at the floor; the tree can't be rebuilt (leaves 1..3 gone).
+    r = client.get("/api/v1/federation/export?_since=4", follow_redirects=False)
+    assert r.status_code == 410
+    assert r.json()["detail"]["error"] == "below_live_window"
+
+
+def test_checkpoint_from_tree_size_beyond_head_flags_regression(client, seeded_log):
+    """A from_tree_size larger than the current head signals log regression /
+    truncation (possible equivocation) — flagged, not silently dropped."""
+    cp = client.get(
+        f"/api/v1/federation/checkpoint?from_tree_size={seeded_log + 5}"
+    ).json()
+    assert cp["log_regression"] is True
+    assert "consistency_proof" not in cp
+
+
 def test_checkpoint_and_state_txt_signed(client, seeded_log):
     cp = client.get("/api/v1/federation/checkpoint").json()
     assert {"origin", "tree_size", "root_hash", "timestamp", "signature"} <= set(cp)

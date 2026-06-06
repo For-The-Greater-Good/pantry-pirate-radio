@@ -242,36 +242,56 @@ def soft_delete_duplicate(
     apply: bool,
     *,
     survivor_id: str | None = None,
+    federation_deletes: list[tuple[str, str | None]] | None = None,
 ) -> None:
     """Mark the duplicate as non-canonical so it no longer appears in
     matches or the public API. Keep the row so historical record_version
-    references remain valid."""
+    references remain valid.
+
+    The ``AND is_canonical = TRUE`` guard makes a re-run idempotent — an
+    already-soft-deleted row yields rowcount 0 and emits no (duplicate) Delete.
+    """
     if not apply:
         return
     result = db.execute(
-        text("UPDATE location SET is_canonical = FALSE WHERE id = :id"),
+        text(
+            "UPDATE location SET is_canonical = FALSE "
+            "WHERE id = :id AND is_canonical = TRUE"
+        ),
         {"id": duplicate_id},
     )
-    # Federation Delete hook (PR-C Task 5, §6.2e/§9). This older script keeps no
-    # dedup_run_audit, so redirectTo falls back to the immediate survivor (still
-    # chain-resolved if a near-duplicate run later supersedes it). Guarded +
-    # fail-soft inside publish_location_delete.
-    if (result.rowcount or 0) > 0 and survivor_id is not None:
-        from app.federation.publish import publish_location_delete
+    # Federation Delete hook (PR-C Task 5, §6.2e/§9). COLLECT only — the Delete is
+    # published AFTER the run's outer commit (an inline append commits the
+    # session, folding the run's savepoint — Gauntlet CRITICAL). This older script
+    # keeps no dedup_run_audit, so redirectTo falls back to the immediate survivor.
+    if (
+        (result.rowcount or 0) > 0
+        and survivor_id is not None
+        and federation_deletes is not None
+    ):
+        federation_deletes.append((duplicate_id, survivor_id))
 
-        publish_location_delete(
-            db, dead_location_id=duplicate_id, survivor_location_id=survivor_id
-        )
 
-
-def merge_cluster(db: Session, cluster: set[str], apply: bool) -> dict[str, Any]:
+def merge_cluster(
+    db: Session,
+    cluster: set[str],
+    apply: bool,
+    *,
+    federation_deletes: list[tuple[str, str | None]] | None = None,
+) -> dict[str, Any]:
     """Merge all locations in a cluster onto one canonical."""
     canonical_id = pick_canonical(db, cluster)
     duplicates = sorted(cluster - {canonical_id})
     per_dup_summary: dict[str, dict[str, dict[str, int]]] = {}
     for dup_id in duplicates:
         per_dup_summary[dup_id] = repoint_child_rows(db, canonical_id, dup_id, apply)
-        soft_delete_duplicate(db, dup_id, apply, survivor_id=canonical_id)
+        soft_delete_duplicate(
+            db,
+            dup_id,
+            apply,
+            survivor_id=canonical_id,
+            federation_deletes=federation_deletes,
+        )
     return {
         "canonical_id": canonical_id,
         "duplicates": duplicates,
@@ -325,6 +345,9 @@ def main() -> int:
         total_rows_moved = 0
         total_rows_skipped = 0
         failed_clusters: list[dict[str, Any]] = []
+        # Federation Deletes are published AFTER the outer commit (never inline —
+        # an append commits the session, folding the run's savepoint).
+        federation_deletes: list[tuple[str, str | None]] = []
 
         for cluster in clusters:
             # Isolate each cluster in its own savepoint so a single
@@ -332,7 +355,9 @@ def main() -> int:
             # row) doesn't roll back every successful merge in the run.
             savepoint = db.begin_nested()
             try:
-                result = merge_cluster(db, cluster, args.apply)
+                result = merge_cluster(
+                    db, cluster, args.apply, federation_deletes=federation_deletes
+                )
                 savepoint.commit()
             except Exception as exc:
                 savepoint.rollback()
@@ -359,6 +384,9 @@ def main() -> int:
         if args.apply:
             db.commit()
             logger.info("COMMITTED")
+            from app.federation.publish import publish_pending_deletes
+
+            publish_pending_deletes(db, federation_deletes)
         else:
             db.rollback()
             logger.info("DRY RUN — no changes committed (re-run with --apply)")

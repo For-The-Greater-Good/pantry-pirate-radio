@@ -93,9 +93,29 @@ def export(
                     "archive": "cold-start snapshot (see discovery doc; §6.3)",
                 },
             )
-        rows, tree_size, next_cursor = log.read_export(session, since=since, limit=page)
+        try:
+            rows, tree_size, next_cursor = log.read_export(
+                session, since=since, limit=page
+            )
+        except ValueError:
+            # The live window can't rebuild the requested tree (the prefix has
+            # been archived/trimmed — proofs need leaves the live log no longer
+            # holds). Treat as below-window: 410 + archive pointer, never a 500.
+            # (Archive serving of trimmed leaves is Task 9.)
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "error": "below_live_window",
+                    "live_window_floor": floor,
+                    "archive": "cold-start snapshot (see discovery doc; §6.3)",
+                },
+            )
     finally:
         session.close()
+
+    # Kill-switch TOCTOU: if FEDERATION_ENABLED flipped to False during the read,
+    # do not serve (re-check the live value, mirroring signed_checkpoint).
+    _require_enabled()
 
     body = "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in rows)
     headers = {
@@ -155,6 +175,12 @@ def checkpoint(
                     session, first_size=from_tree_size, second_size=tree_size
                 )
             ]
+        elif from_tree_size is not None and from_tree_size > tree_size:
+            # The consumer holds a LARGER checkpoint than we now advertise: the
+            # log regressed/truncated (a possible equivocation). Flag it loudly
+            # rather than silently omitting the proof.
+            body["consistency_from"] = from_tree_size
+            body["log_regression"] = True
     finally:
         session.close()
     return JSONResponse(body)
@@ -174,4 +200,5 @@ def history(federation_id: str) -> JSONResponse:
         activities = log.read_history(session, federation_id)
     finally:
         session.close()
+    _require_enabled()  # kill-switch TOCTOU re-check after the read
     return JSONResponse({"federation_id": federation_id, "activities": activities})
