@@ -493,6 +493,24 @@ xdg-open htmlcov/index.html  # Linux
 - For specific test functions: `./bouy test --pytest -- tests/test_api.py::TestAPI::test_function`
 - The `./bouy test` command properly handles test environments, coverage, and dependencies
 
+### Standards-conformance testing (constitution v1.7.0 — machinery, not memory)
+When implementing ANY external standard (RFC, W3C, C2SP, HSDS, …), **first ask: does the
+standard publish its own test vectors / reference implementation / conformance suite?** If yes,
+using them is MANDATORY (constitution Principle III, v1.7.0): vendor them under
+`tests/<area>/vendor/<suite>/` with a README pinning source URL + commit + license (pattern:
+`tests/test_federation/vendor/jcs_rfc8785/`). A self-derived oracle written alongside the
+implementation shares its author's blind spots and is NOT conformance evidence — the RFC 8785
+UTF-16 key-ordering defect shipped green against self-derived tests labeled "official vectors"
+and was caught only by the spec author's real suite (#555). Existing external anchors: cyberphone
+JCS suite (canonical.py); Go `sumdb/note` PeterNeumann vector reproduced byte-for-byte
+(checkpoint.py); transparency-dev/Google-CT RFC-6962 roots + consistency proofs (merkle.py,
+verified live — vendored with P1 Task 11); RFC 9421 Appendix B.2.6 (signing.py, same). Test
+levels expected on RED-tier (crypto/concurrency) code: unit + Hypothesis property +
+external-KAT + DB-backed + real-OS-process concurrency + independent-verifier integration +
+negative/guard paths. Where two valid spec readings exist, only cross-implementation interop
+(the P2 two-node loop, the PR-D reference second node) settles it — pin your reading in a
+fixture until then.
+
 ### Common Testing Workflows
 ```bash
 # Before committing changes
