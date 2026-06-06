@@ -236,16 +236,32 @@ def repoint_child_rows(
     return summary
 
 
-def soft_delete_duplicate(db: Session, duplicate_id: str, apply: bool) -> None:
+def soft_delete_duplicate(
+    db: Session,
+    duplicate_id: str,
+    apply: bool,
+    *,
+    survivor_id: str | None = None,
+) -> None:
     """Mark the duplicate as non-canonical so it no longer appears in
     matches or the public API. Keep the row so historical record_version
     references remain valid."""
     if not apply:
         return
-    db.execute(
+    result = db.execute(
         text("UPDATE location SET is_canonical = FALSE WHERE id = :id"),
         {"id": duplicate_id},
     )
+    # Federation Delete hook (PR-C Task 5, §6.2e/§9). This older script keeps no
+    # dedup_run_audit, so redirectTo falls back to the immediate survivor (still
+    # chain-resolved if a near-duplicate run later supersedes it). Guarded +
+    # fail-soft inside publish_location_delete.
+    if (result.rowcount or 0) > 0 and survivor_id is not None:
+        from app.federation.publish import publish_location_delete
+
+        publish_location_delete(
+            db, dead_location_id=duplicate_id, survivor_location_id=survivor_id
+        )
 
 
 def merge_cluster(db: Session, cluster: set[str], apply: bool) -> dict[str, Any]:
@@ -255,7 +271,7 @@ def merge_cluster(db: Session, cluster: set[str], apply: bool) -> dict[str, Any]
     per_dup_summary: dict[str, dict[str, dict[str, int]]] = {}
     for dup_id in duplicates:
         per_dup_summary[dup_id] = repoint_child_rows(db, canonical_id, dup_id, apply)
-        soft_delete_duplicate(db, dup_id, apply)
+        soft_delete_duplicate(db, dup_id, apply, survivor_id=canonical_id)
     return {
         "canonical_id": canonical_id,
         "duplicates": duplicates,

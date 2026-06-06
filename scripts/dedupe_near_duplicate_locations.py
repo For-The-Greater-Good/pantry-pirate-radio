@@ -567,7 +567,12 @@ def soft_delete_duplicate(
         {"id": duplicate_id},
     )
     rowcount = result.rowcount or 0
-    if rowcount > 0 and run_id is not None and cluster_id is not None and survivor_id is not None:
+    if (
+        rowcount > 0
+        and run_id is not None
+        and cluster_id is not None
+        and survivor_id is not None
+    ):
         _log_audit(
             db,
             run_id=run_id,
@@ -579,6 +584,17 @@ def soft_delete_duplicate(
             action="soft_delete",
             old_value={"is_canonical": True},
             new_value={"is_canonical": False},
+        )
+        # Federation Delete hook (PR-C Task 5, §6.2e/§9). Emit a Tombstone with a
+        # survivor-chain-resolved redirectTo. After _log_audit so this dead->
+        # survivor link is in the chain. Kill-switch/identity/fail-soft guarded
+        # inside publish_location_delete — never aborts the dedup run.
+        from app.federation.publish import publish_location_delete
+
+        publish_location_delete(
+            db,
+            dead_location_id=duplicate_id,
+            survivor_location_id=survivor_id,
         )
     return rowcount
 
@@ -734,7 +750,9 @@ def _dump_sample_clusters(
         print(json.dumps(payload, default=str, indent=2))
 
 
-def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting would hurt readability
+def main() -> (
+    int
+):  # noqa: C901 - linear top-to-bottom orchestration, splitting would hurt readability
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--apply",
@@ -820,9 +838,7 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
 
         pairs = find_duplicate_pairs(db)
         if not pairs:
-            logger.info(
-                "No fuzzy duplicate pairs found within %sdeg", _DEDUP_LOOSE_DEG
-            )
+            logger.info("No fuzzy duplicate pairs found within %sdeg", _DEDUP_LOOSE_DEG)
             return 0
         logger.info(
             "Found %d fuzzy duplicate pairs (Tier 3 gate, <=%sdeg)",
@@ -873,9 +889,7 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
                 # deleted child, serialization conflict, lock timeout.
                 # Roll back this cluster's savepoint and continue.
                 savepoint.rollback()
-                failed_clusters.append(
-                    {"cluster": sorted(cluster), "error": str(exc)}
-                )
+                failed_clusters.append({"cluster": sorted(cluster), "error": str(exc)})
                 logger.warning(
                     "Cluster %s rolled back (transient): %s",
                     sorted(cluster),

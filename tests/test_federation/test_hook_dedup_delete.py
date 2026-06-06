@@ -1,0 +1,186 @@
+"""PR-C Task 5: the dedup-script soft-delete -> federation ``Delete`` (Tombstone)
+hook with survivor-chain-resolved ``redirectTo`` (§6.2e, §9).
+
+Tests ``publish_location_delete`` (chain resolution + Tombstone shape + kill
+switch) and the ``dedupe_near_duplicate_locations.soft_delete_duplicate`` wiring.
+DB-backed; all data fictional.
+"""
+
+import base64
+import uuid
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+from app.federation.publish import publish_location_delete
+from scripts.dedupe_near_duplicate_locations import (
+    ensure_audit_table,
+    soft_delete_duplicate,
+)
+
+_SEED = bytes(range(32))
+_DID = "did:web:node.example"
+_HOST = "node.example"
+
+
+@pytest.fixture()
+def db_session():
+    from app.core.config import settings
+
+    url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    engine = create_engine(url)
+    session = sessionmaker(bind=engine)()
+    ensure_audit_table(session)
+    session.execute(text("TRUNCATE federation_log"))
+    session.execute(text("TRUNCATE dedup_run_audit"))
+    session.execute(text("TRUNCATE TABLE location CASCADE"))
+    session.commit()
+    yield session
+    session.rollback()
+    session.execute(text("TRUNCATE federation_log"))
+    session.execute(text("TRUNCATE dedup_run_audit"))
+    session.execute(text("TRUNCATE TABLE location CASCADE"))
+    session.commit()
+    session.close()
+    engine.dispose()
+
+
+@pytest.fixture()
+def configured(monkeypatch):
+    from app.core.config import settings as live
+
+    monkeypatch.setattr(live, "FEDERATION_ENABLED", True)
+    monkeypatch.setattr(live, "FEDERATION_DID", _DID)
+    monkeypatch.setattr(live, "FEDERATION_DOMAIN", None)
+    monkeypatch.setattr(
+        live, "FEDERATION_SIGNING_KEY", base64.b64encode(_SEED).decode("ascii")
+    )
+    return live
+
+
+def _insert_location(session, *, is_canonical: bool) -> str:
+    loc_id = str(uuid.uuid4())
+    session.execute(
+        text(
+            """
+            INSERT INTO location (id, name, latitude, longitude, location_type,
+                                  is_canonical, created_at, updated_at)
+            VALUES (:id, 'Fictional Pantry', 40.7, -74.0, 'physical',
+                    :canon, NOW(), NOW())
+            """
+        ),
+        {"id": loc_id, "canon": is_canonical},
+    )
+    session.commit()
+    return loc_id
+
+
+def _audit_soft_delete(session, dead: str, survivor: str) -> None:
+    session.execute(
+        text(
+            """
+            INSERT INTO dedup_run_audit
+                (run_id, cluster_id, survivor_id, duplicate_id, table_name,
+                 row_id, action, old_value, new_value)
+            VALUES (:run, 'c', :surv, :dead, 'location', :dead, 'soft_delete',
+                    '{}'::jsonb, '{}'::jsonb)
+            """
+        ),
+        {"run": str(uuid.uuid4()), "surv": survivor, "dead": dead},
+    )
+    session.commit()
+
+
+def _delete_rows(session):
+    return session.execute(
+        text(
+            "SELECT federation_id, object_canonical FROM federation_log"
+            " WHERE type = 'Delete' ORDER BY sequence"
+        )
+    ).all()
+
+
+def test_soft_delete_emits_delete_with_resolved_redirect(db_session, configured):
+    """dead_a -> survivor_b -> survivor_c (terminal canonical). The Delete for
+    dead_a must redirectTo c's federation_id (terminal), not b's."""
+    dead_a = _insert_location(db_session, is_canonical=False)
+    surv_b = _insert_location(db_session, is_canonical=False)
+    surv_c = _insert_location(db_session, is_canonical=True)
+    _audit_soft_delete(db_session, dead_a, surv_b)
+    _audit_soft_delete(db_session, surv_b, surv_c)
+
+    seq = publish_location_delete(
+        db_session, dead_location_id=dead_a, survivor_location_id=surv_b
+    )
+    assert seq is not None
+    rows = _delete_rows(db_session)
+    assert len(rows) == 1
+    obj = rows[0].object_canonical["object"]
+    assert obj["type"] == "Tombstone"
+    assert obj["federation_id"] == f"{_HOST}:{dead_a}"
+    assert obj["redirectTo"] == f"{_HOST}:{surv_c}"  # terminal, not b
+
+
+def test_redirect_null_when_terminal_not_canonical(db_session, configured):
+    """If the survivor chain ends at a non-canonical row, redirectTo is null."""
+    dead = _insert_location(db_session, is_canonical=False)
+    surv = _insert_location(db_session, is_canonical=False)  # not canonical
+    seq = publish_location_delete(
+        db_session, dead_location_id=dead, survivor_location_id=surv
+    )
+    assert seq is not None
+    obj = _delete_rows(db_session)[0].object_canonical["object"]
+    assert obj["redirectTo"] is None
+
+
+def test_killswitch_off_no_delete(db_session, configured, monkeypatch):
+    from app.core.config import settings as live
+
+    monkeypatch.setattr(live, "FEDERATION_ENABLED", False)
+    dead = _insert_location(db_session, is_canonical=False)
+    surv = _insert_location(db_session, is_canonical=True)
+    assert (
+        publish_location_delete(
+            db_session, dead_location_id=dead, survivor_location_id=surv
+        )
+        is None
+    )
+    assert _delete_rows(db_session) == []
+
+
+def test_dedup_script_soft_delete_emits_delete(db_session, configured):
+    """Wiring: the near-duplicate script's soft_delete_duplicate (--apply) emits a
+    Delete with redirectTo the (canonical) survivor."""
+    survivor = _insert_location(db_session, is_canonical=True)
+    dup = _insert_location(db_session, is_canonical=True)  # flipped by the call
+    rowcount = soft_delete_duplicate(
+        db_session,
+        dup,
+        apply=True,
+        run_id=str(uuid.uuid4()),
+        cluster_id="cluster-1",
+        survivor_id=survivor,
+    )
+    assert rowcount == 1
+    rows = _delete_rows(db_session)
+    assert len(rows) == 1
+    obj = rows[0].object_canonical["object"]
+    assert obj["type"] == "Tombstone"
+    assert obj["federation_id"] == f"{_HOST}:{dup}"
+    assert obj["redirectTo"] == f"{_HOST}:{survivor}"
+
+
+def test_dedup_script_dry_run_no_delete(db_session, configured):
+    """Dry-run (apply=False) never emits a Delete."""
+    survivor = _insert_location(db_session, is_canonical=True)
+    dup = _insert_location(db_session, is_canonical=True)
+    soft_delete_duplicate(
+        db_session,
+        dup,
+        apply=False,
+        run_id=str(uuid.uuid4()),
+        cluster_id="cluster-1",
+        survivor_id=survivor,
+    )
+    assert _delete_rows(db_session) == []

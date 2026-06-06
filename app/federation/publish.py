@@ -29,6 +29,10 @@ logger = structlog.get_logger(__name__)
 #: ``location_source.source_type`` value carried by federated peers' records.
 FEDERATED_SOURCE_TYPE = "federated_node"
 
+#: Max dead->survivor hops before giving up (cycle/runaway guard); mirrors
+#: Beacon's ``_MAX_SURVIVOR_CHAIN_DEPTH``.
+_MAX_SURVIVOR_CHAIN_DEPTH = 25
+
 
 def _node_host() -> str | None:
     """The publisher host for the ``federation_id`` grammar (§7), or ``None``."""
@@ -50,10 +54,12 @@ def _is_canonical(db: Session, location_id: str) -> bool:
     ).first()
     # Default-publish when the column is NULL/absent (older rows); skip only an
     # explicit FALSE (a dedup soft-delete).
-    return bool(row) and row[0] is not False
+    return row is not None and row[0] is not False
 
 
-def _append(db: Session, *, activity_type: str, federation_id: str, obj: dict) -> int | None:
+def _append(
+    db: Session, *, activity_type: str, federation_id: str, obj: dict
+) -> int | None:
     """Shared append with identity + kill-switch + fail-soft. None if skipped."""
     from app.core.config import settings
 
@@ -120,3 +126,90 @@ def publish_location_update(
         federation_id=f"{host}:{location_id}",
         obj=obj,
     )
+
+
+def _load_soft_delete_chain(db: Session) -> dict[str, str]:
+    """Build the dead->survivor map from ``dedup_run_audit`` (latest per dead).
+
+    Tolerates a missing audit table (returns ``{}``) — the table is created lazily
+    by the dedup scripts on first ``--apply``."""
+    exists = db.execute(text("SELECT to_regclass('public.dedup_run_audit')")).scalar()
+    if not exists:
+        return {}
+    rows = db.execute(
+        text(
+            "SELECT DISTINCT ON (row_id) row_id, survivor_id FROM dedup_run_audit"
+            " WHERE table_name = 'location' AND action = 'soft_delete'"
+            " ORDER BY row_id, id DESC"
+        )
+    ).fetchall()
+    return {str(r.row_id): str(r.survivor_id) for r in rows}
+
+
+def _resolve_terminal_survivor(
+    db: Session, dead_id: str, fallback_survivor_id: str | None
+) -> str | None:
+    """Follow ``dead_id`` through the soft-delete chain to the terminal survivor
+    (mirrors Beacon ``_resolve_terminal``), falling back to the caller-supplied
+    immediate survivor when ``dead_id`` is not yet in the audit chain. Returns the
+    terminal id only if it is still canonical; otherwise ``None`` (→ redirectTo
+    null) on a cycle, excessive depth, or a non-canonical/missing terminal."""
+    chain = _load_soft_delete_chain(db)
+    if dead_id in chain:
+        seen = {dead_id}
+        current = chain[dead_id]
+        depth = 0
+        while current in chain:
+            if current in seen or depth >= _MAX_SURVIVOR_CHAIN_DEPTH:
+                return None
+            seen.add(current)
+            current = chain[current]
+            depth += 1
+        terminal: str | None = current
+    else:
+        terminal = fallback_survivor_id
+    if terminal is None:
+        return None
+    row = db.execute(
+        text("SELECT is_canonical FROM location WHERE id = :id"),
+        {"id": terminal},
+    ).first()
+    if not row or row[0] is False:
+        return None
+    return terminal
+
+
+def publish_location_delete(
+    db: Session, *, dead_location_id: str, survivor_location_id: str | None
+) -> int | None:
+    """Append a ``Delete`` (Tombstone) for a dedup-script soft-deleted location.
+
+    The object is ``{"type": "Tombstone", "federation_id": "<dead>",
+    "redirectTo": "<survivor fed-id | null>"}`` (§9). ``redirectTo`` resolves
+    through the ``dedup_run_audit`` survivor chain to the terminal still-canonical
+    row. No echo suppression — Deletes are produced only by PPR's own dedup
+    scripts, never relayed peer data. Never raises (Principle XI).
+    """
+    from app.core.config import settings
+
+    if not settings.FEDERATION_ENABLED:
+        return None
+    host = _node_host()
+    if host is None or settings.FEDERATION_DID is None:
+        return None
+    try:
+        terminal = _resolve_terminal_survivor(
+            db, dead_location_id, survivor_location_id
+        )
+        dead_fid = f"{host}:{dead_location_id}"
+        obj = {
+            "type": "Tombstone",
+            "federation_id": dead_fid,
+            "redirectTo": f"{host}:{terminal}" if terminal else None,
+        }
+    except Exception as exc:  # never abort the caller (Principle XI)
+        logger.warning(
+            "federation_append_failed", location_id=dead_location_id, error=str(exc)
+        )
+        return None
+    return _append(db, activity_type="Delete", federation_id=dead_fid, obj=obj)
