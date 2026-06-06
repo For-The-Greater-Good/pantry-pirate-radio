@@ -545,6 +545,7 @@ def soft_delete_duplicate(
     run_id: str | None = None,
     cluster_id: str | None = None,
     survivor_id: str | None = None,
+    federation_deletes: list[tuple[str, str | None]] | None = None,
 ) -> int:
     """Mark the duplicate as non-canonical so it no longer appears in
     matches or the public API. Keep the row so historical record_version
@@ -567,7 +568,12 @@ def soft_delete_duplicate(
         {"id": duplicate_id},
     )
     rowcount = result.rowcount or 0
-    if rowcount > 0 and run_id is not None and cluster_id is not None and survivor_id is not None:
+    if (
+        rowcount > 0
+        and run_id is not None
+        and cluster_id is not None
+        and survivor_id is not None
+    ):
         _log_audit(
             db,
             run_id=run_id,
@@ -580,6 +586,14 @@ def soft_delete_duplicate(
             old_value={"is_canonical": True},
             new_value={"is_canonical": False},
         )
+        # Federation Delete hook (PR-C Task 5, §6.2e/§9). COLLECT the (dead,
+        # survivor) pair — do NOT publish inline: the append commits the session,
+        # which would fold this dedup run's outer transaction + savepoint and
+        # abort the run (Gauntlet CRITICAL). The collected pairs are replayed via
+        # publish_pending_deletes AFTER the outer commit, when the soft-delete +
+        # audit row are durably visible for survivor-chain resolution.
+        if federation_deletes is not None:
+            federation_deletes.append((duplicate_id, survivor_id))
     return rowcount
 
 
@@ -589,12 +603,17 @@ def merge_cluster(
     apply: bool,
     *,
     run_id: str | None = None,
+    federation_deletes: list[tuple[str, str | None]] | None = None,
 ) -> dict[str, Any]:
     """Merge all locations in a cluster onto one survivor canonical.
 
     `cluster_id` for audit logging is derived from the lexicographically
     minimum id in the cluster — deterministic, doesn't require a
     separate sequence, and stable across re-runs.
+
+    ``federation_deletes`` (when provided) collects (dead, survivor) pairs for a
+    post-commit federation Delete replay (never published inline — see
+    soft_delete_duplicate).
     """
     canonical_id = pick_canonical(db, cluster)
     duplicates = sorted(cluster - {canonical_id})
@@ -616,6 +635,7 @@ def merge_cluster(
             run_id=run_id,
             cluster_id=cluster_id,
             survivor_id=canonical_id,
+            federation_deletes=federation_deletes,
         )
     return {
         "canonical_id": canonical_id,
@@ -734,7 +754,9 @@ def _dump_sample_clusters(
         print(json.dumps(payload, default=str, indent=2))
 
 
-def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting would hurt readability
+def main() -> (
+    int
+):  # noqa: C901 - linear top-to-bottom orchestration, splitting would hurt readability
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--apply",
@@ -820,9 +842,7 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
 
         pairs = find_duplicate_pairs(db)
         if not pairs:
-            logger.info(
-                "No fuzzy duplicate pairs found within %sdeg", _DEDUP_LOOSE_DEG
-            )
+            logger.info("No fuzzy duplicate pairs found within %sdeg", _DEDUP_LOOSE_DEG)
             return 0
         logger.info(
             "Found %d fuzzy duplicate pairs (Tier 3 gate, <=%sdeg)",
@@ -858,6 +878,10 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
         total_rows_skipped = 0
         failed_clusters: list[dict[str, Any]] = []
         consecutive_failures = 0
+        # Collected during the run; the federation Delete is published only AFTER
+        # the outer commit (an inline append commits the session and would fold
+        # this transaction's savepoint — Gauntlet CRITICAL).
+        federation_deletes: list[tuple[str, str | None]] = []
 
         for cluster in clusters_sorted:
             # Isolate each cluster in its own savepoint so a single
@@ -865,7 +889,13 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
             # row) doesn't roll back every successful merge in the run.
             savepoint = db.begin_nested()
             try:
-                result = merge_cluster(db, cluster, args.apply, run_id=run_id)
+                result = merge_cluster(
+                    db,
+                    cluster,
+                    args.apply,
+                    run_id=run_id,
+                    federation_deletes=federation_deletes,
+                )
                 savepoint.commit()
                 consecutive_failures = 0
             except (IntegrityError, OperationalError) as exc:
@@ -873,9 +903,7 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
                 # deleted child, serialization conflict, lock timeout.
                 # Roll back this cluster's savepoint and continue.
                 savepoint.rollback()
-                failed_clusters.append(
-                    {"cluster": sorted(cluster), "error": str(exc)}
-                )
+                failed_clusters.append({"cluster": sorted(cluster), "error": str(exc)})
                 logger.warning(
                     "Cluster %s rolled back (transient): %s",
                     sorted(cluster),
@@ -935,6 +963,12 @@ def main() -> int:  # noqa: C901 - linear top-to-bottom orchestration, splitting
                 )
                 return 2
             logger.info("COMMITTED (run_id=%s)", run_id)
+            # Publish federation Delete Tombstones AFTER the run is durably
+            # committed (post-commit replay — never inline, see merge_cluster).
+            # Guarded + fail-soft inside publish_pending_deletes.
+            from app.federation.publish import publish_pending_deletes
+
+            publish_pending_deletes(db, federation_deletes)
         else:
             db.rollback()
             logger.info("DRY RUN — no changes committed (re-run with --apply)")

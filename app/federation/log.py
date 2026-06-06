@@ -31,6 +31,7 @@ correctness substrate).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -221,3 +222,114 @@ def build_consistency_proof(
         )
     leaves = leaf_data(session, second_size)
     return merkle.consistency_proof(leaves, first_size)
+
+
+def live_window_floor(session: Session) -> int:
+    """Lowest sequence still retained in the live log (0 when empty). Below this,
+    the prefix has been archived (§6.2g) and /export must redirect/410."""
+    return int(
+        session.execute(
+            text("SELECT COALESCE(MIN(sequence), 0) FROM federation_log")
+        ).scalar_one()
+    )
+
+
+def _reconstruct_envelope(row: Any) -> dict[str, Any]:
+    """Rebuild the full signed wire envelope BYTE-FAITHFULLY from the stored
+    pre-image bytes + the proof. The pre-image is parsed from ``preimage_canonical``
+    (the exact signed bytes — ``json.loads`` preserves the canonical number forms),
+    then ``id``/``proof`` are re-attached. We NEVER reconstruct from
+    ``object_canonical`` (JSONB): its number normalization is not byte-faithful, so
+    a consumer re-canonicalizing it could fail to verify (the §6.2 export-fidelity
+    rule). The ``proof`` sub-object is all strings, so reading it from JSONB is safe.
+    """
+    preimage = json.loads(bytes(row.preimage_canonical))
+    return {**preimage, "id": row.leaf_hash, "proof": row.object_canonical["proof"]}
+
+
+def read_export(
+    session: Session, *, since: int, limit: int, tree_size: int | None = None
+) -> tuple[list[dict[str, Any]], int, int | None]:
+    """A keyset page of ``/export`` rows for sequences in ``(since, tree_size]``.
+
+    Each row is the full signed wire envelope plus its RFC-6962 ``inclusion_proof``
+    (hex audit path) against the size-``tree_size`` tree. Returns
+    ``(rows, tree_size, next_cursor)`` where ``next_cursor`` is the last sequence
+    emitted when more remain, else ``None``.
+
+    ``tree_size`` PINS the tree the proofs are built against — the RFC-6962 / tlog
+    pull contract (§6.6): a consumer fetches a signed checkpoint at size N, then
+    pulls ``/export?tree_size=N`` so every inclusion proof verifies against the
+    checkpoint root@N (the head keeps advancing, so proofs anchored to an unpinned
+    live head would be unverifiable against any signed root). ``None`` defaults to
+    the current head (the simple "give me everything now" case; proofs are then
+    only verifiable if the caller separately pins). A ``tree_size`` greater than
+    the current head raises ValueError (cannot prove against a future tree).
+    """
+    head = safe_high_water(session)
+    if tree_size is None:
+        tree_size = head
+    elif tree_size > head:
+        raise ValueError(f"tree_size {tree_size} exceeds current head {head}")
+    if tree_size == 0:
+        return [], 0, None
+    leaves = leaf_data(session, tree_size)
+    db_rows = session.execute(
+        text(
+            "SELECT sequence, leaf_hash, preimage_canonical, object_canonical"
+            " FROM federation_log WHERE sequence > :since AND sequence <= :ts"
+            " ORDER BY sequence LIMIT :lim"
+        ),
+        {"since": since, "ts": tree_size, "lim": limit},
+    ).all()
+    out: list[dict[str, Any]] = []
+    for row in db_rows:
+        env = _reconstruct_envelope(row)
+        env["inclusion_proof"] = [
+            h.hex() for h in merkle.inclusion_proof(leaves, row.sequence - 1)
+        ]
+        out.append(env)
+    last = db_rows[-1].sequence if db_rows else since
+    next_cursor = int(last) if last < tree_size else None
+    return out, tree_size, next_cursor
+
+
+#: Hard cap on /history rows per response — bounds the per-row proof cost and the
+#: payload for a hot federation_id. Most-recent-capped (audit surface). Full
+#: history pagination + the memoized proof cache are the scale-hardening follow-up.
+_HISTORY_MAX_ROWS = 1000
+
+
+def read_history(
+    session: Session, federation_id: str
+) -> tuple[list[dict[str, Any]], int]:
+    """The most-recent activities (up to ``_HISTORY_MAX_ROWS``, oldest-first) for
+    ``federation_id``, each a full signed envelope + its inclusion proof, plus the
+    ``tree_size`` the proofs are anchored to (verify against the matching
+    checkpoint root)."""
+    tree_size = safe_high_water(session)
+    if tree_size == 0:
+        return [], 0
+    leaves = leaf_data(session, tree_size)
+    # Cap to the most-recent N (then re-order oldest-first) so a hot federation_id
+    # cannot return an unbounded result set / unbounded proof-generation cost.
+    db_rows = list(
+        reversed(
+            session.execute(
+                text(
+                    "SELECT sequence, leaf_hash, preimage_canonical, object_canonical"
+                    " FROM federation_log WHERE federation_id = :fid AND sequence <= :ts"
+                    " ORDER BY sequence DESC LIMIT :lim"
+                ),
+                {"fid": federation_id, "ts": tree_size, "lim": _HISTORY_MAX_ROWS},
+            ).all()
+        )
+    )
+    out: list[dict[str, Any]] = []
+    for row in db_rows:
+        env = _reconstruct_envelope(row)
+        env["inclusion_proof"] = [
+            h.hex() for h in merkle.inclusion_proof(leaves, row.sequence - 1)
+        ]
+        out.append(env)
+    return out, tree_size

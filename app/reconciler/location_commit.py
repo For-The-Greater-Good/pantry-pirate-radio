@@ -75,6 +75,10 @@ class LocationCommitHandler:
         self.location_key_fn = location_key_fn
         self.transform_schedule_fn = transform_schedule_fn
         self.metadata = job_result.job.metadata
+        # Locations committed this job, published as federation Updates only after
+        # the full canonical state (incl. schedules) is written — see
+        # publish_pending_updates / process_location.
+        self.committed_location_ids: list[uuid.UUID] = []
         # Preprocessing + coordinate-match resolution lives in a sibling module
         # (Principle IX); this handler keeps both terminal commit branches.
         self.preprocessor = LocationPreprocessor(
@@ -140,7 +144,7 @@ class LocationCommitHandler:
             return None
 
         if match_id:
-            return self._commit_matched_location(
+            location_id = self._commit_matched_location(
                 match_id,
                 location,
                 org_id,
@@ -148,8 +152,40 @@ class LocationCommitHandler:
                 is_submarine,
                 loc_confidence_score=validation[0],
             )
+        else:
+            location_id = self._commit_new_location(location, org_id, validation)
 
-        return self._commit_new_location(location, org_id, validation)
+        # Federation Update hook (PR-C Task 4 + Task 6, §6.2d/e). COLLECT the
+        # committed id — do NOT publish here. The standard path writes this
+        # location's schedules/services in a LATER section of process_job_result,
+        # so publishing now would sign a schedule-less aggregate. The caller
+        # (JobProcessor) calls publish_pending_updates() AFTER the full canonical
+        # state (incl. schedules) is committed. Submarine schedules are written
+        # inline above, so they are also present by that point.
+        self.committed_location_ids.append(location_id)
+        return location_id
+
+    def _publish_federation_update(self, location_id: uuid.UUID) -> None:
+        """Append a federation-log ``Update`` for a committed canonical location
+        (kill-switch / echo / gate / fail-soft all inside the guarded
+        ``publish_location_update``). Called AFTER the resource commit — including
+        the schedule write — so the published aggregate is complete and the append
+        never folds the caller's transaction."""
+        from app.federation.publish import publish_location_update
+
+        publish_location_update(
+            self.db,
+            str(location_id),
+            source_type=self.metadata.get("source_type"),
+        )
+
+    def publish_pending_updates(self) -> None:
+        """Publish a federation Update for every location committed this job —
+        called by the caller ONCE the full canonical state (schedules/services
+        included) is committed (§9 completeness). Each publish is independently
+        guarded + fail-soft, so one failure never affects the others or the job."""
+        for location_id in self.committed_location_ids:
+            self._publish_federation_update(location_id)
 
     def _commit_matched_location(
         self,
