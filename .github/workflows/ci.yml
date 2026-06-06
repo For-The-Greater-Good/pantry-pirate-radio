@@ -527,10 +527,11 @@ jobs:
         # Ignore GHSA-6w46-j5rx-g56g (pytest /tmp predictable-path) - dev-only test runner,
         #   CI runner single-tenant; fix 9.0.3 is a 7->8->9 migration that also needs lifting
         #   the pytest-asyncio/-benchmark caps, deferred to its own PR.
-        # (cryptography GHSA-p423-j2cm-9vmq cleared by ->48.0.0; pygments GHSA-5239-wwwm-4pmq
-        #  by ->2.20.0; starlette PYSEC-2026-161 by ->1.2.1; pip GHSA-4xh5/GHSA-58qw/GHSA-jp4c
-        #  by the pip upgrade above. lxml PYSEC-2026-87 is crawl4ai-only — absent from this
-        #  poetry-only audit env — and is tracked in a separate PR.)
+        # (cryptography GHSA-p423-j2cm-9vmq already cleared — lock at 48.0.0; pygments
+        #  GHSA-5239-wwwm-4pmq by ->2.20.0; starlette PYSEC-2026-161 by ->1.2.1; pip
+        #  PYSEC-2026-196 + GHSA-58qw-9mgm-455v + GHSA-jp4c-xjxw-mgf9 by the pip upgrade above
+        #  (GHSA-4xh5-x5gv-qwph was already past its 25.3 fix). lxml PYSEC-2026-87 is
+        #  crawl4ai-only — absent from this poetry-only audit env — tracked in a separate PR.)
         run: poetry run pip-audit --ignore-vuln GHSA-3936-cmfr-pm3m --ignore-vuln GHSA-6w46-j5rx-g56g
 
   xenon:
