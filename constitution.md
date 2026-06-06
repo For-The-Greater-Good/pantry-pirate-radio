@@ -1,5 +1,8 @@
 ## Amendment Log
 
+### v1.7.0 — 2026-06-06
+- **Amended Principle III**: Codified the standards-conformance mandate and the RED-tier test-level bar that previously lived only in `CLAUDE.md` (memory, not machinery). (1) **Standards conformance**: when implementing any external standard (RFC/W3C/C2SP/HSDS/etc.), if it publishes official test vectors, a reference implementation, or a conformance suite, using them is MANDATORY — vendored under `tests/<area>/vendor/<suite>/` with a README pinning source URL + commit SHA + license; a self-derived oracle is NOT conformance evidence. (2) **RED-tier modules** (`app/federation/*`, `app/reconciler/*`, `app/validator/*`, `app/content_store/*`, `app/llm/queue/*`) MUST carry, where applicable, the full test-level set, a byte-identity/round-trip invariant at every canonicalization/serialization boundary, negative/guard-path tests that assert hostile input returns a safe value (not raises), a per-file coverage floor enforced in CI (not the global ratchet alone), and a kill-switch no-op proof for every entry point that signs node data. Rationale: the JCS UTF-16 (#555) and JSONB-float defects both shipped green because no official vector / byte-identity invariant forced the check.
+
 ### v1.6.0 — 2026-03-29
 - **Amended Principle IV**: Submarine stage now has two internal sub-stages: crawl (Fargate, real-time) and extract (Bedrock batch inference, 50% cost savings). Output contract unchanged: JobResult → Reconciler queue. On AWS, crawled content is staged to a submarine-staging queue; the batcher Lambda submits Bedrock batch jobs. On local Docker, inline extraction is preserved.
 
@@ -71,6 +74,15 @@ Tests MUST be written before implementation code. The Red-Green-Refactor cycle i
 - **Scraper Tests**: VCR-recorded HTTP interactions, mock data validation
 - **Async Tests**: Use `pytest-asyncio` with `asyncio_mode=auto`
 - **Property Tests**: Use Hypothesis for HSDS model validation
+
+**Standards conformance (NON-NEGOTIABLE)**: When implementing ANY external standard (RFC, W3C, C2SP, HSDS, …), if the standard publishes official test vectors, a reference implementation, or a conformance suite, using them is MANDATORY. Vendor them under `tests/<area>/vendor/<suite>/` with a README pinning the source URL + commit SHA + license. A self-derived oracle written alongside the implementation shares its author's blind spots and is NOT conformance evidence. Each implemented standard MUST appear in `tests/<area>/vendor/REGISTRY.md` with its vector status (vendored path, or a justified absence).
+
+**RED-tier modules**: `app/federation/*`, `app/reconciler/*`, `app/validator/*`, `app/content_store/*`, `app/llm/queue/*` carry data-integrity, crypto, concurrency, or cost-amplification risk a solo maintainer cannot deep-review. Pull requests touching them MUST, where applicable, provide:
+- the full test-level set: unit + Hypothesis property + external-KAT + DB-backed + real-OS-process concurrency + independent-verifier integration + negative/guard-path;
+- a **byte-identity / round-trip invariant** at every canonicalization or serialization boundary (the gap class behind the JCS UTF-16 and JSONB-float ships-green defects);
+- **negative-path** tests asserting each hostile-input guard returns a safe value (False/None/empty) rather than raising;
+- a **kill-switch no-op proof** for every entry point that produces a signature over node data (assert `sign()` is never called when the relevant feature flag is off);
+- a **per-file coverage floor enforced in CI** (the global ratchet cannot see a single module decaying inside the average).
 
 **Rationale**: The pipeline processes real-world data that directly affects people's ability to find food. Untested code in the reconciler could silently drop valid locations. Untested validation rules could reject legitimate food pantries. Untested scrapers could silently fail and leave communities without updated data. TDD ensures every behavior is captured as an executable specification before it ships.
 

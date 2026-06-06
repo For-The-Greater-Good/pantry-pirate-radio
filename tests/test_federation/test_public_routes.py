@@ -115,12 +115,19 @@ def test_did_json_404_when_did_set_but_no_signing_key(monkeypatch) -> None:
 def test_did_json_404_when_signing_key_malformed(monkeypatch) -> None:
     # A misconfigured (malformed) signing key must be logged and treated as
     # "no key" → 404, never an opaque 500 (Principle XI/XII).
+    from structlog.testing import capture_logs
+
     settings = Settings(
         FEDERATION_DID="did:web:node.example",
         FEDERATION_SIGNING_KEY="not-a-valid-key",
     )
     client = _client_with_settings(monkeypatch, settings)
-    assert client.get("/.well-known/did.json").status_code == 404
+    with capture_logs() as logs:
+        assert client.get("/.well-known/did.json").status_code == 404
+    # OBS-1: the operational event fires with its documented `error` field.
+    invalid = [e for e in logs if e.get("event") == "federation_signing_key_invalid"]
+    assert len(invalid) == 1
+    assert "error" in invalid[0]
 
 
 def test_webfinger_resolves_actor_url(monkeypatch) -> None:

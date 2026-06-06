@@ -124,3 +124,32 @@ async def test_too_many_redirects_rejected(monkeypatch) -> None:
     )
     with pytest.raises(fetch.FederationFetchError, match="too many redirects"):
         await fetch.hardened_get("https://loop.example.org/x")
+
+
+# --- Deferred P2/P3 SSRF hardenings (RED-tier Gauntlet completeness critic):
+# surfaced here as skipped placeholders so the gap is VISIBLE in the suite (not
+# only in the fetch.py docstring) and is greppable. These gate the first real
+# outbound peer fetch (P2); see the P1 plan "deferred SSRF hardenings" item. When
+# implemented, replace each skip with the executable assertion described.
+
+
+@pytest.mark.skip(
+    reason="P2 deferral: streaming byte-counted hard cap. hardened_get currently "
+    "trusts the content-length HEADER (fetch.py:76); a response with a missing/"
+    "lying content-length and a body over _MAX_BYTES is NOT yet aborted mid-stream. "
+    "Implement a counted read and assert it raises FederationFetchError."
+)
+async def test_missing_content_length_oversized_body_aborted() -> (
+    None
+):  # pragma: no cover
+    raise NotImplementedError("P2: streaming byte cap")
+
+
+@pytest.mark.skip(
+    reason="P2 deferral: DNS-rebinding connect-pin. _resolve_and_validate "
+    "(fetch.py:48) validates an IP that is re-resolved at connect time (TOCTOU). "
+    "Pin the connection to the validated IP and assert the dialed IP == the "
+    "validated IP even when the host re-resolves to an internal IP."
+)
+async def test_connection_pinned_to_validated_ip() -> None:  # pragma: no cover
+    raise NotImplementedError("P2: DNS-rebinding connect-pin")

@@ -70,4 +70,64 @@ else
     echo "✅ Created coverage baseline at ${CURRENT_COVERAGE}%"
 fi
 
+# --- Per-path floors: RED-tier modules are held to a higher bar than the
+# project aggregate (constitution v1.7.0). The global ratchet alone cannot see a
+# single module decaying inside the average — e.g. fetch.py sat at 46% and
+# batcher.py's crash-recovery branches can collapse far below the 2% tolerance
+# undetected. This is the script CI runs via `./bouy test --coverage`; the floor
+# must live HERE, not only in scripts/coverage-check.sh (which CI does not invoke).
+#
+# PREFIX_FLOORS: every file under the prefix must meet the floor.
+# FILE_FLOORS: named RED-tier files (set conservatively at floor(measured) so
+# they catch decay without a backfill sprint; ratchet up as coverage grows).
+echo "🔍 Checking RED-tier per-file coverage floors ..."
+python3 - <<'PYEOF'
+import json
+import sys
+
+PREFIX_FLOORS = {
+    "app/federation/": 95.0,  # crypto/protocol substrate
+}
+FILE_FLOORS = {
+    # app/llm/queue/ economic-takedown RED-tier (durable drain / batch recovery).
+    "app/llm/queue/batcher.py": 85.0,
+    "app/llm/queue/backend_sqs.py": 86.0,
+    "app/llm/queue/batch_result_processor.py": 76.0,
+}
+
+with open("coverage.json") as f:
+    files = json.load(f).get("files", {})
+norm = {p.replace("\\", "/"): info for p, info in files.items()}
+
+failures, missing = [], []
+
+for prefix, floor in PREFIX_FLOORS.items():
+    seen = [p for p in norm if prefix in p]
+    if not seen:  # no-vacuous-pass: a moved/renamed dir must not silently pass
+        missing.append(prefix)
+        continue
+    for p in seen:
+        pct = norm[p]["summary"]["percent_covered"]
+        if pct < floor:
+            failures.append((p, pct, floor))
+
+for path, floor in FILE_FLOORS.items():
+    match = next((p for p in norm if p.endswith(path)), None)
+    if match is None:
+        missing.append(path)
+        continue
+    pct = norm[match]["summary"]["percent_covered"]
+    if pct < floor:
+        failures.append((match, pct, floor))
+
+for path in sorted(missing):
+    print(f"❌ {path}: not present in coverage.json — floor cannot be evaluated")
+for path, pct, floor in sorted(failures):
+    print(f"❌ {path}: {pct:.2f}% < floor {floor}%")
+if failures or missing:
+    print("   RED-tier modules must not decay below their floor; add tests.")
+    sys.exit(1)
+print("✅ All RED-tier per-file coverage floors met")
+PYEOF
+
 echo "✅ Coverage check passed!"
