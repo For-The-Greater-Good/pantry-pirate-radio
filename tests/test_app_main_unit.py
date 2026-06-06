@@ -95,12 +95,43 @@ def test_settings_import() -> None:
 
 
 def test_event_handlers_registered() -> None:
-    """Test that startup and shutdown handlers are registered."""
+    """Startup/shutdown are wired via the FastAPI lifespan (Starlette 1.0 removed
+    the add_event_handler API). Entering the app's lifespan must run the startup
+    handler before serving and the shutdown handler on exit, in order.
+    """
+    from unittest import mock
+
+    from fastapi.testclient import TestClient
+
+    import app.core.events as events
     from app.main import app
 
-    # Check event handlers are registered
-    startup_handlers = app.router.on_startup
-    shutdown_handlers = app.router.on_shutdown
+    # Migrated OFF the deprecated event-handler lists...
+    assert app.router.on_startup == []
+    assert app.router.on_shutdown == []
 
-    assert len(startup_handlers) > 0
-    assert len(shutdown_handlers) > 0
+    calls: list[str] = []
+
+    def fake_start(_app: object):
+        async def _start() -> None:
+            calls.append("start")
+
+        return _start
+
+    def fake_stop(_app: object):
+        async def _stop() -> None:
+            calls.append("stop")
+
+        return _stop
+
+    # ...and ONTO the lifespan, which the running app actually invokes end-to-end
+    # (entering/exiting the TestClient context drives the ASGI lifespan). Handlers
+    # are mocked so this needs no Redis.
+    with (
+        mock.patch.object(events, "create_start_app_handler", fake_start),
+        mock.patch.object(events, "create_stop_app_handler", fake_stop),
+    ):
+        with TestClient(app):
+            calls.append("serving")
+
+    assert calls == ["start", "serving", "stop"]
