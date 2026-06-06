@@ -274,6 +274,25 @@ def test_leaf_data_is_byte_identical_to_signed_preimage_for_extreme_numbers(
     assert parsed["root_hash"] == merkle.merkle_root([expected_pb])
 
 
+def test_preimage_canonical_column_is_not_null(db_session) -> None:
+    """The byte-identity store must be NOT NULL across every schema path — a
+    direct INSERT leaving preimage_canonical NULL must raise (regression guard for
+    the upgrade-path ADD COLUMN that initially omitted NOT NULL)."""
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            text(
+                "INSERT INTO federation_log (leaf_hash, sequence, type,"
+                " federation_id, object_canonical, preimage_canonical,"
+                " published_at, origin_did) VALUES ('nullprobe', 999, 'Update',"
+                " 'fid', '{}'::jsonb, NULL, NOW(), 'did:web:x')"
+            )
+        )
+        db_session.commit()
+    db_session.rollback()
+
+
 def test_inclusion_proof_round_trip_from_db(db_session) -> None:
     _append(db_session, 5)
     leaves = log.leaf_data(db_session, 5)

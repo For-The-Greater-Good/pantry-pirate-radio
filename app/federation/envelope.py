@@ -150,14 +150,19 @@ def verify_envelope(envelope: dict[str, Any], public_key: Ed25519PublicKey) -> b
         return False
     if _ID_PREFIX + hashlib.sha256(pb).hexdigest() != claimed_id:
         return False
-    # Bind the signature to its EXACT bytes: strict base64 (no silent stripping
-    # of whitespace/garbage) and exactly 64 bytes (Ed25519). Without this the
-    # signature field is malleable — distinct strings would both verify True.
+    # Bind the signature to its EXACT bytes: strict base64 (no whitespace/garbage),
+    # exactly 64 bytes (Ed25519), AND canonical encoding. Without the canonical
+    # check the field is still malleable — base64's final-quantum padding bits are
+    # ignored on decode, so ~16 distinct wire strings decode to one 64-byte
+    # signature and would all verify True. ed25519-jcs-2026 is a PPR-native format
+    # (no external oracle mandates leniency), so we require the one canonical form.
     try:
         signature = base64.b64decode(signature_b64, validate=True)
     except (ValueError, TypeError):
         return False
     if len(signature) != _ED25519_SIGNATURE_LEN:
+        return False
+    if base64.b64encode(signature).decode("ascii") != signature_b64:
         return False
     try:
         public_key.verify(signature, pb)

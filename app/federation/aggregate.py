@@ -42,6 +42,7 @@ Schedules are read from the RAW ``schedule`` table by ``location_id`` — NOT th
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import structlog
@@ -96,8 +97,8 @@ _SOURCES_SQL = text(
             WHERE p.location_id = ls.location_id
             ORDER BY p.id LIMIT 1
         ) AS phone,
-        o.website AS website,
-        o.email AS email,
+        NULLIF(o.website, '') AS website,
+        NULLIF(o.email, '') AS email,
         (
             SELECT NULLIF(CONCAT_WS(', ',
                 NULLIF(a.address_1, ''),
@@ -153,7 +154,9 @@ def _build_sources(session: Session, location_id: str) -> list[SourceInfo]:
                 email=row.email,
                 website=row.website,
                 address=row.address,
-                confidence_score=row.confidence_score or 50,
+                confidence_score=(
+                    row.confidence_score if row.confidence_score is not None else 50
+                ),
                 first_seen=row.first_seen.isoformat() if row.first_seen else None,
                 last_updated=(
                     row.last_updated.isoformat() if row.last_updated else None
@@ -235,14 +238,23 @@ def build_location_aggregate(session: Session, location_id: str) -> dict[str, An
     # default (1) when there are no sources — the read API's "at least itself".
     source_count = len({s.scraper for s in sources}) or 1
 
+    # A non-finite coordinate (NaN/Inf) cannot be JCS-serialized (jcs_bytes would
+    # raise at finalize); reject it loudly here as a data-integrity error rather
+    # than let it poison the signed bytes / crash the append.
+    latitude = float(row.latitude) if row.latitude is not None else None
+    longitude = float(row.longitude) if row.longitude is not None else None
+    for coord in (latitude, longitude):
+        if coord is not None and not math.isfinite(coord):
+            raise ValueError(f"location {location_id!r} has a non-finite coordinate")
+
     try:
         location = LocationResponse(
             id=row.id,
             name=row.name,
             alternate_name=row.alternate_name,
             description=row.description,
-            latitude=float(row.latitude) if row.latitude is not None else None,
-            longitude=float(row.longitude) if row.longitude is not None else None,
+            latitude=latitude,
+            longitude=longitude,
             transportation=row.transportation,
             external_identifier=row.external_identifier,
             external_identifier_type=row.external_identifier_type,

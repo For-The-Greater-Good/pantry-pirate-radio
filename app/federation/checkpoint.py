@@ -43,6 +43,8 @@ _EM_DASH = "—"
 _SIG_PREFIX = _EM_DASH + " "
 #: A canonical non-negative decimal (no leading zeros, sign, or whitespace).
 _CANONICAL_DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
+#: Go note.Open rejects a note carrying more than this many signature lines.
+_MAX_SIGNATURES = 100
 
 
 def key_hash(key_name: str, public_key_raw: bytes) -> bytes:
@@ -75,10 +77,11 @@ def sign_note(text: bytes, key_name: str, signing_key: Ed25519PrivateKey) -> str
     """Wrap ``text`` (which must end in a newline) as a full C2SP signed note."""
     if not text.endswith(b"\n"):
         raise ValueError("C2SP note text must end with a newline")
-    if "\n" in key_name or " " in key_name or not key_name:
-        # A signature line is "— <name> <base64>"; a name with a space/newline
-        # would break the single-line grammar a Go witness parses.
-        raise ValueError("C2SP signature key name must be a single token")
+    if not _is_valid_name(key_name):
+        # A signature line is "— <name> <base64>"; the name must satisfy Go
+        # note.isValidName (non-empty, no Unicode whitespace, no '+') so a note we
+        # sign is one a Go witness — and our own verify_note — will accept.
+        raise ValueError("C2SP signature key name is not a valid note name")
     public_raw = signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     blob = key_hash(key_name, public_raw) + signing_key.sign(text)
     sig_line = f"{_SIG_PREFIX}{key_name} {base64.b64encode(blob).decode('ascii')}\n"
@@ -116,20 +119,27 @@ def _split_note(note: str) -> tuple[bytes, list[str]] | None:
     return (text_part + "\n").encode("utf-8"), sig_lines
 
 
+def _is_valid_name(name: str) -> bool:
+    """Go ``note.isValidName``: non-empty, no Unicode whitespace, no ``+``.
+    (Python str is always valid UTF-8.) Keeps our accept-set == a Go witness's."""
+    return bool(name) and "+" not in name and not any(c.isspace() for c in name)
+
+
 def _is_signature_line(line: str) -> bool:
-    """True iff ``line`` matches the C2SP signature grammar ``— <name> <b64>``
-    with a single-token name and a base64 blob of at least the keyID (4 bytes)."""
+    """True iff ``line`` matches the C2SP signature grammar ``— <name> <b64>``,
+    matching Go ``note.Open``: a valid single-token name and a base64 blob of at
+    least 5 bytes (4-byte keyID + >=1 signature byte)."""
     if not line.startswith(_SIG_PREFIX):
         return False
     rest = line[len(_SIG_PREFIX) :]
     parts = rest.split(" ")
-    if len(parts) != 2 or not parts[0]:
+    if len(parts) != 2 or not _is_valid_name(parts[0]):
         return False
     try:
         blob = base64.b64decode(parts[1], validate=True)
     except (ValueError, TypeError):
         return False
-    return len(blob) >= 4
+    return len(blob) >= 5  # Go rejects len(sig blob) < 5 (keyID + >=1 sig byte)
 
 
 def verify_note(note: str, public_key: Ed25519PublicKey, key_name: str) -> bool:
@@ -147,6 +157,8 @@ def verify_note(note: str, public_key: Ed25519PublicKey, key_name: str) -> bool:
     if split is None:
         return False
     signed_text, sig_lines = split
+    if len(sig_lines) > _MAX_SIGNATURES:  # Go note.Open caps the signature count
+        return False
     if not all(_is_signature_line(line) for line in sig_lines):
         return False
     public_raw = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)

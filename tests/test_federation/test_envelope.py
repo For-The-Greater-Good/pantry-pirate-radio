@@ -165,6 +165,33 @@ def test_verify_rejects_garbage_injected_signature() -> None:
         ), f"garbage-injected signature verified True: {junk!r}"
 
 
+def test_verify_rejects_non_canonical_base64_signature() -> None:
+    """A non-canonical base64 of the SAME 64 bytes (final-quantum padding bits
+    flipped) must NOT verify — closes the residual malleability the second
+    Gauntlet found (~16 wire strings decoding to one signature)."""
+    env = envelope.finalize(envelope.build_preimage(**_ARGS), _key())
+    pub = _key().public_key()
+    canonical = env["proof"]["signature"]
+    sig_bytes = base64.b64decode(canonical, validate=True)
+    # 64 bytes -> 88 chars ending "xx=="; canonical[85] holds 2 sig bits + 4 pad.
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    non_canonical = [
+        canonical[:85] + c + "=="
+        for c in alphabet
+        if (canonical[:85] + c + "==") != canonical
+        and base64.b64decode(canonical[:85] + c + "==", validate=True) == sig_bytes
+    ]
+    assert non_canonical, "expected at least one non-canonical encoding to exist"
+    for variant in non_canonical:
+        env["proof"]["signature"] = variant
+        assert (
+            envelope.verify_envelope(env, pub) is False
+        ), f"non-canonical signature verified True: {variant!r}"
+    # The canonical form still verifies.
+    env["proof"]["signature"] = canonical
+    assert envelope.verify_envelope(env, pub) is True
+
+
 def test_verify_rejects_wrong_length_signature() -> None:
     """A validly-base64 value that does not decode to exactly 64 bytes is rejected
     before reaching the Ed25519 verifier."""

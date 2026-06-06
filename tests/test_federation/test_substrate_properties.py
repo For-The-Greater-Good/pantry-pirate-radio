@@ -306,13 +306,14 @@ _note_text = st.text(
     min_size=1,
     max_size=40,
 )
-# The origin doubles as the C2SP signature key name, which must be a single
-# token (no space/newline) — real origins are DIDs. Constrain accordingly.
+# The origin doubles as the C2SP signature key name, which must satisfy Go
+# note.isValidName (non-empty, no Unicode whitespace, no '+') — real origins are
+# DIDs. Filter to that valid set so build_checkpoint == verify_note round-trips.
 _origin_text = st.text(
     alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\n "),
     min_size=1,
     max_size=40,
-)
+).filter(lambda s: "+" not in s and not any(c.isspace() for c in s))
 _tree_sizes = st.integers(min_value=0, max_value=2**40)
 _roots = st.binary(min_size=32, max_size=32)
 

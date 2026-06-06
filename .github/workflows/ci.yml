@@ -122,6 +122,9 @@ jobs:
           # Constitution v1.7.0: every external standard the federation code
           # implements MUST be listed in the conformance registry. Fails if a
           # standard token in app/federation/*.py is absent from REGISTRY.md.
+          # KNOWN LIMITATION: only catches standards whose reference matches the
+          # token regex below; a standard named some other way must still be added
+          # to REGISTRY.md by the author (reconcile the regex when adding one).
           python - <<'PYEOF'
           import glob, re, sys
 

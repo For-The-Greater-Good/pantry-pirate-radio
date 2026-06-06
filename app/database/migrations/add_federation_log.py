@@ -45,10 +45,16 @@ CREATE_TABLE_SQL = """
 """
 
 # Upgrade path for databases initialized before preimage_canonical existed
-# (federation_log is unreleased, so any such table is empty in practice).
+# (federation_log is unreleased, so any such table is empty in practice — the
+# SET NOT NULL needs no backfill and keeps the upgraded schema identical to a
+# fresh CREATE).
 ADD_PREIMAGE_COL_SQL = """
     ALTER TABLE public.federation_log
     ADD COLUMN IF NOT EXISTS preimage_canonical BYTEA
+"""
+SET_PREIMAGE_NOT_NULL_SQL = """
+    ALTER TABLE public.federation_log
+    ALTER COLUMN preimage_canonical SET NOT NULL
 """
 
 CREATE_SEQUENCE_IDX_SQL = """
@@ -81,6 +87,7 @@ async def create_table(database_url: str) -> None:
             logger.info("Creating federation_log table + indexes...")
             await conn.execute(CREATE_TABLE_SQL)
             await conn.execute(ADD_PREIMAGE_COL_SQL)
+            await conn.execute(SET_PREIMAGE_NOT_NULL_SQL)
             await conn.execute(CREATE_SEQUENCE_IDX_SQL)
             await conn.execute(CREATE_FEDERATION_ID_IDX_SQL)
         row = await conn.fetchrow(VERIFY_SQL)

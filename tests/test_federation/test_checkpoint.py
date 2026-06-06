@@ -213,6 +213,53 @@ def test_verify_note_rejects_emdash_line_with_bad_grammar() -> None:
     assert checkpoint.verify_note(empty_name, pub, "PeterNeumann") is False
 
 
+def _genuine_note_and_key():
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    note = checkpoint.build_checkpoint(
+        origin="did:web:example.org",
+        tree_size=1,
+        root_hash=merkle.merkle_root([b"leaf-0"]),
+        timestamp="2026-06-06T00:00:00Z",
+        signing_key=key,
+    )
+    return note, key
+
+
+def test_verify_note_rejects_four_byte_blob_witness_line() -> None:
+    """Go note.Open requires a signature blob >=5 bytes (keyID4 + >=1 sig byte).
+    A co-signed note with a 4-byte-blob line must be rejected (accept-set == Go)."""
+    note, key = _genuine_note_and_key()
+    four_byte = base64.b64encode(b"\x00\x00\x00\x00").decode("ascii")  # keyID only
+    polluted = note + f"— witness.example {four_byte}\n"
+    assert (
+        checkpoint.verify_note(polluted, key.public_key(), "did:web:example.org")
+        is False
+    )
+
+
+def test_verify_note_rejects_witness_name_with_whitespace_or_plus() -> None:
+    """Go isValidName forbids Unicode whitespace and '+' in a key name."""
+    note, key = _genuine_note_and_key()
+    blob = base64.b64encode(b"\x01" * 68).decode("ascii")  # >=5 bytes, valid b64
+    for bad_name in ("wit\tness", "wit+ness"):
+        polluted = note + f"— {bad_name} {blob}\n"
+        assert (
+            checkpoint.verify_note(polluted, key.public_key(), "did:web:example.org")
+            is False
+        ), f"accepted Go-invalid witness name {bad_name!r}"
+
+
+def test_verify_note_rejects_excess_signature_count() -> None:
+    """Go note.Open caps the signature count; >100 lines is rejected."""
+    note, key = _genuine_note_and_key()
+    blob = base64.b64encode(b"\x02" * 68).decode("ascii")
+    extra = "".join(f"— wit{i} {blob}\n" for i in range(101))
+    assert (
+        checkpoint.verify_note(note + extra, key.public_key(), "did:web:example.org")
+        is False
+    )
+
+
 def test_verify_note_accepts_multi_witness_note() -> None:
     """Multiple WELL-FORMED signature lines (different keys) are legal — only our
     matching line need verify. Guards that the strict-grammar fix does not break

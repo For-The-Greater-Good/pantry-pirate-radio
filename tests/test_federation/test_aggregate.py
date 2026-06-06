@@ -64,6 +64,8 @@ def _insert_location(
     external_identifier: str | None = "EXT-001",
     external_identifier_type: str | None = "internal",
     loc_id: str | None = None,
+    confidence_score: int = 50,
+    organization_id: str | None = None,
 ) -> str:
     loc_id = loc_id or str(uuid.uuid4())
     session.execute(
@@ -72,11 +74,13 @@ def _insert_location(
             INSERT INTO location (
                 id, name, alternate_name, description, latitude, longitude,
                 location_type, transportation, external_identifier,
-                external_identifier_type, is_canonical, created_at, updated_at
+                external_identifier_type, confidence_score, organization_id,
+                is_canonical, created_at, updated_at
             ) VALUES (
                 :id, :name, :alternate_name, :description, :latitude, :longitude,
                 :location_type, :transportation, :external_identifier,
-                :external_identifier_type, TRUE, NOW(), NOW()
+                :external_identifier_type, :confidence_score, :organization_id,
+                TRUE, NOW(), NOW()
             )
             """
         ),
@@ -91,10 +95,33 @@ def _insert_location(
             "transportation": transportation,
             "external_identifier": external_identifier,
             "external_identifier_type": external_identifier_type,
+            "confidence_score": confidence_score,
+            "organization_id": organization_id,
         },
     )
     session.commit()
     return loc_id
+
+
+def _insert_organization(
+    session,
+    *,
+    name: str = "Fictional Org",
+    website: str | None = None,
+    email: str | None = None,
+) -> str:
+    org_id = str(uuid.uuid4())
+    session.execute(
+        text(
+            """
+            INSERT INTO organization (id, name, description, website, email)
+            VALUES (:id, :name, 'A made-up org for tests.', :website, :email)
+            """
+        ),
+        {"id": org_id, "name": name, "website": website, "email": email},
+    )
+    session.commit()
+    return org_id
 
 
 def _insert_source(
@@ -443,6 +470,26 @@ def test_corrupt_schedule_dropped_emits_event_and_keeps_good_rows(db_session) ->
     assert evt["location_id"] == loc_id
     assert evt["byday"] == "GARBAGE_DAY"
     assert "error" in evt and "freq" in evt and "bymonthday" in evt
+
+
+def test_confidence_score_zero_is_preserved_not_defaulted(db_session) -> None:
+    """A stored confidence_score of 0 must appear as 0 in the signed object — not
+    silently become 50 (the `or 50` falsy-fallback bug)."""
+    loc_id = _insert_location(db_session, confidence_score=0)
+    _insert_source(db_session, loc_id, scraper_id="scraper_a")
+    obj = build_location_aggregate(db_session, loc_id)
+    assert obj["sources"][0]["confidence_score"] == 0
+
+
+def test_empty_org_website_email_omitted_not_empty_string(db_session) -> None:
+    """Empty-string org website/email must be omitted, never serialized as "" into
+    the signed object (one canonical 'absent' form)."""
+    org_id = _insert_organization(db_session, website="", email="")
+    loc_id = _insert_location(db_session, organization_id=org_id)
+    _insert_source(db_session, loc_id, scraper_id="scraper_a")
+    obj = build_location_aggregate(db_session, loc_id)
+    src = obj["sources"][0]
+    assert "website" not in src and "email" not in src
 
 
 def test_non_uuid_location_id_raises_value_error(db_session) -> None:

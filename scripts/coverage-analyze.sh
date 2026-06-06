@@ -88,6 +88,16 @@ import sys
 PREFIX_FLOORS = {
     "app/federation/": 95.0,  # crypto/protocol substrate
 }
+# Explicit manifest per prefix: every listed module MUST appear in coverage.json,
+# so a single module silently dropping out (rename/move/exclude) is caught — the
+# all-or-nothing prefix guard alone would still pass if any one file remained.
+PREFIX_MANIFEST = {
+    "app/federation/": [
+        "aggregate.py", "canonical.py", "checkpoint.py", "discovery.py",
+        "envelope.py", "fetch.py", "identity.py", "log.py", "merkle.py",
+        "routes_public.py", "signing.py",
+    ],
+}
 FILE_FLOORS = {
     # app/llm/queue/ economic-takedown RED-tier (durable drain / batch recovery).
     "app/llm/queue/batcher.py": 85.0,
@@ -110,6 +120,10 @@ for prefix, floor in PREFIX_FLOORS.items():
         pct = norm[p]["summary"]["percent_covered"]
         if pct < floor:
             failures.append((p, pct, floor))
+    # Per-module manifest: each expected file must be present (not all-or-nothing).
+    for mod in PREFIX_MANIFEST.get(prefix, []):
+        if not any(p.endswith(prefix + mod) for p in norm):
+            missing.append(prefix + mod)
 
 for path, floor in FILE_FLOORS.items():
     match = next((p for p in norm if p.endswith(path)), None)

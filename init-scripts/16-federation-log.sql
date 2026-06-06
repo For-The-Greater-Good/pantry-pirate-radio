@@ -30,9 +30,13 @@ CREATE TABLE IF NOT EXISTS public.federation_log (
 );
 
 -- Upgrade path for environments initialized before preimage_canonical existed
--- (federation_log is unreleased, so any such table is empty in practice).
+-- (federation_log is unreleased, so any such table is empty in practice — the
+-- SET NOT NULL therefore needs no backfill and keeps the upgraded schema
+-- byte-identical to a fresh CREATE).
 ALTER TABLE public.federation_log
     ADD COLUMN IF NOT EXISTS preimage_canonical BYTEA;
+ALTER TABLE public.federation_log
+    ALTER COLUMN preimage_canonical SET NOT NULL;
 
 -- Dense leaf index: UNIQUE so a duplicate sequence can never be committed
 -- (defense in depth behind the advisory lock); the index also serves the

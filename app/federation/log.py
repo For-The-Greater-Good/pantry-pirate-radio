@@ -117,6 +117,11 @@ def append(
             "sequence": sequence,
             "type": activity_type,
             "federation_id": federation_id,
+            # object_canonical is for QUERYABILITY ONLY and is NOT byte-faithful:
+            # a JSONB round-trip normalizes extreme-magnitude floats (>=1e21), so
+            # verify_envelope over an envelope reconstructed from object_canonical
+            # can fail. The PR-C /export surface MUST serve the signed bytes from
+            # preimage_canonical (+ the proof), never re-serialize object_canonical.
             "object_canonical": json.dumps(env),
             # The exact signed bytes, stored verbatim (see leaf_data): the leaf
             # must never depend on JSONB number normalization.
