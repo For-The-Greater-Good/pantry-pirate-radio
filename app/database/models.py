@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Date,
@@ -392,3 +393,36 @@ class AddressModel(Base):
 
     # Relationships
     location = relationship("LocationModel")
+
+
+class FederationLogModel(Base):
+    """Append-only verifiable federation log (design §6.2b).
+
+    One row per published activity envelope. ``sequence`` is the dense, gapless
+    Merkle leaf index — assigned under the §6.2b advisory lock scoped to ONLY
+    ``SELECT MAX(sequence)+1 -> INSERT -> COMMIT`` (see ``app/federation/log.py``),
+    never the reconciler's resource commit. ``leaf_hash`` is the ``sha256:``
+    content address (the envelope ``id``) and the input to the RFC-6962 tree.
+    ``object_canonical`` stores the full envelope dict so the content address is
+    exactly re-derivable via JCS (RFC 8785). Append-only: rows are never updated
+    or deleted (retention is archive-to-S3, never destruction — §6.2g).
+    """
+
+    __tablename__ = "federation_log"
+
+    # The sha256: content address of the JCS-canonical envelope = the envelope
+    # id and the Merkle leaf. Content-addressed primary key.
+    leaf_hash = Column(Text, primary_key=True)
+
+    # Dense, gapless leaf index (§6.2b). Assigned by the append helper, not a
+    # SERIAL (a SERIAL gaps on rollback, which would break the Merkle tree).
+    sequence = Column(BigInteger, nullable=False, unique=True, index=True)
+
+    type = Column(Text, nullable=False)  # Update | Announce | Delete (§9)
+    federation_id = Column(Text, nullable=False, index=True)  # history/{federation_id}
+    object_canonical = Column(JSONB, nullable=False)  # the full §8.1 envelope dict
+    published_at = Column(DateTime(timezone=True), nullable=False)  # RFC-3339 published
+    origin_did = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
