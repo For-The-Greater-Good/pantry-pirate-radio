@@ -75,7 +75,7 @@ class TestPhoneLocationFallback:
             patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
             patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator,
             patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
-            patch("app.reconciler.job_processor.VersionTracker"),
+            patch("app.reconciler.location_commit.VersionTracker"),
         ):
             mock_org = MockOrgCreator.return_value
             mock_org.process_organization.return_value = (org_uuid, True)
@@ -142,7 +142,7 @@ class TestPhoneLocationFallback:
             patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
             patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator,
             patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
-            patch("app.reconciler.job_processor.VersionTracker"),
+            patch("app.reconciler.location_commit.VersionTracker"),
         ):
             mock_org = MockOrgCreator.return_value
             mock_org.process_organization.return_value = (org_uuid, True)
@@ -208,7 +208,7 @@ class TestPhoneLocationFallback:
             patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
             patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator,
             patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
-            patch("app.reconciler.job_processor.VersionTracker"),
+            patch("app.reconciler.location_commit.VersionTracker"),
         ):
             mock_org = MockOrgCreator.return_value
             mock_org.process_organization.return_value = (org_uuid, True)
@@ -268,7 +268,7 @@ class TestPhoneLocationFallback:
             patch("app.reconciler.job_processor.OrganizationCreator") as MockOrgCreator,
             patch("app.reconciler.job_processor.LocationCreator") as MockLocCreator,
             patch("app.reconciler.job_processor.ServiceCreator") as MockSvcCreator,
-            patch("app.reconciler.job_processor.VersionTracker"),
+            patch("app.reconciler.location_commit.VersionTracker"),
         ):
             mock_org = MockOrgCreator.return_value
             mock_org.process_organization.return_value = (org_uuid, True)
