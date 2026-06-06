@@ -12,6 +12,33 @@ trade safe.
 
 ---
 
+## 0. The mandate (non-negotiable)
+
+When this process is invoked, two rules are not optional:
+
+1. **The Gauntlet runs at least once per PR, before merge.** Once per PR is the
+   *floor*, not the target — re-run it after any critical or structural
+   remediation (§4.6). **No PR merges without a clean (or fully-triaged-and-
+   deferred) Gauntlet pass on its final state.** A green test suite and green CI
+   are necessary but **not sufficient**: the Gauntlet is a required, independent
+   merge gate that sits alongside CI, never in place of it. If the code changed
+   after the last Gauntlet, the Gauntlet is stale — run it again on what will
+   actually merge.
+
+2. **Multi-agent orchestration is authorized by default and preferred.** Running
+   the review (and much of the build) as parallel agent workflows — "ultracode" in
+   this project's tooling — is the standing default for substantive work under this
+   process, not a special-case escalation. Optimize for the most exhaustive,
+   correct result; thoroughness and independent adversarial verification outweigh
+   speed and token cost. Reserve solo, single-context work for trivial or purely
+   mechanical changes.
+
+These two rules are what make "the machine is the reviewer" real rather than
+aspirational. Write them into your project's governing doc so they bind future
+contributors (human and agent), not just the person who set the process up.
+
+---
+
 ## 1. Roles
 
 - **Operator (human):** product sign-off, scope/go-no-go decisions, and the final
@@ -66,7 +93,8 @@ accumulates them.
 ## 4. The Gauntlet
 
 The centerpiece: a **multi-agent adversarial review** run as a deterministic
-workflow against a finished, green PR. Three phases.
+workflow against a finished, green PR. **Mandatory at least once per PR before
+merge (§0).** Three phases.
 
 ### 4.1 Phase 1 — Review lenses (parallel)
 
@@ -182,9 +210,10 @@ assume it will be violated.
 ```
 decompose → per task: [RED test → GREEN → refactor] → review between tasks
    → PR is green locally (full suite + all standard gates)
-   → GAUNTLET (review lenses ‖ attackers ‖ critic)
+   → GAUNTLET (review lenses ‖ attackers ‖ critic)      [MANDATORY, ≥1× per PR — §0]
    → triage; remediate red-first; RE-GAUNTLET on critical/structural fixes
-   → push; CI green (the authoritative gate)
+   → (Gauntlet clean or fully triaged on the FINAL state)
+   → push; CI green (the authoritative gate — alongside, never instead of, the Gauntlet)
    → operator reviews + merges
 ```
 
@@ -197,10 +226,11 @@ that's the operator's call — surface it, don't quietly force it.
 
 ## 7. Cost discipline
 
-A workflow can spawn dozens of agents; that is real money. So:
+A workflow can spawn dozens of agents; that is real money. Under this process,
+multi-agent orchestration is authorized-by-default (§0) — the opt-in gate is at the
+level of *invoking the process at all*, not each individual workflow. Once you're
+in, orchestrate freely; just spend deliberately:
 
-- **Gate the fleet on explicit opt-in.** Don't auto-orchestrate; the operator
-  turns it on for work that warrants it.
 - **Scale to risk.** "find any bugs" → a few lenses, single-vote verify.
   "thoroughly audit this RED-tier crypto" → a full lens panel + multi-vote
   adversarial attackers + a critic.
@@ -256,6 +286,9 @@ the context window.
 - Keep the **shape**: parallel lenses → real in-sandbox attackers → completeness
   critic → structured findings → red-first remediation → re-Gauntlet → green CI →
   human merge.
+- Keep the **mandate (§0)**: the Gauntlet runs at least once per PR before merge,
+  and multi-agent orchestration is the authorized default. Those two are what make
+  the whole thing trustworthy when you carry it to a new repo.
 
 ---
 
