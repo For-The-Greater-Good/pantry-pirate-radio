@@ -29,6 +29,7 @@ from app.api.v1.map import router as map_router
 from app.api.v1.consumer.router import router as consumer_router
 from app.api.v1.partners.ptf.router import router as ptf_router
 from app.api.v1.partners.beacon.router import router as beacon_router
+from app.api.v1.federation.router import router as federation_router
 
 
 # Priority handler removed (was: export_simple_priority, registered at this point
@@ -348,6 +349,7 @@ router.include_router(map_router)
 router.include_router(consumer_router)
 router.include_router(ptf_router)
 router.include_router(beacon_router)
+router.include_router(federation_router)
 
 
 @router.get("/")
