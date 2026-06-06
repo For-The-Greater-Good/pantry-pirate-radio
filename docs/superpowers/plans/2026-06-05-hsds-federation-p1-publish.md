@@ -903,6 +903,21 @@ byte-identical reconciler); and the Aurora-throughput re-measure result + cold-s
    - **P2:** the true two-INSTANCE test — two `./bouy up` nodes, separate Postgres + DIDs/keys, B pull-ingests A →
      `federated_node` `location_source` → corroboration; plus the **live Feeding America HSDS feed** as real node
      #2 (already the P2 acceptance test). Likely nightly/manual, not per-PR (two DBs + LLM nondeterminism).
+   - **P2 — the PLAIN-HSDS-UPSTREAM PROPAGATION test (owner-requested, 2026-06-06):** the reference-node fixture
+     set MUST include a **spec-only / plain-HSDS endpoint** (a non-federating public HSDS API — no DID, no
+     signing, no checkpoints/proofs; the fixture itself is cheap and can land with Task 11b in PR-D). The
+     golden P2 journey then exercises the **full propagation chain**, not just landing: plain-HSDS upstream →
+     PPR §6.6a snapshot-reconciliation ingest → reconciler lands it with the upstream as a `location_source` →
+     it enters PPR's canonical corpus → **PPR re-publishes the canonical record onward in its OWN signed feed**
+     → a downstream peer pulls PPR `/export` and verifies the proof. Assert the upstream's data reaches the
+     downstream peer **through** PPR's signed log.
+     - **DESIGN QUESTION the test pins (resolve at P2 design, flag now):** a plain-HSDS upstream cannot sign, so
+       PPR CANNOT relay it as an `Announce` (§8.1 requires `Announce` carry the original signing `origin`).
+       Working answer: PPR ingests it as a new SOURCE → origin-dedup/corroboration (§12.1) → PPR publishes the
+       canonical aggregate as its OWN signed `Update` (PPR is `origin`/`attributedTo`; the upstream is recorded
+       in the HSDS object's `sources[]`, NOT as a federation origin). So non-signing-upstream data propagates as
+       PPR's attributed assertion, not as a relayed third-party origin. Confirm/adjust when P2 ingest is designed;
+       the propagation test is the executable spec for whatever is decided. Tracked in this-repo issue #558.
 
 ## Execution handoff
 
