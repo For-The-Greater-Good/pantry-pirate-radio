@@ -38,8 +38,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Install Poetry (upgrade pip and wheel first to fix CVE-2025-8869 and CVE-2026-24049)
-RUN pip install --upgrade pip>=26.0 wheel>=0.46.2 && pip install 'distlib<0.4.0' poetry
+# Install Poetry (upgrade pip and wheel first to fix CVE-2025-8869, CVE-2026-24049,
+# and the pip 26.1.x CVEs: CVE-2026-8643 / CVE-2026-3219 / CVE-2026-6357)
+RUN pip install --upgrade pip>=26.1.2 wheel>=0.46.2 && pip install 'distlib<0.4.0' poetry
 
 # Configure Poetry
 ENV POETRY_VIRTUALENVS_CREATE=false

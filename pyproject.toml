@@ -36,7 +36,9 @@ pytest-asyncio = "<0.25.0"
 redis = "^5.0.0"
 rq = "^1.15.1"
 rq-dashboard = "^0.6.1"
-fastapi = ">=0.116.0"
+# Floor raised to >=0.133.0 so the resolver can take starlette >=1.0.1
+# (fastapi <0.133 caps starlette <0.50). Pairs with the starlette pin below.
+fastapi = ">=0.133.0"
 uvicorn = "^0.27.0"
 prometheus-client = "^0.19.0"
 pydantic = "^2.6.0"
@@ -70,11 +72,16 @@ cryptography = ">=46.0.7"
 # lockfile at the earlier vulnerable patch.)
 urllib3 = ">=2.7.0"
 xlrd = "^2.0.1"
-starlette = ">=0.49.1"
+# Pinned directly to force >=1.0.1, fixing PYSEC-2026-161. Reachable now that
+# the fastapi floor is >=0.133.0 (which permits starlette 1.x).
+starlette = ">=1.0.1"
 mangum = ">=0.17.0"
 defusedxml = "^0.7.1"
 db-to-sqlite = "^1.5"
 requests = "^2.33.0"
+# Pinned directly (transitive via rich/etc.) to force >=2.20.0, fixing the
+# ADL-lexer ReDoS GHSA-5239-wwwm-4pmq (no fix existed at 2.19.2; 2.20.0 ships it).
+pygments = ">=2.20.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
