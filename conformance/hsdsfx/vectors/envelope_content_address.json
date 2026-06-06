@@ -1,0 +1,36 @@
+{
+  "area": "envelope_content_address",
+  "spec": "HSDS-FX/§8.1",
+  "reference_impl": "app/federation/envelope.py:content_address",
+  "interop_status": "interop_pending",
+  "derives_from": "INTEROP_PENDING.md rows 1-6 (envelope wire shape, pinned by fiat)",
+  "vectors": [
+    {
+      "id": "env-id-001",
+      "description": "Canonical worked envelope (license-in-band, fixed seed 0x00..0x1f): content address = 'sha256:'+hex(sha256(JCS(preimage))).",
+      "input": {
+        "preimage": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 3
+    }
+  ]
+}

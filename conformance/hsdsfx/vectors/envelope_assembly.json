@@ -1,0 +1,104 @@
+{
+  "area": "envelope_assembly",
+  "spec": "HSDS-FX/§8.1",
+  "reference_impl": "app/federation/envelope.py:verify_envelope",
+  "interop_status": "interop_pending",
+  "derives_from": "INTEROP_PENDING.md rows 1-6 (10-key field set; license-in-band; placement)",
+  "vectors": [
+    {
+      "id": "env-assembly-verify-001",
+      "description": "The full worked envelope verifies under the origin public key (10-key field set incl. license; federation_id/attributedTo/origin/license at the envelope top level, never inside object).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "type": "ed25519-jcs-2026",
+            "verificationMethod": "did:web:example.org#main-key",
+            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 3
+    },
+    {
+      "id": "env-assembly-relicense-001",
+      "description": "Relicensed object (CC-BY-4.0) with the original proof MUST fail verify — license is inside the signed pre-image.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "CC-BY-4.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "type": "ed25519-jcs-2026",
+            "verificationMethod": "did:web:example.org#main-key",
+            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "env-assembly-license-stripped-001",
+      "description": "License key removed with the original proof MUST fail verify — the signed bytes no longer match.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "type": "ed25519-jcs-2026",
+            "verificationMethod": "did:web:example.org#main-key",
+            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    }
+  ]
+}

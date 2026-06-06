@@ -149,6 +149,15 @@ jobs:
           print(f"REG-1 OK: all {len(tokens)} federation standard tokens are registered.")
           PYEOF
 
+      - name: HSDS-FX conformance corpus drift gate (REG-2)
+        run: |
+          # The canonical HSDS-FX vectors (conformance/hsdsfx/vectors/) are
+          # GENERATED from the reference impl (app/federation/) so they can never
+          # silently drift from what the node actually signs (the license-in-band
+          # class of bug). Fail if the committed corpus != a fresh regeneration.
+          # The conformance TESTS themselves run in the pytest job (test_hsdsfx_*).
+          poetry run python conformance/hsdsfx/generate.py --check
+
 
   mypy:
     needs: setup
