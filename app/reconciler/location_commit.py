@@ -151,10 +151,12 @@ class LocationCommitHandler:
         else:
             location_id = self._commit_new_location(location, org_id, validation)
 
-        # Federation Update hook (PR-C Task 4, §6.2d/e). Submarine commits publish
-        # via their own hook (Task 6); the dedup scripts emit Delete (Task 5).
-        if not is_submarine:
-            self._publish_federation_update(location_id)
+        # Federation Update hook (PR-C Task 4 + Task 6, §6.2d/e). Every PPR-origin
+        # commit publishes an Update — including submarine enrichment (PPR is the
+        # origin for its own locations; the enriched aggregate is a legitimate
+        # Update, §9). Echo (federated_node) / kill-switch / gate are handled
+        # inside publish_location_update. The dedup scripts emit Delete (Task 5).
+        self._publish_federation_update(location_id)
         return location_id
 
     def _publish_federation_update(self, location_id: uuid.UUID) -> None:

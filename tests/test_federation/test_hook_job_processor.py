@@ -89,7 +89,10 @@ def test_ppr_origin_commit_appends_update(db_session, configured):
 def test_pure_federated_commit_appends_nothing(db_session, configured):
     """Echo suppression (§10): a commit sourced from a federated peer is a re-echo."""
     loc_id = _insert_location(db_session)
-    assert publish_location_update(db_session, loc_id, source_type="federated_node") is None
+    assert (
+        publish_location_update(db_session, loc_id, source_type="federated_node")
+        is None
+    )
     assert _log_rows(db_session) == []
 
 
@@ -149,3 +152,17 @@ def test_handler_wiring_echo_suppressed(db_session, configured):
     handler.metadata = {"source_type": publish.FEDERATED_SOURCE_TYPE}
     handler._publish_federation_update(uuid.UUID(loc_id))
     assert _log_rows(db_session) == []
+
+
+def test_submarine_source_publishes_update(db_session, configured):
+    """PR-C Task 6: a submarine enrichment commit (PPR-origin) publishes an Update
+    — submarine is not echo-suppressed (source_type != federated_node)."""
+    from app.reconciler.location_commit import LocationCommitHandler
+
+    loc_id = _insert_location(db_session)
+    handler = object.__new__(LocationCommitHandler)
+    handler.db = db_session
+    handler.metadata = {"scraper_id": "submarine", "source_type": "submarine"}
+    handler._publish_federation_update(uuid.UUID(loc_id))
+    rows = _log_rows(db_session)
+    assert len(rows) == 1 and rows[0].type == "Update"
