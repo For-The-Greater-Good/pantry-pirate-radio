@@ -306,12 +306,19 @@ _note_text = st.text(
     min_size=1,
     max_size=40,
 )
+# The origin doubles as the C2SP signature key name, which must be a single
+# token (no space/newline) — real origins are DIDs. Constrain accordingly.
+_origin_text = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\n "),
+    min_size=1,
+    max_size=40,
+)
 _tree_sizes = st.integers(min_value=0, max_value=2**40)
 _roots = st.binary(min_size=32, max_size=32)
 
 
 @settings(max_examples=150)
-@given(origin=_note_text, tree_size=_tree_sizes, root=_roots, timestamp=_note_text)
+@given(origin=_origin_text, tree_size=_tree_sizes, root=_roots, timestamp=_note_text)
 def test_checkpoint_round_trips_and_parses_exactly(origin, tree_size, root, timestamp):
     """build_checkpoint -> verify_note True, and parse recovers exactly the inputs."""
     key = _key()
@@ -335,7 +342,7 @@ def test_checkpoint_round_trips_and_parses_exactly(origin, tree_size, root, time
 @settings(max_examples=150)
 @given(
     data=st.data(),
-    origin=_note_text,
+    origin=_origin_text,
     tree_size=_tree_sizes,
     root=_roots,
     timestamp=_note_text,
@@ -370,7 +377,7 @@ def test_checkpoint_flipped_root_byte_fails_verify(
 
 
 @settings(max_examples=120)
-@given(origin=_note_text, tree_size=_tree_sizes, root=_roots, timestamp=_note_text)
+@given(origin=_origin_text, tree_size=_tree_sizes, root=_roots, timestamp=_note_text)
 def test_checkpoint_rejects_wrong_key(origin, tree_size, root, timestamp):
     """A checkpoint signed by one key does not verify under an unrelated key."""
     note = checkpoint.build_checkpoint(

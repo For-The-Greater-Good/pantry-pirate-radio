@@ -63,8 +63,9 @@ def _insert_location(
     transportation: str | None = "Bus route 12",
     external_identifier: str | None = "EXT-001",
     external_identifier_type: str | None = "internal",
+    loc_id: str | None = None,
 ) -> str:
-    loc_id = str(uuid.uuid4())
+    loc_id = loc_id or str(uuid.uuid4())
     session.execute(
         text(
             """
@@ -131,6 +132,47 @@ def _insert_source(
     session.commit()
 
 
+def _insert_address(
+    session,
+    location_id: str,
+    *,
+    address_1: str,
+    city: str = "Anytown",
+    state_province: str = "NY",
+    postal_code: str = "10001",
+) -> None:
+    session.execute(
+        text(
+            """
+            INSERT INTO address (
+                id, location_id, address_1, city, state_province, postal_code,
+                country, address_type
+            ) VALUES (
+                :id, :location_id, :address_1, :city, :state_province,
+                :postal_code, 'US', 'physical'
+            )
+            """
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "location_id": location_id,
+            "address_1": address_1,
+            "city": city,
+            "state_province": state_province,
+            "postal_code": postal_code,
+        },
+    )
+    session.commit()
+
+
+def _insert_phone(session, location_id: str, *, number: str) -> None:
+    session.execute(
+        text("INSERT INTO phone (id, location_id, number) VALUES (:id, :loc, :num)"),
+        {"id": str(uuid.uuid4()), "loc": location_id, "num": number},
+    )
+    session.commit()
+
+
 def _insert_schedule(
     session,
     location_id: str,
@@ -172,6 +214,7 @@ def test_object_validates_against_unmodified_hsds_model(db_session) -> None:
     LocationResponse.model_validate(obj)
 
 
+@pytest.mark.interop_pending  # pins the HSDS 3.1.1-curated object field set (INTEROP_PENDING.md row 5)
 def test_object_excludes_envelope_identity_fields(db_session) -> None:
     """Envelope-only fields must NEVER appear inside the object (design m1)."""
     loc_id = _insert_location(db_session)
@@ -299,3 +342,118 @@ def test_end_to_end_envelope_seam(db_session) -> None:
     LocationResponse.model_validate(envelope["object"])
     # And the object-integrity proof verifies.
     assert envelope_mod.verify_envelope(envelope, key.public_key()) is True
+
+
+# --- RED-tier Gauntlet AGGREGATE findings: a SourceInfo row must not be
+# cartesian-multiplied by satellite address/phone rows, an absent address must
+# canonicalize as omitted (not ""), and a non-UUID id must fail with the
+# documented ValueError — all in the SIGNED bytes.
+
+
+def test_multiple_addresses_phones_do_not_inflate_one_scraper(db_session) -> None:
+    """One scraper with 2 addresses + 2 phones must yield exactly ONE source and
+    source_count 1 — not a 1x2x2=4 cartesian explosion in the signed object."""
+    loc_id = _insert_location(db_session)
+    _insert_source(db_session, loc_id, scraper_id="scraper_a")
+    _insert_address(db_session, loc_id, address_1="1 First St")
+    _insert_address(db_session, loc_id, address_1="2 Second Ave")
+    _insert_phone(db_session, loc_id, number="555-0001")
+    _insert_phone(db_session, loc_id, number="555-0002")
+
+    obj = build_location_aggregate(db_session, loc_id)
+    assert len(obj["sources"]) == 1
+    assert obj["sources"][0]["scraper"] == "scraper_a"
+    assert obj["source_count"] == 1
+    LocationResponse.model_validate(obj)
+
+
+def test_multiple_satellites_two_scrapers_yield_two_sources(db_session) -> None:
+    """Two scrapers, each with multiple addresses/phones, yield exactly two
+    sources and source_count 2 (distinct scraper count)."""
+    loc_id = _insert_location(db_session)
+    _insert_source(db_session, loc_id, scraper_id="scraper_a")
+    _insert_source(db_session, loc_id, scraper_id="scraper_b")
+    _insert_address(db_session, loc_id, address_1="1 First St")
+    _insert_address(db_session, loc_id, address_1="2 Second Ave")
+    _insert_phone(db_session, loc_id, number="555-0001")
+    _insert_phone(db_session, loc_id, number="555-0002")
+
+    obj = build_location_aggregate(db_session, loc_id)
+    assert {s["scraper"] for s in obj["sources"]} == {"scraper_a", "scraper_b"}
+    assert len(obj["sources"]) == 2
+    assert obj["source_count"] == 2
+    LocationResponse.model_validate(obj)
+
+
+def test_absent_address_is_omitted_not_empty_string(db_session) -> None:
+    """A source with no address rows must omit `address` (exclude_none), never
+    serialize an empty string into the signed object."""
+    loc_id = _insert_location(db_session)
+    _insert_source(db_session, loc_id, scraper_id="scraper_a")
+    obj = build_location_aggregate(db_session, loc_id)
+    assert len(obj["sources"]) == 1
+    assert obj["sources"][0].get("address", None) in (None,)
+    assert "address" not in obj["sources"][0]
+
+
+def test_present_address_is_assembled(db_session) -> None:
+    """A real address is still assembled into the source (regression guard)."""
+    loc_id = _insert_location(db_session)
+    _insert_source(db_session, loc_id, scraper_id="scraper_a")
+    _insert_address(
+        db_session,
+        loc_id,
+        address_1="100 Main St",
+        city="Anytown",
+        state_province="NY",
+        postal_code="10001",
+    )
+    obj = build_location_aggregate(db_session, loc_id)
+    assert obj["sources"][0]["address"] == "100 Main St, Anytown, NY, 10001"
+
+
+def test_corrupt_schedule_dropped_emits_event_and_keeps_good_rows(db_session) -> None:
+    """OBS-1: the fail-soft schedule branch (a row whose byday the RFC-5545
+    normalizer cannot parse) drops ONLY that row, keeps valid rows, and emits the
+    runbook event `federation_aggregate_schedule_dropped_invalid` with its
+    documented fields. The event name is an operational grep target, so it is
+    asserted as a contract — not just the behavior."""
+    from structlog.testing import capture_logs
+
+    loc_id = _insert_location(db_session)
+    _insert_schedule(
+        db_session, loc_id, byday="MO", opens_at="09:00", closes_at="12:00"
+    )
+    _insert_schedule(
+        db_session, loc_id, byday="GARBAGE_DAY", opens_at="09:00", closes_at="12:00"
+    )
+    with capture_logs() as logs:
+        obj = build_location_aggregate(db_session, loc_id)
+
+    # The valid window survives; the corrupt one is dropped.
+    assert {s["byday"] for s in obj["schedules"]} == {"MO"}
+
+    dropped = [
+        e
+        for e in logs
+        if e.get("event") == "federation_aggregate_schedule_dropped_invalid"
+    ]
+    assert len(dropped) == 1, "expected exactly one schedule-dropped event"
+    evt = dropped[0]
+    assert evt["location_id"] == loc_id
+    assert evt["byday"] == "GARBAGE_DAY"
+    assert "error" in evt and "freq" in evt and "bymonthday" in evt
+
+
+def test_non_uuid_location_id_raises_value_error(db_session) -> None:
+    """A location row whose id is not UUID-shaped must raise the documented
+    ValueError — not a raw pydantic ValidationError. (ValidationError is itself a
+    ValueError subclass, but it leaks internal construction detail; the
+    aggregate's contract is a clean, caller-handleable ValueError naming the id.)"""
+    from pydantic import ValidationError
+
+    _insert_location(db_session, loc_id="not-a-uuid")
+    with pytest.raises(ValueError) as exc_info:
+        build_location_aggregate(db_session, "not-a-uuid")
+    assert not isinstance(exc_info.value, ValidationError)
+    assert "not-a-uuid" in str(exc_info.value)

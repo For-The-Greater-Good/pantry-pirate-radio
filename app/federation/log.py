@@ -16,8 +16,11 @@ P1 implements it unchanged (memo Proof 1/4):
     prefix — is simply ``MAX(sequence)`` over committed rows.
   - ``append`` takes a **plain sync Session** so the offline dedup scripts
     (the §6.2e ``Delete`` hook sites) can call it outside the reconciler.
-  - Kill switch (§6.2d, Principle XI): ``FEDERATION_ENABLED=False`` makes
-    ``append`` a hard no-op before any work. Hook sites (PR-C) check it too;
+  - Kill switch (§6.2d, Principle XI): ``FEDERATION_ENABLED=False`` makes both
+    signing entry points — ``append`` AND ``signed_checkpoint`` — hard no-ops
+    before any work (neither writes a row nor produces an Ed25519 signature over
+    the node's data while disabled). The read-only proof/leaf builders are
+    intentionally ungated (no crypto action). Hook sites (PR-C) check it too;
     this is defense in depth.
 
 Checkpoints/proofs recompute the RFC-6962 tree from the committed rows (always
@@ -36,7 +39,6 @@ from sqlalchemy.orm import Session
 
 from app.federation import envelope as envelope_mod
 from app.federation import merkle
-from app.federation.canonical import jcs_bytes
 from app.federation.checkpoint import build_checkpoint
 
 #: Advisory-lock key for the append critical section (xact-scoped; arbitrary
@@ -47,11 +49,11 @@ _INSERT_SQL = text(
     """
     INSERT INTO federation_log
         (leaf_hash, sequence, type, federation_id, object_canonical,
-         published_at, origin_did)
+         preimage_canonical, published_at, origin_did)
     VALUES
         (:leaf_hash, :sequence, :type, :federation_id,
-         CAST(:object_canonical AS jsonb), CAST(:published_at AS timestamptz),
-         :origin_did)
+         CAST(:object_canonical AS jsonb), :preimage_canonical,
+         CAST(:published_at AS timestamptz), :origin_did)
     """
 )
 
@@ -107,7 +109,7 @@ def append(
         published=published,
         license=license,
     )
-    env = envelope_mod.finalize(preimage, signing_key)
+    env, preimage_bytes = envelope_mod.finalize_with_bytes(preimage, signing_key)
     session.execute(
         _INSERT_SQL,
         {
@@ -116,6 +118,9 @@ def append(
             "type": activity_type,
             "federation_id": federation_id,
             "object_canonical": json.dumps(env),
+            # The exact signed bytes, stored verbatim (see leaf_data): the leaf
+            # must never depend on JSONB number normalization.
+            "preimage_canonical": preimage_bytes,
             "published_at": published,
             "origin_did": origin_did,
         },
@@ -136,13 +141,17 @@ def safe_high_water(session: Session) -> int:
 def leaf_data(session: Session, tree_size: int) -> list[bytes]:
     """The RFC-6962 leaf data (JCS pre-image bytes) for sequences 1..tree_size.
 
-    The pre-image is re-derived from the stored envelope by stripping
-    ``id``/``proof`` — exactly what a remote verifier does, so the tree we
-    commit to is the tree they can recompute.
+    Returns the canonical pre-image bytes EXACTLY as they were hashed and signed
+    at append time (``preimage_canonical``, stored verbatim). We deliberately do
+    NOT re-derive from ``object_canonical`` (JSONB): a JSONB round-trip
+    normalizes extreme-magnitude numbers (e.g. ``1e21`` -> a big integer) so a
+    re-canonicalized leaf would diverge from the signed bytes and silently break
+    inclusion/consistency proofs. ``object_canonical`` is retained for
+    queryability only.
     """
     rows = session.execute(
         text(
-            "SELECT sequence, object_canonical FROM federation_log"
+            "SELECT sequence, preimage_canonical FROM federation_log"
             " WHERE sequence <= :n ORDER BY sequence"
         ),
         {"n": tree_size},
@@ -151,12 +160,8 @@ def leaf_data(session: Session, tree_size: int) -> list[bytes]:
         raise ValueError(
             f"tree_size {tree_size} exceeds committed prefix ({len(rows)} rows)"
         )
-    leaves = []
-    for row in rows:
-        env = row.object_canonical
-        preimage = {k: v for k, v in env.items() if k not in ("id", "proof")}
-        leaves.append(jcs_bytes(preimage))
-    return leaves
+    # psycopg2 returns BYTEA as memoryview; normalize to bytes.
+    return [bytes(row.preimage_canonical) for row in rows]
 
 
 def signed_checkpoint(
@@ -165,8 +170,20 @@ def signed_checkpoint(
     origin_did: str,
     signing_key: Ed25519PrivateKey,
     timestamp: str | None = None,
-) -> str:
-    """A C2SP signed-note checkpoint over the committed prefix (§6.2b)."""
+) -> str | None:
+    """A C2SP signed-note checkpoint over the committed prefix (§6.2b).
+
+    Returns ``None`` (hard no-op, §6.2d) when ``FEDERATION_ENABLED`` is off.
+    The kill switch is NOT append-only: a checkpoint is an Ed25519 signature over
+    the node's committed data, so the substrate must refuse to sign anything while
+    federation is disabled — defense in depth, mirroring ``append`` (the read-only
+    proof builders below take no crypto action and are intentionally left ungated).
+    """
+    from app.core.config import settings  # late import: kill-switch reads live value
+
+    if not settings.FEDERATION_ENABLED:
+        return None
+
     timestamp = timestamp or envelope_mod.published_now()
     tree_size = safe_high_water(session)
     root = merkle.merkle_root(leaf_data(session, tree_size))

@@ -3,7 +3,7 @@
 External anchors (NOT self-derived — the operator's conformance mandate):
   - The C2SP signed-note spec (github.com/C2SP/C2SP/blob/main/signed-note.md):
     text ending in newline, then a BLANK line, then signature lines of the form
-    em-dash (U+2014), space, key name, space, base64(keyID32 || signature),
+    em-dash (U+2014), space, key name, space, base64(keyID[4] || signature[64]),
     newline. The signed bytes are the text INCLUDING its final newline but NOT
     the blank line. keyID = first 4 bytes of SHA-256(name || 0x0A || alg ||
     pubkey); algEd25519 = 1.
@@ -170,3 +170,127 @@ def test_verify_rejects_malformed_notes() -> None:
         )
         is False
     )
+
+
+# --- RED-tier Gauntlet CHECKPOINT findings: keep our accept-set == a Go
+# witness's. A wider accept-set causes split-brain in the P6 witness mesh and is
+# hard to retrofit once peers exist.
+
+
+def test_verify_note_rejects_garbage_line_in_signature_section() -> None:
+    """A note with a valid signature for our key BUT a non-signature line in the
+    signature section must be rejected (Go note.Open rejects malformed lines; we
+    must not silently skip them)."""
+    assert checkpoint.verify_note(_GO_NOTE, _go_public_key(), "PeterNeumann") is True
+    # Splice a garbage line into the signature section.
+    polluted = _GO_NOTE[:-1] + "\nGARBAGE NOT A SIG LINE\n"
+    assert checkpoint.verify_note(polluted, _go_public_key(), "PeterNeumann") is False
+
+
+def test_sign_note_rejects_multi_token_or_empty_key_name() -> None:
+    """A C2SP signature line is '— <name> <b64>'; the key name must be a single
+    non-empty token (no space/newline), else the grammar breaks."""
+    import pytest
+
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    for bad_name in ("two words", "", "has\nnewline"):
+        with pytest.raises(ValueError):
+            checkpoint.sign_note(b"text\n", bad_name, key)
+
+
+def test_verify_note_rejects_emdash_line_with_bad_grammar() -> None:
+    """A line that starts with the em-dash prefix but is NOT a well-formed
+    signature line (wrong token count / empty name) makes the whole note invalid
+    (matches Go note.Open strictness)."""
+    pub = _go_public_key()
+    valid_sig = _GO_NOTE.split("\n\n", 1)[1].rstrip("\n")
+    text = _GO_TEXT.decode()
+    # An em-dash line with only one token (no base64) in the signature section.
+    one_token = f"{text}\n{valid_sig}\n— justonetoken\n"
+    assert checkpoint.verify_note(one_token, pub, "PeterNeumann") is False
+    # An em-dash line with an empty name ('—  <b64>' -> empty first token).
+    empty_name = f"{text}\n{valid_sig}\n—  AAAAAAAA\n"
+    assert checkpoint.verify_note(empty_name, pub, "PeterNeumann") is False
+
+
+def test_verify_note_accepts_multi_witness_note() -> None:
+    """Multiple WELL-FORMED signature lines (different keys) are legal — only our
+    matching line need verify. Guards that the strict-grammar fix does not break
+    co-signed/witnessed notes."""
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    note = checkpoint.build_checkpoint(
+        origin="did:web:example.org",
+        tree_size=1,
+        root_hash=merkle.merkle_root([b"leaf-0"]),
+        timestamp="2026-06-06T00:00:00Z",
+        signing_key=key,
+    )
+    # Append a second, well-formed witness signature line (different key/name).
+    witness = Ed25519PrivateKey.from_private_bytes(bytes([9]) * 32)
+    body = checkpoint.checkpoint_body(
+        "did:web:example.org",
+        1,
+        merkle.merkle_root([b"leaf-0"]),
+        "2026-06-06T00:00:00Z",
+    )
+    witness_note = checkpoint.sign_note(body, "did:web:witness.example", witness)
+    witness_sig_line = witness_note.split("\n\n", 1)[1]
+    co_signed = note + witness_sig_line
+    assert (
+        checkpoint.verify_note(co_signed, key.public_key(), "did:web:example.org")
+        is True
+    )
+
+
+def test_verify_note_handles_text_with_internal_blank_line() -> None:
+    """The signed text may itself contain a blank line; the note must split at the
+    LAST blank line (Go note.Open semantics), not the first."""
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    body = b"paragraph one\n\nparagraph two\n"  # internal blank line in the text
+    note = checkpoint.sign_note(body, "did:web:example.org", key)
+    assert checkpoint.verify_note(note, key.public_key(), "did:web:example.org") is True
+
+
+def test_parse_checkpoint_rejects_non_canonical_tree_size() -> None:
+    """parse_checkpoint must report only a canonical decimal tree_size; the
+    lenient int() form ('+3', ' 3', '03', '-1') could disagree with the C2SP
+    byte form even before verification."""
+    root_b64 = base64.b64encode(bytes(range(32))).decode("ascii")
+    for bad in (" 3", "03", "+3", "-1"):
+        note = (
+            f"did:web:example.org\n{bad}\n{root_b64}\n"
+            f"Timestamp: 2026-06-06T00:00:00Z\n"
+            f"\n— did:web:example.org AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
+        )
+        assert checkpoint.parse_checkpoint(note) is None, f"accepted {bad!r}"
+    # The canonical form still parses.
+    good = (
+        f"did:web:example.org\n3\n{root_b64}\nTimestamp: 2026-06-06T00:00:00Z\n"
+        f"\n— did:web:example.org AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
+    )
+    assert checkpoint.parse_checkpoint(good)["tree_size"] == 3
+
+
+def test_build_checkpoint_rejects_newline_in_fields() -> None:
+    """Note injection hardening: a newline in origin/timestamp/key_name must fail
+    loudly at build time, never silently emit an ambiguous multi-line note."""
+    import pytest
+
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    root = merkle.merkle_root([b"leaf-0"])
+    with pytest.raises(ValueError):
+        checkpoint.build_checkpoint(
+            origin="did:web:evil\n2\nFAKEROOT",
+            tree_size=1,
+            root_hash=root,
+            timestamp="2026-06-06T00:00:00Z",
+            signing_key=key,
+        )
+    with pytest.raises(ValueError):
+        checkpoint.build_checkpoint(
+            origin="did:web:example.org",
+            tree_size=1,
+            root_hash=root,
+            timestamp="2026-06-06T00:00:00Z\ninjected",
+            signing_key=key,
+        )

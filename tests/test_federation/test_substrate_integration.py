@@ -323,23 +323,37 @@ def test_kill_switch_freezes_the_substrate_mid_stream(db_session, monkeypatch) -
     for spec in _ACTIVITIES[4:]:
         assert _append_activity(db_session, spec) is None
 
-    # The committed prefix is unchanged: count, head, root, and a checkpoint
-    # taken now all match the pre-flip state exactly.
+    # The committed prefix is unchanged, AND the substrate refuses to sign while
+    # disabled: signed_checkpoint is a hard no-op too (it is an Ed25519 signature
+    # over the node's data — the kill switch is not append-only).
     count = db_session.execute(text("SELECT COUNT(*) FROM federation_log")).scalar_one()
     assert count == 4
     assert log.safe_high_water(db_session) == 4
+    assert (
+        log.signed_checkpoint(
+            db_session,
+            origin_did=_ORIGIN,
+            signing_key=_signing_key(),
+            timestamp=_PUBLISHED,
+        )
+        is None
+    )
+    # The committed prefix is provably intact via an independent root recompute
+    # (no signing needed): the head matches the pre-flip checkpoint exactly.
+    assert (
+        _independent_root(_read_envelopes(db_session, 4)) == parsed_before["root_hash"]
+    )
+    # And every surviving envelope still verifies under the publisher key.
+    for env in _read_envelopes(db_session, 4):
+        assert envelope.verify_envelope(env, public_key) is True
+
+    # Re-enabling restores signing and the checkpoint matches the pre-flip note
+    # byte-for-byte (same size, same root, same timestamp) — no wedge, no drift.
+    monkeypatch.setattr(live_settings, "FEDERATION_ENABLED", True)
     note_after = log.signed_checkpoint(
         db_session,
         origin_did=_ORIGIN,
         signing_key=_signing_key(),
         timestamp=_PUBLISHED,
     )
-    parsed_after = checkpoint.parse_checkpoint(note_after)
-    assert parsed_after is not None
-    assert parsed_after["tree_size"] == 4
-    assert parsed_after["root_hash"] == parsed_before["root_hash"]
-    # The note text is byte-identical (same size, same root, same timestamp).
     assert note_after == note_before
-    # And every surviving envelope still verifies under the publisher key.
-    for env in _read_envelopes(db_session, 4):
-        assert envelope.verify_envelope(env, public_key) is True

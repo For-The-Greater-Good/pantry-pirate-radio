@@ -38,6 +38,8 @@ PROOF_TYPE = "ed25519-jcs-2026"
 
 _ID_PREFIX = "sha256:"
 _EXCLUDED_FROM_PREIMAGE = ("id", "proof")
+#: An Ed25519 signature (RFC 8032) is always exactly 64 bytes.
+_ED25519_SIGNATURE_LEN = 64
 
 
 def published_now() -> str:
@@ -68,7 +70,15 @@ def build_preimage(
     ``settings.FEDERATION_LICENSE``: license-in-band rides in the SIGNED
     pre-image so a relayed/archived object keeps a signed, DID-attributed
     license paper trail even detached from its feed — mesh-resilience decision,
-    2026-06-06.)"""
+    2026-06-06.)
+
+    Numeric-domain contract: integers are JCS-serialized via ``str(int)`` (exact),
+    which a strict double-based JCS peer (ECMAScript ``Number``) diverges from
+    above 2^53. Our own log re-derives leaves from the verbatim signed bytes
+    (``log.leaf_data``), so this cannot break our proofs; it only matters for a
+    foreign peer with a double-based JCS reader. HSDS objects carry no integer
+    field that large today — revisit when P2 ingest accepts arbitrary foreign
+    objects (fold in an explicit bound or a double pipeline then)."""
     return {
         "@context": context,
         "type": activity_type,
@@ -88,10 +98,17 @@ def content_address(preimage: dict[str, Any]) -> str:
     return _ID_PREFIX + hashlib.sha256(jcs_bytes(preimage)).hexdigest()
 
 
-def finalize(
+def finalize_with_bytes(
     preimage: dict[str, Any], signing_key: Ed25519PrivateKey
-) -> dict[str, Any]:
-    """Attach the content address ``id`` and the Ed25519 ``proof`` to a pre-image."""
+) -> tuple[dict[str, Any], bytes]:
+    """Like :func:`finalize`, but also return the canonical pre-image bytes.
+
+    The returned ``bytes`` are the EXACT buffer that was hashed and signed. The
+    log persists them verbatim so a leaf can be re-derived byte-for-byte without
+    depending on any storage layer's number normalization (JSONB normalizes
+    extreme-magnitude floats differently than this JCS form) — the substrate's
+    "store what you signed" invariant.
+    """
     pb = jcs_bytes(preimage)
     env_id = _ID_PREFIX + hashlib.sha256(pb).hexdigest()
     signature = base64.b64encode(signing_key.sign(pb)).decode("ascii")
@@ -100,7 +117,14 @@ def finalize(
         "verificationMethod": f"{preimage['actor']}#main-key",
         "signature": signature,
     }
-    return {**preimage, "id": env_id, "proof": proof}
+    return {**preimage, "id": env_id, "proof": proof}, pb
+
+
+def finalize(
+    preimage: dict[str, Any], signing_key: Ed25519PrivateKey
+) -> dict[str, Any]:
+    """Attach the content address ``id`` and the Ed25519 ``proof`` to a pre-image."""
+    return finalize_with_bytes(preimage, signing_key)[0]
 
 
 def verify_envelope(envelope: dict[str, Any], public_key: Ed25519PublicKey) -> bool:
@@ -126,8 +150,17 @@ def verify_envelope(envelope: dict[str, Any], public_key: Ed25519PublicKey) -> b
         return False
     if _ID_PREFIX + hashlib.sha256(pb).hexdigest() != claimed_id:
         return False
+    # Bind the signature to its EXACT bytes: strict base64 (no silent stripping
+    # of whitespace/garbage) and exactly 64 bytes (Ed25519). Without this the
+    # signature field is malleable — distinct strings would both verify True.
     try:
-        public_key.verify(base64.b64decode(signature_b64), pb)
+        signature = base64.b64decode(signature_b64, validate=True)
+    except (ValueError, TypeError):
+        return False
+    if len(signature) != _ED25519_SIGNATURE_LEN:
+        return False
+    try:
+        public_key.verify(signature, pb)
     except (InvalidSignature, ValueError, TypeError):
         return False
     return True

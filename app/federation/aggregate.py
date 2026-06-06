@@ -77,8 +77,13 @@ _LOCATION_SQL = text(
 )
 
 # Per-scraper source rows -> SourceInfo. Phone/email/website/address are
-# enrichment joins (SourceInfo models them); LEFT JOINs keep a source row even
-# when those satellites are absent.
+# enrichment satellites (SourceInfo models them). They are location-level (not
+# per-scraper) so they MUST be pulled via scalar correlated subqueries: a plain
+# LEFT JOIN to `address`/`phone` cartesian-multiplies the source rows (a location
+# with 2 addresses + 2 phones would emit 4 SourceInfo per scraper) and inflate
+# the SIGNED source_count. One deterministic representative satellite per
+# location (ORDER BY id), NULLIF-wrapped so an all-absent address is NULL (and
+# omitted by exclude_none), never an empty string in the signed bytes.
 _SOURCES_SQL = text(
     """
     SELECT
@@ -86,21 +91,28 @@ _SOURCES_SQL = text(
         ls.name,
         ls.created_at AS first_seen,
         ls.updated_at AS last_updated,
-        p.number AS phone,
+        (
+            SELECT p.number FROM phone p
+            WHERE p.location_id = ls.location_id
+            ORDER BY p.id LIMIT 1
+        ) AS phone,
         o.website AS website,
         o.email AS email,
-        CONCAT_WS(', ',
-            NULLIF(a.address_1, ''),
-            NULLIF(a.city, ''),
-            NULLIF(a.state_province, ''),
-            NULLIF(a.postal_code, '')
+        (
+            SELECT NULLIF(CONCAT_WS(', ',
+                NULLIF(a.address_1, ''),
+                NULLIF(a.city, ''),
+                NULLIF(a.state_province, ''),
+                NULLIF(a.postal_code, '')
+            ), '')
+            FROM address a
+            WHERE a.location_id = ls.location_id
+            ORDER BY a.id LIMIT 1
         ) AS address,
         l.confidence_score
     FROM location_source ls
     LEFT JOIN location l ON l.id = ls.location_id
     LEFT JOIN organization o ON o.id = l.organization_id
-    LEFT JOIN address a ON a.location_id = l.id
-    LEFT JOIN phone p ON p.location_id = l.id
     WHERE ls.location_id = :location_id
     ORDER BY ls.scraper_id
     """
@@ -218,24 +230,36 @@ def build_location_aggregate(session: Session, location_id: str) -> dict[str, An
 
     sources = _build_sources(session, location_id)
     schedules = _build_schedules(session, location_id)
+    # source_count = number of DISTINCT scrapers (matches the read/export paths),
+    # not len(sources): never inflated by satellite rows. Falls back to the model
+    # default (1) when there are no sources — the read API's "at least itself".
+    source_count = len({s.scraper for s in sources}) or 1
 
-    location = LocationResponse(
-        id=row.id,
-        name=row.name,
-        alternate_name=row.alternate_name,
-        description=row.description,
-        latitude=float(row.latitude) if row.latitude is not None else None,
-        longitude=float(row.longitude) if row.longitude is not None else None,
-        transportation=row.transportation,
-        external_identifier=row.external_identifier,
-        external_identifier_type=row.external_identifier_type,
-        location_type=row.location_type,
-        sources=sources,
-        # source_count falls back to the model default (1) when there are no
-        # source rows, matching the read API's "at least itself" convention.
-        source_count=len(sources) if sources else 1,
-        schedules=schedules,
-    )
+    try:
+        location = LocationResponse(
+            id=row.id,
+            name=row.name,
+            alternate_name=row.alternate_name,
+            description=row.description,
+            latitude=float(row.latitude) if row.latitude is not None else None,
+            longitude=float(row.longitude) if row.longitude is not None else None,
+            transportation=row.transportation,
+            external_identifier=row.external_identifier,
+            external_identifier_type=row.external_identifier_type,
+            location_type=row.location_type,
+            sources=sources,
+            source_count=source_count,
+            schedules=schedules,
+        )
+    except ValidationError as exc:
+        # Surface the documented ValueError contract instead of leaking a raw
+        # pydantic ValidationError. The most common trigger is a non-UUID-shaped
+        # location id (the `location.id` column is TEXT, the HSDS model requires a
+        # UUID) — a real data-integrity problem the caller must handle, not an
+        # expected empty result.
+        raise ValueError(
+            f"location {location_id!r} failed HSDS conformance: {exc}"
+        ) from exc
     # Dump as JSON-mode so the result is envelope-ready (str timestamps, floats);
     # exclude_none keeps the object tight and drops the HTTP-response-only fields
     # left unset here (``distance`` = radius-search artifact, ``metadata`` =

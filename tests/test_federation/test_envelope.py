@@ -15,6 +15,7 @@ self-graded value.
 import base64
 import hashlib
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.federation import envelope
@@ -68,6 +69,7 @@ def test_license_is_inside_the_signed_preimage() -> None:
     assert envelope.verify_envelope(stripped, _key().public_key()) is False
 
 
+@pytest.mark.interop_pending  # pins envelope field set + PROOF_TYPE + license-in-band + int/published serialization (INTEROP_PENDING.md rows 1-4,6)
 def test_finalize_matches_pinned_known_answer() -> None:
     env = envelope.finalize(envelope.build_preimage(**_ARGS), _key())
     assert env["id"] == _EXPECTED_ID
@@ -126,3 +128,51 @@ def test_key_order_independent_id() -> None:
     env2 = envelope.finalize(reordered, _key())
     assert env1["id"] == env2["id"]
     assert env1["proof"]["signature"] == env2["proof"]["signature"]
+
+
+# --- Signature non-malleability (RED-tier Gauntlet finding: CRYPTO #1).
+# Python's base64.b64decode is lenient by default — it silently strips
+# non-alphabet characters (including embedded garbage) and tolerates surrounding
+# whitespace. A signature field is part of the wire form; two distinct byte
+# strings that both verify True is a malleability defect. verify_envelope must
+# bind the signature to the EXACT 64-byte Ed25519 value.
+
+
+def test_verify_rejects_whitespace_wrapped_signature() -> None:
+    """A signature with surrounding/internal whitespace must NOT verify."""
+    env = envelope.finalize(envelope.build_preimage(**_ARGS), _key())
+    pub = _key().public_key()
+    assert envelope.verify_envelope(env, pub) is True  # baseline
+    sig = env["proof"]["signature"]
+    for mutated in (f"  {sig}  ", f"\n{sig}\n", sig[:10] + "\n" + sig[10:]):
+        env["proof"]["signature"] = mutated
+        assert (
+            envelope.verify_envelope(env, pub) is False
+        ), f"whitespace-wrapped signature verified True: {mutated!r}"
+
+
+def test_verify_rejects_garbage_injected_signature() -> None:
+    """Non-alphabet garbage spliced into the base64 must NOT verify."""
+    env = envelope.finalize(envelope.build_preimage(**_ARGS), _key())
+    pub = _key().public_key()
+    sig = env["proof"]["signature"]
+    # Inject characters outside the standard base64 alphabet that the lenient
+    # decoder would otherwise silently discard.
+    for junk in ("!", "@@@", "\x00", "----"):
+        env["proof"]["signature"] = sig[:8] + junk + sig[8:]
+        assert (
+            envelope.verify_envelope(env, pub) is False
+        ), f"garbage-injected signature verified True: {junk!r}"
+
+
+def test_verify_rejects_wrong_length_signature() -> None:
+    """A validly-base64 value that does not decode to exactly 64 bytes is rejected
+    before reaching the Ed25519 verifier."""
+    env = envelope.finalize(envelope.build_preimage(**_ARGS), _key())
+    pub = _key().public_key()
+    # 63 bytes and 65 bytes, both clean base64.
+    for nbytes in (0, 1, 63, 65, 128):
+        env["proof"]["signature"] = base64.b64encode(b"\x00" * nbytes).decode("ascii")
+        assert (
+            envelope.verify_envelope(env, pub) is False
+        ), f"{nbytes}-byte signature verified True"

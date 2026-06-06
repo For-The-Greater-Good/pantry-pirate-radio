@@ -117,6 +117,70 @@ def test_kill_switch_appends_nothing(db_session, monkeypatch) -> None:
     assert count == 0
 
 
+class _SpyKey:
+    """An Ed25519 key wrapper that counts ``sign`` calls (kill-switch probe)."""
+
+    def __init__(self) -> None:
+        self._key = _signing_key()
+        self.sign_calls = 0
+
+    def sign(self, data: bytes) -> bytes:
+        self.sign_calls += 1
+        return self._key.sign(data)
+
+    def public_key(self):
+        return self._key.public_key()
+
+
+def test_kill_switch_freezes_signed_checkpoint(db_session, monkeypatch) -> None:
+    """§6.2d defense in depth: FEDERATION_ENABLED=False must make
+    ``signed_checkpoint`` a no-op — no Ed25519 signature over the node's
+    committed data while federation is disabled (RED-tier Gauntlet breach).
+
+    The kill switch was previously append-only; the substrate's *signing* entry
+    point also signs (a checkpoint is an Ed25519 note over the tree root), so it
+    must be gated too. Returns ``None`` (mirrors ``append``) and signs nothing.
+    """
+    from app.core.config import settings as live_settings
+
+    # Seed a committed prefix with the switch ON.
+    _append(db_session, 3)
+
+    monkeypatch.setattr(live_settings, "FEDERATION_ENABLED", False)
+    spy = _SpyKey()
+    note = log.signed_checkpoint(
+        db_session,
+        origin_did=_ORIGIN,
+        signing_key=spy,
+        timestamp="2026-06-06T00:00:00Z",
+    )
+    assert note is None, "signed_checkpoint produced a note while disabled"
+    assert spy.sign_calls == 0, "Ed25519 sign() ran while federation disabled"
+
+
+def test_signed_checkpoint_signs_again_once_re_enabled(db_session, monkeypatch) -> None:
+    """The gate reads the live value: re-enabling restores signing (no wedge)."""
+    from app.core.config import settings as live_settings
+
+    _append(db_session, 2)
+    monkeypatch.setattr(live_settings, "FEDERATION_ENABLED", False)
+    assert (
+        log.signed_checkpoint(
+            db_session, origin_did=_ORIGIN, signing_key=_signing_key()
+        )
+        is None
+    )
+    monkeypatch.setattr(live_settings, "FEDERATION_ENABLED", True)
+    note = log.signed_checkpoint(
+        db_session,
+        origin_did=_ORIGIN,
+        signing_key=_signing_key(),
+        timestamp="2026-06-06T00:00:00Z",
+    )
+    assert note is not None
+    assert checkpoint.verify_note(note, _signing_key().public_key(), _ORIGIN) is True
+
+
 def test_safe_high_water(db_session) -> None:
     assert log.safe_high_water(db_session) == 0
     _append(db_session, 5)
@@ -138,6 +202,76 @@ def test_signed_checkpoint_verifies_and_matches_recomputed_root(db_session) -> N
     # independently recompute the RFC-6962 root over the stored leaf pre-images
     leaves = log.leaf_data(db_session, 4)
     assert parsed["root_hash"] == merkle.merkle_root(leaves)
+
+
+def test_leaf_data_is_byte_identical_to_signed_preimage_for_extreme_numbers(
+    db_session,
+) -> None:
+    """Substrate invariant (RED-tier Gauntlet HIGH finding): the leaf bytes the
+    log commits to must be byte-identical to the bytes that were signed — even
+    for numbers PostgreSQL JSONB normalizes differently than Python.
+
+    For a value like ``1e21`` the signed JCS pre-image emits ``1e+21`` but a JSONB
+    round-trip returns it as an integer (``1000000000000000000000``). Re-deriving
+    the leaf from the stored JSONB would therefore diverge from what was signed,
+    silently breaking inclusion/consistency proofs. We store the canonical
+    pre-image bytes verbatim, so ``leaf_data`` does NOT depend on JSONB number
+    normalization. Masked today only because HSDS coordinates are bounded.
+    """
+    from app.federation import envelope as envelope_mod
+
+    obj = {"id": "loc-extreme", "name": "X", "extreme": 1e21}
+    # The exact pre-image bytes append will sign (fresh table -> sequence 1).
+    expected_preimage = envelope_mod.build_preimage(
+        context=_CONTEXT,
+        activity_type="Update",
+        actor=_ORIGIN,
+        attributed_to=_ORIGIN,
+        origin=_ORIGIN,
+        federation_id="example.org:loc-extreme",
+        obj=obj,
+        sequence=1,
+        published="2026-06-06T00:00:00Z",
+        license=_LICENSE,
+    )
+    expected_pb = jcs_bytes(expected_preimage)
+
+    seq = log.append(
+        db_session,
+        activity_type="Update",
+        federation_id="example.org:loc-extreme",
+        obj=obj,
+        origin_did=_ORIGIN,
+        signing_key=_signing_key(),
+        context=_CONTEXT,
+        license=_LICENSE,
+        published="2026-06-06T00:00:00Z",
+    )
+    assert seq == 1
+
+    # leaf_data returns the EXACT signed bytes.
+    leaves = log.leaf_data(db_session, 1)
+    assert leaves[0] == expected_pb
+
+    # Sanity: the JSONB round-trip really does diverge for this value — proving
+    # the invariant would be FALSE if leaf_data re-derived from object_canonical.
+    stored_env = db_session.execute(
+        text("SELECT object_canonical FROM federation_log WHERE sequence = 1")
+    ).scalar_one()
+    jsonb_preimage = {k: v for k, v in stored_env.items() if k not in ("id", "proof")}
+    assert jcs_bytes(jsonb_preimage) != expected_pb
+
+    # And the checkpoint root over the verbatim leaves matches an independent
+    # recompute from the signed bytes (end-to-end proof integrity holds).
+    note = log.signed_checkpoint(
+        db_session,
+        origin_did=_ORIGIN,
+        signing_key=_signing_key(),
+        timestamp="2026-06-06T00:00:00Z",
+    )
+    assert note is not None
+    parsed = checkpoint.parse_checkpoint(note)
+    assert parsed["root_hash"] == merkle.merkle_root([expected_pb])
 
 
 def test_inclusion_proof_round_trip_from_db(db_session) -> None:
