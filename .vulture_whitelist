@@ -18,3 +18,4 @@ no_content_store  # tests/test_llm/test_processor.py - pytest fixture parameter
 no_content_store  # tests/test_llm/test_queue.py - pytest fixture parameter
 no_content_store  # tests/test_llm/test_queue_processor.py - pytest fixture parameter
 no_content_store  # tests/test_scraper/test_scraper_utils.py - pytest fixture parameter
+configured  # tests/test_federation/ - pytest fixture parameter (configures federation settings; required for its side effect, not referenced in test body)
