@@ -140,7 +140,7 @@ class LocationCommitHandler:
             return None
 
         if match_id:
-            return self._commit_matched_location(
+            location_id = self._commit_matched_location(
                 match_id,
                 location,
                 org_id,
@@ -148,8 +148,27 @@ class LocationCommitHandler:
                 is_submarine,
                 loc_confidence_score=validation[0],
             )
+        else:
+            location_id = self._commit_new_location(location, org_id, validation)
 
-        return self._commit_new_location(location, org_id, validation)
+        # Federation Update hook (PR-C Task 4, §6.2d/e). Submarine commits publish
+        # via their own hook (Task 6); the dedup scripts emit Delete (Task 5).
+        if not is_submarine:
+            self._publish_federation_update(location_id)
+        return location_id
+
+    def _publish_federation_update(self, location_id: uuid.UUID) -> None:
+        """Append a federation-log ``Update`` for the just-committed canonical
+        location (kill-switch / echo / gate / fail-soft all inside the guarded
+        ``publish_location_update``). Called AFTER the resource commit so the
+        append never folds the caller's transaction (the commit sites commit)."""
+        from app.federation.publish import publish_location_update
+
+        publish_location_update(
+            self.db,
+            str(location_id),
+            source_type=self.metadata.get("source_type"),
+        )
 
     def _commit_matched_location(
         self,
