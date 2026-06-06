@@ -38,9 +38,10 @@ _ARGS = dict(
     },
     sequence=1,
     published="2026-06-05T00:00:00Z",
+    license="sandia-ftgg-nc-os-1.0",
 )
-_EXPECTED_ID = "sha256:e9334748f6178c61bbb2aec25ebd6e567565099bfaae65575b7fdfad194d7529"
-_EXPECTED_SIG = "6/CDjQ/Xjo8vj+R+MRPX1ibxLH5lJqjf5lGuzgRW/6xSuIDbTG4cGpOJm25K562u+4NZdSNACqv99ky3+4xuBQ=="
+_EXPECTED_ID = "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba"
+_EXPECTED_SIG = "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
 
 
 def _key() -> Ed25519PrivateKey:
@@ -53,6 +54,18 @@ def test_preimage_excludes_id_and_proof() -> None:
     # envelope-only identity fields live at the top level, never inside object
     assert {"federation_id", "attributedTo", "origin"} <= set(pre)
     assert "federation_id" not in pre["object"]
+
+
+def test_license_is_inside_the_signed_preimage() -> None:
+    """License-in-band (mesh-resilience decision, 2026-06-06): the license rides
+    in the SIGNED pre-image, so a relayed/archived object carries a signed,
+    DID-attributed license paper trail even detached from its feed. Changing it
+    after signing breaks both the content address and the proof."""
+    pre = envelope.build_preimage(**_ARGS)
+    assert pre["license"] == "sandia-ftgg-nc-os-1.0"
+    env = envelope.finalize(pre, _key())
+    stripped = {**env, "license": "CC0-1.0"}  # relicense attempt, stale proof
+    assert envelope.verify_envelope(stripped, _key().public_key()) is False
 
 
 def test_finalize_matches_pinned_known_answer() -> None:

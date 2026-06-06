@@ -46,9 +46,7 @@ def published_now() -> str:
     Second precision (no microseconds) keeps ``published`` byte-stable across
     nodes that re-emit the same logical activity.
     """
-    return (
-        datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    return datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def build_preimage(
@@ -62,10 +60,15 @@ def build_preimage(
     obj: dict[str, Any],
     sequence: int,
     published: str,
+    license: str,
 ) -> dict[str, Any]:
     """The envelope WITHOUT ``id``/``proof`` — the exact dict that gets hashed and
     signed. (``context`` should be ``settings.FEDERATION_PROFILE_URI``; do not
-    hardcode a version — Task -1 pinned 3.1.1.)"""
+    hardcode a version — Task -1 pinned 3.1.1. ``license`` should be
+    ``settings.FEDERATION_LICENSE``: license-in-band rides in the SIGNED
+    pre-image so a relayed/archived object keeps a signed, DID-attributed
+    license paper trail even detached from its feed — mesh-resilience decision,
+    2026-06-06.)"""
     return {
         "@context": context,
         "type": activity_type,
@@ -76,6 +79,7 @@ def build_preimage(
         "object": obj,
         "published": published,
         "sequence": sequence,
+        "license": license,
     }
 
 

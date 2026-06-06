@@ -267,6 +267,11 @@ class Settings(BaseSettings):
     FEDERATION_PROFILE_URI: str = (
         "https://hsds-federation.pantrypirateradio.org/profile"
     )
+    # License identifier stamped into EVERY federation activity envelope's
+    # SIGNED pre-image (license-in-band: a relayed/archived object carries a
+    # signed, DID-attributed license paper trail even detached from its feed —
+    # mesh-resilience decision, 2026-06-06). Matches the repo LICENSE.
+    FEDERATION_LICENSE: str = "sandia-ftgg-nc-os-1.0"
     # Allow-list policy: one of open | mutual | private. A Literal so a typo
     # raises ValidationError at Settings construction (startup) rather than
     # silently downgrading the advertised trust posture at serve time.
