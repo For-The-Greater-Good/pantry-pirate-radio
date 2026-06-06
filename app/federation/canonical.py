@@ -50,14 +50,18 @@ def _serialize(obj: Any) -> str:
 
 
 def _serialize_object(obj: dict[Any, Any]) -> str:
-    # NOTE: RFC 8785 sorts keys by UTF-16 code units. For our ASCII/BMP envelope
-    # field names this equals Python's default sorted() over str keys. Non-BMP
-    # keys would require UTF-16 ordering (out of scope; our keys are ASCII).
-    items = []
-    for key in sorted(obj.keys()):
+    # RFC 8785 §3.2.3: object keys are sorted by their UTF-16 code units, NOT by
+    # Unicode code point. The two diverge for non-BMP keys — e.g. U+1F602's lead
+    # surrogate 0xD83D sorts before U+FB33 — so a plain sorted() is wrong and
+    # produces a different content-address/signature than a spec-correct peer.
+    # Verified byte-for-byte against the cyberphone RFC 8785 conformance suite.
+    for key in obj:
         if not isinstance(key, str):
             raise ValueError("JCS object keys must be strings")
-        items.append(_escape_string(key) + ":" + _serialize(obj[key]))
+    items = [
+        _escape_string(key) + ":" + _serialize(obj[key])
+        for key in sorted(obj.keys(), key=lambda k: k.encode("utf-16-be"))
+    ]
     return "{" + ",".join(items) + "}"
 
 
