@@ -152,6 +152,10 @@ def _op_normalize_federation_id(a: HsdsFxAdapter, i: dict) -> Any:
     return a.normalize_federation_id(i["federation_id"])
 
 
+def _op_validate_activity(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.validate_activity(i["envelope"])
+
+
 _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
     "canonicalize": _op_canonicalize,
     "content_address": _op_content_address,
@@ -164,11 +168,14 @@ _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
     "parse_checkpoint": _op_parse_checkpoint,
     "verify_inclusion": _op_verify_inclusion,
     "normalize_federation_id": _op_normalize_federation_id,
+    "validate_activity": _op_validate_activity,
 }
 
 #: Ops whose normal return value already signals rejection (False), so a
 #: ``must_reject`` vector passes on False as well as on a raise.
-_BOOLEAN_OPS = frozenset({"verify_envelope", "verify_note", "verify_inclusion"})
+_BOOLEAN_OPS = frozenset(
+    {"verify_envelope", "verify_note", "verify_inclusion", "validate_activity"}
+)
 
 
 def verify_level1(adapter: HsdsFxAdapter, corpus_dir: Path = CORPUS_DIR) -> Report:

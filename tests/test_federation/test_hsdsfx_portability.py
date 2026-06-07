@@ -141,6 +141,7 @@ def test_runner_executes_in_a_ppr_free_tree(tmp_path):
                 def parse_checkpoint(self, note): return {}
                 def verify_inclusion(self, *a, **k): return False
                 def normalize_federation_id(self, value): return ""
+                def validate_activity(self, envelope): return False
             """
         )
     )

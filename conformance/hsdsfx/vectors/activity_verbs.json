@@ -1,0 +1,670 @@
+{
+  "area": "activity_verbs",
+  "spec": "HSDS-FX/§8.x (verbs §117/§160/§204-206; Tombstone §160)",
+  "reference_impl": "app/federation/activities.py:validate_activity",
+  "interop_status": "interop_pending",
+  "derives_from": "INTEROP_PENDING.md row 9 (Update/Announce/Delete authority relations + Tombstone shape; stateless wire only)",
+  "vectors": [
+    {
+      "id": "act-update-own-001",
+      "op": "validate_activity",
+      "description": "Update own-authority: actor==attributedTo==origin; non-empty object.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-announce-distinct-001",
+      "op": "validate_activity",
+      "description": "Announce relays a DISTINCT origin: actor=announcer, attributedTo==origin (the corroborated authority), origin!=actor.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Announce",
+          "actor": "did:web:b.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-delete-survivor-001",
+      "op": "validate_activity",
+      "description": "Delete: object=Tombstone{type,federation_id,redirectTo=<survivor>}; actor==attributedTo==origin.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:dead",
+            "redirectTo": "a.example:survivor"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-delete-null-redirect-001",
+      "op": "validate_activity",
+      "description": "Delete with no survivor: redirectTo present and null.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:dead",
+            "redirectTo": null
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-tombstone-extra-key-ignored-001",
+      "op": "validate_activity",
+      "description": "§8.4 forward-compat: an UNKNOWN extra key on the Tombstone object is IGNORED (accepted), not rejected.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:dead",
+            "redirectTo": "a.example:survivor",
+            "reason": "duplicate"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-update-actor-ne-attributedto-001",
+      "op": "validate_activity",
+      "description": "Update with actor!=attributedTo (§117 actor==attributedTo for Update/Delete).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:b.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-update-origin-ne-actor-001",
+      "op": "validate_activity",
+      "description": "Update with origin!=actor — a relayed assertion must use Announce (Update is own-authority).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:b.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-delete-actor-ne-attributedto-001",
+      "op": "validate_activity",
+      "description": "Delete with actor!=attributedTo (§117).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:b.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:dead",
+            "redirectTo": "a.example:survivor"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-delete-origin-ne-actor-001",
+      "op": "validate_activity",
+      "description": "Delete with origin!=actor (own-authority).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:b.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:dead",
+            "redirectTo": "a.example:survivor"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-announce-origin-eq-actor-001",
+      "op": "validate_activity",
+      "description": "Announce with origin==actor — a peer announcing its own data is an Update, not an Announce.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Announce",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-announce-attributedto-eq-actor-001",
+      "op": "validate_activity",
+      "description": "Announce with attributedTo==actor!=origin — the data must be attributed to the corroborated origin (§12.1).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Announce",
+          "actor": "did:web:b.example",
+          "attributedTo": "did:web:b.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-announce-missing-origin-001",
+      "op": "validate_activity",
+      "description": "Announce with empty origin — MUST carry the original origin (§160/§205).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Announce",
+          "actor": "did:web:b.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-verb-create-001",
+      "op": "validate_activity",
+      "description": "Unknown verb 'Create' — the verb set is closed at {Update,Announce,Delete}.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Create",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-verb-flag-001",
+      "op": "validate_activity",
+      "description": "'Flag' is reserved for a later phase, not a v1 verb.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Flag",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-verb-tombstone-as-verb-001",
+      "op": "validate_activity",
+      "description": "'Tombstone' is an object type, never an envelope verb.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Tombstone",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-verb-lowercase-001",
+      "op": "validate_activity",
+      "description": "Verb strings are case-sensitive: 'update' != 'Update'.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "update",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-missing-actor-001",
+      "op": "validate_activity",
+      "description": "Empty actor — actor/attributedTo/origin are required non-empty strings.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-empty-fedid-001",
+      "op": "validate_activity",
+      "description": "Empty top-level federation_id (shallow non-empty check; full grammar is its own area).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-update-empty-object-001",
+      "op": "validate_activity",
+      "description": "Update with an empty object — the object must be a non-empty dict.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {},
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-tombstone-bad-type-001",
+      "op": "validate_activity",
+      "description": "Delete whose object.type != 'Tombstone'.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Delete",
+            "federation_id": "a.example:d",
+            "redirectTo": null
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-tombstone-missing-redirect-001",
+      "op": "validate_activity",
+      "description": "Tombstone missing the required redirectTo key (required even when null).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:d"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-tombstone-redirect-nonstring-001",
+      "op": "validate_activity",
+      "description": "Tombstone redirectTo is a non-string, non-null value.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "a.example:d",
+            "redirectTo": 123
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-tombstone-empty-fedid-001",
+      "op": "validate_activity",
+      "description": "Tombstone with an empty federation_id.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Delete",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "type": "Tombstone",
+            "federation_id": "",
+            "redirectTo": null
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-announce-whitespace-origin-001",
+      "op": "validate_activity",
+      "description": "Announce whose origin is its own actor plus a trailing space — a self-corroboration evasion of the byte-exact origin!=actor check; identity tokens are whitespace-free (§11.2).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Announce",
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example ",
+          "origin": "did:web:a.example ",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-whitespace-only-actor-001",
+      "op": "validate_activity",
+      "description": "Whitespace-only identity fields — non-empty but not a valid token.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": " ",
+          "attributedTo": " ",
+          "origin": " ",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    },
+    {
+      "id": "act-unhashable-type-001",
+      "op": "validate_activity",
+      "description": "An unhashable (list) 'type' — the validator is total and rejects it, never raises.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": [],
+          "actor": "did:web:a.example",
+          "attributedTo": "did:web:a.example",
+          "origin": "did:web:a.example",
+          "federation_id": "a.example:loc-1",
+          "object": {
+            "id": "loc-1",
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-07T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 9
+    }
+  ]
+}
