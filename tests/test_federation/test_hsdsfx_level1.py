@@ -126,68 +126,126 @@ def test_every_boolean_verify_area_ships_a_reject_vector():
         )
 
 
-def _hex_strings(obj) -> list[str]:
-    out: list[str] = []
+def _hex_strings(obj, out: set | None = None) -> set:
+    """Every ``>=16``-char even-length hex string anywhere in a JSON value."""
+    out = set() if out is None else out
     if isinstance(obj, str):
         s = obj.lower()
         if len(s) >= 16 and len(s) % 2 == 0 and all(c in "0123456789abcdef" for c in s):
-            out.append(s)
+            out.add(s)
     elif isinstance(obj, dict):
         for v in obj.values():
-            out.extend(_hex_strings(v))
+            _hex_strings(v, out)
     elif isinstance(obj, list):
         for v in obj:
-            out.extend(_hex_strings(v))
+            _hex_strings(v, out)
     return out
 
 
-def _traceable(token: str, blob: bytes) -> bool:
-    """Is ``token`` present in the vendored suite (read as raw bytes) in ANY
-    representation a vendored file could carry it? A hex token may appear as hex TEXT
-    (rfc6962 vectors.json stores hashes as hex) OR as its raw decoded bytes (jcs
-    output files store the canonical bytes, and the jcs vector's expected is the hex
-    OF those bytes). A non-hex string token appears as its UTF-8 bytes. Trying every
-    representation keeps the check correct across suites while staying teeth-bearing:
-    a self-derived value present in NO representation still fails."""
-    cands: list[bytes] = [token.encode("utf-8")]
-    is_hex = (
-        len(token) >= 2
-        and len(token) % 2 == 0
-        and all(c in "0123456789abcdefABCDEF" for c in token)
+def _is_hex(s) -> bool:
+    return (
+        isinstance(s, str)
+        and len(s) >= 2
+        and len(s) % 2 == 0
+        and all(c in "0123456789abcdefABCDEF" for c in s)
     )
-    if is_hex:
-        cands.append(token.lower().encode("ascii"))
-        cands.append(token.upper().encode("ascii"))
+
+
+def _vendored_anchors(suite_dir: Path) -> tuple[set[str], set[bytes]]:
+    """The EXACT vendored values an anchored vector may reference — never a substring,
+    so a mid-file fragment or a coincidental short byte run is NOT an anchor (the
+    bug a prior Gauntlet found in the substring trace). Returns
+    ``(hex_values, blobs)``: ``hex_values`` = every ``>=16`` hex string INSIDE the
+    parsed fixture JSON (e.g. rfc6962 hashes, as text); ``blobs`` = each fixture
+    file's whole bytes (and newline-stripped) PLUS every hex value raw-decoded — so a
+    hash matches as raw bytes and a canonical-output file (jcs) matches as a whole."""
+    hex_values: set[str] = set()
+    blobs: set[bytes] = set()
+    for p in sorted(suite_dir.rglob("*")):
+        if not p.is_file() or p.suffix.lower() != ".json":
+            continue  # fixtures only — README/NOTICE prose must not anchor a token
+        raw = p.read_bytes()
+        blobs.add(raw)
+        blobs.add(raw.rstrip(b"\n"))
         try:
-            cands.append(bytes.fromhex(token))
-        except ValueError:
+            _hex_strings(json.loads(raw.decode("utf-8")), hex_values)
+        except (ValueError, UnicodeDecodeError):
             pass
-    return any(c in blob for c in cands)
+    for h in hex_values:
+        blobs.add(bytes.fromhex(h))
+    return hex_values, blobs
 
 
-def _anchorable_tokens(vec: dict) -> set[str]:
-    """The load-bearing values of an accept vector that must trace to the vendor:
-    every hex string (≥16) in input+expected, plus a non-hex string ``expected``
-    (e.g. a canonical JSON output)."""
-    tokens = set(_hex_strings(vec.get("input"))) | set(
-        _hex_strings(vec.get("expected"))
-    )
-    exp = vec.get("expected")
-    if isinstance(exp, str) and len(exp) >= 8:
-        tokens.add(exp)
-    return tokens
+def _token_anchored(token: str, hex_values: set[str], blobs: set[bytes]) -> bool:
+    """A token is anchored iff it EXACTLY matches a complete vendored value: a hex
+    token either equals a vendored hex string (rfc6962) or raw-decodes to a complete
+    vendored value (a jcs output file); a non-hex token equals a vendored value as
+    UTF-8. Exact membership, never a substring."""
+    if _is_hex(token):
+        if token.lower() in hex_values:
+            return True
+        try:
+            return bytes.fromhex(token) in blobs
+        except ValueError:
+            return False
+    return token.encode("utf-8") in blobs
+
+
+def _expected_bytes(exp) -> bytes | None:
+    """The byte form of a producer op's expected output (hex → raw; str → utf-8)."""
+    if _is_hex(exp):
+        return bytes.fromhex(exp)
+    if isinstance(exp, str):
+        return exp.encode("utf-8")
+    return None
+
+
+def _anchored_violations(manifest: dict, suite_dir: Path) -> list[str]:
+    """Every way an anchored area's accept vectors fail to trace to its vendored
+    suite (empty == honest). Factored out so the teeth tests can drive it on a forged
+    manifest without the dir/derives_from scaffolding."""
+    hex_values, blobs = _vendored_anchors(suite_dir)
+    problems: list[str] = []
+    checked_any = False
+    for vec in manifest["vectors"]:
+        if vec["must_reject"]:
+            continue  # reject vectors carry deliberately-corrupted (non-vendored) bytes
+        tokens = _hex_strings(vec.get("input")) | _hex_strings(vec.get("expected"))
+        for token in tokens:
+            if not _token_anchored(token, hex_values, blobs):
+                problems.append(
+                    f"{vec['id']}: token {token[:32]}… not a vendored value"
+                )
+        exp = vec.get("expected")
+        if isinstance(exp, bool):
+            # verify op: the anchored bytes are the (already-checked) input tokens.
+            if not tokens:
+                problems.append(
+                    f"{vec['id']}: verify accept with no vendored input token"
+                )
+        else:
+            # producer op: the OUTPUT ITSELF must be a complete vendored value — not
+            # merely some input decoy (the hole a prior Gauntlet found: a
+            # non-tokenizable expected + one public-blob decoy passed).
+            eb = _expected_bytes(exp)
+            if eb is None or eb not in blobs:
+                problems.append(
+                    f"{vec['id']}: expected output is not a complete vendored value"
+                )
+        checked_any = True
+    if not checked_any:
+        problems.append("area has no checkable accept vector (vacuous 'anchored')")
+    return problems
 
 
 def test_anchored_areas_actually_trace_to_a_vendored_suite():
     """The load-bearing honesty invariant (anti-self-grading). An area labeled
-    interop_status=anchored MUST name a real vendor/<suite>/ in derives_from AND
-    EVERY load-bearing value of EVERY accept vector (the values actually under test)
-    must appear verbatim in that vendored suite (read as raw bytes, any
-    representation). Checking only ONE incidental match would let a PPR-self-derived
-    area (the export_wire mislabel #555-class defect) wear an "anchored" label by
-    carrying a single decoy vendored value — so the trace is a full subset check, not
-    an existence check. Reject vectors carry deliberately-corrupted bytes (a flipped
-    proof, a wrong root) and are excluded."""
+    interop_status=anchored MUST name a real vendor/<suite>/ in derives_from, and
+    EVERY load-bearing value of EVERY accept vector must EXACTLY match a complete
+    vendored value: a verify op's input hashes (rfc6962) and a producer op's output
+    bytes (jcs canonical output) must each be a whole vendored value, never a
+    substring/fragment. This is what stops a PPR-self-derived area (the export_wire
+    #555-class defect) from wearing an 'anchored' label."""
     anchored = [
         m for _p, m in runner.iter_manifests() if m["interop_status"] == "anchored"
     ]
@@ -202,27 +260,51 @@ def test_anchored_areas_actually_trace_to_a_vendored_suite():
         assert (
             suite_dir.is_dir()
         ), f"anchored area {manifest['area']} derives_from missing vendor dir {suite_dir}"
-        # Read the WHOLE vendored suite as raw bytes (covers hex-text suites like
-        # rfc6962/vectors.json AND raw-text suites like jcs_rfc8785/output/*.json).
-        blob = b"".join(
-            p.read_bytes() for p in sorted(suite_dir.rglob("*")) if p.is_file()
+        problems = _anchored_violations(manifest, suite_dir)
+        assert not problems, (
+            f"anchored area {manifest['area']} is not honestly anchored to {suite}:\n"
+            + "\n".join(problems)
         )
-        checked_any = False
-        for vec in manifest["vectors"]:
-            if vec["must_reject"]:
-                continue  # reject vectors deliberately carry non-vendored corrupt bytes
-            tokens = _anchorable_tokens(vec)
-            checked_any = checked_any or bool(tokens)
-            for token in tokens:
-                assert _traceable(token, blob), (
-                    f"anchored area {manifest['area']} accept vector {vec['id']} carries "
-                    f"a value NOT found in vendored suite {suite}: {token[:32]!r}… — the "
-                    "value under test is self-derived, 'anchored' is unsubstantiated"
-                )
-        assert checked_any, (
-            f"anchored area {manifest['area']} has no checkable vendored values — an "
-            "'anchored' label with nothing traceable is vacuous"
-        )
+
+
+@pytest.mark.parametrize(
+    "forged_expected",
+    [
+        42,  # a non-tokenizable number output (the prior breach)
+        "One",  # a short self-derived string
+        "[1,2,3]",  # a short structure-as-string
+        "3432",  # hex whose raw bytes ('42') only occur mid-file, not as a whole value
+        "deadbeefdeadbeefdeadbeef",  # a self-derived long hex not in the suite
+    ],
+)
+def test_honesty_check_catches_a_self_derived_anchored_output(forged_expected):
+    """Teeth regression guard (pins the prior breach closed): a forged 'anchored' jcs
+    vector whose self-derived OUTPUT is not a complete vendored value MUST be caught —
+    EVEN when the input carries a genuinely-tracing decoy (the hex of a whole vendored
+    output file). The expected-output rule is what catches it, not the decoy."""
+    suite_dir = _VENDOR / "jcs_rfc8785"
+    tracing_decoy = (suite_dir / "output" / "values.json").read_bytes().hex()
+    forged = {
+        "area": "jcs",
+        "interop_status": "anchored",
+        "vectors": [
+            {
+                "id": "jcs-FORGED-001",
+                "op": "canonicalize",
+                "input": {"value": {"decoy": tracing_decoy}},
+                "expected": forged_expected,
+                "must_reject": False,
+            }
+        ],
+    }
+    # The decoy itself DOES trace (proving the catch is the expected rule, not it):
+    assert not _anchored_violations(
+        {**forged, "vectors": [{**forged["vectors"][0], "expected": tracing_decoy}]},
+        suite_dir,
+    ), "the tracing decoy should itself be honestly anchored"
+    assert _anchored_violations(
+        forged, suite_dir
+    ), f"honesty check FAILED to catch a forged anchored output {forged_expected!r}"
 
 
 def test_go_kat_vector_matches_the_vendored_note_byte_for_byte():
