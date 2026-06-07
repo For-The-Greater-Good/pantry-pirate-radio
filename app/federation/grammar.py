@@ -68,25 +68,30 @@ def _pct_canon(h2: str) -> str:
 def normalize_uri_component(value: str) -> str:
     """RFC 3986 §6.2.2 percent/case normalization of a URI component string: decode
     every percent-encoded UNRESERVED octet (§6.2.2.2) and UPPERCASE the hex of every
-    other percent-encoding (§6.2.2.1). Raw characters and any malformed ``%`` are
-    left verbatim — this is the lenient normalization PRIMITIVE (it canonicalizes; it
-    does not validate). ``federation_id``'s stricter internal-id rule (reject a raw
-    reserved char / a malformed escape) composes this same per-``%XX`` step via
-    ``_pct_canon``. Externally anchored to the RFC 3986 §6.2.2 worked examples
-    (``tests/test_federation/vendor/rfc3986_normalization/``)."""
+    other percent-encoding (§6.2.2.1). A ``%`` that does NOT begin a valid ``%XX``
+    escape is itself percent-encoded (``%`` → ``%25``); raw non-``%`` characters are
+    left verbatim. Total over arbitrary input (never raises) and a genuine FIXED
+    POINT — ``normalize_uri_component(normalize_uri_component(x)) == ...(x)`` for ALL
+    ``x`` — because the output never contains a stray ``%`` that could re-form an
+    escape on a second pass (encoding the stray ``%`` is what makes this hold; the
+    earlier keep-verbatim form let ``%4`` + a decoded ``%31`` recombine into ``%41``).
+    This canonicalizes; it does not reject. ``federation_id``'s stricter internal-id
+    rule (reject a raw reserved char / a malformed escape outright) composes the same
+    per-``%XX`` step via ``_pct_canon``. Externally anchored to the RFC 3986 §6.2.2
+    rules (``tests/test_federation/vendor/rfc3986_normalization/``)."""
     out: list[str] = []
     i, n = 0, len(value)
     while i < n:
-        if (
-            value[i] == "%"
-            and i + 2 < n
-            and value[i + 1] in _HEXDIG
-            and value[i + 2] in _HEXDIG
-        ):
-            out.append(_pct_canon(value[i + 1 : i + 3]))
-            i += 3
+        c = value[i]
+        if c == "%":
+            if i + 2 < n and value[i + 1] in _HEXDIG and value[i + 2] in _HEXDIG:
+                out.append(_pct_canon(value[i + 1 : i + 3]))
+                i += 3
+            else:
+                out.append("%25")  # a stray '%' is itself percent-encoded (idempotent)
+                i += 1
         else:
-            out.append(value[i])
+            out.append(c)
             i += 1
     return "".join(out)
 

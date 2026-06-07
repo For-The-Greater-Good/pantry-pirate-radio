@@ -172,15 +172,16 @@ def test_property_hex_case_and_idempotency(host, body):
 
 # --- normalize_uri_component: the RFC 3986 §6.2.2 primitive ---------------------
 URI_NORM = [
-    ("%7Esmith", "~smith"),  # RFC §6.2.2.2 verbatim example (decode unreserved)
-    ("%3a", "%3A"),  # RFC §6.2.2.1 verbatim example (uppercase hex, ':' reserved)
+    ("%7Esmith", "~smith"),  # rule-application: %7E='~' unreserved (§6.2.2.2 + §2.3)
+    ("%3a", "%3A"),  # RFC 3986 §6.2.2.1 VERBATIM example (uppercase hex; ':' reserved)
     ("%7E", "~"),
     ("%41%42%43", "ABC"),  # decode unreserved ALPHA
     ("%2f", "%2F"),  # reserved '/' kept, hex uppercased
     ("%c3%a9", "%C3%A9"),  # non-ASCII octet kept, hex uppercased
-    ("raw:colon/slash", "raw:colon/slash"),  # lenient: raw reserved kept verbatim
-    ("%zz", "%zz"),  # lenient: malformed % kept verbatim (no raise)
-    ("%4", "%4"),  # lenient: truncated % kept verbatim
+    ("raw:colon/slash", "raw:colon/slash"),  # raw non-% chars kept verbatim
+    ("%zz", "%25zz"),  # a stray '%' (not a valid escape) is itself encoded -> %25
+    ("%4", "%254"),  # a truncated '%' is encoded -> %25, then the '4' is literal
+    ("a%%33b", "a%253b"),  # first '%' stray -> %25, then %33='3' decoded
     ("plain-text_~.", "plain-text_~."),  # all-unreserved/raw: identity
 ]
 
@@ -197,9 +198,20 @@ def test_normalize_uri_component_idempotent(raw, expected):
     assert normalize_uri_component(once) == once
 
 
+@pytest.mark.parametrize(
+    "raw", ["%4%41", "%8%62", "a%%33b", "%4%42", "%", "%%", "%g%30", "%4%4%41"]
+)
+def test_normalize_uri_component_idempotent_on_malformed(raw):
+    """A FIXED POINT even on malformed input: a Gauntlet found the earlier
+    keep-verbatim form let a stray '%' recombine with a following decoded escape
+    (%4%41 -> %4A -> J). Encoding the stray '%' (-> %25) makes f(f(x)) == f(x)."""
+    once = normalize_uri_component(raw)
+    assert normalize_uri_component(once) == once
+
+
 @given(s=st.text(alphabet="ABCDEFabcdef0123456789%~-._:/ ", min_size=0, max_size=24))
 def test_normalize_uri_component_total_and_idempotent(s):
-    """Total over arbitrary input (never raises) and idempotent."""
+    """Total over arbitrary input (never raises) and an UNCONDITIONAL fixed point."""
     once = normalize_uri_component(s)
     assert normalize_uri_component(once) == once
 
