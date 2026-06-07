@@ -1,0 +1,91 @@
+{
+  "area": "checkpoint",
+  "spec": "HSDS-FX/§6.2b",
+  "reference_impl": "app/federation/checkpoint.py",
+  "interop_status": "interop_pending",
+  "derives_from": "note format: Go sumdb/note KAT (anchored); body: INTEROP_PENDING.md (PPR checkpoint shape)",
+  "vectors": [
+    {
+      "id": "cp-note-go-kat-001",
+      "op": "encode_note",
+      "description": "ANCHORED: the C2SP signed-note wire format reproduces the Go golang.org/x/mod/sumdb/note PeterNeumann KAT byte-for-byte (em-dash sig line, keyID4||sig blob, trailing newline).",
+      "input": {
+        "seed_hex": "810a1402d5146c8d84f2443330f54080ebf98ee17d9c74f6252fc5d5c7283173",
+        "text": "If you think cryptography is the answer to your problem,\nthen you don't know what your problem is.\n",
+        "key_name": "PeterNeumann"
+      },
+      "expected": "If you think cryptography is the answer to your problem,\nthen you don't know what your problem is.\n\n— PeterNeumann x08go/ZJkuBS9UG/SffcvIAQxVBtiFupLLr8pAcElZInNIuGUgYN1FFYC2pZSNXgKvqfqdngotpRZb6KE6RyyBwJnAM=\n",
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "cp-body-001",
+      "op": "checkpoint_body",
+      "description": "The HSDS-FX checkpoint body composition: origin / tree_size / base64(root) / 'Timestamp: <ts>', each newline-terminated incl. the last (signed).",
+      "input": {
+        "origin": "did:web:node.example",
+        "tree_size": 4,
+        "root_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "timestamp": "2026-06-06T00:00:00Z"
+      },
+      "expected": "did:web:node.example\n4\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\nTimestamp: 2026-06-06T00:00:00Z\n",
+      "must_reject": false,
+      "interop_pending": true
+    },
+    {
+      "id": "cp-encode-001",
+      "op": "encode_checkpoint",
+      "description": "A full signed checkpoint note over the body, key_name = origin DID.",
+      "input": {
+        "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "origin": "did:web:node.example",
+        "tree_size": 4,
+        "root_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "timestamp": "2026-06-06T00:00:00Z"
+      },
+      "expected": "did:web:node.example\n4\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\nTimestamp: 2026-06-06T00:00:00Z\n\n— did:web:node.example bUHfJ1GRxq+dkmiCbg+BwXl06qa03X/NvMrBKBjPQWDbJrk14l+E88PkT+h16Xnl4maCUs/LXV+RrtRGgpfXLWAi9AM=\n",
+      "must_reject": false,
+      "interop_pending": true
+    },
+    {
+      "id": "cp-parse-001",
+      "op": "parse_checkpoint",
+      "description": "Parse a checkpoint note back to (origin, tree_size, root_hex, timestamp).",
+      "input": {
+        "note": "did:web:node.example\n4\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\nTimestamp: 2026-06-06T00:00:00Z\n\n— did:web:node.example bUHfJ1GRxq+dkmiCbg+BwXl06qa03X/NvMrBKBjPQWDbJrk14l+E88PkT+h16Xnl4maCUs/LXV+RrtRGgpfXLWAi9AM=\n"
+      },
+      "expected": {
+        "origin": "did:web:node.example",
+        "tree_size": 4,
+        "root_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "timestamp": "2026-06-06T00:00:00Z"
+      },
+      "must_reject": false,
+      "interop_pending": true
+    },
+    {
+      "id": "cp-verify-001",
+      "op": "verify_note",
+      "description": "The genuine checkpoint note verifies under the origin public key + key_name.",
+      "input": {
+        "note": "did:web:node.example\n4\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\nTimestamp: 2026-06-06T00:00:00Z\n\n— did:web:node.example bUHfJ1GRxq+dkmiCbg+BwXl06qa03X/NvMrBKBjPQWDbJrk14l+E88PkT+h16Xnl4maCUs/LXV+RrtRGgpfXLWAi9AM=\n",
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+        "key_name": "did:web:node.example"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": true
+    },
+    {
+      "id": "cp-verify-tamper-size-001",
+      "op": "verify_note",
+      "description": "A tree_size-forged note MUST fail verify — size is inside the signed body.",
+      "input": {
+        "note": "did:web:node.example\n5\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=\nTimestamp: 2026-06-06T00:00:00Z\n\n— did:web:node.example bUHfJ1GRxq+dkmiCbg+BwXl06qa03X/NvMrBKBjPQWDbJrk14l+E88PkT+h16Xnl4maCUs/LXV+RrtRGgpfXLWAi9AM=\n",
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+        "key_name": "did:web:node.example"
+      },
+      "must_reject": true
+    }
+  ]
+}

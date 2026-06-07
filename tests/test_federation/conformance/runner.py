@@ -62,44 +62,63 @@ def iter_manifests(corpus_dir: Path = CORPUS_DIR):
         yield path, load_manifest(path)
 
 
-# --- per-area assertion handlers ------------------------------------------------
-# Each handler maps one vector's input -> a comparable result, OR raises to signal
-# a must_reject rejection. They depend only on the adapter Protocol.
+# --- op dispatch ----------------------------------------------------------------
+# Each vector names the adapter ``op`` it exercises; the runner calls that op with
+# the vector's ``input`` and compares to ``expected`` (accept) or asserts rejection
+# (must_reject). The op set IS the spec's testable surface — see adapter.py. These
+# handlers depend only on the adapter Protocol (no app.* — portability).
 
 
-def _check_content_address(adapter: HsdsFxAdapter, vec: dict) -> tuple[Any, Any]:
-    return adapter.content_address(vec["input"]["preimage"]), vec.get("expected")
+def _op_content_address(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.content_address(i["preimage"])
 
 
-def _check_envelope_proof(adapter: HsdsFxAdapter, vec: dict) -> tuple[Any, Any]:
-    proof = adapter.sign_envelope(vec["input"]["seed_hex"], vec["input"]["preimage"])
-    exp = vec.get("expected")
-    # Compare the load-bearing fields (signature + type); verificationMethod is
-    # derived from actor and asserted in envelope_assembly.
-    got = {"type": proof["type"], "signature": proof["signature"]}
-    return got, exp
+def _op_sign_envelope(a: HsdsFxAdapter, i: dict) -> Any:
+    proof = a.sign_envelope(i["seed_hex"], i["preimage"])
+    # Compare the load-bearing fields; verificationMethod is asserted via assembly.
+    return {"type": proof["type"], "signature": proof["signature"]}
 
 
-def _check_envelope_verify(adapter: HsdsFxAdapter, vec: dict) -> tuple[Any, Any]:
-    ok = adapter.verify_envelope(vec["input"]["envelope"], vec["input"]["pubkey_hex"])
-    if vec["must_reject"]:
-        # A reject vector for verify means "must return False". Normalize to the
-        # reject protocol: raise so the runner records a correct rejection.
-        if ok:
-            raise AssertionError("verify_envelope returned True for a reject vector")
-        raise _RejectedError()
-    return ok, vec.get("expected", True)
+def _op_verify_envelope(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.verify_envelope(i["envelope"], i["pubkey_hex"])
 
 
-class _RejectedError(Exception):
-    """Signals a correct rejection of a must_reject vector."""
+def _op_encode_note(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.encode_note(i["seed_hex"], i["text"], i["key_name"])
 
 
-_HANDLERS: dict[str, Callable[[HsdsFxAdapter, dict], tuple[Any, Any]]] = {
-    "envelope_content_address": _check_content_address,
-    "envelope_proof": _check_envelope_proof,
-    "envelope_assembly": _check_envelope_verify,
+def _op_checkpoint_body(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.checkpoint_body(i["origin"], i["tree_size"], i["root_hex"], i["timestamp"])
+
+
+def _op_encode_checkpoint(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.encode_checkpoint(
+        i["seed_hex"], i["origin"], i["tree_size"], i["root_hex"], i["timestamp"]
+    )
+
+
+def _op_verify_note(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.verify_note(i["note"], i["pubkey_hex"], i["key_name"])
+
+
+def _op_parse_checkpoint(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.parse_checkpoint(i["note"])
+
+
+_OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
+    "content_address": _op_content_address,
+    "sign_envelope": _op_sign_envelope,
+    "verify_envelope": _op_verify_envelope,
+    "encode_note": _op_encode_note,
+    "checkpoint_body": _op_checkpoint_body,
+    "encode_checkpoint": _op_encode_checkpoint,
+    "verify_note": _op_verify_note,
+    "parse_checkpoint": _op_parse_checkpoint,
 }
+
+#: Ops whose normal return value already signals rejection (False), so a
+#: ``must_reject`` vector passes on False as well as on a raise.
+_BOOLEAN_OPS = frozenset({"verify_envelope", "verify_note"})
 
 
 def verify_level1(adapter: HsdsFxAdapter, corpus_dir: Path = CORPUS_DIR) -> Report:
@@ -107,36 +126,38 @@ def verify_level1(adapter: HsdsFxAdapter, corpus_dir: Path = CORPUS_DIR) -> Repo
     report = Report()
     for _path, manifest in iter_manifests(corpus_dir):
         area = manifest["area"]
-        handler = _HANDLERS.get(area)
         area_pending = manifest.get("interop_status") == "interop_pending"
         for vec in manifest["vectors"]:
             pending = vec.get("interop_pending", area_pending)
-            if handler is None:
-                report.results.append(
-                    VectorResult(area, vec["id"], False, pending, "no handler for area")
-                )
-                continue
-            report.results.append(_run_one(handler, adapter, area, vec, pending))
+            report.results.append(_run_one(adapter, area, vec, pending))
     return report
 
 
-def _run_one(handler, adapter, area, vec, pending) -> VectorResult:
+def _run_one(adapter, area, vec, pending) -> VectorResult:
+    op = _OPS.get(vec["op"])
+    if op is None:
+        return VectorResult(
+            area, vec["id"], False, pending, f"unknown op {vec['op']!r}"
+        )
     must_reject = vec["must_reject"]
     try:
-        got, expected = handler(adapter, vec)
-    except _RejectedError:
-        return VectorResult(area, vec["id"], must_reject, pending)
-    except Exception as exc:  # any raise == a rejection
+        got = op(adapter, vec["input"])
+    except Exception as exc:  # a raise is a valid rejection
         if must_reject:
             return VectorResult(area, vec["id"], True, pending)
         return VectorResult(area, vec["id"], False, pending, f"unexpected raise: {exc}")
     if must_reject:
-        return VectorResult(area, vec["id"], False, pending, "accepted a reject vector")
-    ok = got == expected
+        # A boolean op rejects by returning False; any other op must have raised.
+        if vec["op"] in _BOOLEAN_OPS and got is False:
+            return VectorResult(area, vec["id"], True, pending)
+        return VectorResult(
+            area, vec["id"], False, pending, f"accepted a reject vector (got {got!r})"
+        )
+    ok = got == vec["expected"]
     return VectorResult(
         area,
         vec["id"],
         ok,
         pending,
-        "" if ok else f"got {got!r} != expected {expected!r}",
+        "" if ok else f"got {got!r} != expected {vec['expected']!r}",
     )

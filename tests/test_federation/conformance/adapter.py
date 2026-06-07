@@ -49,6 +49,38 @@ class HsdsFxAdapter(Protocol):
         32-byte raw Ed25519 public key as hex."""
         ...
 
+    # --- checkpoint (C2SP signed note; §6.2b) ---------------------------------
+
+    def encode_note(self, seed_hex: str, text: str, key_name: str) -> str:
+        """A C2SP signed note over ``text`` (which ends in a newline) signed by the
+        Ed25519 key from ``seed_hex``, under ``key_name`` — the note format anchored
+        to the Go ``sumdb/note`` KAT."""
+        ...
+
+    def checkpoint_body(
+        self, origin: str, tree_size: int, root_hex: str, timestamp: str
+    ) -> str:
+        """The HSDS-FX checkpoint body text (the C2SP tlog-checkpoint shape):
+        ``origin\\n<tree_size>\\n<base64(root)>\\nTimestamp: <ts>\\n``."""
+        ...
+
+    def encode_checkpoint(
+        self, seed_hex: str, origin: str, tree_size: int, root_hex: str, timestamp: str
+    ) -> str:
+        """A full signed checkpoint note = ``encode_note(checkpoint_body(...))`` with
+        ``key_name = origin``."""
+        ...
+
+    def verify_note(self, note: str, pubkey_hex: str, key_name: str) -> bool:
+        """True iff ``note`` carries a valid signature for ``key_name`` under the
+        raw Ed25519 public key ``pubkey_hex``."""
+        ...
+
+    def parse_checkpoint(self, note: str) -> dict[str, Any]:
+        """Extract ``{origin, tree_size, root_hex, timestamp}`` from a checkpoint
+        note (parse only — caller verifies separately)."""
+        ...
+
 
 class RefAdapter:
     """PPR's reference adapter — wraps ``app.federation`` (the reference impl).
@@ -88,3 +120,63 @@ class RefAdapter:
 
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pubkey_hex))
         return verify_envelope(envelope, pub)
+
+    def encode_note(self, seed_hex: str, text: str, key_name: str) -> str:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+
+        from app.federation.checkpoint import sign_note
+
+        key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed_hex))
+        return sign_note(text.encode("utf-8"), key_name, key)
+
+    def checkpoint_body(
+        self, origin: str, tree_size: int, root_hex: str, timestamp: str
+    ) -> str:
+        from app.federation.checkpoint import checkpoint_body
+
+        return checkpoint_body(
+            origin, tree_size, bytes.fromhex(root_hex), timestamp
+        ).decode("utf-8")
+
+    def encode_checkpoint(
+        self, seed_hex: str, origin: str, tree_size: int, root_hex: str, timestamp: str
+    ) -> str:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+
+        from app.federation.checkpoint import build_checkpoint
+
+        key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(seed_hex))
+        return build_checkpoint(
+            origin=origin,
+            tree_size=tree_size,
+            root_hash=bytes.fromhex(root_hex),
+            timestamp=timestamp,
+            signing_key=key,
+        )
+
+    def verify_note(self, note: str, pubkey_hex: str, key_name: str) -> bool:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PublicKey,
+        )
+
+        from app.federation.checkpoint import verify_note
+
+        pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pubkey_hex))
+        return verify_note(note, pub, key_name)
+
+    def parse_checkpoint(self, note: str) -> dict[str, Any]:
+        from app.federation.checkpoint import parse_checkpoint
+
+        parsed = parse_checkpoint(note)
+        if parsed is None:
+            raise ValueError("not a valid checkpoint note")
+        return {
+            "origin": parsed["origin"],
+            "tree_size": parsed["tree_size"],
+            "root_hex": parsed["root_hash"].hex(),
+            "timestamp": parsed["timestamp"],
+        }

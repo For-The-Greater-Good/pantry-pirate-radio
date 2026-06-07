@@ -60,8 +60,12 @@ def test_report_separates_anchored_from_interop_pending():
     """The report must distinguish externally-anchored passes from PPR-native
     (interop-pending) ones — honesty for the RFC (anti-self-grading)."""
     report = runner.verify_level1(RefAdapter())
-    # Slice 1 envelope areas are all interop_pending (new-canonical composition).
+    # The suite is genuinely mixed: interop_pending (new-canonical composition,
+    # e.g. the envelope areas) AND anchored (externally validated, e.g. the
+    # checkpoint Go sumdb/note KAT). Both halves must be non-empty so the
+    # distinction is real, not vacuous.
     assert report.interop_pending_passed > 0
+    assert report.anchored_passed > 0
     assert report.anchored_passed + report.interop_pending_passed == report.passed
 
 

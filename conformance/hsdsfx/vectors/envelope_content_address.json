@@ -7,6 +7,7 @@
   "vectors": [
     {
       "id": "env-id-001",
+      "op": "content_address",
       "description": "Canonical worked envelope (license-in-band, fixed seed 0x00..0x1f): content address = 'sha256:'+hex(sha256(JCS(preimage))).",
       "input": {
         "preimage": {

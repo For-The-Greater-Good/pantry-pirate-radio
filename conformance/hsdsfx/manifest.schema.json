@@ -34,9 +34,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "description", "input", "must_reject"],
+        "required": ["id", "op", "description", "input", "must_reject"],
         "properties": {
           "id": {"type": "string", "description": "Stable vector id, unique within the area (e.g. env-id-001)."},
+          "op": {"type": "string", "description": "The adapter operation this vector exercises (e.g. content_address, sign_envelope, encode_checkpoint). The runner dispatches on it — the adapter contract IS the testable surface."},
           "description": {"type": "string"},
           "input": {
             "description": "The vector input — an object/array/scalar the adapter operation consumes. Crypto seeds/keys are hex strings so any-language impls bind them."

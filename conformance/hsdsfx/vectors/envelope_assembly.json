@@ -7,6 +7,7 @@
   "vectors": [
     {
       "id": "env-assembly-verify-001",
+      "op": "verify_envelope",
       "description": "The full worked envelope verifies under the origin public key (10-key field set incl. license; federation_id/attributedTo/origin/license at the envelope top level, never inside object).",
       "input": {
         "envelope": {
@@ -41,6 +42,7 @@
     },
     {
       "id": "env-assembly-relicense-001",
+      "op": "verify_envelope",
       "description": "Relicensed object (CC-BY-4.0) with the original proof MUST fail verify — license is inside the signed pre-image.",
       "input": {
         "envelope": {
@@ -72,6 +74,7 @@
     },
     {
       "id": "env-assembly-license-stripped-001",
+      "op": "verify_envelope",
       "description": "License key removed with the original proof MUST fail verify — the signed bytes no longer match.",
       "input": {
         "envelope": {
