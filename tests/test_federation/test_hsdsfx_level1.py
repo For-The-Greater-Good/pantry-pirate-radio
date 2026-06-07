@@ -338,3 +338,42 @@ def test_jcs_vectors_match_the_vendored_output_byte_for_byte():
         assert vec["input"]["value"] == json.loads(
             (suite / "input" / f"{name}.json").read_text(encoding="utf-8")
         ), f"jcs vector {vec['id']} input != vendored input/{name}.json"
+
+
+def test_merkle_inclusion_vectors_match_vendored_proof_tuples():
+    """The merkle_inclusion anchor: each ACCEPT vector must be a COMPLETE vendored
+    RFC-6962 inclusion-proof tuple (leaf, index, size, proof, root) — not vendored
+    fragments reassembled into a degenerate/self-derived shape. This closes the
+    n=1/empty-proof residual the generic honesty floor (which only checks that each
+    token is independently vendored) would otherwise allow, completing the
+    dedicated-anchor pattern (cf. the jcs + Go-KAT byte-for-byte tests)."""
+    suite = json.loads(
+        (_VENDOR / "rfc6962_transparency_dev" / "vectors.json").read_text("utf-8")
+    )
+    vendored = {
+        (
+            ip["leaf_input_hex"].lower(),
+            ip["leaf_index"],
+            ip["tree_size"],
+            tuple(h.lower() for h in ip["proof_hex"]),
+            ip["root_hex"].lower(),
+        )
+        for ip in suite["inclusion_proofs"]
+    }
+    area = next(
+        m for _p, m in runner.iter_manifests() if m["area"] == "merkle_inclusion"
+    )
+    accepts = [v for v in area["vectors"] if not v["must_reject"]]
+    assert accepts, "merkle_inclusion has no accept vectors"
+    for v in accepts:
+        i = v["input"]
+        tup = (
+            i["leaf_data_hex"].lower(),
+            i["m"],
+            i["n"],
+            tuple(h.lower() for h in i["proof_hex"]),
+            i["root_hex"].lower(),
+        )
+        assert (
+            tup in vendored
+        ), f"merkle accept {v['id']} is not a complete vendored inclusion-proof tuple"
