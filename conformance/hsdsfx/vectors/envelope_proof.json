@@ -1,0 +1,74 @@
+{
+  "area": "envelope_proof",
+  "spec": "HSDS-FX/§6.2a,§8.1",
+  "reference_impl": "app/federation/envelope.py:finalize_with_bytes",
+  "interop_status": "interop_pending",
+  "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + verificationMethod + signature over JCS bytes)",
+  "vectors": [
+    {
+      "id": "env-proof-001",
+      "op": "sign_envelope",
+      "description": "Ed25519-over-JCS proof for the worked envelope; the full proof object (type + verificationMethod + signature) is pinned byte-for-byte. signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
+      "input": {
+        "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "preimage": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0"
+        }
+      },
+      "expected": {
+        "type": "ed25519-jcs-2026",
+        "verificationMethod": "did:web:example.org#main-key",
+        "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+      },
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 4
+    },
+    {
+      "id": "env-proof-noncanonical-b64-001",
+      "op": "verify_envelope",
+      "description": "Non-canonical base64 of the SAME 64 signature bytes (final-quantum padding bits flipped) MUST be rejected by verify (signature non-malleability, envelope.py:153-166).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "type": "ed25519-jcs-2026",
+            "verificationMethod": "did:web:example.org#main-key",
+            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDB=="
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    }
+  ]
+}

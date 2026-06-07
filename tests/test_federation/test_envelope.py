@@ -41,8 +41,26 @@ _ARGS = dict(
     published="2026-06-05T00:00:00Z",
     license="sandia-ftgg-nc-os-1.0",
 )
-_EXPECTED_ID = "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba"
-_EXPECTED_SIG = "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+
+
+# The worked id+signature are the canonical HSDS-FX vectors — load them from the
+# conformance corpus (single source of truth) so this test and the corpus can
+# never disagree (the corpus is regenerated from this same reference impl).
+def _corpus_envelope_expected() -> tuple[str, str]:
+    import json
+    from pathlib import Path
+
+    base = Path(__file__).resolve().parents[2] / "conformance" / "hsdsfx" / "vectors"
+    env_id = json.loads((base / "envelope_content_address.json").read_text())[
+        "vectors"
+    ][0]["expected"]
+    sig = json.loads((base / "envelope_proof.json").read_text())["vectors"][0][
+        "expected"
+    ]["signature"]
+    return env_id, sig
+
+
+_EXPECTED_ID, _EXPECTED_SIG = _corpus_envelope_expected()
 
 
 def _key() -> Ed25519PrivateKey:

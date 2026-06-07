@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hsds-fx.org/conformance/manifest.schema.json",
+  "title": "HSDS-FX conformance vector manifest",
+  "description": "One manifest per normative wire AREA (design §8/§7/§6.2-6.3/§9). Pure, language-agnostic data: a foreign implementation in any language runs these vectors through the adapter contract (conformance/hsdsfx/README.md) with zero reference to PPR code. Expected values are byte-as-hex or canonical-base64 strings, never language-native types.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["area", "spec", "interop_status", "vectors"],
+  "properties": {
+    "area": {
+      "type": "string",
+      "description": "The normative wire element this manifest certifies (e.g. envelope_content_address)."
+    },
+    "spec": {
+      "type": "string",
+      "description": "The HSDS-FX spec section this area maps to (e.g. HSDS-FX/§8.1)."
+    },
+    "reference_impl": {
+      "type": "string",
+      "description": "file:symbol of PPR's reference implementation of this area (informational; an adapter need not use it)."
+    },
+    "interop_status": {
+      "type": "string",
+      "enum": ["anchored", "interop_pending"],
+      "description": "anchored = the expected bytes derive from a vendored upstream conformance suite (not self-graded). interop_pending = a PPR-native canonical reading (the new HSDS-FX composition) that only a second independent implementation can finally settle (see vendor/INTEROP_PENDING.md)."
+    },
+    "derives_from": {
+      "type": "string",
+      "description": "For anchored areas: the vendored suite the expected bytes come from (e.g. vendor/jcs_rfc8785). For interop_pending: the INTEROP_PENDING.md row reference."
+    },
+    "vectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "op", "description", "input", "must_reject"],
+        "properties": {
+          "id": {"type": "string", "description": "Stable vector id, unique within the area (e.g. env-id-001)."},
+          "op": {"type": "string", "description": "The adapter operation this vector exercises (e.g. content_address, sign_envelope, encode_checkpoint). The runner dispatches on it — the adapter contract IS the testable surface."},
+          "description": {"type": "string"},
+          "input": {
+            "description": "The vector input — an object/array/scalar the adapter operation consumes. Crypto seeds/keys are hex strings so any-language impls bind them."
+          },
+          "expected": {
+            "description": "The required output for an accept vector — byte-as-hex / canonical-base64 / a JSON shape. ABSENT iff must_reject is true."
+          },
+          "must_reject": {
+            "type": "boolean",
+            "description": "true: a conforming impl MUST reject this input (raise / return false / 4xx); there is no `expected`. false: the impl MUST produce `expected` byte-for-byte."
+          },
+          "interop_pending": {
+            "type": "boolean",
+            "description": "Per-vector override of the area default; true marks a value pinned-by-fiat awaiting cross-impl confirmation."
+          },
+          "interop_row": {
+            "type": "integer",
+            "description": "Pointer into vendor/INTEROP_PENDING.md for an interop_pending value."
+          }
+        },
+        "allOf": [
+          {
+            "comment": "An accept vector (must_reject=false) MUST carry expected; a reject vector MUST NOT.",
+            "if": {"properties": {"must_reject": {"const": false}}},
+            "then": {"required": ["expected"]},
+            "else": {"not": {"required": ["expected"]}}
+          }
+        ]
+      }
+    }
+  }
+}

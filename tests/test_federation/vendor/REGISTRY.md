@@ -21,7 +21,7 @@ SHA + license). A self-derived oracle is NOT conformance evidence.
 | RFC 8785 (JCS) | `canonical.py:jcs_bytes` | yes (cyberphone suite) | `vendored:jcs_rfc8785/` |
 | RFC 6962 (Merkle) | `merkle.py` | yes (transparency-dev) | `vendored:rfc6962_transparency_dev/` |
 | RFC 9421 (HTTP Message Signatures) | `signing.py` | yes (Appendix B.2.6) | `vendored:rfc9421_appendix_b/` |
-| C2SP signed-note (checkpoint) | `checkpoint.py` | yes (Go `sumdb/note` PeterNeumann) | `covered-transitive` (reproduced byte-for-byte in `test_checkpoint.py`) |
+| C2SP signed-note (checkpoint) | `checkpoint.py` | yes (Go `sumdb/note` PeterNeumann) | `vendored:c2sp_sumdb_note/` — reproduced byte-for-byte in `test_checkpoint.py` and anchored as the HSDS-FX `cp-note-go-kat-001` conformance vector |
 | RFC 8032 (Ed25519) | `signing.py`, `envelope.py`, `checkpoint.py`, `identity.py:load_signing_key` | yes (RFC 8032 §7.1 KAT) | `covered-transitive` via the Go-note + RFC 9421 seed→pubkey→signature KATs — **but** the `load_signing_key` base64-seed branch is not yet pinned to an external seed (tracked: CONF-1) |
 | base58btc / multibase / multicodec (`did:key`) | `identity.py:public_key_multibase` (`_b58encode`) | yes (W3C did:key `z6Mk…` vectors) | `MISSING:CONF-2` — hand-rolled encoder currently pinned only by a self-derived decoder (`test_identity.py`); vendor W3C vectors incl. a leading-zero-byte case |
 | RFC 7386 (JSON Merge Patch) | `profiles/hsds-ppr/*` (HSDS Profile patches) | yes (RFC 7386 Appendix A) | `MISSING:CONF-4` — patches tested in isolation only; no patch-over-base merge test |
