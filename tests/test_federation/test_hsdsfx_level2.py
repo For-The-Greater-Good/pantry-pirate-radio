@@ -145,3 +145,66 @@ def test_level2_detects_a_tampered_row(node):
     assert report.rows_total == 3
     assert report.rows_verified == 0  # every tampered row fails envelope verify
     assert not report.ok
+
+
+def test_level2_detects_a_truncated_export(node):
+    """A row-WITHHOLDING node — checkpoint commits to tree_size N but /export serves
+    a valid subset — MUST fail: the served subset verifies individually, so only the
+    tree_size/completeness checks expose the equivocation a Merkle log makes
+    detectable."""
+    base = _get_fn(node)
+
+    def truncating_get(path: str) -> runner.Resp:
+        r = base(path)
+        if path.startswith("/api/v1/federation/export"):
+            kept = [ln for ln in r.text.splitlines() if ln.strip()][:1]
+            r = runner.Resp(r.status_code, "\n".join(kept) + "\n", r.headers, None)
+        return r
+
+    report = runner.verify_level2(
+        truncating_get, RefAdapter(), _pubkey_hex(), _NODE_DID
+    )
+    assert report.checkpoint_verified
+    assert report.tree_size == 3
+    assert report.rows_total == 1
+    assert report.rows_verified == 1  # the one served row is itself genuine
+    assert not report.rows_complete
+    assert not report.ok  # ...but the node withheld 2 of the 3 committed rows
+
+
+def test_level2_rejects_a_checkpoint_that_does_not_verify(node):
+    """If the served checkpoint note does not verify under the pubkey the consumer
+    holds (a wrong-key / forged checkpoint), the loop bails before pulling rows."""
+    wrong_seed = bytes([7]) + bytes(31)
+    wrong_pub = (
+        Ed25519PrivateKey.from_private_bytes(wrong_seed)
+        .public_key()
+        .public_bytes(Encoding.Raw, PublicFormat.Raw)
+        .hex()
+    )
+    report = runner.verify_level2(_get_fn(node), RefAdapter(), wrong_pub, _NODE_DID)
+    assert not report.checkpoint_verified
+    assert report.rows_total == 0
+    assert not report.ok
+
+
+def test_level2_rejects_checkpoint_json_disagreeing_with_signed_note(node):
+    """The signed note is the trust anchor: a /checkpoint whose unsigned JSON
+    root_hash contradicts the signed note MUST be rejected (internal-consistency
+    check), even though the note signature itself is valid."""
+    base = _get_fn(node)
+
+    def lying_json_get(path: str) -> runner.Resp:
+        r = base(path)
+        if path.startswith("/api/v1/federation/checkpoint") and r.json_body is not None:
+            body = dict(r.json_body)
+            body["root_hash"] = "00" * 32  # forge the convenience field, keep the note
+            r = runner.Resp(r.status_code, r.text, r.headers, body)
+        return r
+
+    report = runner.verify_level2(
+        lying_json_get, RefAdapter(), _pubkey_hex(), _NODE_DID
+    )
+    assert not report.checkpoint_verified
+    assert not report.ok
+    assert "disagree" in report.detail

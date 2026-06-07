@@ -3,12 +3,12 @@
   "spec": "HSDS-FX/§6.2a,§8.1",
   "reference_impl": "app/federation/envelope.py:finalize_with_bytes",
   "interop_status": "interop_pending",
-  "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + signature over JCS bytes)",
+  "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + verificationMethod + signature over JCS bytes)",
   "vectors": [
     {
       "id": "env-proof-001",
       "op": "sign_envelope",
-      "description": "Ed25519-over-JCS proof for the worked envelope; signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
+      "description": "Ed25519-over-JCS proof for the worked envelope; the full proof object (type + verificationMethod + signature) is pinned byte-for-byte. signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
       "input": {
         "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "preimage": {
@@ -31,6 +31,7 @@
       },
       "expected": {
         "type": "ed25519-jcs-2026",
+        "verificationMethod": "did:web:example.org#main-key",
         "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
       },
       "must_reject": false,

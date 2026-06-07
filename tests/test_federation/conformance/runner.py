@@ -12,14 +12,39 @@ Level 2 (live-node, httpx against §6.3 endpoints) lands in Slice 3.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-from tests.test_federation.conformance.adapter import HsdsFxAdapter
+if TYPE_CHECKING:
+    # Type-only — under PEP 563 (`from __future__ import annotations`) this never
+    # loads at runtime, so the runner has ZERO ``tests.*`` dependency and ships
+    # verbatim to the standalone HSDS-FX artifact (#540). A foreign repo supplies
+    # its own adapter satisfying this Protocol; it does not need PPR's package tree.
+    from tests.test_federation.conformance.adapter import HsdsFxAdapter
 
-# Repo-root corpus (in-repo now; ships verbatim as the published vectors package).
-CORPUS_DIR = Path(__file__).resolve().parents[3] / "conformance" / "hsdsfx" / "vectors"
+
+def _find_corpus_dir() -> Path:
+    """Locate ``conformance/hsdsfx/vectors`` robustly across layouts so the runner is
+    portable (the in-repo tree AND the published artifact where ``vectors/`` sits
+    next to ``runner.py``). Override with ``HSDSFX_CORPUS_DIR``."""
+    env = os.environ.get("HSDSFX_CORPUS_DIR")
+    if env:
+        return Path(env)
+    here = Path(__file__).resolve()
+    sibling = here.parent / "vectors"  # published-artifact layout
+    if sibling.is_dir():
+        return sibling
+    for parent in here.parents:  # in-repo layout: search upward
+        cand = parent / "conformance" / "hsdsfx" / "vectors"
+        if cand.is_dir():
+            return cand
+    # Last resort: the historical fixed depth (clear failure if truly absent).
+    return here.parents[3] / "conformance" / "hsdsfx" / "vectors"
+
+
+CORPUS_DIR = _find_corpus_dir()
 
 
 @dataclass
@@ -75,8 +100,15 @@ def _op_content_address(a: HsdsFxAdapter, i: dict) -> Any:
 
 def _op_sign_envelope(a: HsdsFxAdapter, i: dict) -> Any:
     proof = a.sign_envelope(i["seed_hex"], i["preimage"])
-    # Compare the load-bearing fields; verificationMethod is asserted via assembly.
-    return {"type": proof["type"], "signature": proof["signature"]}
+    # Pin the FULL proof object — type, verificationMethod, and signature — so an
+    # impl emitting a wrong/spoofed key reference (verificationMethod) is failed.
+    # (A host-mismatch must_reject vector waits on the reference impl binding
+    # verificationMethod→key on verify, §8.3 — deferred to P2.)
+    return {
+        "type": proof["type"],
+        "verificationMethod": proof["verificationMethod"],
+        "signature": proof["signature"],
+    }
 
 
 def _op_verify_envelope(a: HsdsFxAdapter, i: dict) -> Any:
@@ -191,17 +223,25 @@ class Resp:
 @dataclass
 class Level2Report:
     checkpoint_verified: bool = False
+    tree_size: int = 0
     rows_total: int = 0
     rows_verified: int = 0
+    rows_complete: bool = False
     below_floor_410: bool | None = None
     detail: str = ""
 
     @property
     def ok(self) -> bool:
+        # A conforming node serves EXACTLY the committed prefix: tree_size rows, each
+        # with a verifying envelope AND inclusion proof, sequences 1..N complete. The
+        # tree_size/completeness checks defeat a row-WITHHOLDING node (a valid subset
+        # would otherwise pass) — equivocation a Merkle checkpoint exists to expose.
         return (
             self.checkpoint_verified
-            and self.rows_total > 0
-            and self.rows_verified == self.rows_total
+            and self.tree_size > 0
+            and self.rows_total == self.tree_size
+            and self.rows_verified == self.tree_size
+            and self.rows_complete
         )
 
 
@@ -215,19 +255,33 @@ def verify_level2(
     HTTP GET and returns a :class:`Resp` (status/text/headers/json_body)."""
     rep = Level2Report()
 
-    # 1. Pin the signed checkpoint (tree_size N, root@N) and verify the note.
+    # 1. Pin the signed checkpoint. The SIGNED NOTE is the trust anchor, so derive
+    #    tree_size N and root@N from the note itself (parse_checkpoint), NOT the
+    #    unsigned sibling JSON — then require the JSON convenience fields to AGREE
+    #    (a §6.3 consumer-side internal-consistency check).
     cp = get("/api/v1/federation/checkpoint")
     if cp.status_code != 200 or cp.json_body is None:
         rep.detail = f"/checkpoint -> {cp.status_code}"
         return rep
-    n = cp.json_body["tree_size"]
-    root_hex = cp.json_body["root_hash"]
-    rep.checkpoint_verified = adapter.verify_note(
-        cp.json_body["note"], pubkey_hex, key_name
-    )
-    if not rep.checkpoint_verified:
+    note = cp.json_body.get("note")
+    if not isinstance(note, str):
+        rep.detail = "/checkpoint missing note"
+        return rep
+    if not adapter.verify_note(note, pubkey_hex, key_name):
         rep.detail = "checkpoint note failed verify"
         return rep
+    try:
+        parsed = adapter.parse_checkpoint(note)
+    except Exception as exc:  # noqa: BLE001 — a hostile/garbage note must not crash
+        rep.detail = f"checkpoint note unparseable: {exc}"
+        return rep
+    n = parsed["tree_size"]
+    root_hex = parsed["root_hex"]
+    if cp.json_body.get("tree_size") != n or cp.json_body.get("root_hash") != root_hex:
+        rep.detail = "checkpoint JSON fields disagree with the signed note"
+        return rep
+    rep.checkpoint_verified = True
+    rep.tree_size = n
 
     # 2. Pull /export PINNED to N; verify each row's envelope + inclusion proof
     #    against the held root@N (proofs are unverifiable against a moving head).
@@ -235,8 +289,20 @@ def verify_level2(
     if exp.status_code != 200:
         rep.detail = f"/export -> {exp.status_code}"
         return rep
-    rows = [_loads(line) for line in exp.text.splitlines() if line.strip()]
+    rows = []
+    for line in exp.text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(_loads(line))
+        except Exception:  # noqa: BLE001 — a garbage row is a failed node, not a crash
+            rep.detail = "malformed /export row (non-JSON)"
+            return rep
     rep.rows_total = len(rows)
+    # Completeness: the served rows must be EXACTLY sequences 1..N — no withholding,
+    # no duplicates, no extras (a truncated/padded export is detectable here).
+    seqs = sorted(r["sequence"] for r in rows if isinstance(r.get("sequence"), int))
+    rep.rows_complete = seqs == list(range(1, n + 1))
     for row in rows:
         env = {k: v for k, v in row.items() if k != "inclusion_proof"}
         if not adapter.verify_envelope(env, pubkey_hex):
@@ -247,6 +313,8 @@ def verify_level2(
             leaf_hex, row["sequence"] - 1, n, row["inclusion_proof"], root_hex
         ):
             rep.rows_verified += 1
+    if not rep.rows_complete and not rep.detail:
+        rep.detail = f"export incomplete: served sequences {seqs}, expected 1..{n}"
 
     return rep
 

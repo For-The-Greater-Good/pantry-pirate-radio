@@ -1,0 +1,117 @@
+{
+  "area": "merkle_inclusion",
+  "spec": "HSDS-FX/§6.2b,§6.3 (RFC-6962 inclusion)",
+  "reference_impl": "app/federation/merkle.py:verify_inclusion",
+  "interop_status": "anchored",
+  "derives_from": "vendor/rfc6962_transparency_dev (inclusion proofs, verbatim)",
+  "vectors": [
+    {
+      "id": "merkle-incl-001",
+      "op": "verify_inclusion",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/inclusion/1/happy-path.json): leaf 0 of the size-8 tree verifies against the published root. Proof/root/leaf bytes are vendored verbatim — a genuinely external anchor, not self-derived.",
+      "input": {
+        "leaf_data_hex": "",
+        "m": 0,
+        "n": 8,
+        "proof_hex": [
+          "96a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"
+        ],
+        "root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "merkle-incl-002",
+      "op": "verify_inclusion",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/inclusion/2/happy-path.json): leaf 5 of the size-8 tree verifies against the published root. Proof/root/leaf bytes are vendored verbatim — a genuinely external anchor, not self-derived.",
+      "input": {
+        "leaf_data_hex": "40414243",
+        "m": 5,
+        "n": 8,
+        "proof_hex": [
+          "bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b",
+          "ca854ea128ed050b41b35ffc1b87b8eb2bde461e9e3b5596ece6b9d5975a0ae0",
+          "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7"
+        ],
+        "root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "merkle-incl-003",
+      "op": "verify_inclusion",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/inclusion/3/happy-path.json): leaf 2 of the size-3 tree verifies against the published root. Proof/root/leaf bytes are vendored verbatim — a genuinely external anchor, not self-derived.",
+      "input": {
+        "leaf_data_hex": "10",
+        "m": 2,
+        "n": 3,
+        "proof_hex": [
+          "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125"
+        ],
+        "root_hex": "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "merkle-incl-004",
+      "op": "verify_inclusion",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/inclusion/4/happy-path.json): leaf 1 of the size-5 tree verifies against the published root. Proof/root/leaf bytes are vendored verbatim — a genuinely external anchor, not self-derived.",
+      "input": {
+        "leaf_data_hex": "00",
+        "m": 1,
+        "n": 5,
+        "proof_hex": [
+          "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b"
+        ],
+        "root_hex": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "merkle-incl-wrong-root-001",
+      "op": "verify_inclusion",
+      "description": "A valid vendored proof checked against a DIFFERENT (empty-tree) root MUST fail — this is the load-bearing root comparison an impl could otherwise skip while still reconstructing the audit path.",
+      "input": {
+        "leaf_data_hex": "",
+        "m": 0,
+        "n": 8,
+        "proof_hex": [
+          "96a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"
+        ],
+        "root_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "merkle-incl-tampered-proof-001",
+      "op": "verify_inclusion",
+      "description": "A vendored proof with a single flipped nibble in its first hash MUST fail (proof integrity / collision resistance).",
+      "input": {
+        "leaf_data_hex": "",
+        "m": 0,
+        "n": 8,
+        "proof_hex": [
+          "06a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"
+        ],
+        "root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+      },
+      "must_reject": true
+    }
+  ]
+}

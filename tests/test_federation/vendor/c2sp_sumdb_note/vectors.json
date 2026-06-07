@@ -1,0 +1,9 @@
+{
+  "_comment": "Verbatim extract of the C2SP signed-note PeterNeumann reference vector from golang.org/x/mod/sumdb/note note_test.go. See README.md for source URL, pinned commit, and license. This is the canonical Go sumdb/note KAT — a third-party, independently-implemented signed note that anchors app/federation/checkpoint.py's note wire format. Ed25519 is deterministic (RFC 8032), so a conforming encoder MUST reproduce signed_note byte-for-byte. Newlines are literal; the signature line begins with an em-dash (U+2014).",
+  "key_name": "PeterNeumann",
+  "verifier_key": "PeterNeumann+c74f20a3+ARpc2QcUPDhMQegwxbzhKqiBfsVkmqq/LDE4izWy10TW",
+  "signer_key": "PRIVATE+KEY+PeterNeumann+c74f20a3+AYEKFALVFGyNhPJEMzD1QIDr+Y7hfZx09iUvxdXHKDFz",
+  "text": "If you think cryptography is the answer to your problem,\nthen you don't know what your problem is.\n",
+  "signature_blob_base64": "x08go/ZJkuBS9UG/SffcvIAQxVBtiFupLLr8pAcElZInNIuGUgYN1FFYC2pZSNXgKvqfqdngotpRZb6KE6RyyBwJnAM=",
+  "signed_note": "If you think cryptography is the answer to your problem,\nthen you don't know what your problem is.\n\n— PeterNeumann x08go/ZJkuBS9UG/SffcvIAQxVBtiFupLLr8pAcElZInNIuGUgYN1FFYC2pZSNXgKvqfqdngotpRZb6KE6RyyBwJnAM=\n"
+}

@@ -49,9 +49,27 @@ present this suite to the Open Referral TC as "conformance-proven" until ≥1
 non-PPR adapter passes the interop-pending areas** — until then it is "PPR's CI
 gate + a candidate spec," exactly the §8.5a impl-first sequencing.
 
-## Status (Slice 1)
+The `anchored` label is **machine-enforced**, not honor-system: a test asserts
+every `anchored` area names a real `vendor/<suite>/` in `derives_from` AND that at
+least one of its byte values appears verbatim in that vendored suite
+(`test_anchored_areas_actually_trace_to_a_vendored_suite`). The corpus is also
+**closed-world** — `generate.py --check` and a pytest gate both fail on any
+`vectors/*.json` the generator does not produce, so a hand-authored manifest
+cannot be smuggled in (the runner globs every `*.json`).
 
-Areas present: `envelope_content_address`, `envelope_proof`, `envelope_assembly`
-(all `interop_pending`). Forthcoming slices: checkpoint (anchored), export-wire
-(mixed), merkle (anchored), `federation_id` grammar (interop-pending; needs a
-reference normalizer — owner decision A), activity/Tombstone (interop-pending).
+## Status
+
+Areas present (6):
+
+| Area | `interop_status` | Anchor |
+|---|---|---|
+| `envelope_content_address` | `interop_pending` | INTEROP_PENDING.md (envelope wire shape) |
+| `envelope_proof` | `interop_pending` | INTEROP_PENDING.md (proof.type + verificationMethod + sig) |
+| `envelope_assembly` | `interop_pending` | INTEROP_PENDING.md (10-key field set; license-in-band) |
+| `checkpoint` | `interop_pending` (per-vector mixed) | Go `sumdb/note` KAT anchored (`cp-note-go-kat-001`); body PPR-native |
+| `export_wire` | `interop_pending` | INTEROP_PENDING.md (the `/export` row shape + leaf definition) |
+| `merkle_inclusion` | **`anchored`** | `vendor/rfc6962_transparency_dev` (inclusion proofs, verbatim) + root-equality teeth |
+
+Forthcoming: `federation_id` grammar (interop-pending; needs a reference
+normalizer — owner decision A), activity/Tombstone (interop-pending), a direct
+`canonicalize` (JCS) area anchored to `vendor/jcs_rfc8785`.

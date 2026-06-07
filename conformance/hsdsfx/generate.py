@@ -8,9 +8,13 @@ license-in-band change). Run with ``--check`` in CI to fail on any uncommitted
 drift between the committed corpus and the live reference implementation.
 
 This is a dev/CI tool, not part of the portable suite — it is the ONE place under
-``conformance/hsdsfx/`` permitted to import ``app`` (it is excluded from the
-portability gate's corpus glob by being explicitly listed; see the gate). For
-Slice 1 it emits the three envelope areas. Later slices extend ``_AREAS``.
+``conformance/hsdsfx/`` permitted to import ``app``. It lives in
+``conformance/hsdsfx/`` (the PARENT of ``vectors/``); the portability gate scopes
+its pure-data check to the ``vectors/`` subdir only, so this file is outside that
+scope by directory layout (not by an allowlist). ``--check`` is **closed-world**:
+it fails on any ``vectors/*.json`` the generator does not produce, so a
+hand-authored manifest cannot slip past the drift gate (the runner globs every
+``*.json``). ``_AREAS`` is the full set of emitted areas.
 
 Usage:
     python conformance/hsdsfx/generate.py           # write the manifests
@@ -30,6 +34,9 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from app.federation import envelope as env_mod
 
 _VECTORS = Path(__file__).resolve().parent / "vectors"
+# Vendored upstream conformance suites — the external anchors. Reading expected
+# bytes FROM here (never re-authoring them) is what makes an "anchored" area honest.
+_VENDOR = Path(__file__).resolve().parents[2] / "tests" / "test_federation" / "vendor"
 
 # The canonical worked envelope (fixed seed 0x00..0x1f; license-in-band; the live
 # wire form the reference impl signs). This is THE pinned interop-pending vector.
@@ -96,20 +103,25 @@ def _gen_proof() -> dict:
     key = Ed25519PrivateKey.from_private_bytes(_SEED)
     env, _ = env_mod.finalize_with_bytes(dict(pre), key)
     sig = env["proof"]["signature"]
+    vm = env["proof"]["verificationMethod"]
     raw = base64.b64decode(sig, validate=True)
     return {
         "area": "envelope_proof",
         "spec": "HSDS-FX/§6.2a,§8.1",
         "reference_impl": "app/federation/envelope.py:finalize_with_bytes",
         "interop_status": "interop_pending",
-        "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + signature over JCS bytes)",
+        "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + verificationMethod + signature over JCS bytes)",
         "vectors": [
             {
                 "id": "env-proof-001",
                 "op": "sign_envelope",
-                "description": "Ed25519-over-JCS proof for the worked envelope; signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
+                "description": "Ed25519-over-JCS proof for the worked envelope; the full proof object (type + verificationMethod + signature) is pinned byte-for-byte. signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
                 "input": {"seed_hex": _SEED_HEX, "preimage": pre},
-                "expected": {"type": "ed25519-jcs-2026", "signature": sig},
+                "expected": {
+                    "type": "ed25519-jcs-2026",
+                    "verificationMethod": vm,
+                    "signature": sig,
+                },
                 "must_reject": False,
                 "interop_pending": True,
                 "interop_row": 4,
@@ -205,18 +217,17 @@ def _verify_envelope_with_sig(pre: dict, key: Ed25519PrivateKey, sig_b64: str) -
 # CHECKPOINT BODY composition (origin/size/base64(root)/Timestamp) is PPR-canonical
 # (interop_pending). The manifest carries both, honestly flagged per vector.
 
-# The Go sumdb/note reference vector (verbatim from test_checkpoint.py / the Go
-# source) — the external anchor for the note wire format.
-_GO_VERIFIER_KEY = "PeterNeumann+c74f20a3+ARpc2QcUPDhMQegwxbzhKqiBfsVkmqq/LDE4izWy10TW"
-_GO_SIGNER_KEY = (
-    "PRIVATE+KEY+PeterNeumann+c74f20a3+AYEKFALVFGyNhPJEMzD1QIDr+Y7hfZx09iUvxdXHKDFz"
+# The Go sumdb/note reference vector — the external anchor for the note wire
+# format. Loaded FROM the vendored suite (not re-authored inline) so the "anchored"
+# claim is honest and machine-checkable: vendor/c2sp_sumdb_note/ pins the upstream
+# source URL + commit + license (constitution III).
+_GO_KAT = json.loads(
+    (_VENDOR / "c2sp_sumdb_note" / "vectors.json").read_text(encoding="utf-8")
 )
-_GO_TEXT = (
-    "If you think cryptography is the answer to your problem,\n"
-    "then you don't know what your problem is.\n"
-)
-_GO_SIG_BLOB = "x08go/ZJkuBS9UG/SffcvIAQxVBtiFupLLr8pAcElZInNIuGUgYN1FFYC2pZSNXgKvqfqdngotpRZb6KE6RyyBwJnAM="
-_GO_NOTE = _GO_TEXT + "\n" + "— PeterNeumann " + _GO_SIG_BLOB + "\n"
+_GO_VERIFIER_KEY = _GO_KAT["verifier_key"]
+_GO_SIGNER_KEY = _GO_KAT["signer_key"]
+_GO_TEXT = _GO_KAT["text"]
+_GO_NOTE = _GO_KAT["signed_note"]
 
 
 def _go_seed_hex() -> str:
@@ -355,10 +366,13 @@ def _gen_checkpoint() -> dict:
 
 # --- export_wire area (Slice 3) -------------------------------------------------
 # A frozen 3-leaf log: each /export row's inclusion proof verifies against the
-# checkpoint root. The RFC-6962 proof/root BYTES are ANCHORED (transparency-dev
-# vendored suite); the row composition (envelope + inclusion_proof; leaf =
-# JCS(envelope minus id+proof), NOT the content-address id) is exercised live in
-# Level 2. Here we certify the verify_inclusion op over a fixed tree.
+# checkpoint root. INTEROP_PENDING — the root/proof BYTES here are computed by
+# app.federation.merkle over PPR-NATIVE /export leaves (leaf = JCS(envelope minus
+# id+proof), NOT the content-address id), so they are self-derived, not vendored.
+# The RFC-6962 inclusion ALGORITHM is anchored separately and honestly by the
+# `merkle_inclusion` area (vendored transparency-dev bytes) + test_merkle_rfc6962_
+# vectors.py. This area certifies the PPR /export ROW COMPOSITION over a fixed tree;
+# only a second independent impl (#558/#565) finally settles the leaf definition.
 
 
 def _frozen_leaves() -> list[bytes]:
@@ -396,7 +410,7 @@ def _gen_export_wire() -> dict:
             {
                 "id": f"export-incl-{m + 1:03d}",
                 "op": "verify_inclusion",
-                "description": f"ANCHORED (RFC-6962): the inclusion proof for export row sequence {m + 1} verifies against the checkpoint root of the frozen size-{n} tree. leaf_data = JCS(envelope minus id+proof), NOT the content-address.",
+                "description": f"INTEROP_PENDING (PPR /export row composition): the inclusion proof for export row sequence {m + 1} verifies against the checkpoint root of the frozen size-{n} tree. leaf_data = JCS(envelope minus id+proof), NOT the content-address — a PPR-native reading. The root/proof BYTES are app.federation.merkle self-derivations over these leaves (the RFC-6962 algorithm itself is anchored in the merkle_inclusion area).",
                 "input": {
                     "leaf_data_hex": leaves[m].hex(),
                     "m": m,
@@ -406,7 +420,8 @@ def _gen_export_wire() -> dict:
                 },
                 "expected": True,
                 "must_reject": False,
-                "interop_pending": False,
+                "interop_pending": True,
+                "interop_row": 5,
             }
         )
     # Negative: a proof from the wrong index must not verify against the root.
@@ -414,7 +429,7 @@ def _gen_export_wire() -> dict:
         {
             "id": "export-incl-wrong-index-001",
             "op": "verify_inclusion",
-            "description": "An inclusion proof for index 0 presented at index 1 MUST fail (RFC-6962 soundness).",
+            "description": "An inclusion proof for index 0 presented at index 1 MUST fail (RFC-6962 soundness over the PPR /export tree).",
             "input": {
                 "leaf_data_hex": leaves[1].hex(),
                 "m": 1,
@@ -423,14 +438,116 @@ def _gen_export_wire() -> dict:
                 "root_hex": root_hex,
             },
             "must_reject": True,
+            "interop_pending": True,
+            "interop_row": 5,
         }
     )
     return {
         "area": "export_wire",
         "spec": "HSDS-FX/§6.3",
         "reference_impl": "app/federation/merkle.py:verify_inclusion; app/federation/log.py:read_export",
+        "interop_status": "interop_pending",
+        "derives_from": "INTEROP_PENDING.md row 5 (the /export row shape + leaf=JCS(envelope minus id+proof)); the RFC-6962 inclusion algorithm is anchored in the merkle_inclusion area",
+        "vectors": vectors,
+    }
+
+
+# --- merkle_inclusion area (Slice 3 remediation) --------------------------------
+# GENUINELY ANCHORED: the RFC-6962 inclusion proofs are read VERBATIM from the
+# vendored transparency-dev suite (independent Go implementation). This is the
+# honest external anchor for the verify_inclusion op — and unlike export_wire it
+# carries teeth for the load-bearing ROOT-EQUALITY check (a verifier that only
+# reconstructs the path but skips comparing to the claimed root fails the
+# wrong-root / tampered-proof negatives).
+
+
+def _flip_hex(h: str) -> str:
+    """Change the first nibble of a hex string to a different hex digit (still valid
+    hex, same length) — used to corrupt a vendored proof element for a teeth vector."""
+    first = "0" if h[0].lower() != "0" else "1"
+    return first + h[1:]
+
+
+def _gen_merkle_inclusion() -> dict:
+    suite = json.loads(
+        (_VENDOR / "rfc6962_transparency_dev" / "vectors.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    proofs = suite["inclusion_proofs"]
+    vectors = []
+    for k, ip in enumerate(proofs, start=1):
+        vectors.append(
+            {
+                "id": f"merkle-incl-{k:03d}",
+                "op": "verify_inclusion",
+                "description": (
+                    f"ANCHORED (RFC-6962, transparency-dev {ip['source']}): leaf "
+                    f"{ip['leaf_index']} of the size-{ip['tree_size']} tree verifies "
+                    "against the published root. Proof/root/leaf bytes are vendored "
+                    "verbatim — a genuinely external anchor, not self-derived."
+                ),
+                "input": {
+                    "leaf_data_hex": ip["leaf_input_hex"],
+                    "m": ip["leaf_index"],
+                    "n": ip["tree_size"],
+                    "proof_hex": ip["proof_hex"],
+                    "root_hex": ip["root_hex"],
+                },
+                "expected": True,
+                "must_reject": False,
+                "interop_pending": False,
+            }
+        )
+    good = proofs[0]
+    # (a) a valid proof checked against a DIFFERENT root MUST fail — forces the
+    #     RFC-6962 root-equality comparison, not just path reconstruction.
+    vectors.append(
+        {
+            "id": "merkle-incl-wrong-root-001",
+            "op": "verify_inclusion",
+            "description": (
+                "A valid vendored proof checked against a DIFFERENT (empty-tree) root "
+                "MUST fail — this is the load-bearing root comparison an impl could "
+                "otherwise skip while still reconstructing the audit path."
+            ),
+            "input": {
+                "leaf_data_hex": good["leaf_input_hex"],
+                "m": good["leaf_index"],
+                "n": good["tree_size"],
+                "proof_hex": good["proof_hex"],
+                "root_hex": suite["empty_root_hex"],
+            },
+            "must_reject": True,
+        }
+    )
+    # (b) a proof with one hash byte flipped MUST fail — proof integrity.
+    tampered = list(good["proof_hex"])
+    tampered[0] = _flip_hex(tampered[0])
+    vectors.append(
+        {
+            "id": "merkle-incl-tampered-proof-001",
+            "op": "verify_inclusion",
+            "description": (
+                "A vendored proof with a single flipped nibble in its first hash MUST "
+                "fail (proof integrity / collision resistance)."
+            ),
+            "input": {
+                "leaf_data_hex": good["leaf_input_hex"],
+                "m": good["leaf_index"],
+                "n": good["tree_size"],
+                "proof_hex": tampered,
+                "root_hex": good["root_hex"],
+            },
+            "must_reject": True,
+        }
+    )
+    return {
+        "area": "merkle_inclusion",
+        "spec": "HSDS-FX/§6.2b,§6.3 (RFC-6962 inclusion)",
+        "reference_impl": "app/federation/merkle.py:verify_inclusion",
         "interop_status": "anchored",
-        "derives_from": "vendor/rfc6962_transparency_dev (Merkle proof/root bytes)",
+        "derives_from": "vendor/rfc6962_transparency_dev (inclusion proofs, verbatim)",
         "vectors": vectors,
     }
 
@@ -441,6 +558,7 @@ _AREAS = {
     "envelope_assembly.json": _gen_assembly,
     "checkpoint.json": _gen_checkpoint,
     "export_wire.json": _gen_export_wire,
+    "merkle_inclusion.json": _gen_merkle_inclusion,
 }
 
 
@@ -460,7 +578,14 @@ def main(check: bool) -> int:
                 drift.append(filename)
         else:
             path.write_text(new, encoding="utf-8")
+    # Closed-world guard: the runner globs EVERY vectors/*.json, so an orphan file the
+    # generator does not produce would be executed (and could be dishonestly labeled
+    # "anchored") while sailing past a per-_AREAS-only drift check. Reconcile the two
+    # sets so no hand-authored manifest can enter the corpus.
+    on_disk = {p.name for p in _VECTORS.glob("*.json")}
+    orphans = sorted(on_disk - set(_AREAS))
     if check:
+        drift.extend(f"{f} (orphan — not produced by the generator)" for f in orphans)
         if drift:
             print(
                 "HSDS-FX corpus DRIFT — regenerate (python conformance/hsdsfx/generate.py):"
@@ -470,6 +595,9 @@ def main(check: bool) -> int:
             return 1
         print("HSDS-FX corpus matches the reference implementation.")
         return 0
+    for f in orphans:
+        (_VECTORS / f).unlink()
+        print(f"Removed orphan manifest {f} (not produced by the generator)")
     print(f"Wrote {len(_AREAS)} HSDS-FX vector manifests to {_VECTORS}")
     return 0
 

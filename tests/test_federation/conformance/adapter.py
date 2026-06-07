@@ -61,7 +61,8 @@ class HsdsFxAdapter(Protocol):
         self, origin: str, tree_size: int, root_hex: str, timestamp: str
     ) -> str:
         """The HSDS-FX checkpoint body text (the C2SP tlog-checkpoint shape):
-        ``origin\\n<tree_size>\\n<base64(root)>\\nTimestamp: <ts>\\n``."""
+        ``origin\\n<tree_size>\\n<base64-std(root)>\\nTimestamp: <ts>\\n`` — the root
+        is canonical base64-std (with padding), matching the signature encoding."""
         ...
 
     def encode_checkpoint(
