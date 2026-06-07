@@ -148,6 +148,16 @@ def _op_verify_inclusion(a: HsdsFxAdapter, i: dict) -> Any:
     )
 
 
+def _op_verify_consistency(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.verify_consistency(
+        i["first_size"],
+        i["second_size"],
+        i["proof_hex"],
+        i["first_root_hex"],
+        i["second_root_hex"],
+    )
+
+
 def _op_normalize_federation_id(a: HsdsFxAdapter, i: dict) -> Any:
     return a.normalize_federation_id(i["federation_id"])
 
@@ -167,6 +177,7 @@ _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
     "verify_note": _op_verify_note,
     "parse_checkpoint": _op_parse_checkpoint,
     "verify_inclusion": _op_verify_inclusion,
+    "verify_consistency": _op_verify_consistency,
     "normalize_federation_id": _op_normalize_federation_id,
     "validate_activity": _op_validate_activity,
 }
@@ -174,7 +185,13 @@ _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
 #: Ops whose normal return value already signals rejection (False), so a
 #: ``must_reject`` vector passes on False as well as on a raise.
 _BOOLEAN_OPS = frozenset(
-    {"verify_envelope", "verify_note", "verify_inclusion", "validate_activity"}
+    {
+        "verify_envelope",
+        "verify_note",
+        "verify_inclusion",
+        "verify_consistency",
+        "validate_activity",
+    }
 )
 
 
