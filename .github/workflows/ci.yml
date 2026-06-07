@@ -155,7 +155,8 @@ jobs:
           # GENERATED from the reference impl (app/federation/) so they can never
           # silently drift from what the node actually signs (the license-in-band
           # class of bug). Fail if the committed corpus != a fresh regeneration.
-          # The conformance TESTS themselves run in the pytest job (test_hsdsfx_*).
+          # The conformance TESTS themselves run in the pytest job
+          # (test_hsdsfx_level1 / _level2 / _portability — Level 2 is DB-backed).
           poetry run python conformance/hsdsfx/generate.py --check
 
 

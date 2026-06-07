@@ -81,6 +81,17 @@ class HsdsFxAdapter(Protocol):
         note (parse only — caller verifies separately)."""
         ...
 
+    # --- merkle inclusion (RFC-6962; §6.3 export rows) -------------------------
+
+    def verify_inclusion(
+        self, leaf_data_hex: str, m: int, n: int, proof_hex: list[str], root_hex: str
+    ) -> bool:
+        """True iff ``proof_hex`` proves the leaf whose DATA is ``leaf_data_hex``
+        (the JCS pre-image bytes, NOT the content-address) at index ``m`` in the
+        size-``n`` tree with ``root_hex``. The leaf-vs-content-address distinction
+        is load-bearing — RFC-6962 leaf = sha256(0x00 ‖ data)."""
+        ...
+
 
 class RefAdapter:
     """PPR's reference adapter — wraps ``app.federation`` (the reference impl).
@@ -180,3 +191,16 @@ class RefAdapter:
             "root_hex": parsed["root_hash"].hex(),
             "timestamp": parsed["timestamp"],
         }
+
+    def verify_inclusion(
+        self, leaf_data_hex: str, m: int, n: int, proof_hex: list[str], root_hex: str
+    ) -> bool:
+        from app.federation.merkle import verify_inclusion
+
+        return verify_inclusion(
+            bytes.fromhex(leaf_data_hex),
+            m,
+            n,
+            [bytes.fromhex(h) for h in proof_hex],
+            bytes.fromhex(root_hex),
+        )

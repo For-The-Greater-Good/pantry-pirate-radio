@@ -353,11 +353,94 @@ def _gen_checkpoint() -> dict:
     }
 
 
+# --- export_wire area (Slice 3) -------------------------------------------------
+# A frozen 3-leaf log: each /export row's inclusion proof verifies against the
+# checkpoint root. The RFC-6962 proof/root BYTES are ANCHORED (transparency-dev
+# vendored suite); the row composition (envelope + inclusion_proof; leaf =
+# JCS(envelope minus id+proof), NOT the content-address id) is exercised live in
+# Level 2. Here we certify the verify_inclusion op over a fixed tree.
+
+
+def _frozen_leaves() -> list[bytes]:
+    """Three JCS pre-image leaves for a fixed 3-activity log (deterministic)."""
+    from app.federation.canonical import jcs_bytes
+
+    leaves = []
+    for i in range(3):
+        pre = env_mod.build_preimage(
+            context=_CONTEXT,
+            activity_type="Update",
+            actor="did:web:example.org",
+            attributed_to="did:web:example.org",
+            origin="did:web:example.org",
+            federation_id=f"example.org:loc-{i}",
+            obj={"id": f"loc-{i}", "name": f"Pantry {i}"},
+            sequence=i + 1,
+            published="2026-06-05T00:00:00Z",
+            license="sandia-ftgg-nc-os-1.0",
+        )
+        leaves.append(jcs_bytes(pre))
+    return leaves
+
+
+def _gen_export_wire() -> dict:
+    from app.federation import merkle
+
+    leaves = _frozen_leaves()
+    n = len(leaves)
+    root_hex = merkle.merkle_root(leaves).hex()
+    vectors = []
+    for m in range(n):
+        proof_hex = [h.hex() for h in merkle.inclusion_proof(leaves, m)]
+        vectors.append(
+            {
+                "id": f"export-incl-{m + 1:03d}",
+                "op": "verify_inclusion",
+                "description": f"ANCHORED (RFC-6962): the inclusion proof for export row sequence {m + 1} verifies against the checkpoint root of the frozen size-{n} tree. leaf_data = JCS(envelope minus id+proof), NOT the content-address.",
+                "input": {
+                    "leaf_data_hex": leaves[m].hex(),
+                    "m": m,
+                    "n": n,
+                    "proof_hex": proof_hex,
+                    "root_hex": root_hex,
+                },
+                "expected": True,
+                "must_reject": False,
+                "interop_pending": False,
+            }
+        )
+    # Negative: a proof from the wrong index must not verify against the root.
+    vectors.append(
+        {
+            "id": "export-incl-wrong-index-001",
+            "op": "verify_inclusion",
+            "description": "An inclusion proof for index 0 presented at index 1 MUST fail (RFC-6962 soundness).",
+            "input": {
+                "leaf_data_hex": leaves[1].hex(),
+                "m": 1,
+                "n": n,
+                "proof_hex": [h.hex() for h in merkle.inclusion_proof(leaves, 0)],
+                "root_hex": root_hex,
+            },
+            "must_reject": True,
+        }
+    )
+    return {
+        "area": "export_wire",
+        "spec": "HSDS-FX/§6.3",
+        "reference_impl": "app/federation/merkle.py:verify_inclusion; app/federation/log.py:read_export",
+        "interop_status": "anchored",
+        "derives_from": "vendor/rfc6962_transparency_dev (Merkle proof/root bytes)",
+        "vectors": vectors,
+    }
+
+
 _AREAS = {
     "envelope_content_address.json": _gen_content_address,
     "envelope_proof.json": _gen_proof,
     "envelope_assembly.json": _gen_assembly,
     "checkpoint.json": _gen_checkpoint,
+    "export_wire.json": _gen_export_wire,
 }
 
 
