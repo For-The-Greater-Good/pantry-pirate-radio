@@ -283,24 +283,45 @@ def verify_level2(
     rep.checkpoint_verified = True
     rep.tree_size = n
 
-    # 2. Pull /export PINNED to N; verify each row's envelope + inclusion proof
-    #    against the held root@N (proofs are unverifiable against a moving head).
-    exp = get(f"/api/v1/federation/export?_since=0&tree_size={n}")
-    if exp.status_code != 200:
-        rep.detail = f"/export -> {exp.status_code}"
-        return rep
-    rows = []
-    for line in exp.text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            rows.append(_loads(line))
-        except Exception:  # noqa: BLE001 — a garbage row is a failed node, not a crash
-            rep.detail = "malformed /export row (non-JSON)"
+    # 2. Pull /export PINNED to N, FOLLOWING the keyset cursor across pages (the §6.6
+    #    pull contract — a real peer assembles the full committed prefix page by page;
+    #    pulling one page would wrongly fail any honest node larger than the export
+    #    page size). _since is exclusive; X-Federation-Next-Cursor is the last sequence
+    #    emitted (absent on the final page). Verify each row against the held root@N
+    #    (proofs are unverifiable against a moving head). Bound the loop so a hostile
+    #    node cannot stall the cursor or stream past tree_size forever.
+    rows: list[Any] = []
+    cursor = 0
+    for _page in range(n + 1):  # dense 1..N: at most N pages even at page size 1
+        exp = get(f"/api/v1/federation/export?_since={cursor}&tree_size={n}")
+        if exp.status_code != 200:
+            rep.detail = f"/export -> {exp.status_code}"
             return rep
+        for line in exp.text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                rows.append(_loads(line))
+            except (
+                Exception
+            ):  # noqa: BLE001 — a garbage row is a failed node, not a crash
+                rep.detail = "malformed /export row (non-JSON)"
+                return rep
+        nxt = _header(exp.headers, "X-Federation-Next-Cursor")
+        if not nxt:
+            break
+        try:
+            nxt_i = int(nxt)
+        except (TypeError, ValueError):
+            rep.detail = f"invalid next-cursor {nxt!r}"
+            return rep
+        if nxt_i <= cursor or len(rows) > n:
+            rep.detail = "export pagination did not converge (cursor stalled / overran)"
+            return rep
+        cursor = nxt_i
     rep.rows_total = len(rows)
-    # Completeness: the served rows must be EXACTLY sequences 1..N — no withholding,
-    # no duplicates, no extras (a truncated/padded export is detectable here).
+    # Completeness: the assembled rows must be EXACTLY sequences 1..N — no withholding,
+    # no duplicates, no extras (truncation/padding is detectable after page assembly).
     seqs = sorted(r["sequence"] for r in rows if isinstance(r.get("sequence"), int))
     rep.rows_complete = seqs == list(range(1, n + 1))
     for row in rows:
@@ -321,3 +342,12 @@ def verify_level2(
 
 def _loads(line: str) -> Any:
     return json.loads(line)
+
+
+def _header(headers: dict[str, str], name: str) -> str | None:
+    """Case-insensitive header lookup (transports differ on header case)."""
+    name = name.lower()
+    for k, v in headers.items():
+        if k.lower() == name:
+            return v
+    return None

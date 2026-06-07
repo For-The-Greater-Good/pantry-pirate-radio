@@ -143,10 +143,13 @@ def _hex_strings(obj) -> list[str]:
 
 def test_anchored_areas_actually_trace_to_a_vendored_suite():
     """The load-bearing honesty invariant (anti-self-grading). An area labeled
-    interop_status=anchored MUST name a real vendor/<suite>/ in derives_from AND at
-    least one of its byte values must appear verbatim in that vendored suite — so a
-    PPR-self-derived area (the export_wire mislabel #555-class defect) cannot wear an
-    "anchored" label undetected."""
+    interop_status=anchored MUST name a real vendor/<suite>/ in derives_from AND
+    EVERY load-bearing byte of EVERY accept vector (the values actually under test)
+    must appear verbatim in that vendored suite. Checking only ONE incidental
+    substring would let a PPR-self-derived area (the export_wire mislabel #555-class
+    defect) wear an "anchored" label by carrying a single decoy vendored hash — so
+    the trace is a full subset check, not an existence check. Reject vectors carry
+    deliberately-corrupted bytes (a flipped proof, a wrong root) and are excluded."""
     anchored = [
         m for _p, m in runner.iter_manifests() if m["interop_status"] == "anchored"
     ]
@@ -161,17 +164,28 @@ def test_anchored_areas_actually_trace_to_a_vendored_suite():
         assert (
             suite_dir.is_dir()
         ), f"anchored area {manifest['area']} derives_from missing vendor dir {suite_dir}"
-        vendor_text = "".join(
-            p.read_text(encoding="utf-8") for p in suite_dir.glob("*.json")
-        ).lower()
-        area_hex = set()
+        vendored_hashes: set[str] = set()
+        for p in suite_dir.glob("*.json"):
+            vendored_hashes.update(
+                _hex_strings(json.loads(p.read_text(encoding="utf-8")))
+            )
+        checked_any = False
         for vec in manifest["vectors"]:
-            area_hex.update(_hex_strings(vec.get("input")))
-            area_hex.update(_hex_strings(vec.get("expected")))
-        traced = [h for h in area_hex if h in vendor_text]
-        assert traced, (
-            f"anchored area {manifest['area']} has NO byte value present in its "
-            f"vendored suite {suite} — 'anchored' is unsubstantiated (self-graded?)"
+            if vec["must_reject"]:
+                continue  # reject vectors deliberately carry non-vendored corrupt bytes
+            vec_hex = set(_hex_strings(vec.get("input"))) | set(
+                _hex_strings(vec.get("expected"))
+            )
+            checked_any = checked_any or bool(vec_hex)
+            non_vendored = vec_hex - vendored_hashes
+            assert not non_vendored, (
+                f"anchored area {manifest['area']} accept vector {vec['id']} carries "
+                f"byte(s) NOT in vendored suite {suite}: {sorted(non_vendored)} — the "
+                "values under test are self-derived, 'anchored' is unsubstantiated"
+            )
+        assert checked_any, (
+            f"anchored area {manifest['area']} has no checkable vendored bytes — an "
+            "'anchored' label with nothing traceable is vacuous"
         )
 
 

@@ -147,7 +147,18 @@ def test_runner_executes_in_a_ppr_free_tree(tmp_path):
         textwrap.dedent(
             """
             import sys
-            assert "app" not in sys.modules, "app leaked into a PPR-free run"
+
+            class _PprBlocker:
+                # Hard-fail on ANY attempt to import a PPR module — dynamic, aliased,
+                # or plain. The execution gate (not just the AST lint) is then the
+                # authoritative detector of a reintroduced runtime coupling.
+                def find_spec(self, name, path=None, target=None):
+                    top = name.split(".", 1)[0]
+                    if top in ("app", "tests"):
+                        raise ImportError(f"PPR module {name!r} imported in a portable run")
+                    return None
+
+            sys.meta_path.insert(0, _PprBlocker())
             import runner
             from stub_adapter import StubAdapter
             rep = runner.verify_level1(StubAdapter())

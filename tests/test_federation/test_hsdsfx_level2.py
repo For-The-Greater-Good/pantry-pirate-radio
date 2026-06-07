@@ -208,3 +208,21 @@ def test_level2_rejects_checkpoint_json_disagreeing_with_signed_note(node):
     assert not report.checkpoint_verified
     assert not report.ok
     assert "disagree" in report.detail
+
+
+def test_level2_follows_export_pagination(node, monkeypatch):
+    """An HONEST node larger than one /export page MUST still pass — verify_level2
+    follows X-Federation-Next-Cursor across pages and asserts completeness only over
+    the assembled prefix. Regression guard: the completeness fix pulled a single page,
+    which would wrongly FAIL every real node bigger than FEDERATION_EXPORT_PAGE_SIZE
+    (a worse failure mode than the truncation hole it closed). Shrinking the page size
+    to 1 makes the 3-row node paginate across 3 pages."""
+    from app.core.config import settings as live
+
+    monkeypatch.setattr(live, "FEDERATION_EXPORT_PAGE_SIZE", 1)
+    report = runner.verify_level2(_get_fn(node), RefAdapter(), _pubkey_hex(), _NODE_DID)
+    assert report.tree_size == 3
+    assert report.rows_total == 3, report.detail  # assembled across 3 pages
+    assert report.rows_verified == 3, report.detail
+    assert report.rows_complete
+    assert report.ok
