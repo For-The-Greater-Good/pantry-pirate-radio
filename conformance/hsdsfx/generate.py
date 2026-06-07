@@ -958,6 +958,21 @@ _ACT_REJECT = [
         ),
         "Tombstone with an empty federation_id.",
     ),
+    (
+        "act-announce-whitespace-origin-001",
+        _act_env("Announce", _ACT_A, _ACT_A + " ", _ACT_A + " ", _ACT_OBJ),
+        "Announce whose origin is its own actor plus a trailing space — a self-corroboration evasion of the byte-exact origin!=actor check; identity tokens are whitespace-free (§11.2).",
+    ),
+    (
+        "act-whitespace-only-actor-001",
+        _act_env("Update", " ", " ", " ", _ACT_OBJ),
+        "Whitespace-only identity fields — non-empty but not a valid token.",
+    ),
+    (
+        "act-unhashable-type-001",
+        _act_env([], _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "An unhashable (list) 'type' — the validator is total and rejects it, never raises.",
+    ),
 ]
 
 

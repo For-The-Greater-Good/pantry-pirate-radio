@@ -93,9 +93,9 @@ PREFIX_FLOORS = {
 # all-or-nothing prefix guard alone would still pass if any one file remained.
 PREFIX_MANIFEST = {
     "app/federation/": [
-        "aggregate.py", "canonical.py", "checkpoint.py", "discovery.py",
-        "envelope.py", "fetch.py", "identity.py", "log.py", "merkle.py",
-        "routes_public.py", "signing.py",
+        "activities.py", "aggregate.py", "canonical.py", "checkpoint.py",
+        "discovery.py", "envelope.py", "fetch.py", "grammar.py", "identity.py",
+        "log.py", "merkle.py", "publish.py", "routes_public.py", "signing.py",
     ],
 }
 FILE_FLOORS = {

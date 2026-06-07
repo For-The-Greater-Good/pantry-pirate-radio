@@ -115,7 +115,41 @@ REJECT = {
         {"type": "Tombstone", "federation_id": "", "redirectTo": None},
     ),
     "tombstone-object-not-dict": _env("Delete", _DID_A, _DID_A, _DID_A, "Tombstone"),
+    # whitespace tokens (§11.2 self-corroboration evasion + whitespace-only identity)
+    "announce-whitespace-origin": _env(
+        "Announce", _DID_A, _DID_A + " ", _DID_A + " ", _OBJ
+    ),
+    "whitespace-only-actor": _env("Update", " ", " ", " ", _OBJ),
+    "tombstone-whitespace-redirect": _env(
+        "Delete",
+        _DID_A,
+        _DID_A,
+        _DID_A,
+        {
+            "type": "Tombstone",
+            "federation_id": "a.example:d",
+            "redirectTo": "a.example:s ",
+        },
+    ),
 }
+
+
+@pytest.mark.parametrize("bad_type", [[], {}, {"x": 1}, ["Update"]])
+def test_unhashable_type_is_rejected_not_raised(bad_type):
+    """Totality: an unhashable 'type' (list/dict) must return False, NOT raise
+    TypeError on the frozenset membership test (a direct caller — future P2 ingest —
+    relies on the never-raises contract)."""
+    env = _env("Update", _DID_A, _DID_A, _DID_A, _OBJ)
+    env["type"] = bad_type
+    assert validate_activity(env) is False
+
+
+def test_trailing_space_origin_is_not_a_distinct_authority():
+    """§11.2: an Announce whose origin is its own actor + a trailing space must NOT
+    pass the distinct-authority check (the byte-exact origin!=actor would otherwise
+    accept it). Identity tokens are whitespace-free."""
+    evasion = _env("Announce", _DID_A, _DID_A + " ", _DID_A + " ", _OBJ)
+    assert validate_activity(evasion) is False
 
 
 @pytest.mark.parametrize("name", sorted(ACCEPT))

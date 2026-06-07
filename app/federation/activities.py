@@ -48,25 +48,33 @@ from typing import Any
 _VERBS = frozenset({"Update", "Announce", "Delete"})
 
 
-def _nonempty_str(v: Any) -> bool:
-    return isinstance(v, str) and len(v) > 0
+def _clean_token(v: Any) -> bool:
+    """A non-empty string with NO whitespace. DIDs and federation_ids are
+    whitespace-free tokens, so a padded/whitespace variant (``"X "`` vs ``"X"``,
+    ``" "``) is rejected — this closes the trailing-space self-corroboration evasion
+    (an Announce whose ``origin`` is its own ``actor`` plus a space would otherwise
+    pass the byte-exact ``origin != actor`` distinctness check; §11.2)."""
+    return isinstance(v, str) and len(v) > 0 and not any(c.isspace() for c in v)
 
 
 def validate_activity(envelope: Any) -> bool:
-    """True iff ``envelope`` satisfies the stateless HSDS-FX verb wire rules."""
+    """True iff ``envelope`` satisfies the stateless HSDS-FX verb wire rules. Total
+    over arbitrary input — returns ``False`` (never raises) on any junk."""
     if not isinstance(envelope, dict):
         return False
     verb = envelope.get("type")
-    if verb not in _VERBS:
+    # isinstance guard FIRST: an unhashable type (list/dict) would raise on the
+    # frozenset membership test, and verbs are always strings anyway.
+    if not isinstance(verb, str) or verb not in _VERBS:
         return False
     actor = envelope.get("actor")
     attributed_to = envelope.get("attributedTo")
     origin = envelope.get("origin")
     if not (
-        _nonempty_str(actor) and _nonempty_str(attributed_to) and _nonempty_str(origin)
+        _clean_token(actor) and _clean_token(attributed_to) and _clean_token(origin)
     ):
         return False
-    if not _nonempty_str(envelope.get("federation_id")):
+    if not _clean_token(envelope.get("federation_id")):
         return False
 
     if verb in ("Update", "Delete"):
@@ -91,12 +99,12 @@ def _valid_tombstone(obj: Any) -> bool:
         return False
     if obj.get("type") != "Tombstone":
         return False
-    if not _nonempty_str(obj.get("federation_id")):
+    if not _clean_token(obj.get("federation_id")):
         return False
     if "redirectTo" not in obj:  # a required known key (value may be null)
         return False
     redirect = obj["redirectTo"]
-    if redirect is not None and not _nonempty_str(redirect):
+    if redirect is not None and not _clean_token(redirect):
         return False
     # Extra keys are IGNORED (§8.4 forward-compatibility), not rejected.
     return True
