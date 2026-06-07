@@ -3,7 +3,7 @@
   "spec": "HSDS-FX/§6.3",
   "reference_impl": "app/federation/merkle.py:verify_inclusion; app/federation/log.py:read_export",
   "interop_status": "interop_pending",
-  "derives_from": "INTEROP_PENDING.md row 5 (the /export row shape + leaf=JCS(envelope minus id+proof)); the RFC-6962 inclusion algorithm is anchored in the merkle_inclusion area",
+  "derives_from": "INTEROP_PENDING.md row 8 (the /export row shape + leaf=JCS(envelope minus id+proof)); the RFC-6962 inclusion algorithm is anchored in the merkle_inclusion area",
   "vectors": [
     {
       "id": "export-incl-001",
@@ -22,7 +22,7 @@
       "expected": true,
       "must_reject": false,
       "interop_pending": true,
-      "interop_row": 5
+      "interop_row": 8
     },
     {
       "id": "export-incl-002",
@@ -41,7 +41,7 @@
       "expected": true,
       "must_reject": false,
       "interop_pending": true,
-      "interop_row": 5
+      "interop_row": 8
     },
     {
       "id": "export-incl-003",
@@ -59,7 +59,7 @@
       "expected": true,
       "must_reject": false,
       "interop_pending": true,
-      "interop_row": 5
+      "interop_row": 8
     },
     {
       "id": "export-incl-wrong-index-001",
@@ -77,7 +77,7 @@
       },
       "must_reject": true,
       "interop_pending": true,
-      "interop_row": 5
+      "interop_row": 8
     }
   ]
 }

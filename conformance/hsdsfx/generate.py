@@ -421,7 +421,7 @@ def _gen_export_wire() -> dict:
                 "expected": True,
                 "must_reject": False,
                 "interop_pending": True,
-                "interop_row": 5,
+                "interop_row": 8,
             }
         )
     # Negative: a proof from the wrong index must not verify against the root.
@@ -439,7 +439,7 @@ def _gen_export_wire() -> dict:
             },
             "must_reject": True,
             "interop_pending": True,
-            "interop_row": 5,
+            "interop_row": 8,
         }
     )
     return {
@@ -447,7 +447,7 @@ def _gen_export_wire() -> dict:
         "spec": "HSDS-FX/§6.3",
         "reference_impl": "app/federation/merkle.py:verify_inclusion; app/federation/log.py:read_export",
         "interop_status": "interop_pending",
-        "derives_from": "INTEROP_PENDING.md row 5 (the /export row shape + leaf=JCS(envelope minus id+proof)); the RFC-6962 inclusion algorithm is anchored in the merkle_inclusion area",
+        "derives_from": "INTEROP_PENDING.md row 8 (the /export row shape + leaf=JCS(envelope minus id+proof)); the RFC-6962 inclusion algorithm is anchored in the merkle_inclusion area",
         "vectors": vectors,
     }
 
@@ -552,6 +552,185 @@ def _gen_merkle_inclusion() -> dict:
     }
 
 
+# --- federation_id grammar area (Slice 4) ---------------------------------------
+# INTEROP_PENDING: the federation_id = <host> ":" <internal-id> composition is a
+# PPR-native canonical reading (design §135) with no upstream conformance suite —
+# RFC 3986 anchors the percent/case MECHANICS but not the two-field grammar. The
+# normalize op is STRING-returning, so a must_reject vector passes only on a raise.
+
+_FEDID_ACCEPT = [
+    (
+        "fedid-host-lower-001",
+        "Example.ORG:abc-123",
+        "Host ASCII-lowercased (§135 'host lowercasing' / RFC 3986 §6.2.2.1); all-unreserved internal-id unchanged.",
+    ),
+    (
+        "fedid-host-lower-002",
+        "STRASSE.example.org:x",
+        "str.lower() (NOT casefold): STRASSE -> strasse, a host distinct from the rejected non-ASCII 'straße' — no peer-shadow collision.",
+    ),
+    (
+        "fedid-trailing-dot-001",
+        "example.org.:abc-123",
+        "Single trailing FQDN-root dot stripped (§135 'trailing-dot strip' / RFC 4343).",
+    ),
+    (
+        "fedid-worked-001",
+        "northjerseyfoodbank.org:abc-123",
+        "The §8.1 worked wire example — already canonical (identity).",
+    ),
+    (
+        "fedid-decode-unreserved-001",
+        "example.org:abc%2D123",
+        "%2D ('-' unreserved) DECODED per RFC 3986 §6.2.2.2 — equals the literal-hyphen form.",
+    ),
+    (
+        "fedid-decode-unreserved-002",
+        "example.org:%41BC",
+        "%41 ('A' unreserved) decoded; %41BC == ABC (safe collapse of one octet's spellings).",
+    ),
+    (
+        "fedid-reserved-colon-001",
+        "example.org:abc%3adef",
+        "%3a (':' RESERVED) kept encoded, hex UPPERCASED to %3A (§6.2.2.1) — never decoded to a raw delimiter.",
+    ),
+    (
+        "fedid-reserved-slash-001",
+        "example.org:abc%2fdef",
+        "%2f ('/' reserved) kept encoded, hex uppercased.",
+    ),
+    (
+        "fedid-pct-utf8-001",
+        "example.org:caf%c3%a9",
+        "A properly percent-encoded UTF-8 internal-id octet stays encoded, hex uppercased.",
+    ),
+    (
+        "fedid-alabel-host-001",
+        "xn--mnchen-3ya.example:loc-1",
+        "A pre-encoded xn-- A-label host is an opaque ASCII reg-name (no IDNA decode in v1).",
+    ),
+    (
+        "fedid-uuid-identity-001",
+        "example.org:550e8400-e29b-41d4-a716-446655440000",
+        "A uuid4 internal-id is pure-unreserved -> identity (backward-compat with every value the repo emits today).",
+    ),
+]
+_FEDID_REJECT = [
+    (
+        "fedid-no-colon-001",
+        "x",
+        "No delimiter colon — not a federation_id (§135 requires host ':' internal-id).",
+    ),
+    (
+        "fedid-empty-host-001",
+        ":abc-123",
+        "Empty <publisher-host> — no authority to scope the id.",
+    ),
+    (
+        "fedid-empty-id-001",
+        "example.org:",
+        "Empty <internal-id> — identifies no Location (production is 1*(...)).",
+    ),
+    (
+        "fedid-bad-pct-001",
+        "example.org:abc%2g3",
+        "Malformed percent-escape ('g' is not a hex digit; RFC 3986 §2.1).",
+    ),
+    (
+        "fedid-bad-pct-002",
+        "example.org:%4",
+        "Truncated percent-escape ('%' needs two HEXDIG).",
+    ),
+    (
+        "fedid-nonascii-host-001",
+        "münchen.example:loc-1",
+        "Non-ASCII (U-label) host — v1 rejects; publishers pre-encode to xn-- A-labels.",
+    ),
+    (
+        "fedid-pct-host-001",
+        "ex%41mple.org:x",
+        "Percent-encoding in the HOST — the host is ASCII LDH+dot only, never pct-encoded.",
+    ),
+    (
+        "fedid-raw-colon-001",
+        "example.org:loc:666",
+        "Raw embedded ':' in the internal-id (must arrive as %3A) — rejected, not silently re-encoded (collision-safe).",
+    ),
+    (
+        "fedid-pasted-did-001",
+        "did:web:example.org:abc-123",
+        "A full did:web DID pasted as the id: the internal-id carries raw colons -> reject.",
+    ),
+    (
+        "fedid-raw-slash-001",
+        "example.org:a/b",
+        "Raw reserved '/' in the internal-id (must arrive as %2F).",
+    ),
+    (
+        "fedid-whitespace-001",
+        "  example.org:x  ",
+        "Surrounding whitespace — not silently trimmed (a trim would let 'x' and ' x' collide).",
+    ),
+    (
+        "fedid-host-dot-only-001",
+        ".:abc-123",
+        "Host is only a dot — empty after the single trailing-dot strip.",
+    ),
+    (
+        "fedid-host-empty-label-001",
+        "a..b.example:x",
+        "Empty DNS label between dots (RFC 1035 labels are 1*).",
+    ),
+]
+
+
+def _gen_federation_id() -> dict:
+    from app.federation.grammar import normalize_federation_id
+
+    vectors = []
+    for vid, raw, desc in _FEDID_ACCEPT:
+        vectors.append(
+            {
+                "id": vid,
+                "op": "normalize_federation_id",
+                "description": desc,
+                "input": {"federation_id": raw},
+                "expected": normalize_federation_id(raw),
+                "must_reject": False,
+                "interop_pending": True,
+                "interop_row": 7,
+            }
+        )
+    for vid, raw, desc in _FEDID_REJECT:
+        try:  # generator self-check — a reject input MUST raise in the ref impl
+            normalize_federation_id(raw)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                f"reject vector {vid} was accepted by the reference impl"
+            )
+        vectors.append(
+            {
+                "id": vid,
+                "op": "normalize_federation_id",
+                "description": desc,
+                "input": {"federation_id": raw},
+                "must_reject": True,
+                "interop_pending": True,
+                "interop_row": 7,
+            }
+        )
+    return {
+        "area": "federation_id",
+        "spec": "HSDS-FX/§8.x (design §135 grammar)",
+        "reference_impl": "app/federation/grammar.py:normalize_federation_id",
+        "interop_status": "interop_pending",
+        "derives_from": "INTEROP_PENDING.md row 7 (federation_id = <host>:<internal-id>, split-on-first-colon; host ASCII-lower + trailing-dot strip; internal-id RFC 3986 §6.2.2-normalized)",
+        "vectors": vectors,
+    }
+
+
 _AREAS = {
     "envelope_content_address.json": _gen_content_address,
     "envelope_proof.json": _gen_proof,
@@ -559,6 +738,7 @@ _AREAS = {
     "checkpoint.json": _gen_checkpoint,
     "export_wire.json": _gen_export_wire,
     "merkle_inclusion.json": _gen_merkle_inclusion,
+    "federation_id.json": _gen_federation_id,
 }
 
 

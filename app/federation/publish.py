@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.federation import identity, log
 from app.federation.aggregate import build_location_aggregate
+from app.federation.grammar import normalize_federation_id
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +47,20 @@ def _node_host() -> str | None:
     if did and did.startswith("did:web:"):
         return did[len("did:web:") :]
     return None
+
+
+def _canonical_fid(host: str, internal_id: str) -> str:
+    """Canonicalize our OWN outbound ``federation_id`` (design §135 grammar). A no-op
+    on the ``host:uuid`` we emit today; fail-soft to the raw form if normalization
+    ever raises (e.g. a misconfigured host) so a publish is never blocked
+    (Principle XI). The signing path stays a verbatim pass-through — this only
+    canonicalizes the id at the BUILD site, before it is signed."""
+    raw = f"{host}:{internal_id}"
+    try:
+        return normalize_federation_id(raw)
+    except ValueError:
+        logger.warning("federation_id_noncanonical", federation_id=raw)
+        return raw
 
 
 def _is_canonical(db: Session, location_id: str) -> bool:
@@ -133,7 +148,7 @@ def publish_location_update(
     return _append(
         db,
         activity_type="Update",
-        federation_id=f"{host}:{location_id}",
+        federation_id=_canonical_fid(host, location_id),
         obj=obj,
     )
 
@@ -247,11 +262,11 @@ def publish_location_delete(
         terminal = _resolve_terminal_survivor(
             db, dead_location_id, survivor_location_id, chain=chain
         )
-        dead_fid = f"{host}:{dead_location_id}"
+        dead_fid = _canonical_fid(host, dead_location_id)
         obj = {
             "type": "Tombstone",
             "federation_id": dead_fid,
-            "redirectTo": f"{host}:{terminal}" if terminal else None,
+            "redirectTo": _canonical_fid(host, terminal) if terminal else None,
         }
     except Exception as exc:  # never abort the caller (Principle XI)
         with contextlib.suppress(Exception):

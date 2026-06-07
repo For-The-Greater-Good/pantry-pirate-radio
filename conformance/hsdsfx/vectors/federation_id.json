@@ -1,0 +1,284 @@
+{
+  "area": "federation_id",
+  "spec": "HSDS-FX/§8.x (design §135 grammar)",
+  "reference_impl": "app/federation/grammar.py:normalize_federation_id",
+  "interop_status": "interop_pending",
+  "derives_from": "INTEROP_PENDING.md row 7 (federation_id = <host>:<internal-id>, split-on-first-colon; host ASCII-lower + trailing-dot strip; internal-id RFC 3986 §6.2.2-normalized)",
+  "vectors": [
+    {
+      "id": "fedid-host-lower-001",
+      "op": "normalize_federation_id",
+      "description": "Host ASCII-lowercased (§135 'host lowercasing' / RFC 3986 §6.2.2.1); all-unreserved internal-id unchanged.",
+      "input": {
+        "federation_id": "Example.ORG:abc-123"
+      },
+      "expected": "example.org:abc-123",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-host-lower-002",
+      "op": "normalize_federation_id",
+      "description": "str.lower() (NOT casefold): STRASSE -> strasse, a host distinct from the rejected non-ASCII 'straße' — no peer-shadow collision.",
+      "input": {
+        "federation_id": "STRASSE.example.org:x"
+      },
+      "expected": "strasse.example.org:x",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-trailing-dot-001",
+      "op": "normalize_federation_id",
+      "description": "Single trailing FQDN-root dot stripped (§135 'trailing-dot strip' / RFC 4343).",
+      "input": {
+        "federation_id": "example.org.:abc-123"
+      },
+      "expected": "example.org:abc-123",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-worked-001",
+      "op": "normalize_federation_id",
+      "description": "The §8.1 worked wire example — already canonical (identity).",
+      "input": {
+        "federation_id": "northjerseyfoodbank.org:abc-123"
+      },
+      "expected": "northjerseyfoodbank.org:abc-123",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-decode-unreserved-001",
+      "op": "normalize_federation_id",
+      "description": "%2D ('-' unreserved) DECODED per RFC 3986 §6.2.2.2 — equals the literal-hyphen form.",
+      "input": {
+        "federation_id": "example.org:abc%2D123"
+      },
+      "expected": "example.org:abc-123",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-decode-unreserved-002",
+      "op": "normalize_federation_id",
+      "description": "%41 ('A' unreserved) decoded; %41BC == ABC (safe collapse of one octet's spellings).",
+      "input": {
+        "federation_id": "example.org:%41BC"
+      },
+      "expected": "example.org:ABC",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-reserved-colon-001",
+      "op": "normalize_federation_id",
+      "description": "%3a (':' RESERVED) kept encoded, hex UPPERCASED to %3A (§6.2.2.1) — never decoded to a raw delimiter.",
+      "input": {
+        "federation_id": "example.org:abc%3adef"
+      },
+      "expected": "example.org:abc%3Adef",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-reserved-slash-001",
+      "op": "normalize_federation_id",
+      "description": "%2f ('/' reserved) kept encoded, hex uppercased.",
+      "input": {
+        "federation_id": "example.org:abc%2fdef"
+      },
+      "expected": "example.org:abc%2Fdef",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-pct-utf8-001",
+      "op": "normalize_federation_id",
+      "description": "A properly percent-encoded UTF-8 internal-id octet stays encoded, hex uppercased.",
+      "input": {
+        "federation_id": "example.org:caf%c3%a9"
+      },
+      "expected": "example.org:caf%C3%A9",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-alabel-host-001",
+      "op": "normalize_federation_id",
+      "description": "A pre-encoded xn-- A-label host is an opaque ASCII reg-name (no IDNA decode in v1).",
+      "input": {
+        "federation_id": "xn--mnchen-3ya.example:loc-1"
+      },
+      "expected": "xn--mnchen-3ya.example:loc-1",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-uuid-identity-001",
+      "op": "normalize_federation_id",
+      "description": "A uuid4 internal-id is pure-unreserved -> identity (backward-compat with every value the repo emits today).",
+      "input": {
+        "federation_id": "example.org:550e8400-e29b-41d4-a716-446655440000"
+      },
+      "expected": "example.org:550e8400-e29b-41d4-a716-446655440000",
+      "must_reject": false,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-no-colon-001",
+      "op": "normalize_federation_id",
+      "description": "No delimiter colon — not a federation_id (§135 requires host ':' internal-id).",
+      "input": {
+        "federation_id": "x"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-empty-host-001",
+      "op": "normalize_federation_id",
+      "description": "Empty <publisher-host> — no authority to scope the id.",
+      "input": {
+        "federation_id": ":abc-123"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-empty-id-001",
+      "op": "normalize_federation_id",
+      "description": "Empty <internal-id> — identifies no Location (production is 1*(...)).",
+      "input": {
+        "federation_id": "example.org:"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-bad-pct-001",
+      "op": "normalize_federation_id",
+      "description": "Malformed percent-escape ('g' is not a hex digit; RFC 3986 §2.1).",
+      "input": {
+        "federation_id": "example.org:abc%2g3"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-bad-pct-002",
+      "op": "normalize_federation_id",
+      "description": "Truncated percent-escape ('%' needs two HEXDIG).",
+      "input": {
+        "federation_id": "example.org:%4"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-nonascii-host-001",
+      "op": "normalize_federation_id",
+      "description": "Non-ASCII (U-label) host — v1 rejects; publishers pre-encode to xn-- A-labels.",
+      "input": {
+        "federation_id": "münchen.example:loc-1"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-pct-host-001",
+      "op": "normalize_federation_id",
+      "description": "Percent-encoding in the HOST — the host is ASCII LDH+dot only, never pct-encoded.",
+      "input": {
+        "federation_id": "ex%41mple.org:x"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-raw-colon-001",
+      "op": "normalize_federation_id",
+      "description": "Raw embedded ':' in the internal-id (must arrive as %3A) — rejected, not silently re-encoded (collision-safe).",
+      "input": {
+        "federation_id": "example.org:loc:666"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-pasted-did-001",
+      "op": "normalize_federation_id",
+      "description": "A full did:web DID pasted as the id: the internal-id carries raw colons -> reject.",
+      "input": {
+        "federation_id": "did:web:example.org:abc-123"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-raw-slash-001",
+      "op": "normalize_federation_id",
+      "description": "Raw reserved '/' in the internal-id (must arrive as %2F).",
+      "input": {
+        "federation_id": "example.org:a/b"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-whitespace-001",
+      "op": "normalize_federation_id",
+      "description": "Surrounding whitespace — not silently trimmed (a trim would let 'x' and ' x' collide).",
+      "input": {
+        "federation_id": "  example.org:x  "
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-host-dot-only-001",
+      "op": "normalize_federation_id",
+      "description": "Host is only a dot — empty after the single trailing-dot strip.",
+      "input": {
+        "federation_id": ".:abc-123"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    },
+    {
+      "id": "fedid-host-empty-label-001",
+      "op": "normalize_federation_id",
+      "description": "Empty DNS label between dots (RFC 1035 labels are 1*).",
+      "input": {
+        "federation_id": "a..b.example:x"
+      },
+      "must_reject": true,
+      "interop_pending": true,
+      "interop_row": 7
+    }
+  ]
+}

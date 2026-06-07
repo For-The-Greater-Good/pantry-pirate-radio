@@ -19,6 +19,8 @@ Each row is tagged `@pytest.mark.interop_pending` in the suite, so
 | 4 | `proof.type = "ed25519-jcs-2026"` | `envelope.py:PROOF_TYPE` | design §8.1 | a peer's signature-suite dispatch |
 | 5 | The object is the HSDS **3.1.1-curated** field set (no top-level phones/addresses) | `aggregate.py` | Task -1 3.1.1 pin vs design §8.2 (3.2) | a peer validating our object against its HSDS model |
 | 6 | `published` at second precision (`...Z`, no microseconds) | `envelope.py:published_now` | RFC 3339 | byte-stable re-emission across nodes |
+| 7 | `federation_id = <host> ":" <internal-id>`, split on the FIRST colon; host = ASCII reg-name (LDH+dot), `str.lower()` (NOT casefold) + single trailing-dot strip, non-ASCII/IDN rejected (require `xn--` A-labels); internal-id = unreserved + pct-encoded, RFC 3986 §6.2.2-normalized (decode-unreserved, uppercase-hex), `:`→`%3A`, a raw reserved char rejected not re-encoded; equality byte-exact over the normalized form | `grammar.py:normalize_federation_id` (new); `publish.py` build sites | design §135 + §137 (PK) + RFC 3986 §2.3/§3.2.2/§6.2.2 | a 2nd impl / the P2 two-node loop / live FA-feed parsing our `/export` federation_id |
+| 8 | `/export` row shape = the full signed envelope + its `inclusion_proof`; RFC-6962 `leaf_data = JCS(envelope minus id+proof)`, NOT the content-address id | `log.py:read_export`; `merkle.py:verify_inclusion`; the `export_wire` conformance area | design §6.3/§8.1 | a peer pulling our `/export` and verifying inclusion against the checkpoint root |
 
 When P2 lands the two-node loop / FA-feed ingest, walk this list: each reading
 either gets a cross-impl KAT (promote to `vendor/<suite>/`) or a documented
