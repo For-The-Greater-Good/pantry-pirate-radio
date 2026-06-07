@@ -141,15 +141,53 @@ def _hex_strings(obj) -> list[str]:
     return out
 
 
+def _traceable(token: str, blob: bytes) -> bool:
+    """Is ``token`` present in the vendored suite (read as raw bytes) in ANY
+    representation a vendored file could carry it? A hex token may appear as hex TEXT
+    (rfc6962 vectors.json stores hashes as hex) OR as its raw decoded bytes (jcs
+    output files store the canonical bytes, and the jcs vector's expected is the hex
+    OF those bytes). A non-hex string token appears as its UTF-8 bytes. Trying every
+    representation keeps the check correct across suites while staying teeth-bearing:
+    a self-derived value present in NO representation still fails."""
+    cands: list[bytes] = [token.encode("utf-8")]
+    is_hex = (
+        len(token) >= 2
+        and len(token) % 2 == 0
+        and all(c in "0123456789abcdefABCDEF" for c in token)
+    )
+    if is_hex:
+        cands.append(token.lower().encode("ascii"))
+        cands.append(token.upper().encode("ascii"))
+        try:
+            cands.append(bytes.fromhex(token))
+        except ValueError:
+            pass
+    return any(c in blob for c in cands)
+
+
+def _anchorable_tokens(vec: dict) -> set[str]:
+    """The load-bearing values of an accept vector that must trace to the vendor:
+    every hex string (≥16) in input+expected, plus a non-hex string ``expected``
+    (e.g. a canonical JSON output)."""
+    tokens = set(_hex_strings(vec.get("input"))) | set(
+        _hex_strings(vec.get("expected"))
+    )
+    exp = vec.get("expected")
+    if isinstance(exp, str) and len(exp) >= 8:
+        tokens.add(exp)
+    return tokens
+
+
 def test_anchored_areas_actually_trace_to_a_vendored_suite():
     """The load-bearing honesty invariant (anti-self-grading). An area labeled
     interop_status=anchored MUST name a real vendor/<suite>/ in derives_from AND
-    EVERY load-bearing byte of EVERY accept vector (the values actually under test)
-    must appear verbatim in that vendored suite. Checking only ONE incidental
-    substring would let a PPR-self-derived area (the export_wire mislabel #555-class
-    defect) wear an "anchored" label by carrying a single decoy vendored hash — so
-    the trace is a full subset check, not an existence check. Reject vectors carry
-    deliberately-corrupted bytes (a flipped proof, a wrong root) and are excluded."""
+    EVERY load-bearing value of EVERY accept vector (the values actually under test)
+    must appear verbatim in that vendored suite (read as raw bytes, any
+    representation). Checking only ONE incidental match would let a PPR-self-derived
+    area (the export_wire mislabel #555-class defect) wear an "anchored" label by
+    carrying a single decoy vendored value — so the trace is a full subset check, not
+    an existence check. Reject vectors carry deliberately-corrupted bytes (a flipped
+    proof, a wrong root) and are excluded."""
     anchored = [
         m for _p, m in runner.iter_manifests() if m["interop_status"] == "anchored"
     ]
@@ -164,27 +202,25 @@ def test_anchored_areas_actually_trace_to_a_vendored_suite():
         assert (
             suite_dir.is_dir()
         ), f"anchored area {manifest['area']} derives_from missing vendor dir {suite_dir}"
-        vendored_hashes: set[str] = set()
-        for p in suite_dir.glob("*.json"):
-            vendored_hashes.update(
-                _hex_strings(json.loads(p.read_text(encoding="utf-8")))
-            )
+        # Read the WHOLE vendored suite as raw bytes (covers hex-text suites like
+        # rfc6962/vectors.json AND raw-text suites like jcs_rfc8785/output/*.json).
+        blob = b"".join(
+            p.read_bytes() for p in sorted(suite_dir.rglob("*")) if p.is_file()
+        )
         checked_any = False
         for vec in manifest["vectors"]:
             if vec["must_reject"]:
                 continue  # reject vectors deliberately carry non-vendored corrupt bytes
-            vec_hex = set(_hex_strings(vec.get("input"))) | set(
-                _hex_strings(vec.get("expected"))
-            )
-            checked_any = checked_any or bool(vec_hex)
-            non_vendored = vec_hex - vendored_hashes
-            assert not non_vendored, (
-                f"anchored area {manifest['area']} accept vector {vec['id']} carries "
-                f"byte(s) NOT in vendored suite {suite}: {sorted(non_vendored)} — the "
-                "values under test are self-derived, 'anchored' is unsubstantiated"
-            )
+            tokens = _anchorable_tokens(vec)
+            checked_any = checked_any or bool(tokens)
+            for token in tokens:
+                assert _traceable(token, blob), (
+                    f"anchored area {manifest['area']} accept vector {vec['id']} carries "
+                    f"a value NOT found in vendored suite {suite}: {token[:32]!r}… — the "
+                    "value under test is self-derived, 'anchored' is unsubstantiated"
+                )
         assert checked_any, (
-            f"anchored area {manifest['area']} has no checkable vendored bytes — an "
+            f"anchored area {manifest['area']} has no checkable vendored values — an "
             "'anchored' label with nothing traceable is vacuous"
         )
 
@@ -201,3 +237,22 @@ def test_go_kat_vector_matches_the_vendored_note_byte_for_byte():
     kat = next(v for v in checkpoint["vectors"] if v["id"] == "cp-note-go-kat-001")
     assert kat["interop_pending"] is False, "the Go KAT must be marked anchored"
     assert kat["expected"] == vendored["signed_note"]
+
+
+def test_jcs_vectors_match_the_vendored_output_byte_for_byte():
+    """The jcs area's anchor: each vector's expected (hex) MUST byte-decode to the
+    exact vendored RFC-8785 output file, and the input to the vendored input file —
+    so the anchored bytes are the upstream cyberphone bytes, not re-authored."""
+    jcs = next(m for _p, m in runner.iter_manifests() if m["area"] == "jcs")
+    suite = _VENDOR / "jcs_rfc8785"
+    assert jcs["vectors"], "jcs area is empty"
+    for vec in jcs["vectors"]:
+        assert vec["interop_pending"] is False, f"{vec['id']} must be anchored"
+        name = vec["id"].split("-")[1]  # jcs-<name>-001
+        expected_bytes = bytes.fromhex(vec["expected"])
+        assert (
+            expected_bytes == (suite / "output" / f"{name}.json").read_bytes()
+        ), f"jcs vector {vec['id']} expected != vendored output/{name}.json"
+        assert vec["input"]["value"] == json.loads(
+            (suite / "input" / f"{name}.json").read_text(encoding="utf-8")
+        ), f"jcs vector {vec['id']} input != vendored input/{name}.json"
