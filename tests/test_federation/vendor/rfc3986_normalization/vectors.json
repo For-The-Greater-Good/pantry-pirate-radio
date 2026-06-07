@@ -1,0 +1,16 @@
+{
+  "_comment": "RFC 3986 §6.2.2 percent/case-normalization vectors for app/federation/grammar.py:normalize_uri_component. RFC 3986 does not ship a separate machine-readable vector file; these are its WORKED EXAMPLES (verbatim, marked rfc-example) plus DIRECT applications of its normalization rules to the §2.3 unreserved set (marked rfc-rule-application). All are grounded in the RFC text — the spec author's examples or its explicit rules — NOT derived from PPR's implementation. See README.md for the source URL + sections. The verbatim examples anchor the reading (decode-unreserved §6.2.2.2; uppercase-hex §6.2.2.1); the rule-applications extend coverage under that anchored reading. normalize_uri_component is the LENIENT primitive (raw chars + malformed % are left verbatim); federation_id's stricter internal-id composes the same per-%XX step.",
+  "examples": [
+    {"input": "%7Esmith", "output": "~smith", "kind": "rfc-example", "source": "RFC 3986 §6.2.2.2 — '<http://example.com/%7Esmith/>' is equivalent to '<http://example.com/~smith/>'"},
+    {"input": "%3a", "output": "%3A", "kind": "rfc-example", "source": "RFC 3986 §6.2.2.1 — 'e.g., \"%3a\" versus \"%3A\"' hex digits normalized to uppercase ('::' is reserved, stays encoded)"},
+    {"input": "%7E", "output": "~", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.2 decode-unreserved + §2.3 (tilde is unreserved)"},
+    {"input": "%2D", "output": "-", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.2 + §2.3 (hyphen is unreserved)"},
+    {"input": "%5F", "output": "_", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.2 + §2.3 (underscore is unreserved)"},
+    {"input": "%2E", "output": ".", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.2 + §2.3 (period is unreserved)"},
+    {"input": "%41%42%43", "output": "ABC", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.2 + §2.3 (A/B/C are unreserved ALPHA)"},
+    {"input": "%30%39", "output": "09", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.2 + §2.3 (0/9 are unreserved DIGIT)"},
+    {"input": "%2f", "output": "%2F", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.1 (slash is reserved gen-delim — kept encoded, hex uppercased)"},
+    {"input": "%c3%a9", "output": "%C3%A9", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.1 (non-ASCII octet — not unreserved, kept encoded, hex uppercased)"},
+    {"input": "caf%c3%a9-bar%2Dbaz", "output": "caf%C3%A9-bar-baz", "kind": "rfc-rule-application", "source": "RFC 3986 §6.2.2.1/.2 mixed — UTF-8 octet kept+uppercased, %2D decoded to hyphen, raw chars verbatim"}
+  ]
+}

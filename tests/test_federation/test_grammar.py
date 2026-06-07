@@ -14,13 +14,17 @@ two-node loop) finally settles it.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.federation.grammar import normalize_federation_id
+from app.federation.grammar import normalize_federation_id, normalize_uri_component
+
+_VENDOR = Path(__file__).resolve().parent / "vendor"
 
 # --- accept vectors: input -> canonical output ---------------------------------
 ACCEPT = [
@@ -164,3 +168,58 @@ def test_property_hex_case_and_idempotency(host, body):
     assert normalize_federation_id(once) == once
     # output contains no lowercase hex inside a percent-escape
     assert not re.search(r"%[0-9a-f]", once.split(":", 1)[1])
+
+
+# --- normalize_uri_component: the RFC 3986 §6.2.2 primitive ---------------------
+URI_NORM = [
+    ("%7Esmith", "~smith"),  # RFC §6.2.2.2 verbatim example (decode unreserved)
+    ("%3a", "%3A"),  # RFC §6.2.2.1 verbatim example (uppercase hex, ':' reserved)
+    ("%7E", "~"),
+    ("%41%42%43", "ABC"),  # decode unreserved ALPHA
+    ("%2f", "%2F"),  # reserved '/' kept, hex uppercased
+    ("%c3%a9", "%C3%A9"),  # non-ASCII octet kept, hex uppercased
+    ("raw:colon/slash", "raw:colon/slash"),  # lenient: raw reserved kept verbatim
+    ("%zz", "%zz"),  # lenient: malformed % kept verbatim (no raise)
+    ("%4", "%4"),  # lenient: truncated % kept verbatim
+    ("plain-text_~.", "plain-text_~."),  # all-unreserved/raw: identity
+]
+
+
+@pytest.mark.parametrize("raw,expected", URI_NORM)
+def test_normalize_uri_component(raw, expected):
+    assert normalize_uri_component(raw) == expected
+
+
+@pytest.mark.parametrize("raw,expected", URI_NORM)
+def test_normalize_uri_component_idempotent(raw, expected):
+    once = normalize_uri_component(raw)
+    assert once == expected
+    assert normalize_uri_component(once) == once
+
+
+@given(s=st.text(alphabet="ABCDEFabcdef0123456789%~-._:/ ", min_size=0, max_size=24))
+def test_normalize_uri_component_total_and_idempotent(s):
+    """Total over arbitrary input (never raises) and idempotent."""
+    once = normalize_uri_component(s)
+    assert normalize_uri_component(once) == once
+
+
+def test_normalize_uri_component_matches_vendored_rfc3986_examples():
+    """The EXTERNAL ANCHOR: normalize_uri_component reproduces every RFC 3986 §6.2.2
+    worked example / rule-application in the vendored suite byte-for-byte. This is
+    what converts federation_id's percent/case MECHANIC from self-derived to
+    RFC-anchored (registry: vendored:rfc3986_normalization). The federation_id
+    COMPOSITION (host:internal-id, reject-raw-reserved) stays interop_pending."""
+    suite = json.loads(
+        (_VENDOR / "rfc3986_normalization" / "vectors.json").read_text(encoding="utf-8")
+    )
+    examples = suite["examples"]
+    assert examples, "vendored rfc3986_normalization suite is empty"
+    assert any(
+        ex["kind"] == "rfc-example" for ex in examples
+    ), "the anchor needs at least one verbatim RFC worked example"
+    for ex in examples:
+        assert normalize_uri_component(ex["input"]) == ex["output"], (
+            f"normalize_uri_component diverges from RFC 3986 example {ex['input']!r} "
+            f"({ex['source']})"
+        )
