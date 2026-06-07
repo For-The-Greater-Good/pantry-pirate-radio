@@ -94,6 +94,11 @@ def iter_manifests(corpus_dir: Path = CORPUS_DIR):
 # handlers depend only on the adapter Protocol (no app.* — portability).
 
 
+def _op_canonicalize(a: HsdsFxAdapter, i: dict) -> Any:
+    # RFC 8785 JCS: a JSON value in, canonical bytes out (compared as hex).
+    return a.canonicalize(i["value"]).hex()
+
+
 def _op_content_address(a: HsdsFxAdapter, i: dict) -> Any:
     return a.content_address(i["preimage"])
 
@@ -148,6 +153,7 @@ def _op_normalize_federation_id(a: HsdsFxAdapter, i: dict) -> Any:
 
 
 _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
+    "canonicalize": _op_canonicalize,
     "content_address": _op_content_address,
     "sign_envelope": _op_sign_envelope,
     "verify_envelope": _op_verify_envelope,

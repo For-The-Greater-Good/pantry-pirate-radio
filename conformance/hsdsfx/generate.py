@@ -731,6 +731,58 @@ def _gen_federation_id() -> dict:
     }
 
 
+# --- jcs area (Slice 5) ---------------------------------------------------------
+# GENUINELY ANCHORED: the RFC 8785 JCS canonicalization vectors are read VERBATIM
+# from the vendored cyberphone suite (the spec author's own conformance vectors —
+# the one that caught the #555 UTF-16 key-ordering defect). canonicalize is the
+# highest-divergence-risk primitive in the whole spec, so anchoring it directly
+# (not just transitively via the envelope content-address) is the point of this
+# slice. Accept-only KATs (canonicalize is a producer op, like content_address).
+
+_JCS_NAMES = ["arrays", "french", "structures", "unicode", "values", "weird"]
+
+
+def _gen_jcs() -> dict:
+    from app.federation.canonical import jcs_bytes
+
+    suite_dir = _VENDOR / "jcs_rfc8785"
+    vectors = []
+    for name in _JCS_NAMES:
+        inp = json.loads(
+            (suite_dir / "input" / f"{name}.json").read_text(encoding="utf-8")
+        )
+        expected_bytes = (suite_dir / "output" / f"{name}.json").read_bytes()
+        # Self-check: the reference impl must reproduce the vendored output verbatim
+        # (mirrors test_canonical_official_vectors.py) — drift here is a real defect.
+        if jcs_bytes(inp) != expected_bytes:
+            raise AssertionError(
+                f"jcs reference impl diverges from vendored output: {name}"
+            )
+        vectors.append(
+            {
+                "id": f"jcs-{name}-001",
+                "op": "canonicalize",
+                "description": (
+                    f"ANCHORED (RFC 8785, cyberphone '{name}' vector): JCS-canonicalize "
+                    "the input to the published byte-exact output (hex). The vendored "
+                    "output bytes are the anchor; the impl must reproduce them."
+                ),
+                "input": {"value": inp},
+                "expected": expected_bytes.hex(),
+                "must_reject": False,
+                "interop_pending": False,
+            }
+        )
+    return {
+        "area": "jcs",
+        "spec": "HSDS-FX/§6.1 (RFC 8785 JCS canonicalization)",
+        "reference_impl": "app/federation/canonical.py:jcs_bytes",
+        "interop_status": "anchored",
+        "derives_from": "vendor/jcs_rfc8785 (RFC 8785 official cyberphone vectors, verbatim)",
+        "vectors": vectors,
+    }
+
+
 _AREAS = {
     "envelope_content_address.json": _gen_content_address,
     "envelope_proof.json": _gen_proof,
@@ -739,6 +791,7 @@ _AREAS = {
     "export_wire.json": _gen_export_wire,
     "merkle_inclusion.json": _gen_merkle_inclusion,
     "federation_id.json": _gen_federation_id,
+    "jcs.json": _gen_jcs,
 }
 
 
