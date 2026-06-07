@@ -93,6 +93,20 @@ class HsdsFxAdapter(Protocol):
         is load-bearing — RFC-6962 leaf = sha256(0x00 ‖ data)."""
         ...
 
+    def verify_consistency(
+        self,
+        first_size: int,
+        second_size: int,
+        proof_hex: list[str],
+        first_root_hex: str,
+        second_root_hex: str,
+    ) -> bool:
+        """True iff ``proof_hex`` shows the size-``second_size`` tree is an
+        APPEND-ONLY extension of the size-``first_size`` tree (RFC-6962 §2.1.2): a
+        rewritten / forked / truncated history cannot satisfy it. Roots/proof are
+        hex of the 32-byte node hashes."""
+        ...
+
     # --- federation_id grammar (§8.x / design §135) ---------------------------
 
     def normalize_federation_id(self, value: str) -> str:
@@ -227,6 +241,24 @@ class RefAdapter:
             n,
             [bytes.fromhex(h) for h in proof_hex],
             bytes.fromhex(root_hex),
+        )
+
+    def verify_consistency(
+        self,
+        first_size: int,
+        second_size: int,
+        proof_hex: list[str],
+        first_root_hex: str,
+        second_root_hex: str,
+    ) -> bool:
+        from app.federation.merkle import verify_consistency
+
+        return verify_consistency(
+            first_size,
+            second_size,
+            [bytes.fromhex(h) for h in proof_hex],
+            bytes.fromhex(first_root_hex),
+            bytes.fromhex(second_root_hex),
         )
 
     def normalize_federation_id(self, value: str) -> str:

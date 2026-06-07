@@ -552,6 +552,98 @@ def _gen_merkle_inclusion() -> dict:
     }
 
 
+# --- consistency_proof area (Slice 8) -------------------------------------------
+# GENUINELY ANCHORED (mirrors merkle_inclusion): RFC-6962 consistency proofs read
+# VERBATIM from the vendored transparency-dev suite. This anchors the "the new log
+# head is an APPEND-ONLY extension of the one I last saw" check (§6.2b) — the
+# property that makes a rewritten / forked / truncated history PROVABLE, not merely
+# alleged. Carries the root-equality teeth (wrong-second-root, tampered-proof).
+
+
+def _gen_consistency_proof() -> dict:
+    suite = json.loads(
+        (_VENDOR / "rfc6962_transparency_dev" / "vectors.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    proofs = suite["consistency_proofs"]
+    vectors = []
+    for k, cp in enumerate(proofs, start=1):
+        vectors.append(
+            {
+                "id": f"consistency-{k:03d}",
+                "op": "verify_consistency",
+                "description": (
+                    f"ANCHORED (RFC-6962, transparency-dev {cp['source']}): the "
+                    f"size-{cp['second_size']} tree is a proven append-only extension "
+                    f"of the size-{cp['first_size']} tree. Proof/root bytes are "
+                    "vendored verbatim — a genuinely external anchor."
+                ),
+                "input": {
+                    "first_size": cp["first_size"],
+                    "second_size": cp["second_size"],
+                    "proof_hex": cp["proof_hex"],
+                    "first_root_hex": cp["first_root_hex"],
+                    "second_root_hex": cp["second_root_hex"],
+                },
+                "expected": True,
+                "must_reject": False,
+                "interop_pending": False,
+            }
+        )
+    good = proofs[0]
+    # (a) a valid proof checked against a DIFFERENT second root MUST fail — the
+    #     load-bearing equality (a forked/rewritten head reconstructs a different root).
+    vectors.append(
+        {
+            "id": "consistency-wrong-second-root-001",
+            "op": "verify_consistency",
+            "description": (
+                "A valid vendored consistency proof checked against a DIFFERENT "
+                "(empty-tree) second root MUST fail — a rewritten/forked head cannot "
+                "reconstruct the claimed root."
+            ),
+            "input": {
+                "first_size": good["first_size"],
+                "second_size": good["second_size"],
+                "proof_hex": good["proof_hex"],
+                "first_root_hex": good["first_root_hex"],
+                "second_root_hex": suite["empty_root_hex"],
+            },
+            "must_reject": True,
+        }
+    )
+    # (b) a proof with one hash byte flipped MUST fail — proof integrity.
+    tampered = list(good["proof_hex"])
+    tampered[0] = _flip_hex(tampered[0])
+    vectors.append(
+        {
+            "id": "consistency-tampered-proof-001",
+            "op": "verify_consistency",
+            "description": (
+                "A vendored consistency proof with a single flipped nibble in its "
+                "first hash MUST fail (proof integrity)."
+            ),
+            "input": {
+                "first_size": good["first_size"],
+                "second_size": good["second_size"],
+                "proof_hex": tampered,
+                "first_root_hex": good["first_root_hex"],
+                "second_root_hex": good["second_root_hex"],
+            },
+            "must_reject": True,
+        }
+    )
+    return {
+        "area": "consistency_proof",
+        "spec": "HSDS-FX/§6.2b (RFC-6962 consistency)",
+        "reference_impl": "app/federation/merkle.py:verify_consistency",
+        "interop_status": "anchored",
+        "derives_from": "vendor/rfc6962_transparency_dev (consistency proofs, verbatim)",
+        "vectors": vectors,
+    }
+
+
 # --- federation_id grammar area (Slice 4) ---------------------------------------
 # INTEROP_PENDING: the federation_id = <host> ":" <internal-id> composition is a
 # PPR-native canonical reading (design §135) with no upstream conformance suite —
@@ -1030,6 +1122,7 @@ _AREAS = {
     "checkpoint.json": _gen_checkpoint,
     "export_wire.json": _gen_export_wire,
     "merkle_inclusion.json": _gen_merkle_inclusion,
+    "consistency_proof.json": _gen_consistency_proof,
     "federation_id.json": _gen_federation_id,
     "jcs.json": _gen_jcs,
     "activity_verbs.json": _gen_activity_verbs,

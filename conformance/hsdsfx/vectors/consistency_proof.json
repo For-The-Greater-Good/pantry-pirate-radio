@@ -1,0 +1,118 @@
+{
+  "area": "consistency_proof",
+  "spec": "HSDS-FX/§6.2b (RFC-6962 consistency)",
+  "reference_impl": "app/federation/merkle.py:verify_consistency",
+  "interop_status": "anchored",
+  "derives_from": "vendor/rfc6962_transparency_dev (consistency proofs, verbatim)",
+  "vectors": [
+    {
+      "id": "consistency-001",
+      "op": "verify_consistency",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/consistency/1/happy-path.json): the size-8 tree is a proven append-only extension of the size-1 tree. Proof/root bytes are vendored verbatim — a genuinely external anchor.",
+      "input": {
+        "first_size": 1,
+        "second_size": 8,
+        "proof_hex": [
+          "96a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"
+        ],
+        "first_root_hex": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "second_root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "consistency-002",
+      "op": "verify_consistency",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/consistency/2/happy-path.json): the size-8 tree is a proven append-only extension of the size-6 tree. Proof/root bytes are vendored verbatim — a genuinely external anchor.",
+      "input": {
+        "first_size": 6,
+        "second_size": 8,
+        "proof_hex": [
+          "0ebc5d3437fbe2db158b9f126a1d118e308181031d0a949f8dededebc558ef6a",
+          "ca854ea128ed050b41b35ffc1b87b8eb2bde461e9e3b5596ece6b9d5975a0ae0",
+          "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7"
+        ],
+        "first_root_hex": "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+        "second_root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "consistency-003",
+      "op": "verify_consistency",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/consistency/3/happy-path.json): the size-5 tree is a proven append-only extension of the size-2 tree. Proof/root bytes are vendored verbatim — a genuinely external anchor.",
+      "input": {
+        "first_size": 2,
+        "second_size": 5,
+        "proof_hex": [
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b"
+        ],
+        "first_root_hex": "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+        "second_root_hex": "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "consistency-004",
+      "op": "verify_consistency",
+      "description": "ANCHORED (RFC-6962, transparency-dev testdata/consistency/4/happy-path.json): the size-7 tree is a proven append-only extension of the size-6 tree. Proof/root bytes are vendored verbatim — a genuinely external anchor.",
+      "input": {
+        "first_size": 6,
+        "second_size": 7,
+        "proof_hex": [
+          "0ebc5d3437fbe2db158b9f126a1d118e308181031d0a949f8dededebc558ef6a",
+          "b08693ec2e721597130641e8211e7eedccb4c26413963eee6c1e2ed16ffb1a5f",
+          "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7"
+        ],
+        "first_root_hex": "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+        "second_root_hex": "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c"
+      },
+      "expected": true,
+      "must_reject": false,
+      "interop_pending": false
+    },
+    {
+      "id": "consistency-wrong-second-root-001",
+      "op": "verify_consistency",
+      "description": "A valid vendored consistency proof checked against a DIFFERENT (empty-tree) second root MUST fail — a rewritten/forked head cannot reconstruct the claimed root.",
+      "input": {
+        "first_size": 1,
+        "second_size": 8,
+        "proof_hex": [
+          "96a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"
+        ],
+        "first_root_hex": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "second_root_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "consistency-tampered-proof-001",
+      "op": "verify_consistency",
+      "description": "A vendored consistency proof with a single flipped nibble in its first hash MUST fail (proof integrity).",
+      "input": {
+        "first_size": 1,
+        "second_size": 8,
+        "proof_hex": [
+          "06a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
+          "5f083f0a1a33ca076a95279832580db3e0ef4584bdff1f54c8a360f50de3031e",
+          "6b47aaf29ee3c2af9af889bc1fb9254dabd31177f16232dd6aab035ca39bf6e4"
+        ],
+        "first_root_hex": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "second_root_hex": "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328"
+      },
+      "must_reject": true
+    }
+  ]
+}

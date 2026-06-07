@@ -377,3 +377,39 @@ def test_merkle_inclusion_vectors_match_vendored_proof_tuples():
         assert (
             tup in vendored
         ), f"merkle accept {v['id']} is not a complete vendored inclusion-proof tuple"
+
+
+def test_consistency_proof_vectors_match_vendored_proof_tuples():
+    """The consistency_proof anchor (mirrors merkle_inclusion): each ACCEPT vector
+    must be a COMPLETE vendored RFC-6962 consistency-proof tuple (first_size,
+    second_size, proof, first_root, second_root), not vendored fragments reassembled."""
+    suite = json.loads(
+        (_VENDOR / "rfc6962_transparency_dev" / "vectors.json").read_text("utf-8")
+    )
+    vendored = {
+        (
+            cp["first_size"],
+            cp["second_size"],
+            tuple(h.lower() for h in cp["proof_hex"]),
+            cp["first_root_hex"].lower(),
+            cp["second_root_hex"].lower(),
+        )
+        for cp in suite["consistency_proofs"]
+    }
+    area = next(
+        m for _p, m in runner.iter_manifests() if m["area"] == "consistency_proof"
+    )
+    accepts = [v for v in area["vectors"] if not v["must_reject"]]
+    assert accepts, "consistency_proof has no accept vectors"
+    for v in accepts:
+        i = v["input"]
+        tup = (
+            i["first_size"],
+            i["second_size"],
+            tuple(h.lower() for h in i["proof_hex"]),
+            i["first_root_hex"].lower(),
+            i["second_root_hex"].lower(),
+        )
+        assert (
+            tup in vendored
+        ), f"consistency accept {v['id']} is not a complete vendored consistency-proof tuple"
