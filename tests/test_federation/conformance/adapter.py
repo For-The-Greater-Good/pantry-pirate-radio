@@ -93,6 +93,17 @@ class HsdsFxAdapter(Protocol):
         is load-bearing — RFC-6962 leaf = sha256(0x00 ‖ data)."""
         ...
 
+    # --- federation_id grammar (§8.x / design §135) ---------------------------
+
+    def normalize_federation_id(self, value: str) -> str:
+        """Canonicalize ``federation_id = <host> ":" <internal-id>``: split on the
+        FIRST colon; ASCII-lowercase the host + strip one trailing dot; RFC 3986
+        §6.2.2-normalize the internal-id (decode %XX of unreserved octets, uppercase
+        the hex of the rest). Deterministic, idempotent, collision-safe. RAISE on a
+        malformed id (no colon, empty side, non-ASCII host, raw reserved char in the
+        internal-id, malformed percent-escape)."""
+        ...
+
 
 class RefAdapter:
     """PPR's reference adapter — wraps ``app.federation`` (the reference impl).
@@ -205,3 +216,8 @@ class RefAdapter:
             [bytes.fromhex(h) for h in proof_hex],
             bytes.fromhex(root_hex),
         )
+
+    def normalize_federation_id(self, value: str) -> str:
+        from app.federation.grammar import normalize_federation_id
+
+        return normalize_federation_id(value)

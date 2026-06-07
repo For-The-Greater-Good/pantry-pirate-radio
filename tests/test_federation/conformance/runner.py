@@ -143,6 +143,10 @@ def _op_verify_inclusion(a: HsdsFxAdapter, i: dict) -> Any:
     )
 
 
+def _op_normalize_federation_id(a: HsdsFxAdapter, i: dict) -> Any:
+    return a.normalize_federation_id(i["federation_id"])
+
+
 _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
     "content_address": _op_content_address,
     "sign_envelope": _op_sign_envelope,
@@ -153,6 +157,7 @@ _OPS: dict[str, Callable[[HsdsFxAdapter, dict], Any]] = {
     "verify_note": _op_verify_note,
     "parse_checkpoint": _op_parse_checkpoint,
     "verify_inclusion": _op_verify_inclusion,
+    "normalize_federation_id": _op_normalize_federation_id,
 }
 
 #: Ops whose normal return value already signals rejection (False), so a
