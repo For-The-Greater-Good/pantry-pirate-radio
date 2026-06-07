@@ -14,13 +14,17 @@ two-node loop) finally settles it.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from app.federation.grammar import normalize_federation_id
+from app.federation.grammar import normalize_federation_id, normalize_uri_component
+
+_VENDOR = Path(__file__).resolve().parent / "vendor"
 
 # --- accept vectors: input -> canonical output ---------------------------------
 ACCEPT = [
@@ -164,3 +168,70 @@ def test_property_hex_case_and_idempotency(host, body):
     assert normalize_federation_id(once) == once
     # output contains no lowercase hex inside a percent-escape
     assert not re.search(r"%[0-9a-f]", once.split(":", 1)[1])
+
+
+# --- normalize_uri_component: the RFC 3986 §6.2.2 primitive ---------------------
+URI_NORM = [
+    ("%7Esmith", "~smith"),  # rule-application: %7E='~' unreserved (§6.2.2.2 + §2.3)
+    ("%3a", "%3A"),  # RFC 3986 §6.2.2.1 VERBATIM example (uppercase hex; ':' reserved)
+    ("%7E", "~"),
+    ("%41%42%43", "ABC"),  # decode unreserved ALPHA
+    ("%2f", "%2F"),  # reserved '/' kept, hex uppercased
+    ("%c3%a9", "%C3%A9"),  # non-ASCII octet kept, hex uppercased
+    ("raw:colon/slash", "raw:colon/slash"),  # raw non-% chars kept verbatim
+    ("%zz", "%25zz"),  # a stray '%' (not a valid escape) is itself encoded -> %25
+    ("%4", "%254"),  # a truncated '%' is encoded -> %25, then the '4' is literal
+    ("a%%33b", "a%253b"),  # first '%' stray -> %25, then %33='3' decoded
+    ("plain-text_~.", "plain-text_~."),  # all-unreserved/raw: identity
+]
+
+
+@pytest.mark.parametrize("raw,expected", URI_NORM)
+def test_normalize_uri_component(raw, expected):
+    assert normalize_uri_component(raw) == expected
+
+
+@pytest.mark.parametrize("raw,expected", URI_NORM)
+def test_normalize_uri_component_idempotent(raw, expected):
+    once = normalize_uri_component(raw)
+    assert once == expected
+    assert normalize_uri_component(once) == once
+
+
+@pytest.mark.parametrize(
+    "raw", ["%4%41", "%8%62", "a%%33b", "%4%42", "%", "%%", "%g%30", "%4%4%41"]
+)
+def test_normalize_uri_component_idempotent_on_malformed(raw):
+    """A FIXED POINT even on malformed input: a Gauntlet found the earlier
+    keep-verbatim form let a stray '%' recombine with a following decoded escape
+    (%4%41 -> %4A -> J). Encoding the stray '%' (-> %25) makes f(f(x)) == f(x)."""
+    once = normalize_uri_component(raw)
+    assert normalize_uri_component(once) == once
+
+
+@given(s=st.text(alphabet="ABCDEFabcdef0123456789%~-._:/ ", min_size=0, max_size=24))
+def test_normalize_uri_component_total_and_idempotent(s):
+    """Total over arbitrary input (never raises) and an UNCONDITIONAL fixed point."""
+    once = normalize_uri_component(s)
+    assert normalize_uri_component(once) == once
+
+
+def test_normalize_uri_component_matches_vendored_rfc3986_examples():
+    """The EXTERNAL ANCHOR: normalize_uri_component reproduces every RFC 3986 §6.2.2
+    worked example / rule-application in the vendored suite byte-for-byte. This is
+    what converts federation_id's percent/case MECHANIC from self-derived to
+    RFC-anchored (registry: vendored:rfc3986_normalization). The federation_id
+    COMPOSITION (host:internal-id, reject-raw-reserved) stays interop_pending."""
+    suite = json.loads(
+        (_VENDOR / "rfc3986_normalization" / "vectors.json").read_text(encoding="utf-8")
+    )
+    examples = suite["examples"]
+    assert examples, "vendored rfc3986_normalization suite is empty"
+    assert any(
+        ex["kind"] == "rfc-example" for ex in examples
+    ), "the anchor needs at least one verbatim RFC worked example"
+    for ex in examples:
+        assert normalize_uri_component(ex["input"]) == ex["output"], (
+            f"normalize_uri_component diverges from RFC 3986 example {ex['input']!r} "
+            f"({ex['source']})"
+        )

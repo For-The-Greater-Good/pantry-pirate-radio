@@ -54,6 +54,48 @@ _HOST_CHARS = frozenset(
 _HEXDIG = frozenset("0123456789abcdefABCDEF")
 
 
+def _pct_canon(h2: str) -> str:
+    """RFC 3986 §6.2.2 normalization of one ``%XX`` (``h2`` = its two hex digits):
+    decode a percent-encoded UNRESERVED octet to its character (§6.2.2.2), else keep
+    it encoded with UPPERCASE hex (§6.2.2.1)."""
+    octet = int(h2, 16)
+    ch = chr(octet)
+    if octet < 0x80 and ch in _UNRESERVED:
+        return ch
+    return "%" + h2.upper()
+
+
+def normalize_uri_component(value: str) -> str:
+    """RFC 3986 §6.2.2 percent/case normalization of a URI component string: decode
+    every percent-encoded UNRESERVED octet (§6.2.2.2) and UPPERCASE the hex of every
+    other percent-encoding (§6.2.2.1). A ``%`` that does NOT begin a valid ``%XX``
+    escape is itself percent-encoded (``%`` → ``%25``); raw non-``%`` characters are
+    left verbatim. Total over arbitrary input (never raises) and a genuine FIXED
+    POINT — ``normalize_uri_component(normalize_uri_component(x)) == ...(x)`` for ALL
+    ``x`` — because the output never contains a stray ``%`` that could re-form an
+    escape on a second pass (encoding the stray ``%`` is what makes this hold; the
+    earlier keep-verbatim form let ``%4`` + a decoded ``%31`` recombine into ``%41``).
+    This canonicalizes; it does not reject. ``federation_id``'s stricter internal-id
+    rule (reject a raw reserved char / a malformed escape outright) composes the same
+    per-``%XX`` step via ``_pct_canon``. Externally anchored to the RFC 3986 §6.2.2
+    rules (``tests/test_federation/vendor/rfc3986_normalization/``)."""
+    out: list[str] = []
+    i, n = 0, len(value)
+    while i < n:
+        c = value[i]
+        if c == "%":
+            if i + 2 < n and value[i + 1] in _HEXDIG and value[i + 2] in _HEXDIG:
+                out.append(_pct_canon(value[i + 1 : i + 3]))
+                i += 3
+            else:
+                out.append("%25")  # a stray '%' is itself percent-encoded (idempotent)
+                i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def normalize_federation_id(value: str) -> str:
     """Canonicalize a ``federation_id``; raise ``ValueError`` if malformed. Pure."""
     if not isinstance(value, str):
@@ -96,12 +138,7 @@ def _normalize_internal_id(id_raw: str) -> str:
                 or id_raw[i + 2] not in _HEXDIG
             ):
                 raise ValueError("malformed percent-escape in federation_id")
-            octet = int(id_raw[i + 1 : i + 3], 16)
-            ch = chr(octet)
-            if octet < 0x80 and ch in _UNRESERVED:
-                out.append(ch)  # §6.2.2.2 decode-unreserved
-            else:
-                out.append("%" + id_raw[i + 1 : i + 3].upper())  # §6.2.2.1 keep, upper
+            out.append(_pct_canon(id_raw[i + 1 : i + 3]))  # §6.2.2 normalize
             i += 3
         elif c in _UNRESERVED:
             out.append(c)
