@@ -783,6 +783,231 @@ def _gen_jcs() -> dict:
     }
 
 
+# --- activity_verbs area (Slice 6) ----------------------------------------------
+# INTEROP_PENDING: the verb wire semantics (Update/Announce/Delete authority +
+# Tombstone shape) are a PPR-native reading (no external anchor) — settled only by
+# the P2 two-node loop. validate_activity is a boolean verify op (reject vectors pass
+# on False/raise). Stateless wire rules ONLY; ingest policy (allow-list, sequence,
+# corroboration, merge) is deferred to P2.
+
+_ACT_A = "did:web:a.example"
+_ACT_B = "did:web:b.example"
+_ACT_OBJ = {"id": "loc-1", "name": "Test Pantry"}
+
+
+def _act_env(verb, actor, attributed_to, origin, obj, federation_id="a.example:loc-1"):
+    return {
+        "@context": _CONTEXT,
+        "type": verb,
+        "actor": actor,
+        "attributedTo": attributed_to,
+        "origin": origin,
+        "federation_id": federation_id,
+        "object": obj,
+        "published": "2026-06-07T00:00:00Z",
+        "sequence": 1,
+        "license": "sandia-ftgg-nc-os-1.0",
+    }
+
+
+def _tomb(federation_id="a.example:dead", redirect="a.example:survivor", **extra):
+    obj = {"type": "Tombstone", "federation_id": federation_id, "redirectTo": redirect}
+    obj.update(extra)
+    return obj
+
+
+_ACT_ACCEPT = [
+    (
+        "act-update-own-001",
+        _act_env("Update", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "Update own-authority: actor==attributedTo==origin; non-empty object.",
+    ),
+    (
+        "act-announce-distinct-001",
+        _act_env("Announce", _ACT_B, _ACT_A, _ACT_A, _ACT_OBJ),
+        "Announce relays a DISTINCT origin: actor=announcer, attributedTo==origin (the corroborated authority), origin!=actor.",
+    ),
+    (
+        "act-delete-survivor-001",
+        _act_env("Delete", _ACT_A, _ACT_A, _ACT_A, _tomb()),
+        "Delete: object=Tombstone{type,federation_id,redirectTo=<survivor>}; actor==attributedTo==origin.",
+    ),
+    (
+        "act-delete-null-redirect-001",
+        _act_env("Delete", _ACT_A, _ACT_A, _ACT_A, _tomb(redirect=None)),
+        "Delete with no survivor: redirectTo present and null.",
+    ),
+    (
+        "act-tombstone-extra-key-ignored-001",
+        _act_env("Delete", _ACT_A, _ACT_A, _ACT_A, _tomb(reason="duplicate")),
+        "§8.4 forward-compat: an UNKNOWN extra key on the Tombstone object is IGNORED (accepted), not rejected.",
+    ),
+]
+_ACT_REJECT = [
+    (
+        "act-update-actor-ne-attributedto-001",
+        _act_env("Update", _ACT_A, _ACT_B, _ACT_A, _ACT_OBJ),
+        "Update with actor!=attributedTo (§117 actor==attributedTo for Update/Delete).",
+    ),
+    (
+        "act-update-origin-ne-actor-001",
+        _act_env("Update", _ACT_A, _ACT_A, _ACT_B, _ACT_OBJ),
+        "Update with origin!=actor — a relayed assertion must use Announce (Update is own-authority).",
+    ),
+    (
+        "act-delete-actor-ne-attributedto-001",
+        _act_env("Delete", _ACT_A, _ACT_B, _ACT_A, _tomb()),
+        "Delete with actor!=attributedTo (§117).",
+    ),
+    (
+        "act-delete-origin-ne-actor-001",
+        _act_env("Delete", _ACT_A, _ACT_A, _ACT_B, _tomb()),
+        "Delete with origin!=actor (own-authority).",
+    ),
+    (
+        "act-announce-origin-eq-actor-001",
+        _act_env("Announce", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "Announce with origin==actor — a peer announcing its own data is an Update, not an Announce.",
+    ),
+    (
+        "act-announce-attributedto-eq-actor-001",
+        _act_env("Announce", _ACT_B, _ACT_B, _ACT_A, _ACT_OBJ),
+        "Announce with attributedTo==actor!=origin — the data must be attributed to the corroborated origin (§12.1).",
+    ),
+    (
+        "act-announce-missing-origin-001",
+        _act_env("Announce", _ACT_B, _ACT_A, "", _ACT_OBJ),
+        "Announce with empty origin — MUST carry the original origin (§160/§205).",
+    ),
+    (
+        "act-verb-create-001",
+        _act_env("Create", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "Unknown verb 'Create' — the verb set is closed at {Update,Announce,Delete}.",
+    ),
+    (
+        "act-verb-flag-001",
+        _act_env("Flag", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "'Flag' is reserved for a later phase, not a v1 verb.",
+    ),
+    (
+        "act-verb-tombstone-as-verb-001",
+        _act_env("Tombstone", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "'Tombstone' is an object type, never an envelope verb.",
+    ),
+    (
+        "act-verb-lowercase-001",
+        _act_env("update", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ),
+        "Verb strings are case-sensitive: 'update' != 'Update'.",
+    ),
+    (
+        "act-missing-actor-001",
+        _act_env("Update", "", _ACT_A, _ACT_A, _ACT_OBJ),
+        "Empty actor — actor/attributedTo/origin are required non-empty strings.",
+    ),
+    (
+        "act-empty-fedid-001",
+        _act_env("Update", _ACT_A, _ACT_A, _ACT_A, _ACT_OBJ, federation_id=""),
+        "Empty top-level federation_id (shallow non-empty check; full grammar is its own area).",
+    ),
+    (
+        "act-update-empty-object-001",
+        _act_env("Update", _ACT_A, _ACT_A, _ACT_A, {}),
+        "Update with an empty object — the object must be a non-empty dict.",
+    ),
+    (
+        "act-tombstone-bad-type-001",
+        _act_env(
+            "Delete",
+            _ACT_A,
+            _ACT_A,
+            _ACT_A,
+            {"type": "Delete", "federation_id": "a.example:d", "redirectTo": None},
+        ),
+        "Delete whose object.type != 'Tombstone'.",
+    ),
+    (
+        "act-tombstone-missing-redirect-001",
+        _act_env(
+            "Delete",
+            _ACT_A,
+            _ACT_A,
+            _ACT_A,
+            {"type": "Tombstone", "federation_id": "a.example:d"},
+        ),
+        "Tombstone missing the required redirectTo key (required even when null).",
+    ),
+    (
+        "act-tombstone-redirect-nonstring-001",
+        _act_env(
+            "Delete",
+            _ACT_A,
+            _ACT_A,
+            _ACT_A,
+            {"type": "Tombstone", "federation_id": "a.example:d", "redirectTo": 123},
+        ),
+        "Tombstone redirectTo is a non-string, non-null value.",
+    ),
+    (
+        "act-tombstone-empty-fedid-001",
+        _act_env(
+            "Delete",
+            _ACT_A,
+            _ACT_A,
+            _ACT_A,
+            {"type": "Tombstone", "federation_id": "", "redirectTo": None},
+        ),
+        "Tombstone with an empty federation_id.",
+    ),
+]
+
+
+def _gen_activity_verbs() -> dict:
+    from app.federation.activities import validate_activity
+
+    vectors = []
+    for vid, env, desc in _ACT_ACCEPT:
+        if validate_activity(env) is not True:  # generator self-check
+            raise AssertionError(
+                f"accept vector {vid} not accepted by the reference impl"
+            )
+        vectors.append(
+            {
+                "id": vid,
+                "op": "validate_activity",
+                "description": desc,
+                "input": {"envelope": env},
+                "expected": True,
+                "must_reject": False,
+                "interop_pending": True,
+                "interop_row": 9,
+            }
+        )
+    for vid, env, desc in _ACT_REJECT:
+        if validate_activity(env) is not False:  # generator self-check
+            raise AssertionError(
+                f"reject vector {vid} was accepted by the reference impl"
+            )
+        vectors.append(
+            {
+                "id": vid,
+                "op": "validate_activity",
+                "description": desc,
+                "input": {"envelope": env},
+                "must_reject": True,
+                "interop_pending": True,
+                "interop_row": 9,
+            }
+        )
+    return {
+        "area": "activity_verbs",
+        "spec": "HSDS-FX/§8.x (verbs §117/§160/§204-206; Tombstone §160)",
+        "reference_impl": "app/federation/activities.py:validate_activity",
+        "interop_status": "interop_pending",
+        "derives_from": "INTEROP_PENDING.md row 9 (Update/Announce/Delete authority relations + Tombstone shape; stateless wire only)",
+        "vectors": vectors,
+    }
+
+
 _AREAS = {
     "envelope_content_address.json": _gen_content_address,
     "envelope_proof.json": _gen_proof,
@@ -792,6 +1017,7 @@ _AREAS = {
     "merkle_inclusion.json": _gen_merkle_inclusion,
     "federation_id.json": _gen_federation_id,
     "jcs.json": _gen_jcs,
+    "activity_verbs.json": _gen_activity_verbs,
 }
 
 

@@ -104,6 +104,18 @@ class HsdsFxAdapter(Protocol):
         internal-id, malformed percent-escape)."""
         ...
 
+    # --- activity verbs (§117/§160/§204-206) ----------------------------------
+
+    def validate_activity(self, envelope: dict[str, Any]) -> bool:
+        """True iff ``envelope`` satisfies the STATELESS verb wire rules: verb ∈
+        {Update, Announce, Delete}; Update/Delete have actor==attributedTo==origin;
+        Announce carries a distinct origin (origin!=actor) with attributedTo==origin;
+        a Delete's object is a Tombstone {type:"Tombstone", federation_id, redirectTo
+        (null|str)} (unknown keys ignored, §8.4). Stateless only — no allow-list /
+        sequence / corroboration / merge, and NOT a re-check of id/proof or the full
+        federation_id grammar."""
+        ...
+
 
 class RefAdapter:
     """PPR's reference adapter — wraps ``app.federation`` (the reference impl).
@@ -221,3 +233,8 @@ class RefAdapter:
         from app.federation.grammar import normalize_federation_id
 
         return normalize_federation_id(value)
+
+    def validate_activity(self, envelope: dict[str, Any]) -> bool:
+        from app.federation.activities import validate_activity
+
+        return validate_activity(envelope)
