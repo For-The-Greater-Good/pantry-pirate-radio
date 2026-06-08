@@ -271,6 +271,21 @@ def test_checkpoint_and_state_txt_signed(client, seeded_log):
     assert state.text == cp["note"]
 
 
+def test_checkpoint_and_state_txt_expose_retention_horizon(client, seeded_log):
+    """The retention horizon (the sequence below which leaves are archived, =
+    live_window_floor) is advertised UNSIGNED so peers learn the floor: a JSON
+    sibling on /checkpoint and an X-Federation-Retention-Horizon header on
+    /state.txt — never inside the rigid C2SP signed note body (Go-witness interop).
+    Unpruned here, so it equals the floor of 1."""
+    cp = client.get("/api/v1/federation/checkpoint").json()
+    assert cp["retention_horizon_sequence"] == 1
+    assert cp["retention_horizon_sequence"] == cp["live_window_floor"]
+    state = client.get("/api/v1/federation/state.txt")
+    assert state.headers["X-Federation-Retention-Horizon"] == "1"
+    # The signed note body itself is untouched (still the rigid C2SP 4-line shape).
+    assert state.text == cp["note"]
+
+
 def test_consistency_proof_detects_rewritten_log(client, seeded_log):
     """A consumer holding the pre-tamper checkpoint detects a rewritten leaf via
     the consistency proof the endpoint serves — provable, not alleged."""

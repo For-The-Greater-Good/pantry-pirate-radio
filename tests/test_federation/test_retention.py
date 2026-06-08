@@ -23,8 +23,6 @@ These tests pin that contract (DB-backed; all data fictional):
 
 from __future__ import annotations
 
-import os
-
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import create_engine, text
@@ -61,7 +59,9 @@ def db_session(monkeypatch, tmp_path):
     # Point the log's archive read-back at a temp local-fs tier so leaf_data can
     # source below-floor leaves after a trim (the dev realization of §6.2g).
     monkeypatch.setattr(live, "FEDERATION_ARCHIVE_PATH", str(tmp_path), raising=False)
-    url = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
+    # Seed where the entrypoint + router read: settings.DATABASE_URL (test-aware
+    # under pytest), so the prune entrypoint's own session hits the seeded DB.
+    url = live.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
     engine = create_engine(url)
     session = sessionmaker(bind=engine)()
     session.execute(text("TRUNCATE federation_log"))
@@ -217,3 +217,28 @@ def test_prune_is_a_noop_when_federation_disabled(db_session, monkeypatch) -> No
     )
     assert result.archived_count == 0
     assert log.live_window_floor(db_session) == 1
+
+
+def test_prune_entrypoint_refuses_without_an_archive_backend(db_session, monkeypatch):
+    """The bouy/Lambda prune entrypoint REFUSES (exit 1, no trim) when no archive
+    tier is configured — trimming without archiving first would destroy tree state."""
+    from app.core.config import settings as live
+    from app.federation.__main__ import _prune
+
+    monkeypatch.setattr(live, "FEDERATION_ARCHIVE_BACKEND", "file")
+    monkeypatch.setattr(live, "FEDERATION_ARCHIVE_PATH", None, raising=False)
+    _seed_five(db_session)
+    assert _prune() == 1
+    assert log.live_window_floor(db_session) == 1  # nothing trimmed
+
+
+def test_prune_entrypoint_archives_and_trims(db_session, monkeypatch):
+    """The entrypoint wires resolve_archive_backend + FEDERATION_RETENTION_DAYS into
+    prune_to_horizon end-to-end (the Docker worker path)."""
+    from app.core.config import settings as live
+    from app.federation.__main__ import _prune
+
+    monkeypatch.setattr(live, "FEDERATION_RETENTION_DAYS", 30)
+    _seed_five(db_session)
+    assert _prune() == 0
+    assert log.live_window_floor(db_session) == 4

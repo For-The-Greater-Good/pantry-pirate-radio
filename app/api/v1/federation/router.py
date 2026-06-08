@@ -196,6 +196,11 @@ def checkpoint(
     try:
         floor = log.live_window_floor(session)
         body["live_window_floor"] = floor
+        # The retention horizon == the live-window floor (the sequence below which
+        # leaves are archived, §6.2g). Exposed UNSIGNED here under the spec name so a
+        # peer learns the floor; NOT added to the signed C2SP note body (rigid 4-line
+        # shape — a Go witness would reject an extra line). One source: live_window_floor.
+        body["retention_horizon_sequence"] = floor
         # §6.3: serve the proof material a consumer needs to verify the log only
         # GREW (RFC-6962 consistency) from a prior checkpoint it holds.
         if from_tree_size is not None and 0 < from_tree_size <= tree_size:
@@ -223,7 +228,19 @@ def checkpoint(
 @router.get("/state.txt")
 def state_txt() -> PlainTextResponse:
     _require_enabled()
-    return PlainTextResponse(_current_note(), media_type="text/plain")
+    note = _current_note()
+    # The retention horizon rides as an UNSIGNED header (the body stays the pure
+    # C2SP signed note — never add a line to it, §6.2b / Go-witness interop).
+    session = _session()
+    try:
+        horizon = log.live_window_floor(session)
+    finally:
+        session.close()
+    return PlainTextResponse(
+        note,
+        media_type="text/plain",
+        headers={"X-Federation-Retention-Horizon": str(horizon)},
+    )
 
 
 @router.get("/history/{federation_id:path}")
