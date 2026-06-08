@@ -56,6 +56,29 @@ def _b58encode(data: bytes) -> str:
     return "1" * pad + encoded
 
 
+def _b58decode(data: str) -> bytes:
+    """Decode a base58btc string to bytes — the byte-inverse of :func:`_b58encode`.
+
+    Used only when the ``base58`` package is unavailable. Raises ``ValueError`` on
+    any character outside the base58btc alphabet (so a malformed multibase fails
+    loudly rather than decoding to garbage)."""
+    num = 0
+    for char in data:
+        digit = _B58_ALPHABET.find(char)
+        if digit < 0:
+            raise ValueError(f"invalid base58 character {char!r}")
+        num = num * 58 + digit
+    body = num.to_bytes((num.bit_length() + 7) // 8, "big") if num else b""
+    # Each leading '1' restores a leading zero byte (inverse of _b58encode).
+    pad = 0
+    for char in data:
+        if char == "1":
+            pad += 1
+        else:
+            break
+    return b"\x00" * pad + body
+
+
 def public_key_multibase(public_key: Ed25519PublicKey) -> str:
     """Encode an Ed25519 public key as a W3C ``publicKeyMultibase`` string."""
     raw = public_key.public_bytes(
@@ -69,6 +92,38 @@ def public_key_multibase(public_key: Ed25519PublicKey) -> str:
         return "z" + base58.b58encode(payload).decode("ascii")
     except ImportError:
         return "z" + _b58encode(payload)
+
+
+def public_key_from_multibase(multibase: str) -> Ed25519PublicKey:
+    """Decode a W3C ``publicKeyMultibase`` string back to an Ed25519 public key.
+
+    The exact byte-inverse of :func:`public_key_multibase`: strip the ``"z"``
+    base58btc multibase prefix, base58-decode, require the ``0xed 0x01``
+    ed25519-pub multicodec prefix, and take the trailing 32 bytes as the raw key.
+
+    A federating peer calls this to resolve another node's trust anchor from the
+    ``publicKeyMultibase`` that node publishes in ``/.well-known/did.json`` before
+    it verifies that node's signed checkpoints/envelopes. It therefore REJECTS
+    (``ValueError``) any malformed or forged input — a non-base58btc multibase, a
+    non-ed25519 multicodec, or a wrong key length — rather than silently returning
+    a key a verifier would then trust.
+
+    Decoding always uses the hand-rolled, dependency-free :func:`_b58decode` (the
+    module's design intent — partners implement the standard without our exact
+    toolchain), so validation is deterministic and STRICT: unlike the ``base58``
+    package, which tolerates surrounding ASCII whitespace, ``_b58decode`` rejects
+    any character outside the base58btc alphabet. For any well-formed multibase the
+    encoder emits the two agree byte-for-byte; they diverge only on malformed input,
+    where strict rejection is the safe choice for a trust-anchor decoder."""
+    if not multibase.startswith("z"):
+        raise ValueError("multibase is not base58btc ('z' multibase prefix required)")
+    payload = _b58decode(multibase[1:])
+    if not payload.startswith(_ED25519_PUB_MULTICODEC):
+        raise ValueError("not an ed25519-pub key (missing 0xed01 multicodec prefix)")
+    raw = payload[len(_ED25519_PUB_MULTICODEC) :]
+    if len(raw) != 32:
+        raise ValueError(f"expected 32 ed25519 public-key bytes, got {len(raw)}")
+    return Ed25519PublicKey.from_public_bytes(raw)
 
 
 def load_signing_key(material: str | None) -> Ed25519PrivateKey | None:
