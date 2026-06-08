@@ -366,14 +366,15 @@ def test_s3_backend_put_get_has_roundtrip(monkeypatch):
             return self._b
 
     class _FakeS3:
-        def put_object(self, Bucket, Key, Body):
-            store[Key] = Body
+        # boto3 is called with Bucket=/Key=/Body= kwargs; accept them via **kw.
+        def put_object(self, **kw):
+            store[kw["Key"]] = kw["Body"]
 
-        def get_object(self, Bucket, Key):
-            return {"Body": _Body(store[Key])}
+        def get_object(self, **kw):
+            return {"Body": _Body(store[kw["Key"]])}
 
-        def head_object(self, Bucket, Key):
-            if Key not in store:
+        def head_object(self, **kw):
+            if kw["Key"] not in store:
                 from botocore.exceptions import ClientError
 
                 raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
