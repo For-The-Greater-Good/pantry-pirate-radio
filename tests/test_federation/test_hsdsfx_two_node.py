@@ -297,6 +297,46 @@ def test_two_node_consistency_rejects_equivocating_json_root(node_a):
 
 
 @pytest.mark.integration
+def test_two_node_consistency_rejects_a_malformed_proof(node_a):
+    """A node serving a MALFORMED (non-hex) consistency_proof element is a failed
+    node, not a crash: the note-anchored consumer catches the decode error and
+    returns consistent=False, honoring its 'hostile/garbage must not crash' contract
+    (the note + JSON here are honest, so only the proof is bad)."""
+    client, session = node_a
+    get = _get_fn(client)
+    pubkey_hex, key_name = _discover_trust_anchor(get)
+    adapter = RefAdapter()
+
+    k, root_k = _pin_note_anchored(get, adapter, pubkey_hex, key_name)
+    _append(session, _DID_A, _key(_SEED_A), count=2, start=3)
+
+    base = _get_fn(client)
+
+    def mangled_proof_get(path: str) -> runner.Resp:
+        r = base(path)
+        if "from_tree_size" in path and r.json_body is not None:
+            body = dict(r.json_body)
+            proof = list(body.get("consistency_proof") or [])
+            body["consistency_proof"] = ["zz"] + proof[1:] if proof else ["zz"]
+            r = runner.Resp(r.status_code, r.text, r.headers, body)
+        return r
+
+    report = runner.verify_consistency_to_head(
+        mangled_proof_get,
+        adapter,
+        pubkey_hex,
+        key_name,
+        held_size=k,
+        held_root_hex=root_k,
+    )
+    assert report.current_verified  # note + JSON are honest; only the proof is bad
+    assert report.proof_present
+    assert not report.consistent
+    assert not report.ok
+    assert "malformed" in report.detail
+
+
+@pytest.mark.integration
 def test_two_node_rejects_when_did_json_key_is_swapped(node_a):
     """If A's published did.json advertises a DIFFERENT key than the one signing
     A's checkpoints (a forged / MITM'd discovery doc), B — which resolves the

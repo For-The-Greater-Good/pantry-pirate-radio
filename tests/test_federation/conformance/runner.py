@@ -439,10 +439,18 @@ def verify_consistency_to_head(
         return rep
     rep.proof_present = True
     # Append-only over NOTE-ANCHORED roots: held_root_hex was note-anchored by the
-    # consumer when it pinned held_size; root_n comes from the signed note above.
-    rep.consistent = adapter.verify_consistency(
-        held_size, n, proof, held_root_hex, root_n
-    )
+    # consumer when it pinned held_size; root_n comes from the signed note above. A
+    # malformed proof (e.g. non-hex element) is a failed node, not a crash — mirror
+    # the note-parse guard so the consumer never raises on hostile input.
+    try:
+        rep.consistent = adapter.verify_consistency(
+            held_size, n, proof, held_root_hex, root_n
+        )
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — a garbage proof must not crash the consumer
+        rep.detail = f"consistency proof malformed: {exc}"
+        return rep
     if not rep.consistent:
         rep.detail = "consistency proof did not verify (forked/rewritten history?)"
     return rep
