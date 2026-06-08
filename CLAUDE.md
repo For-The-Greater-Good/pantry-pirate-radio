@@ -987,7 +987,7 @@ Every PPR deployment is (becoming) a federating node in an open HSDS food-resour
 - `fetch.py` — SSRF-hardened outbound egress helper: HTTPS-only, blocks internal IPs / CGNAT / IPv6-ULA. **Note:** the DNS-rebinding connect-pin and the streaming byte-cap are deferred to P2/P3 and are hard gates on the first real outbound fetch (no live peer fetch happens in P0).
 - `canonical.py` — RFC 8785 JCS canonicalization (minimal serializer, ES6 number formatting); the normative byte form used for hashing/signing. Entry point `jcs_bytes()`.
 - `signing.py` — minimal RFC 9421 Ed25519 HTTP Message Signatures + RFC 9530 `Content-Digest`.
-- `identity.py` — `did:web` doc, actor, WebFinger, Ed25519 key loading, base58btc multibase encoding.
+- `identity.py` — `did:web` doc, actor, WebFinger, Ed25519 key loading, base58btc multibase encoding **and decoding** (`public_key_from_multibase` — the byte-inverse of `public_key_multibase`: a federating peer resolves another node's trust anchor from the `publicKeyMultibase` in that node's `/.well-known/did.json` before verifying its checkpoints/envelopes; rejects a non-base58btc / non-ed25519-multicodec / wrong-length string rather than yielding a key a verifier would then trust).
 - `discovery.py` — the discovery-doc builder.
 
 **Config (on by default):**
@@ -998,9 +998,13 @@ Every PPR deployment is (becoming) a federating node in an open HSDS food-resour
 
 **`source_type='federated_node'`:** the reserved `location_source.source_type` value that federated peers' records will carry once ingest lands (P2). Reserved only — **not yet wired in P0**.
 
-**Forthcoming (NOT in P0):**
-- **P1** — the verifiable Merkle log + signed checkpoints + `/api/v1/federation/export | state.txt | checkpoint | history`.
-- **P2** — pull ingest + corroboration (and the `federated_node` source_type wiring).
+**P1 status (verifiable publish — IN PROGRESS, #522):**
+- **Shipped:** the verifiable Merkle log + signed C2SP checkpoints + `/api/v1/federation/export | state.txt | checkpoint | history` (PR-A/B/C); the HSDS-FX conformance suite (Level-1 wire vectors + Level-2 live-node loop, 10 areas, externally-anchored KATs; #567–#572).
+- **The §15 P1 golden journey (the "raw sync" two-node loop)** — `tests/test_federation/test_hsdsfx_two_node.py`. Node B **discovers** Node A's trust anchor from A's served `/.well-known/did.json` (decodes the `#main-key` `publicKeyMultibase` via `identity.public_key_from_multibase` — nothing handed in), then pulls `/export@N` and cross-verifies A's signed checkpoint + every envelope signature + RFC-6962 inclusion proofs + a consistency proof across growth. Negatives: a swapped did.json key (proves the anchor flows from the served bytes, not a constant), a malformed multibase (rejected at discover), a forked second root (rejected by consistency). A and B are two **instances of the same code** sequenced over one `federation_log` table — genuine cross-node discovery + crypto-verification integration evidence and the partner-reuse seed, **NOT** a foreign-impl interop confirmation (that needs a non-PPR node, P7) and it promotes no `interop_pending` corpus row. Verify-only: pull INGEST / corroboration / authority / tombstone-redirect are P2.
+- **Remaining before #522 closes:** cold-start `_since=0` parity from raw tables; archive tiering + retention-prune worker/Lambda + its Principle-XIV alarm.
+
+**Forthcoming (later phases):**
+- **P2** — pull ingest + corroboration (the "different datasets federating" scenario), and the `federated_node` source_type wiring. **No P2 code before P1 #522 closes.**
 - **P3** — `/inbox` push delivery.
 - **P4** — the `./bouy federation` peer-add/remove/list/status command family.
 

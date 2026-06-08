@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 
 import pytest
+from hypothesis import given
+from hypothesis import settings as hyp_settings
+from hypothesis import strategies as st
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -150,6 +153,93 @@ def test_public_key_multibase_roundtrips_with_multicodec_prefix() -> None:
     assert decoded[1] == 0x01
     assert decoded[2:] == raw
     assert len(raw) == 32
+
+
+# --- public_key_from_multibase: the inverse decoder (RED-tier, #558 discover) ----
+# A federating peer RESOLVES a node's trust anchor from its published
+# /.well-known/did.json `publicKeyMultibase` string — so the verify side needs the
+# exact byte-inverse of `public_key_multibase`. These pin the round-trip and the
+# guard rails (a malformed/forged multibase MUST raise, never silently yield a
+# wrong key a verifier would then trust).
+
+
+def _craft_multibase(payload: bytes) -> str:
+    """A 'z'-prefixed base58btc multibase over arbitrary payload bytes (for
+    negatives) — uses the module's own encoder so the base58 layer is honest and
+    only the multicodec/length is what the negative exercises."""
+    return "z" + identity._b58encode(payload)
+
+
+def test_public_key_from_multibase_roundtrips_with_encoder() -> None:
+    pub: Ed25519PublicKey = Ed25519PrivateKey.generate().public_key()
+    raw = pub.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    decoded = identity.public_key_from_multibase(public_key_multibase(pub))
+    assert isinstance(decoded, Ed25519PublicKey)
+    assert (
+        decoded.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        == raw
+    )
+
+
+@hyp_settings(max_examples=200, deadline=None)
+@given(seed=st.binary(min_size=32, max_size=32))
+def test_public_key_from_multibase_roundtrips_property(seed: bytes) -> None:
+    pub = Ed25519PrivateKey.from_private_bytes(seed).public_key()
+    raw = pub.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    decoded = identity.public_key_from_multibase(public_key_multibase(pub))
+    assert (
+        decoded.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        == raw
+    )
+
+
+def test_public_key_from_multibase_rejects_missing_z_prefix() -> None:
+    pub = Ed25519PrivateKey.generate().public_key()
+    mb = public_key_multibase(pub)
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase("f" + mb[1:])  # 'f' = base16 multibase
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(mb[1:])  # no multibase prefix at all
+
+
+def test_public_key_from_multibase_rejects_empty() -> None:
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase("")
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase("z")  # prefix only, empty payload
+
+
+def test_public_key_from_multibase_rejects_wrong_multicodec() -> None:
+    # 32 bytes under a DIFFERENT multicodec prefix (0xec01 = x25519-pub, not ed25519).
+    bad = _craft_multibase(b"\xec\x01" + bytes(range(32)))
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(bad)
+
+
+def test_public_key_from_multibase_rejects_wrong_length() -> None:
+    # Correct multicodec but 31 / 33 key bytes — not a valid Ed25519 public key.
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(_craft_multibase(b"\xed\x01" + bytes(31)))
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(_craft_multibase(b"\xed\x01" + bytes(33)))
+
+
+def test_public_key_from_multibase_rejects_bad_base58_char() -> None:
+    # '0', 'O', 'I', 'l' are excluded from the base58btc alphabet.
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase("z" + "0OIl")
 
 
 def test_build_actor_shape() -> None:

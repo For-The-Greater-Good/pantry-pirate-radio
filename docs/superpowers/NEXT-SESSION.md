@@ -71,13 +71,17 @@ git fetch origin
 
 ---
 
-## 4. The concrete next move — finish P1 PR-A, then PR-B…D
+## 4. The concrete next move — finish P1 PR-D, then P2
 
-Per the 4-PR split in the P1 plan:
-- **PR-A (in progress, #549):** decomposition is DONE. **Remaining:** add **Task -1** — the HSDS-3.1.1 CI guard test (assert the advertised version matches the 3.1.1-shaped models). Then run the **PR Gauntlet** on PR-A, fix anything, mark it **ready**, and present to the owner for merge.
-- **PR-B (RED tier — the substrate):** `FederationLog` model + migration; the **in-place dense-sequence advisory-lock append** + RFC-6962 Merkle frontier + C2SP signed checkpoints + inclusion/consistency proofs; the §8.2 Location aggregate serializer; normative wire spec + JSON Schema + `fixtures/federation/` (JCS vectors + worked proof). **No hooks fire yet** — hammer the crypto/concurrency in isolation. Mandatory Phase-4 property tests + adversarial verification; **strongly consider an external security/distributed-systems spot-audit here** (playbook).
-- **PR-C:** the hooks (job_processor matched/new-Location `Update` at the extracted `location_commit.py` site; dedup-script `Delete`+`redirectTo`; submarine `Update`) + the `FEDERATION_ENABLED` kill switch (byte-identical-reconciler test) + `/api/v1/federation/{export,state.txt,checkpoint,history}` (dual-env).
-- **PR-D:** cold-start `_since=0` from raw tables (parity vs the **real** `/export` aggregate) + archive tiering (never destroy) + Principle-XIV alarms + HSDS-FX extraction + Readiness Checker + static-feed generator + in-repo reference second node + golden journey test + docs.
+**Updated 2026-06-07.** P1 PR-A/B/C are **merged**. PR-D's big chunk — the **HSDS-FX conformance suite** — shipped as 8 Gauntlet-gated PRs (#567–#572: envelope/checkpoint/export+Level-2, federation_id grammar, JCS anchor, activity verbs/Tombstone, RFC-3986 mechanic anchor, RFC-6962 consistency anchor; 10 areas, 19 anchored vectors). **P1 #522 stays open** until PR-D's remainder lands.
+
+**P1 PR-D remaining (next, on `feat/federation-two-node-interop`):**
+1. **In-repo reference second node + golden P1 journey** = the **"raw sync" two-node loop** (owner ask 2026-06-07). A publishes → B **discovers A's key from `/.well-known/did.json`** (add `identity.public_key_from_multibase` — the inverse of `public_key_multibase`; the one genuinely-new piece) → B pulls `/export@N` → B verifies every envelope signature + RFC-6962 inclusion + **consistency** against A's signed checkpoint; includes a tampered/forked-peer negative. Two in-process instances need **identity + DB-log isolation** (federation_log is a single unfiltered table — sequence the nodes: seed A → snapshot → truncate → seed B, the existing single-node fixture pattern). The Slice-3 `verify_level2` runner already does the peer-side pull-verify; only the discover/decode step is new. Honest claim: a 2nd instance of OUR code is integration evidence + the partner-reuse seed, NOT a foreign-impl interop confirmation (that's P7).
+2. cold-start `_since=0` parity from raw tables (vs the real `/export` aggregate).
+3. archive tiering (never destroy) + retention-prune worker/Lambda + its Principle-XIV alarm.
+Then close P1 #522.
+
+**Then P2 — Pull ingest = the "different datasets federating, with everything" scenario** (owner ask 2026-06-07: A and B as different datasets converging, with corroboration/authority/merge/tombstone-redirect, bidirectional). Expand the roadmapped P2 (core plan tasks 0–15) into its bite-sized sibling plan and execute; acceptance = live Feeding America HSDS feed ingested + corroborated end-to-end. The P1 `activities.py:validate_activity` (Slice 6) + `verify_level2` (Slice 3) are the load-bearing inputs P2 consumes. **No P2 code before P1 #522 closes.**
 
 **Per-task gates (every task):** TDD red-first; files ≤600 / cyclomatic ≤15; fictional test data only; same-PR `CLAUDE.md` update; pre-PR `./bouy test` green; AWS tasks add CloudWatch alarms + `infra/tests/` (Principle XIV); both Docker + AWS work (Principle XV).
 
