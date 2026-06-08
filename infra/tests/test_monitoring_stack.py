@@ -424,6 +424,32 @@ class TestMonitoringStackConfiguration:
             },
         )
 
+    def test_federation_prune_lambda_error_alarm(self, app):
+        """Principle XIV: the retention-prune Lambda gets an Errors alarm routed to
+        the alerts SNS topic (the explicit P1 acceptance gate)."""
+        stack = MonitoringStack(
+            app,
+            "FederationPruneAlarmStack",
+            environment_name="dev",
+            federation_prune_function_name="my-prune",
+        )
+        template = assertions.Template.from_stack(stack)
+        template.has_resource_properties(
+            "AWS::CloudWatch::Alarm",
+            {
+                "AlarmName": "ppr-dev-federation-prune-lambda-errors",
+                "Namespace": "AWS/Lambda",
+            },
+        )
+
+    def test_federation_prune_alarm_absent_without_function_name(self, app):
+        """No prune function name -> no prune alarm (the `if not fn_name` guard)."""
+        stack = MonitoringStack(app, "NoPruneAlarmStack", environment_name="dev")
+        template = assertions.Template.from_stack(stack)
+        alarms = template.find_resources("AWS::CloudWatch::Alarm")
+        names = [p.get("Properties", {}).get("AlarmName", "") for p in alarms.values()]
+        assert "ppr-dev-federation-prune-lambda-errors" not in names
+
 
 class TestMonitoringStackBedrock:
     """Tests for Bedrock LLM metrics configuration."""
@@ -632,9 +658,9 @@ class TestMonitoringStackNewAlarms:
             alarm_name = alarm.get("Properties", {}).get("AlarmName", "")
             if any(alarm_name.startswith(p) for p in new_alarm_prefixes):
                 props = alarm.get("Properties", {})
-                assert "AlarmActions" in props, (
-                    f"New alarm {alarm_name} must route to SNS topic (Principle XIV)"
-                )
+                assert (
+                    "AlarmActions" in props
+                ), f"New alarm {alarm_name} must route to SNS topic (Principle XIV)"
 
 
 class TestMonitoringStackRDSProxyDashboard:

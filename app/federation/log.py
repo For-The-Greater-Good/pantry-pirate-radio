@@ -162,12 +162,53 @@ def leaf_data(session: Session, tree_size: int) -> list[bytes]:
         ),
         {"n": tree_size},
     ).all()
-    if len(rows) != tree_size:
-        raise ValueError(
-            f"tree_size {tree_size} exceeds committed prefix ({len(rows)} rows)"
-        )
     # psycopg2 returns BYTEA as memoryview; normalize to bytes.
-    return [bytes(row.preimage_canonical) for row in rows]
+    live = {int(row.sequence): bytes(row.preimage_canonical) for row in rows}
+    if len(live) == tree_size:
+        return [live[seq] for seq in range(1, tree_size + 1)]
+
+    # A tree_size past the committed head is a client error (the tree does not
+    # exist yet), distinct from a below-floor gap — preserve the integrity guard.
+    head = session.execute(
+        text("SELECT COALESCE(MAX(sequence), 0) FROM federation_log")
+    ).scalar_one()
+    if tree_size > head:
+        raise ValueError(
+            f"tree_size {tree_size} exceeds committed prefix ({head} rows)"
+        )
+
+    # Gaps below the live-window floor: leaves were archived by the retention prune
+    # (§6.2g, never destroyed). Read them back from the archive tier so the tree —
+    # checkpoint root@N, inclusion + consistency proofs across the trim boundary —
+    # stays valid forever. With no archive configured this preserves the historic
+    # contract: a missing leaf is a hard error, never a silently shortened tree.
+    from app.federation.retention import resolve_archive_backend
+
+    # The live window must be a CONTIGUOUS suffix [floor, tree_size]: only the
+    # below-floor prefix [1, floor-1] may be sourced from the archive. A hole at or
+    # ABOVE the floor is live-table corruption (the prune only trims a prefix) — fail
+    # rather than backfill it from a possibly-stale archived copy, which would yield a
+    # tree_size-length leaf list with a WRONG, silently-accepted root.
+    floor = min(live) if live else tree_size + 1
+    for seq in range(floor, tree_size + 1):
+        if seq not in live:
+            raise ValueError(
+                f"tree_size {tree_size}: live window has a hole at sequence {seq} "
+                "(not a contiguous suffix)"
+            )
+
+    backend = resolve_archive_backend()
+    leaves: list[bytes] = []
+    for seq in range(1, tree_size + 1):
+        if seq in live:
+            leaves.append(live[seq])
+        elif backend is not None and backend.has(seq):
+            leaves.append(backend.get(seq))
+        else:
+            raise ValueError(
+                f"tree_size {tree_size}: leaf {seq} missing from live window and archive"
+            )
+    return leaves
 
 
 def signed_checkpoint(

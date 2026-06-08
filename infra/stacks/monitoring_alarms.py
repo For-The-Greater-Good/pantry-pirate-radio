@@ -129,8 +129,9 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
             stack,
             cid,
             f"{ppr}-{label}-queue-stall-{env}",
-            metric("AWS/SQS", sqs_age, {"QueueName": qname}, "Maximum",
-                   Duration.minutes(5)),
+            metric(
+                "AWS/SQS", sqs_age, {"QueueName": qname}, "Maximum", Duration.minutes(5)
+            ),
             max_age_sec,
             3,
             GT,
@@ -145,8 +146,16 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
         ("ReconcilerDLQAlarm", "reconciler-dlq", stack.reconciler_queue_name),
         ("RecorderDLQAlarm", "recorder-dlq", stack.recorder_queue_name),
         ("SubmarineDLQAlarm", "submarine-dlq", stack.submarine_queue_name),
-        ("SubmarineStagingDLQAlarm", "submarine-staging-dlq", stack.submarine_staging_queue_name),
-        ("SubmarineExtractionDLQAlarm", "submarine-extraction-dlq", stack.submarine_extraction_queue_name),
+        (
+            "SubmarineStagingDLQAlarm",
+            "submarine-staging-dlq",
+            stack.submarine_staging_queue_name,
+        ),
+        (
+            "SubmarineExtractionDLQAlarm",
+            "submarine-extraction-dlq",
+            stack.submarine_extraction_queue_name,
+        ),
     ]:
         dlq = _derive_dlq_name(qname, env)
         alarm(
@@ -295,6 +304,11 @@ def create_alarms(stack: MonitoringStack) -> None:  # noqa: C901 — alarm catal
             stack.result_processor_function_name,
             "ResultProcessorLambda",
             "result-processor-lambda",
+        ),
+        (
+            stack.federation_prune_function_name,
+            "FederationPruneLambda",
+            "federation-prune-lambda",
         ),
     ]:
         if not fn_name:

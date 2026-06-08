@@ -58,6 +58,7 @@ class MonitoringStack(Stack):
         api_gateway_id: str | None = None,
         batcher_function_name: str | None = None,
         result_processor_function_name: str | None = None,
+        federation_prune_function_name: str | None = None,
         staging_queue_name: str | None = None,
         content_index_table_name: str | None = None,
         geocoding_cache_table_name: str | None = None,
@@ -132,6 +133,7 @@ class MonitoringStack(Stack):
         self.api_gateway_id = api_gateway_id
         self.batcher_function_name = batcher_function_name
         self.result_processor_function_name = result_processor_function_name
+        self.federation_prune_function_name = federation_prune_function_name
 
         # Aurora
         self.aurora_cluster_id = aurora_cluster_id or f"pantry-pirate-radio-{env}"

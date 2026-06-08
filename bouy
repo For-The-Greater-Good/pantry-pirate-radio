@@ -430,6 +430,7 @@ usage() {
     echo "  scraper-test [NAME] Test scrapers without processing"
     echo "  claude-auth [CMD]   Manage Claude authentication"
     echo "  reconciler [ARGS]   Run the reconciler service"
+    echo "  federation [CMD]    Federation log maintenance (prune)"
     echo "  submarine [CMD]     Manage submarine web crawler"
     echo "  recorder [ARGS]     Run the recorder service"
     echo "  content-store [CMD] Manage content store"
@@ -2266,6 +2267,39 @@ print(tasks[0]['taskArn'])
             *)
                 output error "Unknown claude-auth subcommand: $1"
                 output error "Use: claude-auth [interactive|setup|status|test|config]"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    federation)
+        shift
+        parse_mode "$@"
+        subcommand="${1:-}"
+        case "$subcommand" in
+            prune)
+                # Ensure database is running
+                if ! $COMPOSE_CMD $COMPOSE_FILES ps db 2>/dev/null | grep -q "Up"; then
+                    output info "Database service is not running. Starting it..."
+                    if $COMPOSE_CMD $COMPOSE_FILES up -d db; then
+                        wait_for_database || exit 1
+                    else
+                        output error "Failed to start database service"
+                        exit 1
+                    fi
+                fi
+                output info "Pruning federation log (archive over-SLA leaves, then trim)..."
+                EXEC_FLAGS=""
+                if [ $PROGRAMMATIC_MODE -eq 1 ]; then
+                    EXEC_FLAGS="-T"
+                fi
+                $COMPOSE_CMD $COMPOSE_FILES exec $EXEC_FLAGS app python -m app.federation prune
+                ;;
+            *)
+                echo "Usage: ./bouy federation <command>"
+                echo ""
+                echo "Commands:"
+                echo "  prune    Archive over-SLA log leaves to the archive tier, then trim the live window"
                 exit 1
                 ;;
         esac

@@ -250,6 +250,15 @@ class Settings(BaseSettings):
     )
     FEDERATION_RETENTION_DAYS: int = Field(default=365, ge=1)
     FEDERATION_DATE_SKEW_SECONDS: int = Field(default=300, ge=1)
+    # Archive tier (§6.2g, never destroyed). The prune writes trimmed leaves here
+    # BEFORE removing them from the live Postgres window, and leaf_data reads them
+    # back so checkpoints/proofs stay valid forever. Docker: a bouy-mounted local
+    # path; AWS: an S3 bucket with no lifecycle expiry. Unset -> no read-back (the
+    # pre-prune behavior: a missing leaf is a hard error).
+    FEDERATION_ARCHIVE_BACKEND: Literal["file", "s3"] = "file"
+    FEDERATION_ARCHIVE_PATH: str | None = None
+    FEDERATION_ARCHIVE_S3_BUCKET: str | None = None
+    FEDERATION_ARCHIVE_S3_PREFIX: str = "federation-log-archive"
     FEDERATION_INGEST_MAX_RECORDS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
     FEDERATION_INGEST_MAX_LLM_JOBS_PER_PEER_PER_DAY: int = Field(default=50_000, ge=1)
     FEDERATION_EXPORT_PAGE_SIZE: int = Field(default=1000, ge=1, le=10_000)

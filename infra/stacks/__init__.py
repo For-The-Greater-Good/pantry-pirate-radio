@@ -6,6 +6,7 @@ from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
 from stacks.ecr_stack import ECRStack
+from stacks.federation_stack import FederationStack
 from stacks.lambda_api_stack import LambdaApiStack
 from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
@@ -23,6 +24,7 @@ __all__ = [
     "DatabaseStack",
     "DbInitStack",
     "ECRStack",
+    "FederationStack",
     "LambdaApiStack",
     "MetabaseAccessStack",
     "MonitoringStack",
