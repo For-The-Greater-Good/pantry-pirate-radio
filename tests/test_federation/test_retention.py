@@ -286,3 +286,119 @@ def test_prune_entrypoint_archives_and_trims(db_session, monkeypatch):
     _seed_five(db_session)
     assert _prune() == 0
     assert log.live_window_floor(db_session) == 4
+
+
+def test_prune_now_defaults_to_wall_clock(db_session):
+    """now=None uses datetime.now(); with a 30-day SLA the 2026-01-01 leaves are
+    over-SLA against the real clock and get archived+trimmed."""
+    _seed_five(db_session)
+    result = prune_to_horizon(
+        db_session, backend=_backend(db_session), retention_days=30
+    )
+    assert result.archived_count == 3
+    assert log.live_window_floor(db_session) == 4
+
+
+def test_prune_first_put_failure_archives_nothing_and_does_not_delete(db_session):
+    """If the FIRST candidate's archive-put fails, `archived` is empty: no DELETE
+    runs, the live window is untouched (the `if archived:` empty branch)."""
+    _seed_five(db_session)
+
+    class _AlwaysFail:
+        def put(self, sequence, preimage):
+            raise OSError("archive down")
+
+        def get(self, sequence):  # pragma: no cover - not reached
+            raise KeyError(sequence)
+
+        def has(self, sequence):  # pragma: no cover - not reached
+            return False
+
+    result = prune_to_horizon(
+        db_session, backend=_AlwaysFail(), retention_days=30, now=_NOW
+    )
+    assert result.archived_count == 0
+    assert log.live_window_floor(db_session) == 1  # nothing deleted
+
+
+def test_main_prune_dispatch_and_no_command(db_session, monkeypatch):
+    """`python -m app.federation prune` dispatches to _prune; no subcommand -> help+1."""
+    import sys
+
+    from app.federation import __main__ as fed_main
+
+    monkeypatch.setattr(sys, "argv", ["prog", "prune"])
+    assert fed_main.main() == 0  # prune ran (db_session has an archive path configured)
+    monkeypatch.setattr(sys, "argv", ["prog"])
+    assert fed_main.main() == 1  # no command -> print_help, exit 1
+
+
+def test_prune_lambda_handler_ok_and_raises(db_session, monkeypatch):
+    """The EventBridge handler returns ok on success and RAISES on a non-zero exit
+    (so the Principle-XIV Errors alarm fires) — same _prune as the bouy worker."""
+    from app.core.config import settings as live
+    from app.federation.prune_lambda import handler
+
+    monkeypatch.setattr(live, "FEDERATION_RETENTION_DAYS", 30)
+    _seed_five(db_session)
+    assert handler({}, None) == {"status": "ok"}
+    assert log.live_window_floor(db_session) == 4
+
+    # No archive tier -> _prune returns 1 -> handler raises (alarm fires).
+    monkeypatch.setattr(live, "FEDERATION_ARCHIVE_PATH", None, raising=False)
+    with pytest.raises(RuntimeError, match="federation prune failed"):
+        handler({}, None)
+
+
+def test_s3_backend_put_get_has_roundtrip(monkeypatch):
+    """S3ArchiveBackend put/get/has against a faked boto3 client (no AWS)."""
+    import boto3
+
+    from app.federation.retention import S3ArchiveBackend
+
+    store: dict[str, bytes] = {}
+
+    class _Body:
+        def __init__(self, b: bytes) -> None:
+            self._b = b
+
+        def read(self) -> bytes:
+            return self._b
+
+    class _FakeS3:
+        def put_object(self, Bucket, Key, Body):
+            store[Key] = Body
+
+        def get_object(self, Bucket, Key):
+            return {"Body": _Body(store[Key])}
+
+        def head_object(self, Bucket, Key):
+            if Key not in store:
+                from botocore.exceptions import ClientError
+
+                raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+
+    monkeypatch.setattr(boto3, "client", lambda service: _FakeS3())
+    backend = S3ArchiveBackend("bucket", "pref")
+    assert backend.has(9) is False
+    backend.put(9, b"signed-leaf-9")
+    assert backend.has(9) is True
+    assert backend.get(9) == b"signed-leaf-9"
+
+
+def test_resolve_archive_backend_selects_s3_or_none(monkeypatch):
+    import boto3
+
+    from app.core.config import settings as live
+    from app.federation import retention
+    from app.federation.retention import S3ArchiveBackend
+
+    monkeypatch.setattr(boto3, "client", lambda service: object())
+    monkeypatch.setattr(live, "FEDERATION_ARCHIVE_BACKEND", "s3")
+    monkeypatch.setattr(
+        live, "FEDERATION_ARCHIVE_S3_BUCKET", "my-bucket", raising=False
+    )
+    assert isinstance(retention.resolve_archive_backend(), S3ArchiveBackend)
+    # s3 selected but no bucket -> None (never a half-configured backend).
+    monkeypatch.setattr(live, "FEDERATION_ARCHIVE_S3_BUCKET", None, raising=False)
+    assert retention.resolve_archive_backend() is None
