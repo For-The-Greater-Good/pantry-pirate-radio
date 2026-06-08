@@ -375,6 +375,79 @@ def verify_level2(
     return rep
 
 
+@dataclass
+class ConsistencyReport:
+    current_verified: bool = False
+    proof_present: bool = False
+    consistent: bool = False
+    tree_size: int = 0
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.current_verified and self.proof_present and self.consistent
+
+
+def verify_consistency_to_head(
+    get: Callable[[str], Resp],
+    adapter: HsdsFxAdapter,
+    pubkey_hex: str,
+    key_name: str,
+    held_size: int,
+    held_root_hex: str,
+) -> ConsistencyReport:
+    """Verify a node's log only GREW (RFC-6962 append-only) from a checkpoint the
+    consumer already holds (``held_size`` / ``held_root_hex``, itself note-anchored
+    when it was pinned) to the node's current head — the §6.6 incremental-pull trust
+    step, and the only note-anchored consumer of ``verify_consistency`` in the loop.
+
+    Like ``verify_level2``, the head root is taken from the SIGNED note (the trust
+    anchor) via ``parse_checkpoint``, and the unsigned /checkpoint JSON is required
+    to AGREE with it (the §6.3 consumer-side internal-consistency check) — never
+    trusted on its own. This is load-bearing: an equivocating node can serve an
+    honest signed note but a lying unsigned JSON ``root_hash`` over a FORKED tree;
+    anchoring to the JSON field would accept the fork (a forged proof can be made
+    self-consistent with attacker-chosen JSON roots), while anchoring to the note —
+    and cross-checking the JSON — rejects it. A partner reusing this app inherits
+    the correct pattern instead of trusting an attacker-controllable field."""
+    rep = ConsistencyReport()
+    cp = get(f"/api/v1/federation/checkpoint?from_tree_size={held_size}")
+    if cp.status_code != 200 or cp.json_body is None:
+        rep.detail = f"/checkpoint -> {cp.status_code}"
+        return rep
+    note = cp.json_body.get("note")
+    if not isinstance(note, str) or not adapter.verify_note(note, pubkey_hex, key_name):
+        rep.detail = "checkpoint note missing or failed verify"
+        return rep
+    try:
+        parsed = adapter.parse_checkpoint(note)
+    except Exception as exc:  # noqa: BLE001 — a hostile/garbage note must not crash
+        rep.detail = f"checkpoint note unparseable: {exc}"
+        return rep
+    n = parsed["tree_size"]
+    root_n = parsed["root_hex"]
+    # §6.3: the unsigned convenience fields MUST agree with the signed note, else a
+    # node equivocates between what it signs and what it serves.
+    if cp.json_body.get("tree_size") != n or cp.json_body.get("root_hash") != root_n:
+        rep.detail = "checkpoint JSON fields disagree with the signed note"
+        return rep
+    rep.current_verified = True
+    rep.tree_size = n
+    proof = cp.json_body.get("consistency_proof")
+    if cp.json_body.get("consistency_from") != held_size or not isinstance(proof, list):
+        rep.detail = "no consistency proof for the held size"
+        return rep
+    rep.proof_present = True
+    # Append-only over NOTE-ANCHORED roots: held_root_hex was note-anchored by the
+    # consumer when it pinned held_size; root_n comes from the signed note above.
+    rep.consistent = adapter.verify_consistency(
+        held_size, n, proof, held_root_hex, root_n
+    )
+    if not rep.consistent:
+        rep.detail = "consistency proof did not verify (forked/rewritten history?)"
+    return rep
+
+
 def _loads(line: str) -> Any:
     return json.loads(line)
 

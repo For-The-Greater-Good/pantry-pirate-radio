@@ -117,8 +117,6 @@ def test_load_signing_key_pem_roundtrips_and_signs() -> None:
 
 
 def test_load_signing_key_base64_seed_roundtrips() -> None:
-    import base64
-
     original = Ed25519PrivateKey.generate()
     raw = original.private_bytes(
         encoding=serialization.Encoding.Raw,
@@ -240,6 +238,20 @@ def test_public_key_from_multibase_rejects_bad_base58_char() -> None:
     # '0', 'O', 'I', 'l' are excluded from the base58btc alphabet.
     with pytest.raises(ValueError):
         identity.public_key_from_multibase("z" + "0OIl")
+
+
+def test_public_key_from_multibase_rejects_whitespace() -> None:
+    # The decoder is strict and dependency-free (hand-rolled base58): surrounding
+    # ASCII whitespace is REJECTED, not silently stripped (the `base58` package
+    # tolerates it — the decoder deliberately does not, so a trust-anchor string is
+    # validated identically regardless of whether `base58` is installed).
+    mb = public_key_multibase(Ed25519PrivateKey.generate().public_key())
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(mb + "\n")
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(mb + " ")
+    with pytest.raises(ValueError):
+        identity.public_key_from_multibase(" " + mb)
 
 
 def test_build_actor_shape() -> None:

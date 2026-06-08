@@ -19,7 +19,10 @@ a non-PPR node, §180 / P7) and promotes no ``interop_pending`` corpus row. The
 behavioral P2 effects (pull INGEST, corroboration, authority, tombstone-redirect)
 are deliberately out of scope: this loop is verify-only.
 
-DB-backed; all data fictional.
+DB-backed; all data fictional. These tests SERIALIZE on the single ``federation_log``
+table — each TRUNCATEs, seeds, and TRUNCATEs again — so they must not be reordered
+to interleave or run in parallel (e.g. pytest-xdist / pytest-randomly) while sharing
+one DB; the seed→snapshot→truncate sequencing is what gives two identities one table.
 """
 
 from __future__ import annotations
@@ -146,16 +149,20 @@ def _discover_trust_anchor(get) -> tuple[str, str]:
 
     Picks the ``#main-key`` verificationMethod, decodes its ``publicKeyMultibase``
     to raw Ed25519 bytes, and takes the document ``id`` as the checkpoint key name
-    (the checkpoint origin == the node DID). Raises if the doc is unavailable or
-    the advertised key is undecodable — a peer refuses a trust anchor it can't
-    parse rather than proceeding with a bogus key."""
+    (the checkpoint origin == the node DID). Fails CLOSED: raises if the doc is
+    unavailable, if there is not EXACTLY one ``#main-key`` (no entry, or a duplicate
+    an attacker could prepend to win a first-match), or if the advertised key is
+    undecodable — a peer refuses an ambiguous or unparseable trust anchor rather
+    than proceeding with a bogus key."""
     r = get("/.well-known/did.json")
     if r.status_code != 200 or r.json_body is None:
         raise ValueError(f"did.json unavailable: {r.status_code}")
     doc = r.json_body
     did = doc["id"]
-    main = next(m for m in doc["verificationMethod"] if m["id"] == f"{did}#main-key")
-    pub = identity.public_key_from_multibase(main["publicKeyMultibase"])
+    mains = [m for m in doc["verificationMethod"] if m["id"] == f"{did}#main-key"]
+    if len(mains) != 1:
+        raise ValueError(f"expected exactly one #main-key, found {len(mains)}")
+    pub = identity.public_key_from_multibase(mains[0]["publicKeyMultibase"])
     pubkey_hex = pub.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
     return pubkey_hex, did
 
@@ -192,61 +199,101 @@ def test_two_node_publish_discover_pull_crossverify(monkeypatch, did, seed):
         session.close()
 
 
+def _pin_note_anchored(get, adapter, pubkey_hex, key_name) -> tuple[int, str]:
+    """Pin the node's current checkpoint the way a peer must: verify the SIGNED
+    note, derive (tree_size, root) FROM the note, and require the unsigned JSON to
+    agree (§6.3). Returns (tree_size, root_hex) anchored to the signed bytes."""
+    cp = get("/api/v1/federation/checkpoint").json_body
+    assert adapter.verify_note(cp["note"], pubkey_hex, key_name)
+    parsed = adapter.parse_checkpoint(cp["note"])
+    assert cp["tree_size"] == parsed["tree_size"]
+    assert cp["root_hash"] == parsed["root_hex"]
+    return parsed["tree_size"], parsed["root_hex"]
+
+
 @pytest.mark.integration
 def test_two_node_consistency_proof_across_growth(node_a):
-    """B pins A at size K, A publishes more (the log GROWS to N), and B verifies the
-    RFC-6962 CONSISTENCY proof K→N served by ``/checkpoint?from_tree_size=K`` — the
-    append-only guarantee a peer relies on to trust an incremental pull."""
+    """B pins A at size K (anchored to A's SIGNED note), A publishes more (the log
+    GROWS to N), and B verifies the RFC-6962 CONSISTENCY proof K→N via the
+    note-anchored consumer ``verify_consistency_to_head`` — the append-only
+    guarantee a peer relies on to trust an incremental pull. Roots come from the
+    signed note, never the unsigned JSON convenience field."""
     client, session = node_a
     get = _get_fn(client)
     pubkey_hex, key_name = _discover_trust_anchor(get)
     adapter = RefAdapter()
 
-    # Pin A at its current head K (=3); the SIGNED note is the trust anchor.
-    cp_k = get("/api/v1/federation/checkpoint").json_body
-    assert adapter.verify_note(cp_k["note"], pubkey_hex, key_name)
-    k = cp_k["tree_size"]
-    root_k = cp_k["root_hash"]
+    k, root_k = _pin_note_anchored(get, adapter, pubkey_hex, key_name)
     assert k == 3
 
-    # A publishes two more activities -> head grows to N.
+    # A publishes two more activities -> head grows to N=5.
     _append(session, _DID_A, _key(_SEED_A), count=2, start=3)
-    cp_n = get("/api/v1/federation/checkpoint").json_body
-    assert adapter.verify_note(cp_n["note"], pubkey_hex, key_name)
-    n = cp_n["tree_size"]
-    root_n = cp_n["root_hash"]
-    assert n == 5
 
-    proof_body = get(f"/api/v1/federation/checkpoint?from_tree_size={k}").json_body
-    assert proof_body["consistency_from"] == k
-    proof = proof_body["consistency_proof"]
-    assert adapter.verify_consistency(k, n, proof, root_k, root_n)
+    report = runner.verify_consistency_to_head(
+        get, adapter, pubkey_hex, key_name, held_size=k, held_root_hex=root_k
+    )
+    assert report.current_verified, report.detail
+    assert report.proof_present, report.detail
+    assert report.consistent, report.detail
+    assert report.tree_size == 5
+    assert report.ok
 
 
 @pytest.mark.integration
 def test_two_node_consistency_rejects_a_forked_history(node_a):
-    """A forked/rewritten peer (a different root at size N) cannot satisfy the
-    consistency proof: feeding ``verify_consistency`` a forged second root MUST be
-    rejected. The forked-peer negative for the two-node loop."""
+    """The append-only guarantee at the primitive level: a forged/rewritten second
+    root cannot satisfy the consistency proof. Roots are NOTE-anchored; feeding
+    ``verify_consistency`` a forged second root MUST be rejected, while the genuine
+    note-anchored root verifies (so the proof itself is sound, not vacuous)."""
     client, session = node_a
     get = _get_fn(client)
     pubkey_hex, key_name = _discover_trust_anchor(get)
     adapter = RefAdapter()
 
-    cp_k = get("/api/v1/federation/checkpoint").json_body
-    k = cp_k["tree_size"]
-    root_k = cp_k["root_hash"]
+    k, root_k = _pin_note_anchored(get, adapter, pubkey_hex, key_name)
     _append(session, _DID_A, _key(_SEED_A), count=2, start=3)
-    cp_n = get("/api/v1/federation/checkpoint").json_body
-    n = cp_n["tree_size"]
+    n, root_n = _pin_note_anchored(get, adapter, pubkey_hex, key_name)
     proof = get(f"/api/v1/federation/checkpoint?from_tree_size={k}").json_body[
         "consistency_proof"
     ]
 
     forged_root_n = "00" * 32
     assert not adapter.verify_consistency(k, n, proof, root_k, forged_root_n)
-    # And the genuine root still verifies (the proof itself is sound).
-    assert adapter.verify_consistency(k, n, proof, root_k, cp_n["root_hash"])
+    # And the genuine note-anchored root still verifies (the proof is sound).
+    assert adapter.verify_consistency(k, n, proof, root_k, root_n)
+
+
+@pytest.mark.integration
+def test_two_node_consistency_rejects_equivocating_json_root(node_a):
+    """The equivocation teeth (the defect a JSON-anchored pattern would have): a
+    node serving an HONEST signed note but a LYING unsigned JSON ``root_hash`` is
+    REJECTED by the note-anchored consumer, which pins the root from the note and
+    cross-checks the JSON. Trusting the unsigned field instead would let an
+    equivocating node pass off a forked history as an append-only extension."""
+    client, session = node_a
+    get = _get_fn(client)
+    pubkey_hex, key_name = _discover_trust_anchor(get)
+    adapter = RefAdapter()
+
+    k, root_k = _pin_note_anchored(get, adapter, pubkey_hex, key_name)
+    _append(session, _DID_A, _key(_SEED_A), count=2, start=3)
+
+    base = _get_fn(client)
+
+    def lying_json_get(path: str) -> runner.Resp:
+        r = base(path)
+        if path.startswith("/api/v1/federation/checkpoint") and r.json_body is not None:
+            body = dict(r.json_body)
+            body["root_hash"] = "11" * 32  # forge the unsigned field, keep the note
+            r = runner.Resp(r.status_code, r.text, r.headers, body)
+        return r
+
+    report = runner.verify_consistency_to_head(
+        lying_json_get, adapter, pubkey_hex, key_name, held_size=k, held_root_hex=root_k
+    )
+    assert not report.current_verified
+    assert not report.ok
+    assert "disagree" in report.detail
 
 
 @pytest.mark.integration
@@ -302,6 +349,58 @@ def test_two_node_discovery_rejects_malformed_multibase(node_a):
 
     with pytest.raises(ValueError):
         _discover_trust_anchor(garbage_get)
+
+
+@pytest.mark.integration
+def test_two_node_discovery_rejects_missing_main_key(node_a):
+    """A did.json with no ``#main-key`` verificationMethod is rejected at discover —
+    a peer fails closed rather than indexing into an empty selection."""
+    client, _ = node_a
+    base = _get_fn(client)
+
+    def stripped_get(path: str) -> runner.Resp:
+        r = base(path)
+        if path == "/.well-known/did.json" and r.json_body is not None:
+            doc = json.loads(json.dumps(r.json_body))
+            doc["verificationMethod"] = [
+                m
+                for m in doc["verificationMethod"]
+                if not m["id"].endswith("#main-key")
+            ]
+            r = runner.Resp(r.status_code, r.text, r.headers, doc)
+        return r
+
+    with pytest.raises(ValueError):
+        _discover_trust_anchor(stripped_get)
+
+
+@pytest.mark.integration
+def test_two_node_discovery_rejects_duplicate_main_key(node_a):
+    """A did.json advertising TWO ``#main-key`` entries is ambiguous — reject rather
+    than first-wins, which an attacker could exploit by PREPENDING a forged key to
+    win the match. Fails closed at discover."""
+    client, _ = node_a
+    base = _get_fn(client)
+    foreign_mb = public_key_multibase(_key(bytes([5]) + bytes(31)).public_key())
+
+    def dup_get(path: str) -> runner.Resp:
+        r = base(path)
+        if path == "/.well-known/did.json" and r.json_body is not None:
+            doc = json.loads(json.dumps(r.json_body))
+            did = doc["id"]
+            forged = {
+                "id": f"{did}#main-key",
+                "type": "Ed25519VerificationKey2020",
+                "controller": did,
+                "publicKeyMultibase": foreign_mb,
+                "priority": 1,
+            }
+            doc["verificationMethod"] = [forged] + doc["verificationMethod"]
+            r = runner.Resp(r.status_code, r.text, r.headers, doc)
+        return r
+
+    with pytest.raises(ValueError):
+        _discover_trust_anchor(dup_get)
 
 
 @pytest.mark.integration

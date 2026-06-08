@@ -106,17 +106,18 @@ def public_key_from_multibase(multibase: str) -> Ed25519PublicKey:
     it verifies that node's signed checkpoints/envelopes. It therefore REJECTS
     (``ValueError``) any malformed or forged input — a non-base58btc multibase, a
     non-ed25519 multicodec, or a wrong key length — rather than silently returning
-    a key a verifier would then trust. Symmetric with the encoder's base58 backend
-    (``base58`` package when present, else the hand-rolled fallback)."""
+    a key a verifier would then trust.
+
+    Decoding always uses the hand-rolled, dependency-free :func:`_b58decode` (the
+    module's design intent — partners implement the standard without our exact
+    toolchain), so validation is deterministic and STRICT: unlike the ``base58``
+    package, which tolerates surrounding ASCII whitespace, ``_b58decode`` rejects
+    any character outside the base58btc alphabet. For any well-formed multibase the
+    encoder emits the two agree byte-for-byte; they diverge only on malformed input,
+    where strict rejection is the safe choice for a trust-anchor decoder."""
     if not multibase.startswith("z"):
         raise ValueError("multibase is not base58btc ('z' multibase prefix required)")
-    encoded = multibase[1:]
-    try:
-        import base58
-
-        payload = base58.b58decode(encoded)
-    except ImportError:
-        payload = _b58decode(encoded)
+    payload = _b58decode(multibase[1:])
     if not payload.startswith(_ED25519_PUB_MULTICODEC):
         raise ValueError("not an ed25519-pub key (missing 0xed01 multicodec prefix)")
     raw = payload[len(_ED25519_PUB_MULTICODEC) :]
