@@ -43,6 +43,7 @@ from stacks.compute_stack import ComputeStack
 from stacks.database_stack import DatabaseStack
 from stacks.db_init_stack import DbInitStack
 from stacks.ecr_stack import ECRStack
+from stacks.federation_stack import FederationStack
 from stacks.lambda_api_stack import LambdaApiStack
 from stacks.metabase_access_stack import MetabaseAccessStack
 from stacks.monitoring_stack import MonitoringStack
@@ -327,6 +328,23 @@ submarine_stack.add_dependency(queue_stack)
 submarine_stack.add_dependency(services_stack)
 submarine_stack.add_dependency(batch_stack)
 
+# Federation Stack - archive tiering + retention-prune Lambda (P1 PR-D)
+federation_stack = FederationStack(
+    app,
+    f"FederationStack-{environment_name}",
+    environment_name=environment_name,
+    vpc=compute_stack.vpc,
+    database_proxy_endpoint=database_stack.proxy_endpoint,
+    database_secret=database_stack.database_credentials_secret,
+    proxy_security_group=database_stack.proxy_security_group,
+    ecr_repository=ecr_stack.repositories.get("batch-lambda"),
+    env=env,
+    description=f"Pantry Pirate Radio federation archive/prune ({environment_name})",
+)
+federation_stack.add_dependency(compute_stack)
+federation_stack.add_dependency(database_stack)
+federation_stack.add_dependency(ecr_stack)
+
 # Monitoring Stack - CloudWatch dashboards and alarms
 monitoring_stack = MonitoringStack(
     app,
@@ -339,6 +357,7 @@ monitoring_stack = MonitoringStack(
     api_gateway_id=lambda_api_stack.http_api.ref,
     batcher_function_name=batch_stack.batcher_lambda.function_name,
     result_processor_function_name=batch_stack.result_processor_lambda.function_name,
+    federation_prune_function_name=federation_stack.prune_lambda.function_name,
     staging_queue_name=batch_stack.staging_queue.queue_name,
     content_index_table_name=storage_stack.content_index_table.table_name,
     geocoding_cache_table_name=database_stack.geocoding_cache_table.table_name,
@@ -364,6 +383,7 @@ for _stack_label, _stack_obj in [
     ("ComputeStack", compute_stack),
     ("DatabaseStack", database_stack),
     ("BatchStack", batch_stack),
+    ("FederationStack", federation_stack),
     ("ServicesStack", services_stack),
     ("DbInitStack", db_init_stack),
     ("PipelineStack", pipeline_stack),
@@ -575,6 +595,18 @@ if batch_stack.result_processor_security_group:
         to_port=5432,
         description="Allow result processor Lambda to connect to RDS Proxy",
     )
+
+# Allow the federation prune Lambda to reach RDS Proxy
+ec2.CfnSecurityGroupIngress(
+    federation_stack,
+    "FederationPruneToProxyIngress",
+    group_id=database_stack.proxy_security_group.security_group_id,
+    source_security_group_id=federation_stack.prune_security_group.security_group_id,
+    ip_protocol="tcp",
+    from_port=5432,
+    to_port=5432,
+    description="Allow federation prune Lambda to connect to RDS Proxy",
+)
 
 # Pipeline depends on compute (needs cluster), services (task def), and batch (staging queue + Lambda)
 pipeline_stack.add_dependency(compute_stack)
