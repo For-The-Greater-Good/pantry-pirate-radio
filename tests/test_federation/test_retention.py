@@ -219,6 +219,50 @@ def test_prune_is_a_noop_when_federation_disabled(db_session, monkeypatch) -> No
     assert log.live_window_floor(db_session) == 1
 
 
+def test_leaf_data_rejects_a_hole_above_the_floor(db_session):
+    """Defense-in-depth: a hole IN the live suffix (live rows still present below it —
+    live-table corruption, since the prune only trims a prefix) must RAISE, not be
+    backfilled from a possibly-stale archive copy (which would yield a wrong,
+    silently-accepted root)."""
+    _seed_five(db_session)
+    # No prune: floor is 1. Punch a hole at sequence 3 (live 1,2 remain below it).
+    db_session.execute(text("DELETE FROM federation_log WHERE sequence = 3"))
+    db_session.commit()
+    with pytest.raises(ValueError, match="hole at sequence 3"):
+        log.leaf_data(db_session, 5)
+
+
+def test_s3_backend_has_reraises_transient_error_but_404_is_absent():
+    """S3ArchiveBackend.has must treat ONLY a real 404 as 'absent'; a transient
+    error must propagate (retryable), never be mistaken for permanent leaf loss."""
+    from botocore.exceptions import ClientError
+
+    from app.federation.retention import S3ArchiveBackend
+
+    backend = S3ArchiveBackend.__new__(S3ArchiveBackend)
+    backend._bucket = "b"
+    backend._prefix = "p"
+
+    class _FakeS3:
+        def __init__(self, code, status):
+            self._code, self._status = code, status
+
+        def head_object(self, **_):
+            raise ClientError(
+                {
+                    "Error": {"Code": self._code},
+                    "ResponseMetadata": {"HTTPStatusCode": self._status},
+                },
+                "HeadObject",
+            )
+
+    backend._s3 = _FakeS3("404", 404)
+    assert backend.has(1) is False
+    backend._s3 = _FakeS3("ThrottlingException", 503)
+    with pytest.raises(ClientError):
+        backend.has(1)
+
+
 def test_prune_entrypoint_refuses_without_an_archive_backend(db_session, monkeypatch):
     """The bouy/Lambda prune entrypoint REFUSES (exit 1, no trim) when no archive
     tier is configured — trimming without archiving first would destroy tree state."""

@@ -71,6 +71,14 @@ class LocalFsArchiveBackend:
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, path)
+        # fsync the directory so the RENAME (not just the file content) is durable
+        # before put() returns — prune_to_horizon DELETEs the live row trusting this
+        # put as proof of durability, so a crash here must not lose the rename.
+        dir_fd = os.open(str(self._root), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     def get(self, sequence: int) -> bytes:
         return self._path(sequence).read_bytes()
@@ -107,8 +115,15 @@ class S3ArchiveBackend:
         try:
             self._s3.head_object(Bucket=self._bucket, Key=self._key(sequence))
             return True
-        except ClientError:
-            return False
+        except ClientError as exc:
+            # Only a genuine 404 means "absent". A transient/permission error must
+            # PROPAGATE (retryable) — never be mistaken for permanent leaf loss,
+            # which would degrade an available checkpoint/proof to a false 410.
+            err = exc.response.get("Error", {}) if hasattr(exc, "response") else {}
+            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if err.get("Code") in ("404", "NoSuchKey", "NotFound") or status == 404:
+                return False
+            raise
 
 
 def resolve_archive_backend() -> ArchiveBackend | None:

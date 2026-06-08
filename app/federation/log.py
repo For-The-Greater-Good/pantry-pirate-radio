@@ -184,6 +184,19 @@ def leaf_data(session: Session, tree_size: int) -> list[bytes]:
     # contract: a missing leaf is a hard error, never a silently shortened tree.
     from app.federation.retention import resolve_archive_backend
 
+    # The live window must be a CONTIGUOUS suffix [floor, tree_size]: only the
+    # below-floor prefix [1, floor-1] may be sourced from the archive. A hole at or
+    # ABOVE the floor is live-table corruption (the prune only trims a prefix) — fail
+    # rather than backfill it from a possibly-stale archived copy, which would yield a
+    # tree_size-length leaf list with a WRONG, silently-accepted root.
+    floor = min(live) if live else tree_size + 1
+    for seq in range(floor, tree_size + 1):
+        if seq not in live:
+            raise ValueError(
+                f"tree_size {tree_size}: live window has a hole at sequence {seq} "
+                "(not a contiguous suffix)"
+            )
+
     backend = resolve_archive_backend()
     leaves: list[bytes] = []
     for seq in range(1, tree_size + 1):
