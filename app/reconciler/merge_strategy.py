@@ -307,23 +307,14 @@ class MergeStrategy(BaseReconciler):
         # Apply merging strategy to create canonical record
         merged_data = self._merge_location_data(valid_records)
 
-        # Source corroboration: count distinct scrapers and apply bonus
+        # Source corroboration: count distinct sources and apply the bonus
+        # (extracted to app/reconciler/corroboration.py — the seam P2 §12.1 widens
+        # from distinct scraper_id to distinct ORIGIN DID).
         updated_score = None
         if current_confidence_score is not None:
-            distinct_scrapers = len(
-                set(r.get("scraper_id") for r in valid_records if r.get("scraper_id"))
-            )
-            if distinct_scrapers > 1:
-                from app.validator.scoring import ConfidenceScorer
+            from app.reconciler.corroboration import apply_corroboration
 
-                scorer = ConfidenceScorer()
-                updated_score = scorer.apply_source_corroboration(
-                    current_confidence_score, distinct_scrapers
-                )
-                self.logger.info(
-                    f"Source corroboration: {distinct_scrapers} scrapers, "
-                    f"score {current_confidence_score} -> {updated_score}"
-                )
+            updated_score = apply_corroboration(current_confidence_score, valid_records)
 
         # Update canonical record.
         # When verified_by identifies an authoritative human writer
