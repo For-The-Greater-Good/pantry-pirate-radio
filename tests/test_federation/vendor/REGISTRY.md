@@ -33,6 +33,7 @@ SHA + license). A self-derived oracle is NOT conformance evidence.
 | ActivityStreams 2.0 / ActivityPub | `identity.py` (actor), `envelope.py` | no machine-checkable conformance suite for our slice | `shape-only` |
 | RFC 9530 (Content-Digest) | `signing.py` | no published KAT for the SHA-256 member | `shape-only` |
 | RFC 3339 (timestamps) | `envelope.py:published_now` | n/a (format) | `shape-only` |
+| RFC 7493 (I-JSON) | `envelope.py:_i_json_ok` (the ±(2^53−1) interoperable-integer bound enforced at the envelope boundary, §2.2) | no formal vector suite (a constraint profile over RFC 8259) | `shape-only` — the integer-domain bound is pinned by `test_envelope.py` (oversize int → `finalize` raises / `verify_envelope` False; 2^53−1 accepted) and `test_di_proof.py`; keeps `canonical.py` a general RFC-8785 serializer (Slice W / #581) |
 | HSDS 3.1.1 (data shape) | `aggregate.py` → `LocationResponse` | no strict JSON-Schema conformance suite (the vendored descriptor is a Frictionless tabular descriptor with `additionalProperties` unset — verified to lack discriminating power; CONF-3 rejected) | `covered` via `extra="forbid"` model round-trip |
 | RFC 5545 (iCal byday/bymonthday) | `app/utils/ical.py` (not `app/federation/`) | — | `cross-ref` |
 
