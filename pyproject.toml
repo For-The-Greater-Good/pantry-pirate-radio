@@ -162,6 +162,16 @@ module = "markdown_it.*"
 ignore_missing_imports = true
 follow_imports = "skip"
 
+# The unpinned crawl4ai install can pull a newer openai than the lock, whose
+# _client.py crashes mypy 1.16 with an INTERNAL ERROR on fresh local builds.
+# CI runs the lock-pinned version and is unaffected; skip following openai
+# internals so local `./bouy test --mypy` matches CI (our call sites are still
+# checked). See docs/superpowers/NEXT-SESSION.md "Known fresh-build snag".
+[[tool.mypy.overrides]]
+module = "openai.*"
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [[tool.mypy.overrides]]
 module = "tests.hsds.strategies.*"
 disallow_untyped_decorators = false
