@@ -76,11 +76,15 @@ REJECT = {
     "empty-federation-id": _env(
         "Update", _DID_A, _DID_A, _DID_A, _OBJ, federation_id=""
     ),
-    # verb set
+    # verb set — CLOSED frozenset {Update, Announce, Delete}; everything else
+    # rejected (wire-freeze closed-verb-registry coverage evidence). Move/Flag are
+    # reserved-for-later-phase verbs; Tombstone is an object type, never a verb.
     "verb-create": _env("Create", _DID_A, _DID_A, _DID_A, _OBJ),
     "verb-flag": _env("Flag", _DID_A, _DID_A, _DID_A, _OBJ),
+    "verb-move": _env("Move", _DID_A, _DID_A, _DID_A, _OBJ),
     "verb-tombstone-as-verb": _env("Tombstone", _DID_A, _DID_A, _DID_A, _OBJ),
     "verb-lowercase": _env("update", _DID_A, _DID_A, _DID_A, _OBJ),
+    "verb-empty-string": _env("", _DID_A, _DID_A, _DID_A, _OBJ),
     # object shape (Update/Announce)
     "update-empty-object": _env("Update", _DID_A, _DID_A, _DID_A, {}),
     "update-null-object": _env("Update", _DID_A, _DID_A, _DID_A, None),
@@ -139,6 +143,19 @@ def test_unhashable_type_is_rejected_not_raised(bad_type):
     """Totality: an unhashable 'type' (list/dict) must return False, NOT raise
     TypeError on the frozenset membership test (a direct caller — future P2 ingest —
     relies on the never-raises contract)."""
+    env = _env("Update", _DID_A, _DID_A, _DID_A, _OBJ)
+    env["type"] = bad_type
+    assert validate_activity(env) is False
+
+
+@pytest.mark.parametrize("bad_type", [123, None, True, 1.5, b"Update"])
+def test_non_string_hashable_verb_is_rejected(bad_type):
+    """Closed-verb-registry coverage (wire-freeze evidence): a non-string but
+    HASHABLE 'type' (int/None/bool/float/bytes) must return False. The verb must be
+    ``isinstance(str)`` BEFORE the frozenset test — ``True`` is the trap, since
+    ``True == 1`` hashes/compares as 1 and ``1 in frozenset({...str...})`` is False
+    only because the set holds strings; the isinstance guard is what truly closes it,
+    and a bytes ``b"Update"`` is never == the str ``"Update"``."""
     env = _env("Update", _DID_A, _DID_A, _DID_A, _OBJ)
     env["type"] = bad_type
     assert validate_activity(env) is False
