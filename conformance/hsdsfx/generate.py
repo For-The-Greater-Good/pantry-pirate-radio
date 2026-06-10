@@ -31,6 +31,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from app.federation import di_proof as di_mod
 from app.federation import envelope as env_mod
 
 _VECTORS = Path(__file__).resolve().parent / "vectors"
@@ -98,44 +99,116 @@ def _gen_content_address() -> dict:
     }
 
 
+# A SECOND fixed seed, distinct from _SEED, for the "third-party re-sign" reject
+# vector: a genuine eddsa-jcs-2022 proof produced by a DIFFERENT key (and a
+# did:web:evil.example verificationMethod) that MUST NOT verify under the ORIGIN's
+# public key. Deterministic so the corpus stays byte-stable.
+_EVIL_SEED = bytes(range(32, 64))
+#: The retired ed25519-jcs-2026 signature for the worked envelope (byte-copied from
+#: the pre-Slice-W envelope_proof.json git history) — the must_reject "old format"
+#: vector proves a verifier rejects the retired proof shape even with a valid old sig.
+_RETIRED_SIG_B64 = "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+
+
 def _gen_proof() -> dict:
     pre = _worked_preimage()
     key = Ed25519PrivateKey.from_private_bytes(_SEED)
     env, _ = env_mod.finalize_with_bytes(dict(pre), key)
-    sig = env["proof"]["signature"]
-    vm = env["proof"]["verificationMethod"]
-    raw = base64.b64decode(sig, validate=True)
+    proof = env["proof"]
+    pub = _pubkey_hex()
+
+    # (a) bogus cryptosuite — the original (valid) signature under a cryptosuite the
+    #     closed allowlist rejects. Catches a verifier that ignores cryptosuite.
+    bad_cryptosuite = dict(env)
+    bad_cryptosuite["proof"] = {**proof, "cryptosuite": "eddsa-rdfc-2022"}
+    # (b) third-party re-sign — a GENUINE eddsa-jcs-2022 proof over the same DI
+    #     document made by a DIFFERENT key, claiming did:web:evil.example. Verified
+    #     under the ORIGIN pubkey it fails on BOTH the vm-DID binding (evil != actor)
+    #     AND the wrong key — the substitution attack the binding defends against.
+    evil_key = Ed25519PrivateKey.from_private_bytes(_EVIL_SEED)
+    evil_env, _ = env_mod.finalize_with_bytes(dict(pre), evil_key)
+    evil_env = dict(evil_env)
+    evil_env["proof"] = di_mod.create_proof(
+        {k: v for k, v in evil_env.items() if k != "proof"},
+        signing_key=evil_key,
+        verification_method="did:web:evil.example#main-key",
+        proof_purpose="assertionMethod",
+        created=pre["published"],
+    )
+    # (c) wrong proofPurpose — a GENUINE origin-signed proof whose proofPurpose is
+    #     'authentication'; the signature is valid, so ONLY the purpose check fires.
+    purpose_env = dict(env)
+    purpose_env["proof"] = di_mod.create_proof(
+        {k: v for k, v in env.items() if k != "proof"},
+        signing_key=key,
+        verification_method=proof["verificationMethod"],
+        proof_purpose="authentication",
+        created=pre["published"],
+    )
+    # (d) proofValue without the "z" multibase prefix — strict decode rejects it.
+    no_prefix = dict(env)
+    no_prefix["proof"] = {
+        **proof,
+        "proofValue": proof["proofValue"].removeprefix("z"),
+    }
+    # (e) the RETIRED ed25519-jcs-2026 proof object (a valid OLD-format base64 sig)
+    #     MUST be rejected — the format is gone (closed type/cryptosuite allowlist).
+    old_format = dict(env)
+    old_format["proof"] = {
+        "type": "ed25519-jcs-2026",
+        "verificationMethod": proof["verificationMethod"],
+        "signature": _RETIRED_SIG_B64,
+    }
     return {
         "area": "envelope_proof",
-        "spec": "HSDS-FX/§6.2a,§8.1",
+        "spec": "HSDS-FX/§6.2a,§8.1 (vc-di-eddsa eddsa-jcs-2022)",
         "reference_impl": "app/federation/envelope.py:finalize_with_bytes",
         "interop_status": "interop_pending",
-        "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + verificationMethod + signature over JCS bytes)",
+        "derives_from": "INTEROP_PENDING.md rows 1-4 (W3C DataIntegrityProof eddsa-jcs-2022: type + cryptosuite + verificationMethod + proofValue over the DI document)",
         "vectors": [
             {
                 "id": "env-proof-001",
                 "op": "sign_envelope",
-                "description": "Ed25519-over-JCS proof for the worked envelope; the full proof object (type + verificationMethod + signature) is pinned byte-for-byte. signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
+                "description": "W3C Data Integrity eddsa-jcs-2022 proof for the worked envelope; the FULL proof object (@context copied from the document, type=DataIntegrityProof, cryptosuite=eddsa-jcs-2022, created=published, verificationMethod, proofPurpose=assertionMethod, proofValue) is pinned byte-for-byte. proofValue is multibase base58btc ('z'-prefixed) over the 64-byte Ed25519 signature on SHA256(JCS(proofConfig)) || SHA256(JCS(document)) (proof config FIRST), the DI document being the envelope minus proof (id included). created defaults to published, so the proof is deterministic (RFC 8032) — any impl with the seed reproduces it.",
                 "input": {"seed_hex": _SEED_HEX, "preimage": pre},
-                "expected": {
-                    "type": "ed25519-jcs-2026",
-                    "verificationMethod": vm,
-                    "signature": sig,
-                },
+                "expected": proof,
                 "must_reject": False,
                 "interop_pending": True,
                 "interop_row": 4,
             },
             {
-                "id": "env-proof-noncanonical-b64-001",
+                "id": "env-proof-bad-cryptosuite-001",
                 "op": "verify_envelope",
-                "description": "Non-canonical base64 of the SAME 64 signature bytes (final-quantum padding bits flipped) MUST be rejected by verify (signature non-malleability, envelope.py:153-166).",
-                "input": {
-                    "envelope": _verify_envelope_with_sig(
-                        pre, key, _noncanonical_b64(raw)
-                    ),
-                    "pubkey_hex": _pubkey_hex(),
-                },
+                "description": "A proof carrying the original (valid) signature but cryptosuite='eddsa-rdfc-2022' MUST be rejected — the type/cryptosuite pair is a CLOSED allowlist {DataIntegrityProof, eddsa-jcs-2022}; an unrecognised cryptosuite is not accepted even with a genuine signature.",
+                "input": {"envelope": bad_cryptosuite, "pubkey_hex": pub},
+                "must_reject": True,
+            },
+            {
+                "id": "env-proof-third-party-resign-001",
+                "op": "verify_envelope",
+                "description": "A genuine eddsa-jcs-2022 proof over the SAME DI document, but produced by a DIFFERENT key and claiming verificationMethod did:web:evil.example#main-key, verified under the ORIGIN public key MUST be rejected — it fails BOTH the verificationMethod-to-actor binding (the DID part != envelope.actor) AND the Ed25519 check under the origin key. This is the key-substitution attack the binding closes (review R9).",
+                "input": {"envelope": evil_env, "pubkey_hex": pub},
+                "must_reject": True,
+            },
+            {
+                "id": "env-proof-wrong-purpose-001",
+                "op": "verify_envelope",
+                "description": "A genuine origin-signed proof whose proofPurpose='authentication' (not 'assertionMethod') MUST be rejected — an assertion of data provenance requires the assertionMethod purpose; the signature itself is valid so only the purpose check fires.",
+                "input": {"envelope": purpose_env, "pubkey_hex": pub},
+                "must_reject": True,
+            },
+            {
+                "id": "env-proof-no-multibase-prefix-001",
+                "op": "verify_envelope",
+                "description": "A proofValue missing the 'z' base58btc multibase prefix MUST be rejected — proofValue is strict-multibase ('z' + base58btc(64-byte sig)); a bare base58 string is not a valid multibase value (vc-di-eddsa §3.3.6).",
+                "input": {"envelope": no_prefix, "pubkey_hex": pub},
+                "must_reject": True,
+            },
+            {
+                "id": "env-proof-retired-format-001",
+                "op": "verify_envelope",
+                "description": "The RETIRED ed25519-jcs-2026 proof object (proof.type='ed25519-jcs-2026' with a valid old base64 'signature' field, no cryptosuite/proofValue) MUST be rejected — the bespoke pre-Slice-W proof format is gone; only the W3C DataIntegrityProof eddsa-jcs-2022 shape is accepted. The signature is a genuine old-format signature, so the rejection is by FORMAT (closed type allowlist), not a bad signature.",
+                "input": {"envelope": old_format, "pubkey_hex": pub},
                 "must_reject": True,
             },
         ],
@@ -188,27 +261,6 @@ def _gen_assembly() -> dict:
             },
         ],
     }
-
-
-def _noncanonical_b64(raw: bytes) -> str:
-    """A non-canonical base64 of the EXACT 64 bytes (flip the final-quantum pad bits).
-    64 bytes -> 88 chars ending 'xx=='; char[85] carries 2 significant + 4 pad bits,
-    so several distinct strings decode to the same bytes — the malleability the
-    verifier must reject."""
-    canonical = base64.b64encode(raw).decode("ascii")
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    for c in alphabet:
-        variant = canonical[:85] + c + "=="
-        if variant != canonical and base64.b64decode(variant, validate=True) == raw:
-            return variant
-    raise RuntimeError("no non-canonical base64 variant found")
-
-
-def _verify_envelope_with_sig(pre: dict, key: Ed25519PrivateKey, sig_b64: str) -> dict:
-    env, _ = env_mod.finalize_with_bytes(dict(pre), key)
-    env = dict(env)
-    env["proof"] = {**env["proof"], "signature": sig_b64}
-    return env
 
 
 # --- checkpoint area (Slice 2) --------------------------------------------------

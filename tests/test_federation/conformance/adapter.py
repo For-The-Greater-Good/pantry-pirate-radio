@@ -37,16 +37,25 @@ class HsdsFxAdapter(Protocol):
         ...
 
     def sign_envelope(self, seed_hex: str, preimage: dict[str, Any]) -> dict[str, Any]:
-        """Produce the ``proof`` object for ``preimage`` signed by the Ed25519 key
-        derived from the 32-byte ``seed_hex``: ``{type, verificationMethod,
-        signature}`` where ``signature`` is canonical base64-std over the SAME JCS
-        bytes the content address commits to (§6.2a/§8.1)."""
+        """Produce the W3C Data Integrity ``proof`` object (``eddsa-jcs-2022``
+        cryptosuite) for ``preimage`` signed by the Ed25519 key derived from the
+        32-byte ``seed_hex``. The proof carries ``{@context (copied from the
+        document), type="DataIntegrityProof", cryptosuite="eddsa-jcs-2022", created,
+        verificationMethod, proofPurpose="assertionMethod", proofValue}`` where
+        ``proofValue`` is multibase base58btc (``"z"``-prefixed) over the 64-byte
+        Ed25519 signature on ``SHA256(JCS(proofConfig)) || SHA256(JCS(document))``
+        (proof config FIRST), the DI *document* being the envelope minus ``proof``
+        (``id`` included). ``created`` defaults to the preimage's ``published`` so the
+        op is deterministic (§6.2a/§8.1, vc-di-eddsa §3.3)."""
         ...
 
     def verify_envelope(self, envelope: dict[str, Any], pubkey_hex: str) -> bool:
-        """True iff the envelope's content address matches AND the Ed25519 proof
-        verifies, with canonical-base64 strictness (§8.1). ``pubkey_hex`` is the
-        32-byte raw Ed25519 public key as hex."""
+        """True iff the envelope's content address matches AND the W3C Data Integrity
+        ``eddsa-jcs-2022`` proof verifies. ``pubkey_hex`` is the 32-byte raw Ed25519
+        public key as hex. Verification recomputes ``SHA256(JCS(proofConfig)) ||
+        SHA256(JCS(document))`` (proof config first; document = envelope minus
+        ``proof``) and Ed25519-verifies the base58btc ``proofValue`` against it,
+        with strict multibase decoding (§8.1, vc-di-eddsa §3.3)."""
         ...
 
     # --- checkpoint (C2SP signed note; §6.2b) ---------------------------------

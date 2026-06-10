@@ -91,7 +91,7 @@ def test_verify_note_rejects_forbidden_ascii_control_chars(
     Ed25519 signature over the (control-char-bearing) text, correct keyID. Only the
     forbidden control byte in the text distinguishes it — exactly the byte a Go
     witness would reject and our verifier must too."""
-    text = b"checkpoint" + ctrl + "body\n".encode()
+    text = b"checkpoint" + ctrl + b"body\n"
     note = _signed_note(text)
     # Sanity: the signature itself is valid over these bytes (so a green fix must
     # reject on the control-char rule, not because the signature fails).

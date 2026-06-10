@@ -299,10 +299,13 @@ def test_envelope_rejects_wrong_key(obj, sequence):
 
 # --- checkpoint: build/verify round-trip + parse fidelity + flipped root ------
 
-# Origin / timestamp text: DID-ish, newline-free (a newline would split the note
-# body), surrogate-free so it survives the UTF-8 round-trip cleanly.
+# Origin / timestamp text: DID-ish, control-char-free (C2SP §47-48 forbids any
+# ASCII control char below U+0020, newline included — such a char makes the whole
+# note malformed and is rejected by both build_checkpoint and verify_note), and
+# surrogate-free so it survives the UTF-8 round-trip cleanly. ``Cc`` is the Unicode
+# control category, which covers U+0000..U+001F (and U+007F, harmlessly excluded).
 _note_text = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\n"),
+    alphabet=st.characters(blacklist_categories=("Cs", "Cc")),
     min_size=1,
     max_size=40,
 )
@@ -310,7 +313,7 @@ _note_text = st.text(
 # note.isValidName (non-empty, no Unicode whitespace, no '+') — real origins are
 # DIDs. Filter to that valid set so build_checkpoint == verify_note round-trips.
 _origin_text = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\n "),
+    alphabet=st.characters(blacklist_categories=("Cs", "Cc")),
     min_size=1,
     max_size=40,
 ).filter(lambda s: "+" not in s and not any(c.isspace() for c in s))

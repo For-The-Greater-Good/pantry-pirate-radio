@@ -28,9 +28,13 @@
           "license": "sandia-ftgg-nc-os-1.0",
           "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
           "proof": {
-            "type": "ed25519-jcs-2026",
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-06-05T00:00:00Z",
             "verificationMethod": "did:web:example.org#main-key",
-            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+            "proofPurpose": "assertionMethod",
+            "proofValue": "zBqPkdbkiPZWCAdgasUZ6xhawAqLThXxfubeTnHgQ34V55aHVtLzyb8SV9LSorf1U1bvgZyjto48ST5wmc5LzLXs"
           }
         },
         "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
@@ -63,9 +67,13 @@
           "license": "CC-BY-4.0",
           "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
           "proof": {
-            "type": "ed25519-jcs-2026",
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-06-05T00:00:00Z",
             "verificationMethod": "did:web:example.org#main-key",
-            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+            "proofPurpose": "assertionMethod",
+            "proofValue": "zBqPkdbkiPZWCAdgasUZ6xhawAqLThXxfubeTnHgQ34V55aHVtLzyb8SV9LSorf1U1bvgZyjto48ST5wmc5LzLXs"
           }
         },
         "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
@@ -94,9 +102,13 @@
           "sequence": 1,
           "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
           "proof": {
-            "type": "ed25519-jcs-2026",
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-06-05T00:00:00Z",
             "verificationMethod": "did:web:example.org#main-key",
-            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+            "proofPurpose": "assertionMethod",
+            "proofValue": "zBqPkdbkiPZWCAdgasUZ6xhawAqLThXxfubeTnHgQ34V55aHVtLzyb8SV9LSorf1U1bvgZyjto48ST5wmc5LzLXs"
           }
         },
         "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"

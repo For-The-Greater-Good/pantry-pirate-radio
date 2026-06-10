@@ -79,6 +79,27 @@ def _b58decode(data: str) -> bytes:
     return b"\x00" * pad + body
 
 
+def b58btc_encode(data: bytes) -> str:
+    """Public base58btc encoder — a thin, stable wrapper over :func:`_b58encode`.
+
+    Exposed so other federation modules (e.g. ``di_proof`` building a multibase
+    ``proofValue``) can reuse the dependency-free base58btc codec without reaching
+    for the underscored private name. Encoding is the byte-inverse of
+    :func:`b58btc_decode`; together they are the codec a partner reimplements
+    against the W3C multibase standard without our exact toolchain."""
+    return _b58encode(data)
+
+
+def b58btc_decode(data: str) -> bytes:
+    """Public base58btc decoder — a thin, stable wrapper over :func:`_b58decode`.
+
+    STRICT: raises ``ValueError`` on any character outside the base58btc alphabet
+    (the safe choice for decoding a trust-bearing ``proofValue`` — a malformed
+    multibase must fail loudly, never decode to a signature a verifier would then
+    accept)."""
+    return _b58decode(data)
+
+
 def public_key_multibase(public_key: Ed25519PublicKey) -> str:
     """Encode an Ed25519 public key as a W3C ``publicKeyMultibase`` string."""
     raw = public_key.public_bytes(
