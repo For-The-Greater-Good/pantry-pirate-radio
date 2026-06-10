@@ -1,14 +1,14 @@
 {
   "area": "envelope_proof",
-  "spec": "HSDS-FX/§6.2a,§8.1",
+  "spec": "HSDS-FX/§6.2a,§8.1 (vc-di-eddsa eddsa-jcs-2022)",
   "reference_impl": "app/federation/envelope.py:finalize_with_bytes",
   "interop_status": "interop_pending",
-  "derives_from": "INTEROP_PENDING.md rows 1-4 (proof.type + verificationMethod + signature over JCS bytes)",
+  "derives_from": "INTEROP_PENDING.md rows 1-4 (W3C DataIntegrityProof eddsa-jcs-2022: type + cryptosuite + verificationMethod + proofValue over the DI document)",
   "vectors": [
     {
       "id": "env-proof-001",
       "op": "sign_envelope",
-      "description": "Ed25519-over-JCS proof for the worked envelope; the full proof object (type + verificationMethod + signature) is pinned byte-for-byte. signature is canonical base64-std over the same bytes the content address commits to. Deterministic (RFC 8032) — any impl with the seed reproduces it.",
+      "description": "W3C Data Integrity eddsa-jcs-2022 proof for the worked envelope; the FULL proof object (@context copied from the document, type=DataIntegrityProof, cryptosuite=eddsa-jcs-2022, created=published, verificationMethod, proofPurpose=assertionMethod, proofValue) is pinned byte-for-byte. proofValue is multibase base58btc ('z'-prefixed) over the 64-byte Ed25519 signature on SHA256(JCS(proofConfig)) || SHA256(JCS(document)) (proof config FIRST), the DI document being the envelope minus proof (id included). created defaults to published, so the proof is deterministic (RFC 8032) — any impl with the seed reproduces it.",
       "input": {
         "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
         "preimage": {
@@ -30,18 +30,166 @@
         }
       },
       "expected": {
-        "type": "ed25519-jcs-2026",
+        "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+        "type": "DataIntegrityProof",
+        "cryptosuite": "eddsa-jcs-2022",
+        "created": "2026-06-05T00:00:00Z",
         "verificationMethod": "did:web:example.org#main-key",
-        "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
+        "proofPurpose": "assertionMethod",
+        "proofValue": "zBqPkdbkiPZWCAdgasUZ6xhawAqLThXxfubeTnHgQ34V55aHVtLzyb8SV9LSorf1U1bvgZyjto48ST5wmc5LzLXs"
       },
       "must_reject": false,
       "interop_pending": true,
       "interop_row": 4
     },
     {
-      "id": "env-proof-noncanonical-b64-001",
+      "id": "env-proof-bad-cryptosuite-001",
       "op": "verify_envelope",
-      "description": "Non-canonical base64 of the SAME 64 signature bytes (final-quantum padding bits flipped) MUST be rejected by verify (signature non-malleability, envelope.py:153-166).",
+      "description": "A proof carrying the original (valid) signature but cryptosuite='eddsa-rdfc-2022' MUST be rejected — the type/cryptosuite pair is a CLOSED allowlist {DataIntegrityProof, eddsa-jcs-2022}; an unrecognised cryptosuite is not accepted even with a genuine signature.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-rdfc-2022",
+            "created": "2026-06-05T00:00:00Z",
+            "verificationMethod": "did:web:example.org#main-key",
+            "proofPurpose": "assertionMethod",
+            "proofValue": "zBqPkdbkiPZWCAdgasUZ6xhawAqLThXxfubeTnHgQ34V55aHVtLzyb8SV9LSorf1U1bvgZyjto48ST5wmc5LzLXs"
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "env-proof-third-party-resign-001",
+      "op": "verify_envelope",
+      "description": "A genuine eddsa-jcs-2022 proof over the SAME DI document, but produced by a DIFFERENT key and claiming verificationMethod did:web:evil.example#main-key, verified under the ORIGIN public key MUST be rejected — it fails BOTH the verificationMethod-to-actor binding (the DID part != envelope.actor) AND the Ed25519 check under the origin key. This is the key-substitution attack the binding closes (review R9).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-06-05T00:00:00Z",
+            "verificationMethod": "did:web:evil.example#main-key",
+            "proofPurpose": "assertionMethod",
+            "proofValue": "z3feCzXVqrxuxAR9RGBNdHESyG4tkqW5adEHD2ECWXRTjuC9uQsz2UNeAAFrE1NeH5eqddWT19ahypAqPuj8TNpWC"
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "env-proof-wrong-purpose-001",
+      "op": "verify_envelope",
+      "description": "A genuine origin-signed proof whose proofPurpose='authentication' (not 'assertionMethod') MUST be rejected — an assertion of data provenance requires the assertionMethod purpose; the signature itself is valid so only the purpose check fires.",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-06-05T00:00:00Z",
+            "verificationMethod": "did:web:example.org#main-key",
+            "proofPurpose": "authentication",
+            "proofValue": "z2MpBqDwLMSybseLp3FA39RcXeqRHqsyjfGUQuyMschYcChYyksLhmadkjLPSqMjaS7Pts4tDU5vqv2H5fQy8zadf"
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "env-proof-no-multibase-prefix-001",
+      "op": "verify_envelope",
+      "description": "A proofValue missing the 'z' base58btc multibase prefix MUST be rejected — proofValue is strict-multibase ('z' + base58btc(64-byte sig)); a bare base58 string is not a valid multibase value (vc-di-eddsa §3.3.6).",
+      "input": {
+        "envelope": {
+          "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+          "type": "Update",
+          "actor": "did:web:example.org",
+          "attributedTo": "did:web:example.org",
+          "origin": "did:web:example.org",
+          "federation_id": "example.org:abc-123",
+          "object": {
+            "id": "loc-1",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "name": "Test Pantry"
+          },
+          "published": "2026-06-05T00:00:00Z",
+          "sequence": 1,
+          "license": "sandia-ftgg-nc-os-1.0",
+          "id": "sha256:0d7f0a2d0aefdf9d2c51e135aca90ce9e27a642683cb8ecdb87431bbb30bcaba",
+          "proof": {
+            "@context": "https://hsds-federation.pantrypirateradio.org/profile",
+            "type": "DataIntegrityProof",
+            "cryptosuite": "eddsa-jcs-2022",
+            "created": "2026-06-05T00:00:00Z",
+            "verificationMethod": "did:web:example.org#main-key",
+            "proofPurpose": "assertionMethod",
+            "proofValue": "BqPkdbkiPZWCAdgasUZ6xhawAqLThXxfubeTnHgQ34V55aHVtLzyb8SV9LSorf1U1bvgZyjto48ST5wmc5LzLXs"
+          }
+        },
+        "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      },
+      "must_reject": true
+    },
+    {
+      "id": "env-proof-retired-format-001",
+      "op": "verify_envelope",
+      "description": "The RETIRED ed25519-jcs-2026 proof object (proof.type='ed25519-jcs-2026' with a valid old base64 'signature' field, no cryptosuite/proofValue/proofPurpose) MUST be rejected — the bespoke pre-Slice-W proof format is gone; only the W3C DataIntegrityProof eddsa-jcs-2022 shape is accepted. The signature is a genuine old-format signature, so the rejection is by FORMAT, not a bad signature: the first check to fire is the proofPurpose pin (the retired object carries no proofPurpose), and the closed type/cryptosuite allowlist independently refuses the retired type even were a purpose spliced in.",
       "input": {
         "envelope": {
           "@context": "https://hsds-federation.pantrypirateradio.org/profile",
@@ -63,7 +211,7 @@
           "proof": {
             "type": "ed25519-jcs-2026",
             "verificationMethod": "did:web:example.org#main-key",
-            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDB=="
+            "signature": "L0DOrx5ghYakAs6SFy3dedYh1+m4EpirerHbZzrfzUv5RSvMoujcMgwjSmSOXgbGTmmj2r7Ob4Pv0XMttQgxDA=="
           }
         },
         "pubkey_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"

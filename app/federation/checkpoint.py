@@ -8,6 +8,11 @@ can verify our checkpoints — the format is witness-compatible from day one
 Format (C2SP signed-note.md, verified against the spec text and reproduced
 byte-for-byte against the Go ``sumdb/note`` reference vector in the tests):
 
+  - The whole note MUST be valid UTF-8 and MUST NOT contain any ASCII control
+    character below U+0020 other than newline (C2SP signed-note §47-48; Go
+    ``note.Open`` returns ``errMalformedNote`` on any such rune). ``_split_note``
+    scans for and rejects them so our accept-set matches a Go witness's exactly
+    (DEL U+007F is not ``< 0x20`` and stays accepted).
   - The note **text** ends in a newline; the SIGNED bytes are the text
     *including* that final newline (the trailing newline is load-bearing).
   - A **blank line** (a lone newline) separates the text from the signatures;
@@ -62,13 +67,19 @@ def checkpoint_body(
     and a ``Timestamp:`` extension line — each line newline-terminated,
     INCLUDING the last (the trailing newline is part of the signed bytes).
 
-    Rejects an embedded newline in ``origin``/``timestamp`` (note-injection
-    hardening): a multi-line field would forge extra body lines, so a
-    misconfigured value must fail loudly at build time, not emit an ambiguous
-    note.
+    Rejects an embedded newline OR any other forbidden ASCII control character
+    (< U+0020) in ``origin``/``timestamp`` (note-injection + C2SP §47-48 hardening):
+    a multi-line field would forge extra body lines, and any control char makes the
+    whole note malformed (Go ``note.Open`` / our :func:`verify_note` reject it), so a
+    misconfigured value must fail loudly at build time rather than emit a note that
+    cannot be verified — keeping build and verify symmetric (Principle XI).
     """
-    if "\n" in origin or "\n" in timestamp:
-        raise ValueError("checkpoint origin/timestamp must not contain a newline")
+    for field in (origin, timestamp):
+        if "\n" in field or _has_forbidden_control_char(field):
+            raise ValueError(
+                "checkpoint origin/timestamp must not contain a newline or other"
+                " ASCII control character (C2SP signed-note §47-48)"
+            )
     root_b64 = base64.b64encode(root_hash).decode("ascii")
     return f"{origin}\n{tree_size}\n{root_b64}\nTimestamp: {timestamp}\n".encode()
 
@@ -101,6 +112,22 @@ def build_checkpoint(
     return sign_note(body, origin, signing_key)
 
 
+def _has_forbidden_control_char(note: str) -> bool:
+    """True iff ``note`` contains any ASCII control character below U+0020 other
+    than newline.
+
+    C2SP signed-note §47-48: "Signed notes MUST be valid UTF-8 and MUST NOT contain
+    any ASCII control characters (those below U+0020) other than newline." Go
+    ``note.Open`` scans the WHOLE message and returns ``errMalformedNote`` on any
+    rune ``< 0x20`` except ``\\n`` — so a TAB / CR / NUL / US anywhere makes the
+    note malformed. (A Python ``str`` is always valid UTF-8, so only the
+    control-char half of the clause needs an explicit scan. DEL U+007F is NOT
+    ``< 0x20`` and stays accepted.) Without this scan our accept-set would be wider
+    than a Go witness's — a split-brain risk in the witness mesh.
+    """
+    return any(ord(ch) < 0x20 and ch != "\n" for ch in note)
+
+
 def _split_note(note: str) -> tuple[bytes, list[str]] | None:
     """Split a note into (signed_text_bytes, signature_lines) or None if malformed.
 
@@ -108,7 +135,14 @@ def _split_note(note: str) -> tuple[bytes, list[str]] | None:
     itself contain blank lines, and the signature block is always the final run
     of lines. Splitting at the first blank line would compute different signed
     bytes than a Go witness and break interop.
+
+    Rejects (returns ``None``) a note containing any forbidden ASCII control
+    character (< U+0020 other than newline) — C2SP §47-48 / Go ``note.Open``. The
+    scan is over the WHOLE note, so both ``verify_note`` and ``parse_checkpoint``
+    inherit the spec-conformant accept-set from this one seam.
     """
+    if _has_forbidden_control_char(note):
+        return None
     text_part, sep, sig_part = note.rpartition("\n\n")
     if not sep or not sig_part.endswith("\n"):
         return None

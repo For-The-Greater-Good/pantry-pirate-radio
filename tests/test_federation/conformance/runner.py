@@ -104,16 +104,13 @@ def _op_content_address(a: HsdsFxAdapter, i: dict) -> Any:
 
 
 def _op_sign_envelope(a: HsdsFxAdapter, i: dict) -> Any:
-    proof = a.sign_envelope(i["seed_hex"], i["preimage"])
-    # Pin the FULL proof object — type, verificationMethod, and signature — so an
-    # impl emitting a wrong/spoofed key reference (verificationMethod) is failed.
-    # (A host-mismatch must_reject vector waits on the reference impl binding
-    # verificationMethod→key on verify, §8.3 — deferred to P2.)
-    return {
-        "type": proof["type"],
-        "verificationMethod": proof["verificationMethod"],
-        "signature": proof["signature"],
-    }
+    # Pin the WHOLE W3C Data Integrity proof object — every key (@context, type,
+    # cryptosuite, created, verificationMethod, proofPurpose, proofValue) — so an
+    # impl emitting any wrong field (a spoofed verificationMethod, a drifted
+    # cryptosuite, a non-deterministic proofValue) is failed. The eddsa-jcs-2022
+    # suite is deterministic (RFC 8032 + created defaulting to published), so the
+    # full object is reproducible byte-for-byte and a sound conformance pin.
+    return dict(a.sign_envelope(i["seed_hex"], i["preimage"]))
 
 
 def _op_verify_envelope(a: HsdsFxAdapter, i: dict) -> Any:
@@ -321,7 +318,7 @@ def verify_level2(
     # 2. Pull /export PINNED to N, FOLLOWING the keyset cursor across pages (the §6.6
     #    pull contract — a real peer assembles the full committed prefix page by page;
     #    pulling one page would wrongly fail any honest node larger than the export
-    #    page size). _since is exclusive; X-Federation-Next-Cursor is the last sequence
+    #    page size). _since is exclusive; Federation-Next-Cursor is the last sequence
     #    emitted (absent on the final page). Verify each row against the held root@N
     #    (proofs are unverifiable against a moving head). Bound the loop so a hostile
     #    node cannot stall the cursor or stream past tree_size forever.
@@ -342,7 +339,7 @@ def verify_level2(
             ):  # noqa: BLE001 — a garbage row is a failed node, not a crash
                 rep.detail = "malformed /export row (non-JSON)"
                 return rep
-        nxt = _header(exp.headers, "X-Federation-Next-Cursor")
+        nxt = _header(exp.headers, "Federation-Next-Cursor")
         if not nxt:
             break
         try:

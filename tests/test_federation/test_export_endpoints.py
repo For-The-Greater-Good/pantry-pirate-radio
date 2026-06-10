@@ -93,13 +93,19 @@ def seeded_log():
     session.close()
 
 
-def test_export_returns_signed_objects_with_inclusion_proofs(client, seeded_log):
+def test_export_returns_signed_objects_with_inclusion_proofs(
+    client, configured, seeded_log
+):
     r = client.get("/api/v1/federation/export?_since=0")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/x-ndjson")
     rows = [json.loads(line) for line in r.text.splitlines() if line]
     assert len(rows) == seeded_log
-    assert int(r.headers["X-Federation-Sequence"]) == seeded_log
+    assert int(r.headers["Federation-Sequence"]) == seeded_log
+    # The retention header (RFC 6648: no 'X-' prefix) advertises the retention SLA.
+    assert (
+        int(r.headers["Federation-Retention"]) == configured.FEDERATION_RETENTION_DAYS
+    )
     pub = _key().public_key()
     for row in rows:
         assert "proof" in row and "inclusion_proof" in row
@@ -133,10 +139,10 @@ def test_export_pagination_next_cursor(client, seeded_log):
     r = client.get("/api/v1/federation/export?_since=0&limit=2")
     rows = [json.loads(line) for line in r.text.splitlines() if line]
     assert [row["sequence"] for row in rows] == [1, 2]
-    assert r.headers["X-Federation-Next-Cursor"] == "2"
+    assert r.headers["Federation-Next-Cursor"] == "2"
     # The last page carries no next-cursor.
     r2 = client.get("/api/v1/federation/export?_since=4")
-    assert "X-Federation-Next-Cursor" not in r2.headers
+    assert "Federation-Next-Cursor" not in r2.headers
 
 
 def test_below_window_floor_returns_410(client, seeded_log):
@@ -182,7 +188,7 @@ def test_export_pinned_tree_size_verifies_against_held_checkpoint(client, seeded
 
     # Pull pinned to N: every proof verifies against the held root@N.
     r = client.get(f"/api/v1/federation/export?_since=0&tree_size={n}")
-    assert int(r.headers["X-Federation-Sequence"]) == n
+    assert int(r.headers["Federation-Sequence"]) == n
     rows = [json.loads(line) for line in r.text.splitlines() if line]
     assert len(rows) == n  # the new row (n+1) is excluded — pinned to N
     for row in rows:
@@ -274,14 +280,14 @@ def test_checkpoint_and_state_txt_signed(client, seeded_log):
 def test_checkpoint_and_state_txt_expose_retention_horizon(client, seeded_log):
     """The retention horizon (the sequence below which leaves are archived, =
     live_window_floor) is advertised UNSIGNED so peers learn the floor: a JSON
-    sibling on /checkpoint and an X-Federation-Retention-Horizon header on
+    sibling on /checkpoint and a Federation-Retention-Horizon header on
     /state.txt — never inside the rigid C2SP signed note body (Go-witness interop).
     Unpruned here, so it equals the floor of 1."""
     cp = client.get("/api/v1/federation/checkpoint").json()
     assert cp["retention_horizon_sequence"] == 1
     assert cp["retention_horizon_sequence"] == cp["live_window_floor"]
     state = client.get("/api/v1/federation/state.txt")
-    assert state.headers["X-Federation-Retention-Horizon"] == "1"
+    assert state.headers["Federation-Retention-Horizon"] == "1"
     # The signed note body itself is untouched (still the rigid C2SP 4-line shape).
     assert state.text == cp["note"]
 
@@ -365,7 +371,7 @@ def test_history_returns_proof_backed_activities(client, seeded_log):
     assert len(body["activities"]) == 1
     # Proofs are anchored: tree_size in body + header (else unverifiable on a live node).
     assert body["tree_size"] == seeded_log
-    assert int(r.headers["X-Federation-Sequence"]) == seeded_log
+    assert int(r.headers["Federation-Sequence"]) == seeded_log
     act = body["activities"][0]
     assert act["federation_id"] == "node.example:loc-2"
     assert "inclusion_proof" in act

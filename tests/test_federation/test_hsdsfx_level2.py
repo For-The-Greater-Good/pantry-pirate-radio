@@ -212,7 +212,7 @@ def test_level2_rejects_checkpoint_json_disagreeing_with_signed_note(node):
 
 def test_level2_follows_export_pagination(node, monkeypatch):
     """An HONEST node larger than one /export page MUST still pass — verify_level2
-    follows X-Federation-Next-Cursor across pages and asserts completeness only over
+    follows Federation-Next-Cursor across pages and asserts completeness only over
     the assembled prefix. Regression guard: the completeness fix pulled a single page,
     which would wrongly FAIL every real node bigger than FEDERATION_EXPORT_PAGE_SIZE
     (a worse failure mode than the truncation hole it closed). Shrinking the page size

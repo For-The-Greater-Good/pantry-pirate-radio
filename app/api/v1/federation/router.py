@@ -9,8 +9,9 @@ Four routes (§6.3), all gated on ``FEDERATION_ENABLED`` (the publish kill switc
 fully enforced in P1 — a disabled node publishes nothing → 404):
 
   - ``GET /export?_since=<seq>`` — keyset NDJSON of signed envelopes + inclusion
-    proofs; headers ``X-Federation-Sequence`` (= checkpoint tree_size), ``-Next-Cursor``,
-    ``-Retention``. ``_since`` below the live-window floor → ``410`` + archive pointer.
+    proofs; headers ``Federation-Sequence`` (= checkpoint tree_size),
+    ``Federation-Next-Cursor``, ``Federation-Retention`` (RFC 6648: no ``X-``
+    prefix). ``_since`` below the live-window floor → ``410`` + archive pointer.
   - ``GET /checkpoint`` — the current C2SP signed checkpoint as JSON.
   - ``GET /state.txt`` — the same checkpoint as the raw C2SP note (text/plain).
   - ``GET /history/{federation_id}`` — per-aggregate activity history + proofs.
@@ -128,11 +129,11 @@ def export(
 
     body = "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in rows)
     headers = {
-        "X-Federation-Sequence": str(tree_size),
-        "X-Federation-Retention": str(settings.FEDERATION_RETENTION_DAYS),
+        "Federation-Sequence": str(tree_size),
+        "Federation-Retention": str(settings.FEDERATION_RETENTION_DAYS),
     }
     if next_cursor is not None:
-        headers["X-Federation-Next-Cursor"] = str(next_cursor)
+        headers["Federation-Next-Cursor"] = str(next_cursor)
     return Response(content=body, media_type="application/x-ndjson", headers=headers)
 
 
@@ -239,7 +240,7 @@ def state_txt() -> PlainTextResponse:
     return PlainTextResponse(
         note,
         media_type="text/plain",
-        headers={"X-Federation-Retention-Horizon": str(horizon)},
+        headers={"Federation-Retention-Horizon": str(horizon)},
     )
 
 
@@ -264,5 +265,5 @@ def history(federation_id: str) -> JSONResponse:
             "tree_size": tree_size,
             "activities": activities,
         },
-        headers={"X-Federation-Sequence": str(tree_size)},
+        headers={"Federation-Sequence": str(tree_size)},
     )

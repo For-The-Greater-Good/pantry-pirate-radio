@@ -64,7 +64,7 @@ Areas present (6):
 | Area | `interop_status` | Anchor |
 |---|---|---|
 | `envelope_content_address` | `interop_pending` | INTEROP_PENDING.md (envelope wire shape) |
-| `envelope_proof` | `interop_pending` | INTEROP_PENDING.md (proof.type + verificationMethod + sig) |
+| `envelope_proof` | `interop_pending` | INTEROP_PENDING.md (W3C DataIntegrityProof eddsa-jcs-2022: type + cryptosuite + verificationMethod + proofValue) |
 | `envelope_assembly` | `interop_pending` | INTEROP_PENDING.md (10-key field set; license-in-band) |
 | `checkpoint` | `interop_pending` (per-vector mixed) | Go `sumdb/note` KAT anchored (`cp-note-go-kat-001`); body PPR-native |
 | `export_wire` | `interop_pending` | INTEROP_PENDING.md (the `/export` row shape + leaf definition) |
