@@ -186,8 +186,8 @@ G1 is the constitution-Principle-III “machinery, not memory” move for HSDS i
 
 ## GitHub tracking
 
-- **Epic issue:** `HSDS full compliance — model+serve+federate the complete official object graph` — the ledger for this plan; status comment per phase transition; cross-links #519/#523.
-- **Phase issues (8):** G/T/L/S/O+A/I/X/Z — checklists of their slices.
+- **Epic issue: #584** — the ledger for this plan; status comment per phase transition; cross-links #519/#523.
+- **Phase issues (8): G #585 · T #586 · L #587 · S #588 · O+A #589 · I #590 · X #591 · Z #592** — checklists of their slices.
 - **Per-slice issues:** created when the slice STARTS (not batch up front — the P2 precedent); title `HSDS <id> — <name>`; PR says `Closes #<slice-issue>` and references the epic + (for I/X slices) #523.
 - **Cross-references:** I1/I2 PRs reference the P2 plan Slice 3/5 rows; X1 references Slice 6.5; the demo blockers get a tracking comment on the P2 Slice 16 issue when it exists.
 
