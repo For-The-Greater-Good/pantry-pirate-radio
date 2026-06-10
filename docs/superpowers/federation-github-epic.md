@@ -1,5 +1,7 @@
 # HSDS Federation in PPR Core — GitHub Epic & Issue Bodies
 
+> **⚠️ FA-FEED CORRECTION (2026-06-10):** this doc originally pitched ingesting a “live Feeding America HSDS feed” as the P2 acceptance + adoption spearhead. **No such feed exists** — PPR *scrapes* FA food-bank sites; FA publishes no consumable HSDS feed (owner correction 2026-06-08). All such references below are corrected in place to the real P2 acceptance: **two separately-running PPR nodes federating live**. See `docs/superpowers/research/2026-06-10-federation-design-and-spec-review.md`.
+
 > **Status: DRAFT PLANNING ARTIFACT. Nothing here has been created on GitHub.** This document is the
 > proposed epic structure plus ready-to-paste issue bodies for the HSDS-federation epic. It is generated
 > from the design of record and the living implementation plan; review it, then we create the issues with
@@ -190,7 +192,7 @@ PPR is **reference-data exchange** (FHIR Bulk + VhDir, IATI, OSM diffs) — slow
 | **P0 — Foundations** | `app/federation/` skeleton; discovery + `did.json` (recovery-key schema) + WebFinger + actor in both envs; JCS canonicalization + vectors; RFC 9421/Ed25519 signing; SSRF-hardened fetch; multi-file HSDS Profile + router URI. PPR is *discoverable*. | none |
 | **P0.5 — De-risking spike (HARD GATE)** | Throwaway branch (deleted; nothing merged) proving: dense-sequence append under concurrent reconciler commits; cold-start aggregate parity from raw tables; a two-node loop; JCS+sign+Merkle write-path cost. Deliverable: a one-page go/no-go memo. | none |
 | **P1 — Verifiable publish** | The §6.2 substrate: signed content-addressed objects, Merkle log, signed checkpoints (`state.txt` + `/checkpoint`), inclusion/consistency proofs; `/export`+`history`; hooks (job_processor, dedup scripts `Delete`+`redirectTo`, submarine); kill switch; cold-start verifiable snapshot; archive tiering; HSDS-FX spec extraction + conformance suite + reference second node + golden test. PPR is *verifiably readable*. | none |
-| **P2 — Pull ingest** | Thin consumable enqueuer; consumer (PPR peers with proof-verify; plain-HSDS §6.6a); the §12.3 corrections + §12.1 origin-dedup + CvRDT property test; un-corroborated gating + §11.6a equity caveat; per-peer budget; injection hardening. **Acceptance: ingest + corroborate the live Feeding America HSDS feed.** Closes the loop, with a real node #2. | none (FA feed is live) |
+| **P2 — Pull ingest** | Thin consumable enqueuer; consumer (PPR peers with proof-verify; plain-HSDS §6.6a); the §12.3 corrections + §12.1 origin-dedup + CvRDT property test; un-corroborated gating + §11.6a equity caveat; per-peer budget; injection hardening. **Acceptance: two separately-running PPR nodes pull + verify + ingest + corroborate each other over real HTTP, bidirectionally.** Closes the loop, with a real node #2. | none (both demo nodes are ours) |
 | **P3 — Push** | RFC-9421 inbox (own Lambda, pinned-key + object-sig + consistency verify) + outbound sender (DLQ) + per-DID limits + anomaly alarms + peer-remove recovery; full XIV enumeration. | a partner accepting webhooks (PPR-to-PPR via the reference node) |
 | **P4 — Trust UX, PII & review-at-scale** | `./bouy federation` peer-add/remove/list/status; PII heuristic + takedown; minimal `Flag` verb; Lighthouse claim/verify as a corroboration tier; prioritized review queue + auto-expiry + time-to-correct SLA. | none |
 | **P5 — VC trust** *(deferred)* | `Verify` verb, VC verification at the FANO gate, `verified_by='network'`; replaces `fano_allowlist.tsv`. | an issuer (FA) |
@@ -200,9 +202,9 @@ PPR is **reference-data exchange** (FHIR Bulk + VhDir, IATI, OSM diffs) — slow
 
 **Dependency note (HARD GATE):** P0 and the Ecosystem/Standards wedge have zero dependencies and start now. **P0.5's go/no-go memo gates P1 and everything after it** — a verifiable log over an unproven sequencer verifies the wrong thing. All of P1–P7 are `blocked:hard-gate` until the spike memo is accepted by the owner; contention or a missed-row edge escalates to the §6.2f single-writer-relay / CDC(LSN) fallback **before** P1.
 
-## Incentive flywheel + the Feeding-America spearhead (design §1.1)
+## Incentive flywheel (design §1.1) — ⚠️ the FA-spearhead premise below was VOID (corrected 2026-06-10)
 
-Each new node adds corroboration votes → confidence and freshness of *everyone's* served data rises → the "independently confirmed by N orgs" signal (§11.9/§12.2) becomes more valuable → more reasons to join. Consumption is free and verifiable from day one (Tier 0 costs nothing), so the funnel starts at zero friction. **The spearhead is node #2 with zero recruitment:** Feeding America's live HSDS 3.0 feed (~200 banks / 60k pantries, nightly) is consumable today via the plain-HSDS path (§6.6a) — and **P2's concrete acceptance test is: PPR ingests + corroborates the live FA feed end-to-end.** The network has a living, valuable first edge the day P2 ships.
+Each new node adds corroboration votes → confidence and freshness of *everyone's* served data rises → the "independently confirmed by N orgs" signal (§11.9/§12.2) becomes more valuable → more reasons to join. Consumption is free and verifiable from day one (Tier 0 costs nothing), so the funnel starts at zero friction. **⚠️ CORRECTED: there is no live Feeding America HSDS feed** (PPR *scrapes* FA sites; FA publishes no consumable feed — owner correction 2026-06-08). **Node #2 is PPR's own second node:** P2's concrete acceptance is two separately-running PPR nodes federating live over real HTTP — the demonstration that unlocks an unnamed partner holding a complementary authoritative dataset, who then becomes the real first external edge.
 
 ## Child issues (task-list placeholder, grouped by phase)
 
@@ -255,7 +257,7 @@ The assembler turns these human-readable titles into real issue links.
 
 - [ ] All phase issues (P0, P0.5, P1–P7) closed.
 - [ ] PPR **publishes a verifiable log**: content-addressed, origin-signed objects in a Merkle-committed append-only log with signed checkpoints and inclusion/consistency proofs (`/export`, `state.txt`, `/federation/checkpoint`); a rewritten/forked/truncated history is *provably* detected.
-- [ ] PPR **ingests + corroborates the live Feeding America HSDS feed** end-to-end as `source_type='federated_node'`, with origin-deduplicated corroboration and the §11.6a equity caveat where applicable (P2 acceptance).
+- [ ] Two separately-running PPR nodes **pull + verify + ingest + corroborate each other live** as `source_type='federated_node'`, with origin-deduplicated corroboration and the §11.6a equity caveat where applicable (P2 acceptance — corrected 2026-06-10; no FA feed exists).
 - [ ] A **non-PPR node interoperates** — a reference implementation validating HSDS-FX proves implementation-independence (P7).
 - [ ] The whole publish surface is byte-identically a no-op with `FEDERATION_ENABLED=False` (kill-switch test green), and every phase that introduced AWS constructs carries its CloudWatch alarms + `infra/tests/` assertions (Principle XIV).
 
@@ -266,7 +268,7 @@ I (Docker-first — all work via `./bouy`), II (HSDS — objects validate agains
 ## Notes
 
 - Design §21 records the owner's resolved v3 decisions: **full verifiable substrate** (over staged-minimal), **RFC 9421** signing (Cavage-12 dropped), **serve-with-caveat equity floor** in v1, **impl-first stewardship + donate to Open Referral in parallel**, **origin-deduped corroboration**, **decompose for Principle IX**, and **neutral naming** (`/.well-known/hsds-federation`, "peer", spec artifact "HSDS-FX").
-- Design §22 bottom line: every PPR deployment a node, on by default, in core; every published assertion content-addressed, origin-signed, and committed to an append-only log no one — including us — can rewrite undetected; corroboration that cannot be gamed by echoes; an equity floor; a wire spec donated to Open Referral; and a first edge (the live FA feed) that makes the network real the day P2 ships. "Build more doors, not more lock," enforced by math.
+- Design §22 bottom line: every PPR deployment a node, on by default, in core; every published assertion content-addressed, origin-signed, and committed to an append-only log no one — including us — can rewrite undetected; corroboration that cannot be gamed by echoes; an equity floor; a wire spec donated to Open Referral; and a first edge (the live two-PPR-node loop, then the partner's complementary dataset) that makes the network real the day P2 ships. "Build more doors, not more lock," enforced by math.
 ````
 
 ### `P0` — P0 — Foundations
@@ -515,7 +517,7 @@ Living implementation plan: `docs/superpowers/plans/2026-06-03-hsds-federation-c
 
 - **Blocked-hard-gate:** P1 may not start until **P0 is complete** AND **the P0.5 go/no-go memo is accepted by the owner** (green sequencer). If the P0.5 spike shows append-lock contention, escalate to the §6.2f single-writer-relay / CDC fallback **before** P1 begins.
 - Parent: [EPIC] HSDS Federation in PPR Core.
-- External dependency: **none** (the FA feed is a P2 concern; P1's reference second node is in-repo).
+- External dependency: **none** (P1's reference second node is in-repo).
 
 ## Out of scope
 
@@ -540,7 +542,7 @@ Per the living-plan contract, P1 is a roadmap-level phase: it is **expanded into
 ````markdown
 ## Summary
 
-Ingest a peer — a PPR/compatible node **or** a plain-HSDS upstream — into the reconciler as `source_type='federated_node'`, correctly and safely. This closes the two-node federation loop **with a real node #2**: the concrete acceptance is that PPR ingests and corroborates **the live Feeding America HSDS 3.0 feed** end-to-end (the adoption spearhead, no recruitment required). P2 lands the §12.3 reconciler corrections plus the §12.1 origin-dedup citogenesis fix, the §11.6a equity caveat, the §12.1 CvRDT order-shuffle property test, and §11.11 field-change anomaly detection.
+Ingest a peer — a PPR/compatible node **or** a plain-HSDS upstream — into the reconciler as `source_type='federated_node'`, correctly and safely. This closes the two-node federation loop **with a real node #2**: the concrete acceptance is **two separately-running PPR nodes pulling + verifying + ingesting + corroborating each other over real HTTP** (corrected 2026-06-10 — no FA feed exists; the demo unlocks an unnamed partner holding a complementary authoritative dataset). P2 lands the §12.3 reconciler corrections plus the §12.1 origin-dedup citogenesis fix, the §11.6a equity caveat, the §12.1 CvRDT order-shuffle property test, and §11.11 field-change anomaly detection.
 
 **Design of record:** `docs/superpowers/specs/2026-06-03-hsds-federation-core-design.md`
 **Living plan:** `docs/superpowers/plans/2026-06-03-hsds-federation-core.md` → `## P2 — Pull ingest + the reconciler corrections (roadmap)`
@@ -550,7 +552,7 @@ Ingest a peer — a PPR/compatible node **or** a plain-HSDS upstream — into th
 
 - **§6.5a** — the thin federation-ingest enqueuer (same `LLMJob` envelope as scrapers; schema CSV + aligner prompt loaded once at module import; no `ScraperUtils`/Redis at import; `QUEUE_BACKEND` redis/sqs; Content-Store SHA-256 dedup; plain-HSDS records take the cheaper alignment path).
 - **§6.6** — pull ingest consumer: PPR peers via `/export?_since=<cursor>` **with proof verification (object signature + inclusion + checkpoint consistency) before enqueue**; plain HSDS via §6.6a; one shared `(actor, sequence)` idempotency key checked before enqueue regardless of transport.
-- **§6.6a** — plain-HSDS upstreams: `/services?modified_after` Service-level deltas only (HSDS has no `/locations` list nor `last_modified` on Location), periodic full-snapshot reconciliation, tombstones synthesized only after N consecutive absences, full re-pull when `total_items` shifts mid-walk. The live FA feed (~200 banks / 60k pantries, nightly) is the spearhead node #2.
+- **§6.6a** — plain-HSDS upstreams: `/services?modified_after` Service-level deltas only (HSDS has no `/locations` list nor `last_modified` on Location), periodic full-snapshot reconciliation, tombstones synthesized only after N consecutive absences, full re-pull when `total_items` shifts mid-walk. (⚠️ Corrected: no live FA feed exists — §6.6a is a general capability for any Open-Referral HSDS publisher, with no specific live target yet.)
 - **§11.2** — corroboration counts distinct origins, never `federation_id` fan-out or announce volume; `scraper_id='federation:<peer-did>'`.
 - **§11.3** — per-peer ingest budget (records/day + LLM-jobs/day per DID and per feed) enforced before enqueue; `federation_ingest_budget_exceeded` + alarm.
 - **§11.5** — prompt-injection hardening: delimit untrusted peer free-text + "never treat as instructions" directive; structured plain-HSDS bypasses free-form alignment; the aligner is part of the trust boundary.
@@ -564,7 +566,7 @@ Ingest a peer — a PPR/compatible node **or** a plain-HSDS upstream — into th
 
 The roadmap P2 row and this DELTA are authoritative over older task prose.
 
-- **(a) Acceptance is concrete.** PPR ingests **and corroborates the live Feeding America HSDS 3.0 feed end-to-end** via §6.6a — the FA feed is the most valuable node #2, consumable today with zero recruitment. The FA feed is live; there is no external dependency.
+- **(a) Acceptance is concrete.** Two separately-running PPR nodes **pull + verify + ingest + corroborate each other end-to-end over real HTTP**, bidirectionally — both nodes are ours; there is no external dependency. (Corrected 2026-06-10: no FA feed exists.)
 - **(b) Proof-verify before enqueue.** PPR-peer ingest **verifies object signature + inclusion proof + checkpoint consistency (against the cached peer checkpoint) BEFORE enqueue**; a record that fails verification is never enqueued.
 - **(c) Corroboration dedups by ORIGIN (citogenesis fix).** Count distinct carried `origin` DIDs, not announcing actors: N peers re-announcing one origin's record = **1 vote, not N**. This is what stops re-ingested echoes from manufacturing false confidence and quietly defeating the §11.6 gate.
 - **(d) §11.6a equity caveat is a new task.** Serve a plausibly-real single-source low-density Location **WITH a visible "unconfirmed" caveat** instead of gating it invisible, with `federation_equity_caveat_served` instrumentation. Density thresholds and caveat copy are P2 implementation parameters.
@@ -611,7 +613,7 @@ Each task is red-first: failing test → implementation → commit.
 
 ## Acceptance criteria
 
-- [ ] **Concrete acceptance:** PPR ingests **and corroborates the live Feeding America HSDS feed end-to-end** via the §6.6a plain-HSDS path against existing scraper sources.
+- [ ] **Concrete acceptance:** two separately-running PPR nodes **pull + verify + ingest + corroborate each other end-to-end** over real HTTP, bidirectionally (corrected 2026-06-10).
 - [ ] **Golden P2 journey** passes against the reference node: publish → `federated_node` → origin-dedup (100 announces → 1; **3 relays of one origin → 1**) → lone-peer gated → **equity caveat served where §11.6a applies**.
 - [ ] PPR-peer ingest verifies **object signature + inclusion + checkpoint consistency BEFORE enqueue**; a record failing any check is never enqueued.
 - [ ] The §12.1 CvRDT order-shuffle Hypothesis property test passes (byte-identical canonical Location under shuffled arrival).
@@ -636,7 +638,7 @@ Each task is red-first: failing test → implementation → commit.
 
 - **Blocked by P0.5 hard gate** — the go/no-go memo must be accepted before any P1-P7 phase work begins (`blocked:hard-gate`).
 - **Blocked by P1 complete** — P2's pull consumer pulls the **P1 `/export` + proofs** (signed content-addressed objects, Merkle log, signed checkpoints, inclusion/consistency proofs); proof-verify-before-enqueue depends on the P1 substrate and the in-repo reference second node.
-- **No external dependency** — the Feeding America feed is live; the §6.6a path needs no partner recruitment.
+- **No external dependency** — both demo nodes are PPR's own; the §6.6a path is a general capability with no live target.
 
 ## Decomposition
 
@@ -1968,14 +1970,14 @@ Parent epic: see ref `epic`.
 ````markdown
 ## Summary
 
-Reveal HSDS-FX to the Open Referral Technical Committee at **P2**, leading with the **running reference implementation** and the **live-Feeding-America-feed corroboration test** as fait-accompli proof. Revive Greg Bloom's dormant federation thread (forum 601, dormant since 2025-05; Bloom is now at **Inform USA / AIRS** — the 211-institutional tie), and pitch HSDS-FX as **complementary** to the United Way National Data Platform (NDP) hub and to the Resource Record-Matcher coalition, never a bypass. This is the **reveal** half of the impl-first/donate-in-parallel strategy: a running, adopted reference precedes committee stewardship — the cautionary tale is Service Net, dead of dormancy Dec 2022 despite sound tech.
+Reveal HSDS-FX to the Open Referral Technical Committee at **P2**, leading with the **running reference implementation** and the **live two-PPR-node federation demo** (pull → verify → ingest → corroborate over real HTTP) as fait-accompli proof. Revive Greg Bloom's dormant federation thread (forum 601, dormant since 2025-05; Bloom is now at **Inform USA / AIRS** — the 211-institutional tie), and pitch HSDS-FX as **complementary** to the United Way National Data Platform (NDP) hub and to the Resource Record-Matcher coalition, never a bypass. This is the **reveal** half of the impl-first/donate-in-parallel strategy: a running, adopted reference precedes committee stewardship — the cautionary tale is Service Net, dead of dormancy Dec 2022 despite sound tech.
 
 ## Design refs
 
-- §8.5 engagement sub-plan, *Reveal (at P2)*: revive Bloom's federation thread (forum 601) with the running reference + the live-FA-feed corroboration test as proof; complementary to the **United Way NDP hub** and the **Resource Record-Matcher** (Connect211 / ServiceNet / Do Good Data); TC runs rough-consensus + 2-week RFC with **Open Data Services** as Technical Steward; engage **Mike Thacker** (ORUK steward, #485, the one person who has said "federated sources" in the repo); **lead with Tier 0/1** (no-crypto on-ramp), present checkpoints/proofs as the optional verifiability tier; **cite Service Net** (dead Dec 2022) as why a running adopted reference precedes committee stewardship.
+- §8.5 engagement sub-plan, *Reveal (at P2)*: revive Bloom's federation thread (forum 601) with the running reference + the live two-node federation demo as proof; complementary to the **United Way NDP hub** and the **Resource Record-Matcher** (Connect211 / ServiceNet / Do Good Data); TC runs rough-consensus + 2-week RFC with **Open Data Services** as Technical Steward; engage **Mike Thacker** (ORUK steward, #485, the one person who has said "federated sources" in the repo); **lead with Tier 0/1** (no-crypto on-ramp), present checkpoints/proofs as the optional verifiability tier; **cite Service Net** (dead Dec 2022) as why a running adopted reference precedes committee stewardship.
 - §1.1 incentive ledger — complementary positioning: "feeding and reading the National 211 Data Platform hub, never bypassing it"; Record-Matcher as the offline-dedup consumer of clean attributed aggregates.
 - §20 interop tiers (Tier 0/1 = plain NDJSON `/export` + `state.txt`, no crypto required).
-- Plan §P2 DELTA: acceptance is concrete — PPR ingests + corroborates the **live FA HSDS 3.0 feed** end-to-end (the proof artifact this reveal leads with).
+- Plan §P2 acceptance (corrected): **two separately-running PPR nodes federating + corroborating over real HTTP** end-to-end (the proof artifact this reveal leads with).
 
 Design of record: `docs/superpowers/specs/2026-06-03-hsds-federation-core-design.md`
 Living plan: `docs/superpowers/plans/2026-06-03-hsds-federation-core.md`
@@ -1984,7 +1986,7 @@ Parent epic: see ref `epic`.
 ## Scope / actions
 
 - [ ] Revive **Greg Bloom's federation thread (forum 601)**, dormant since 2025-05; frame around Bloom's current **Inform USA / AIRS** role (the 211-institutional tie).
-- [ ] Lead the pitch with the **running reference** + the **live-FA-feed corroboration test** as proof (the P2 acceptance artifact).
+- [ ] Lead the pitch with the **running reference** + the **live two-PPR-node federation demo** as proof (the P2 acceptance artifact).
 - [ ] Position HSDS-FX as **complementary to the United Way NDP hub** — a verifiable feed into and between hubs and independents, never a bypass.
 - [ ] Position HSDS-FX as **complementary to the Resource Record-Matcher** — the live attributed exchange layer feeding clean aggregates into their offline dedup; consider **co-presenting with the Record-Matcher coalition (Connect211 / ServiceNet / Do Good Data)**.
 - [ ] Engage **Mike Thacker** (ORUK steward, #485).
@@ -1995,11 +1997,11 @@ Parent epic: see ref `epic`.
 
 ## Timing
 
-**Reveal — at P2.** Consume-first is permissionless; the *telling* is timed to when the live-FA-feed corroboration is demonstrable end-to-end (P2 acceptance). FA outreach timing relative to P2 is an explicitly-remaining-open question (§21) to settle at this point.
+**Reveal — at P2.** Consume-first is permissionless; the *telling* is timed to when the live two-node federation loop is demonstrable end-to-end (P2 acceptance). Partner/outreach timing relative to P2 is an explicitly-remaining-open question (§21) to settle at this point.
 
 ## Dependencies
 
-- **Soft-gated on P2** producing the live-FA-feed corroboration proof (plan §P2 acceptance) — that is the lead artifact.
+- **Soft-gated on P2** producing the live two-node federation proof (plan §P2 acceptance) — that is the lead artifact.
 - **Depends on STD-3** for the governed, hosted HSDS-FX artifact + governance annex to present.
 - Builds on **STD-1 / STD-2** having already established alignment with the community's provenance vocabulary and upstream PRs (the wedge that makes the reveal land as additive, not competing).
 
