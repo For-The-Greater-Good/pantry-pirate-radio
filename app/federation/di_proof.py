@@ -35,6 +35,7 @@ federating peer resolves the origin's key from its served ``did.json`` (see
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -55,6 +56,14 @@ CRYPTOSUITE = "eddsa-jcs-2022"
 _MULTIBASE_PREFIX = "z"
 #: An Ed25519 signature (RFC 8032) is always exactly 64 bytes.
 _ED25519_SIGNATURE_LEN = 64
+#: Tight upper bound on a well-formed ``proofValue`` length. A 64-byte payload
+#: base58btc-encodes to at most ~89 chars; with the ``"z"`` multibase prefix that
+#: is <=90. We cap GENEROUSLY at 120 and reject anything longer BEFORE decoding —
+#: ``_b58decode`` is O(n^2) bigint, so an attacker-supplied multi-megabyte
+#: ``proofValue`` is a CPU DoS once ingest puts ``verify_envelope`` on the network
+#: path (M5). (The analogous did.json-key DoS on the ingest path is DEFERRED to
+#: Slice 6 — it does not flow through this decoder.)
+_MAX_PROOF_VALUE_LEN = 120
 
 
 def _hash_data(proof_config: dict[str, Any], unsecured_doc: dict[str, Any]) -> bytes:
@@ -63,6 +72,26 @@ def _hash_data(proof_config: dict[str, Any], unsecured_doc: dict[str, Any]) -> b
     config_hash = hashlib.sha256(jcs_bytes(proof_config)).digest()
     document_hash = hashlib.sha256(jcs_bytes(unsecured_doc)).digest()
     return config_hash + document_hash
+
+
+def _created_ok(created: Any) -> bool:
+    """True iff ``created`` is a valid XSD ``dateTimeStamp`` (spec §3.3.5 step 3):
+    an RFC-3339 date-time with a MANDATORY timezone offset (``...Z`` or ``+hh:mm``).
+
+    Conservative parse: normalize a trailing ``Z`` to ``+00:00`` and require
+    ``datetime.fromisoformat`` to yield a value carrying ``tzinfo`` (so a naive
+    timestamp with no offset is rejected). Any non-string or unparseable value fails.
+    """
+    if not isinstance(created, str) or "T" not in created:
+        # XSD dateTimeStamp uses the 'T' date/time separator; reject the space form
+        # that datetime.fromisoformat would otherwise tolerate (Python 3.11+).
+        return False
+    candidate = created[:-1] + "+00:00" if created.endswith("Z") else created
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
 
 
 def create_proof(
@@ -86,6 +115,11 @@ def create_proof(
     is :func:`_hash_data` — the proof-config hash FIRST. Ed25519 is deterministic
     (RFC 8032), so re-signing the same logical document reproduces identical bytes.
     """
+    if created is not None and not _created_ok(created):
+        raise ValueError(
+            "proof.created must be a valid XSD dateTimeStamp (RFC 3339 with a"
+            " timezone offset, e.g. ...Z or +hh:mm) — vc-di-eddsa §3.3.5 step 3"
+        )
     proof: dict[str, Any] = {}
     # Copy the document @context into the proof BEFORE canonicalizing the config
     # (spec §3.3.1 step 2). Type-agnostic: list (W3C vector) or scalar (envelope).
@@ -114,6 +148,11 @@ def _decode_proof_value(proof_value: Any) -> bytes | None:
         _MULTIBASE_PREFIX
     ):
         return None
+    # Length cap BEFORE decoding: _b58decode is O(n^2) bigint, so a multi-megabyte
+    # proofValue is a CPU DoS on the ingest path (M5). A real Ed25519 proofValue is
+    # <=~90 chars; reject anything longer cheaply.
+    if len(proof_value) > _MAX_PROOF_VALUE_LEN:
+        return None
     try:
         signature = b58btc_decode(proof_value[len(_MULTIBASE_PREFIX) :])
     except ValueError:
@@ -137,36 +176,66 @@ def _context_matches(proof: dict[str, Any], secured_doc: dict[str, Any]) -> bool
     return proof_ctx == doc_ctx
 
 
+def _proof_shape_ok(proof: dict[str, Any]) -> bool:
+    """Closed allowlist + optional-``created`` validity: ``type`` and ``cryptosuite``
+    are the exact eddsa-jcs-2022 pair, and any ``created`` is a valid dateTimeStamp."""
+    if proof.get("type") != PROOF_TYPE or proof.get("cryptosuite") != CRYPTOSUITE:
+        return False
+    if "created" in proof and not _created_ok(proof["created"]):
+        return False
+    return True
+
+
+def _resolve_unsecured_doc(
+    proof: dict[str, Any], secured_doc: dict[str, Any]
+) -> dict[str, Any]:
+    """The document to hash = ``secured_doc`` minus ``proof``, with vc-di-eddsa
+    §3.3.2 step 4.2 applied: when the proof carries an ``@context``, the document's
+    ``@context`` is SET EQUAL to the proof's before hashing (the prefix/equality
+    check in :func:`_context_matches` has already gated this). For our envelopes
+    (scalar ``@context`` copied at sign time) and the W3C KAT (equal list contexts)
+    this is a NO-OP; it only matters for a legitimately extended-context document."""
+    unsecured_doc = {k: v for k, v in secured_doc.items() if k != "proof"}
+    if "@context" in proof:
+        unsecured_doc["@context"] = proof["@context"]
+    return unsecured_doc
+
+
 def verify_proof(secured_doc: dict[str, Any], public_key: Ed25519PublicKey) -> bool:
     """True iff ``secured_doc``'s ``eddsa-jcs-2022`` proof verifies under
-    ``public_key``. TOTAL — returns ``False`` on any malformed input, never raises.
+    ``public_key``. TOTAL — returns ``False`` on any malformed input, never raises
+    (incl. ``RecursionError`` on a pathologically deep document).
 
     Checks (all must hold): ``proof`` is a dict; ``type == "DataIntegrityProof"``;
-    ``cryptosuite == "eddsa-jcs-2022"``; ``proofValue`` strict-decodes to a 64-byte
-    Ed25519 signature; the proof ``@context`` (if any) matches the document's;
-    ``hashData`` recomputed from (proof minus ``proofValue``, document minus
-    ``proof``) Ed25519-verifies against the caller-supplied key."""
+    ``cryptosuite == "eddsa-jcs-2022"``; any ``created`` is a valid XSD
+    dateTimeStamp (§3.3.5 step 3); ``proofValue`` strict-decodes to a 64-byte
+    Ed25519 signature; the proof ``@context`` (if any) matches the document's
+    (§3.3.2 step 4.1) and is then substituted into the document before hashing
+    (§3.3.2 step 4.2); ``hashData`` recomputed from (proof minus ``proofValue``,
+    the resolved document) Ed25519-verifies against the caller-supplied key."""
     if not isinstance(secured_doc, dict):
         return False
     proof = secured_doc.get("proof")
     if not isinstance(proof, dict):
         return False
-    if proof.get("type") != PROOF_TYPE or proof.get("cryptosuite") != CRYPTOSUITE:
+    if not _proof_shape_ok(proof):
         return False
     signature = _decode_proof_value(proof.get("proofValue"))
     if signature is None:
         return False
-    if not _context_matches(proof, secured_doc):
-        return False
 
-    proof_config = {k: v for k, v in proof.items() if k != "proofValue"}
-    unsecured_doc = {k: v for k, v in secured_doc.items() if k != "proof"}
+    # Everything from the @context check onward is inside the totality guard: a
+    # pathologically deep ``@context`` list makes the equality in _context_matches
+    # raise RecursionError just as jcs_bytes does, so the guard must cover BOTH to
+    # honor the documented "never raises" contract (the ingest consumer must not
+    # crash on a hostile envelope — Principle XI).
     try:
+        if not _context_matches(proof, secured_doc):
+            return False
+        proof_config = {k: v for k, v in proof.items() if k != "proofValue"}
+        unsecured_doc = _resolve_unsecured_doc(proof, secured_doc)
         hash_data = _hash_data(proof_config, unsecured_doc)
-    except ValueError:
-        return False
-    try:
         public_key.verify(signature, hash_data)
-    except (InvalidSignature, ValueError, TypeError):
+    except (InvalidSignature, ValueError, TypeError, RecursionError):
         return False
     return True

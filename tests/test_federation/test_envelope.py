@@ -360,3 +360,107 @@ def test_int_at_i_json_boundary_is_accepted() -> None:
     )
     env = envelope.finalize(pre, _key())
     assert envelope.verify_envelope(env, _key().public_key()) is True
+
+
+# --- ISOLATING mutation-killing tests (Gauntlet M3/M4) --------------------------
+# The existing allowlist / vm-binding negatives reject for a SECOND reason too (a
+# changed cryptosuite/type alters the proofConfig hash so the signature also fails;
+# the third-party-resign vector rejects via wrong-key). These tests forge a proof
+# whose Ed25519 signature GENUINELY verifies for the (bad) proofConfig under the
+# ORIGIN key, so the allowlist / vm-binding check is the SOLE reason verify fails —
+# they survive a mutant that deletes that check unless it is independently load-bearing.
+
+
+def _sign_over_proof_config(proof_config, di_document, signing_key) -> dict:
+    """Sign ``di_document`` under a CALLER-CHOSEN ``proof_config`` (which may carry a
+    bad cryptosuite/type/verificationMethod) so the produced proof's signature
+    genuinely verifies for THAT config — the only way to isolate a non-signature
+    guard. Mirrors ``di_proof.create_proof``'s hash order (config FIRST)."""
+    from app.federation.canonical import jcs_bytes
+    from app.federation.identity import b58btc_encode
+
+    config_hash = hashlib.sha256(jcs_bytes(proof_config)).digest()
+    doc_hash = hashlib.sha256(jcs_bytes(di_document)).digest()
+    signature = signing_key.sign(config_hash + doc_hash)
+    return {**proof_config, "proofValue": "z" + b58btc_encode(signature)}
+
+
+def test_allowlist_is_independently_load_bearing_for_cryptosuite() -> None:
+    """M3: a proof VALIDLY SIGNED over a proofConfig with cryptosuite='eddsa-rdfc-2022'
+    (everything else valid) MUST be rejected SOLELY by the closed allowlist — the
+    signature itself verifies for that config, so this kills a mutant deleting the
+    cryptosuite check (confirmed: stubbing the allowlist to pass made this verify True).
+    """
+    env = _finalize()
+    di_document = {k: v for k, v in env.items() if k != "proof"}
+    proof = env["proof"]
+    bad_config = {k: v for k, v in proof.items() if k != "proofValue"}
+    bad_config["cryptosuite"] = "eddsa-rdfc-2022"
+    forged_proof = _sign_over_proof_config(bad_config, di_document, _key())
+    forged = {**di_document, "proof": forged_proof}
+    # The signature genuinely verifies for the (bad) config — only the allowlist rejects.
+    assert envelope.verify_envelope(forged, _key().public_key()) is False
+
+
+def test_allowlist_is_independently_load_bearing_for_proof_type() -> None:
+    """M3: same isolation for proof.type — a validly-signed proof whose type is
+    'Ed25519Signature2020' (not 'DataIntegrityProof') is rejected SOLELY by the
+    type allowlist, not by a signature mismatch."""
+    env = _finalize()
+    di_document = {k: v for k, v in env.items() if k != "proof"}
+    proof = env["proof"]
+    bad_config = {k: v for k, v in proof.items() if k != "proofValue"}
+    bad_config["type"] = "Ed25519Signature2020"
+    forged_proof = _sign_over_proof_config(bad_config, di_document, _key())
+    forged = {**di_document, "proof": forged_proof}
+    assert envelope.verify_envelope(forged, _key().public_key()) is False
+
+
+def test_vm_binding_is_independently_load_bearing() -> None:
+    """M4: the SAME origin key signs a proofConfig whose verificationMethod DID !=
+    actor (vm='did:web:other.example#main-key', actor='did:web:example.org'). The
+    signature verifies under the origin key, so ONLY _vm_binds_actor rejects — kills
+    a mutant deleting the binding (confirmed: stubbing _vm_binds_actor to True made
+    this verify True)."""
+    env = _finalize()
+    assert env["actor"] == "did:web:example.org"
+    di_document = {k: v for k, v in env.items() if k != "proof"}
+    proof = env["proof"]
+    bad_config = {k: v for k, v in proof.items() if k != "proofValue"}
+    bad_config["verificationMethod"] = "did:web:other.example#main-key"
+    forged_proof = _sign_over_proof_config(bad_config, di_document, _key())
+    forged = {**di_document, "proof": forged_proof}
+    # Signature verifies under the origin key; only the vm->actor binding rejects.
+    assert envelope.verify_envelope(forged, _key().public_key()) is False
+
+
+# --- _vm_binds_actor empty-actor edge (F7 / INFO) -------------------------------
+def test_vm_binds_actor_rejects_empty_actor() -> None:
+    """An empty actor paired with a fragment-only vm ('#main-key' -> empty did_part
+    == '' == actor) must NOT bind — a real envelope actor is always a non-empty DID."""
+    assert envelope._vm_binds_actor("#main-key", "") is False
+    assert envelope._vm_binds_actor("did:web:example.org#main-key", "") is False
+    # Sanity: a real binding still holds.
+    assert (
+        envelope._vm_binds_actor("did:web:example.org#main-key", "did:web:example.org")
+        is True
+    )
+
+
+# --- RecursionError totality (F6 / L2) ------------------------------------------
+def test_verify_envelope_is_total_on_pathologically_deep_nesting() -> None:
+    """verify_envelope is documented TOTAL: a dict nested past the recursion limit
+    makes _i_json_ok (and jcs_bytes) hit RecursionError; verify must return False,
+    never propagate the raise."""
+    import sys
+
+    env = _finalize()
+    deep: dict = {}
+    cursor = deep
+    for _ in range(sys.getrecursionlimit() + 100):
+        nxt: dict = {}
+        cursor["x"] = nxt
+        cursor = nxt
+    tampered = {**env, "object": deep}
+    # Must not raise RecursionError.
+    assert envelope.verify_envelope(tampered, _key().public_key()) is False

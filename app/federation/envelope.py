@@ -188,21 +188,49 @@ def finalize(
 
 def _vm_binds_actor(verification_method: Any, actor: Any) -> bool:
     """True iff ``verificationMethod`` is ``"<DID>#<fragment>"`` with the DID part
-    EXACTLY equal to ``actor`` and a non-empty fragment (review R9). Splits on the
-    LAST ``#`` so a DID containing no fragment is rejected and a fragment-only or
-    empty-fragment string fails."""
+    EXACTLY equal to a NON-EMPTY ``actor`` and a non-empty fragment (review R9).
+    Splits on the LAST ``#`` so a DID containing no fragment is rejected and a
+    fragment-only or empty-fragment string fails. The non-empty ``actor`` guard
+    rejects the degenerate ``vm="#main-key"`` paired with ``actor=""`` (empty
+    did_part == empty actor) — a real envelope actor is always a non-empty DID."""
     if not isinstance(verification_method, str) or not isinstance(actor, str):
+        return False
+    if not actor:
         return False
     did_part, sep, fragment = verification_method.rpartition("#")
     return bool(sep) and did_part == actor and bool(fragment)
 
 
+def _content_address_matches(envelope: dict[str, Any], claimed_id: str) -> bool:
+    """True iff ``"sha256:"+hex(sha256(jcs_bytes(envelope minus {id,proof})))`` equals
+    ``claimed_id``. Guarded: a non-JSON value (``jcs_bytes`` ValueError) or a
+    pathologically deep envelope (``RecursionError``) yields ``False``, never a raise
+    — keeping :func:`verify_envelope` total."""
+    preimage = {k: v for k, v in envelope.items() if k not in _EXCLUDED_FROM_PREIMAGE}
+    try:
+        pb = jcs_bytes(preimage)
+    except (ValueError, RecursionError):
+        return False
+    return _ID_PREFIX + hashlib.sha256(pb).hexdigest() == claimed_id
+
+
+def _envelope_proof_bindings_ok(
+    envelope: dict[str, Any], proof: dict[str, Any]
+) -> bool:
+    """The proof's envelope-level bindings: ``verificationMethod`` binds to ``actor``
+    (R9) and ``proofPurpose == "assertionMethod"``."""
+    if not _vm_binds_actor(proof.get("verificationMethod"), envelope.get("actor")):
+        return False
+    return proof.get("proofPurpose") == _PROOF_PURPOSE
+
+
 def verify_envelope(envelope: dict[str, Any], public_key: Ed25519PublicKey) -> bool:
     """True iff the content address matches AND the W3C DI proof verifies.
 
-    TOTAL (never raises). The object-integrity check only (design §6.5 "object
-    signature" step); allow-list / actor-host policy is the caller's job (the
-    inbox/pull consumer). Checks, in order:
+    TOTAL (never raises, incl. ``RecursionError`` on a pathologically deep
+    envelope). The object-integrity check only (design §6.5 "object signature"
+    step); allow-list / actor-host policy is the caller's job (the inbox/pull
+    consumer). Checks, in order:
 
       * structural — ``envelope`` a dict, ``proof`` a dict, ``id`` a str;
       * I-JSON integer bound (RFC 7493 §2.2) anywhere in the envelope (defense in
@@ -223,18 +251,14 @@ def verify_envelope(envelope: dict[str, Any], public_key: Ed25519PublicKey) -> b
     claimed_id = envelope.get("id")
     if not isinstance(proof, dict) or not isinstance(claimed_id, str):
         return False
-    if not _i_json_ok(envelope):
-        return False
-    preimage = {k: v for k, v in envelope.items() if k not in _EXCLUDED_FROM_PREIMAGE}
     try:
-        pb = jcs_bytes(preimage)
-    except ValueError:
+        if not _i_json_ok(envelope):
+            return False
+    except RecursionError:
         return False
-    if _ID_PREFIX + hashlib.sha256(pb).hexdigest() != claimed_id:
+    if not _content_address_matches(envelope, claimed_id):
         return False
-    if not _vm_binds_actor(proof.get("verificationMethod"), envelope.get("actor")):
-        return False
-    if proof.get("proofPurpose") != _PROOF_PURPOSE:
+    if not _envelope_proof_bindings_ok(envelope, proof):
         return False
     # di_proof.verify_proof strips only "proof" — pass the envelope WITH id so the
     # DI document scope (envelope minus {proof}) is exactly what was signed.

@@ -189,7 +189,7 @@
     {
       "id": "env-proof-retired-format-001",
       "op": "verify_envelope",
-      "description": "The RETIRED ed25519-jcs-2026 proof object (proof.type='ed25519-jcs-2026' with a valid old base64 'signature' field, no cryptosuite/proofValue) MUST be rejected — the bespoke pre-Slice-W proof format is gone; only the W3C DataIntegrityProof eddsa-jcs-2022 shape is accepted. The signature is a genuine old-format signature, so the rejection is by FORMAT (closed type allowlist), not a bad signature.",
+      "description": "The RETIRED ed25519-jcs-2026 proof object (proof.type='ed25519-jcs-2026' with a valid old base64 'signature' field, no cryptosuite/proofValue/proofPurpose) MUST be rejected — the bespoke pre-Slice-W proof format is gone; only the W3C DataIntegrityProof eddsa-jcs-2022 shape is accepted. The signature is a genuine old-format signature, so the rejection is by FORMAT, not a bad signature: the first check to fire is the proofPurpose pin (the retired object carries no proofPurpose), and the closed type/cryptosuite allowlist independently refuses the retired type even were a purpose spliced in.",
       "input": {
         "envelope": {
           "@context": "https://hsds-federation.pantrypirateradio.org/profile",

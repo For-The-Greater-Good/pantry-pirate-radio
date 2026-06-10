@@ -93,13 +93,19 @@ def seeded_log():
     session.close()
 
 
-def test_export_returns_signed_objects_with_inclusion_proofs(client, seeded_log):
+def test_export_returns_signed_objects_with_inclusion_proofs(
+    client, configured, seeded_log
+):
     r = client.get("/api/v1/federation/export?_since=0")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/x-ndjson")
     rows = [json.loads(line) for line in r.text.splitlines() if line]
     assert len(rows) == seeded_log
     assert int(r.headers["Federation-Sequence"]) == seeded_log
+    # The retention header (RFC 6648: no 'X-' prefix) advertises the retention SLA.
+    assert (
+        int(r.headers["Federation-Retention"]) == configured.FEDERATION_RETENTION_DAYS
+    )
     pub = _key().public_key()
     for row in rows:
         assert "proof" in row and "inclusion_proof" in row
