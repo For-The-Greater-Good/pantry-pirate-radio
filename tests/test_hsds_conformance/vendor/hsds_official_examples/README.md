@@ -30,7 +30,8 @@ examples come from the spec itself, independent of PPR's models.
 ## Drift guard
 
 `tests/test_hsds_conformance/test_submodule_pin_guard.py` reads the LIVE
-`docs/HSDS` submodule HEAD (`git -C docs/HSDS rev-parse HEAD`) and asserts it
+`docs/HSDS` submodule HEAD (by reading the submodule gitdir's `HEAD` file
+directly, falling back to `git -C docs/HSDS rev-parse HEAD`) and asserts it
 equals the pinned commit above. If the submodule is bumped, re-vendor these
 files from the new commit (byte-exact `cp`, including re-resolving the
 `examples/csv/datapackage.json` symlink — see below) and update the pin in

@@ -2,111 +2,133 @@
   {
     "fixture": "organization_full.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "OrganizationResponse lacks logo/uri/parent_organization_id/funding/contacts/phones/locations/programs/organization_identifiers, aliases url->website, and additional_websites is the deferred-3.1 carve-out (D4); nested service/location embeds carry the same gaps. extra='forbid' rejects all of these. Flips in O4."
   },
   {
     "fixture": "organization_full.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same gaps as tier A. Flips in O4."
   },
   {
     "fixture": "service_full.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "ServiceResponse lacks fees/accreditations/eligibility_description/minimum_age/maximum_age/licenses/alert/service_areas/cost_options/program/required_documents/contacts/capacities/attributes/metadata/assured_date/assurer_email/service_at_locations/organization{}; additional_urls is the deferred-3.1 carve-out (D4). extra='forbid' rejects all of these. Flips in S5 (deps T2)."
   },
   {
     "fixture": "service_full.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same gaps as tier A. Flips in S5."
   },
   {
     "fixture": "service_at_location_full.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "ServiceAtLocationResponse lacks top-level service_areas/contacts/phones/schedules; nested service{}/location{} carry the service_full.json and location.json gaps. extra='forbid' rejects all of these. Flips in A1."
   },
   {
     "fixture": "service_at_location_full.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same gaps as tier A. Flips in A1."
   },
   {
     "fixture": "location.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "LocationResponse lacks top-level url/languages/addresses/contacts/accessibility/phones. extra='forbid' rejects all of these. Flips across L1 (url) + L2 (addresses) + L3 (phones/languages) + L5 (languages/accessibility)."
   },
   {
     "fixture": "location.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same gaps as tier A. Flips across L1/L2/L3/L5."
   },
   {
     "fixture": "taxonomy.json",
     "tier": "A",
+    "failure_mode": "model_missing",
     "reason": "app.models.hsds.response.TaxonomyResponse does not exist yet; resolve_model raises ModelNotFoundError. Flips in T1."
   },
   {
     "fixture": "taxonomy.json",
     "tier": "B",
+    "failure_mode": "model_missing",
     "reason": "Depends on Tier A model resolution succeeding first; TaxonomyResponse does not exist yet. Flips in T1."
   },
   {
     "fixture": "taxonomy_term.json",
     "tier": "A",
+    "failure_mode": "model_missing",
     "reason": "app.models.hsds.response.TaxonomyTermResponse does not exist yet; resolve_model raises ModelNotFoundError. Flips in T1."
   },
   {
     "fixture": "taxonomy_term.json",
     "tier": "B",
+    "failure_mode": "model_missing",
     "reason": "Depends on Tier A model resolution succeeding first; TaxonomyTermResponse does not exist yet. Flips in T1."
   },
   {
     "fixture": "organization_list.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "Bespoke Page envelope (count/total/per_page/current_page/page/total_pages/links/data) vs official total_items/total_pages/page_number/size/first_page/last_page/empty/contents; also embeds organization_full.json's gaps in contents[]. Flips in G3 (+ O4 for the embedded entity)."
   },
   {
     "fixture": "organization_list.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same envelope mismatch as tier A. Flips in G3."
   },
   {
     "fixture": "service_list.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "Bespoke Page envelope vs official envelope (see organization_list.json); also embeds service_full.json's gaps in contents[]. Flips in G3 (+ S5 for the embedded entity)."
   },
   {
     "fixture": "service_list.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same envelope mismatch as tier A. Flips in G3."
   },
   {
     "fixture": "service_at_location_list.json",
     "tier": "A",
+    "failure_mode": "validation",
     "reason": "Bespoke Page envelope vs official envelope (see organization_list.json); also embeds service_at_location_full.json's gaps in contents[]. Flips in G3 (+ A1 for the embedded entity)."
   },
   {
     "fixture": "service_at_location_list.json",
     "tier": "B",
+    "failure_mode": "validation",
     "reason": "Depends on Tier A model_validate succeeding first; same envelope mismatch as tier A. Flips in G3."
   },
   {
     "fixture": "taxonomy_list.json",
     "tier": "A",
+    "failure_mode": "model_missing",
     "reason": "Bespoke Page envelope mismatch (see organization_list.json) AND TaxonomyResponse does not exist yet. Flips in G3+T1."
   },
   {
     "fixture": "taxonomy_list.json",
     "tier": "B",
+    "failure_mode": "model_missing",
     "reason": "Depends on Tier A succeeding first; same combined gaps as tier A. Flips in G3+T1."
   },
   {
     "fixture": "taxonomy_term_list.json",
     "tier": "A",
+    "failure_mode": "model_missing",
     "reason": "Bespoke Page envelope mismatch (see organization_list.json) AND TaxonomyTermResponse does not exist yet. Flips in G3+T1."
   },
   {
     "fixture": "taxonomy_term_list.json",
     "tier": "B",
+    "failure_mode": "model_missing",
     "reason": "Depends on Tier A succeeding first; same combined gaps as tier A. Flips in G3+T1."
   }
 ]

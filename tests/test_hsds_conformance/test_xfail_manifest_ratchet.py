@@ -27,7 +27,17 @@ that used to pass and now doesn't) is NOT legitimate — that is a real
 regression and must be fixed instead.
 """
 
-from tests.test_hsds_conformance._fixture_map import VENDOR_DIR, load_manifest
+from tests.test_hsds_conformance._fixture_map import (
+    FIXTURE_MODEL_MAP,
+    NO_MODEL_FIXTURES,
+    VENDOR_DIR,
+    ModelNotFoundError,
+    load_manifest,
+    resolve_model,
+)
+
+_VALID_FAILURE_MODES = ("model_missing", "validation")
+
 
 # Initial committed count (G1, issue #593): 11 fixtures x 2 tiers (A and B),
 # every entity/list fixture in FIXTURE_MODEL_MAP fails both KATs today. See
@@ -106,4 +116,140 @@ def test_manifest_is_at_baseline() -> None:
         f"{BASELINE}. If entries were REMOVED (a fixture was flipped to "
         "passing), lower BASELINE to match in this PR. If entries were ADDED, "
         "see the BASELINE-bump procedure in this module's docstring."
+    )
+
+
+def test_every_vendored_json_is_mapped_or_no_model() -> None:
+    """Every top-level vendored ``*.json`` fixture must be tracked somewhere.
+
+    ``VENDOR_DIR`` (``vendor/hsds_official_examples/``, NOT its ``csv/``
+    subdirectory) holds the official HSDS example JSON files. Each one must be
+    either a key in ``FIXTURE_MODEL_MAP`` (exercised by the Tier A/B KATs) or
+    listed in ``NO_MODEL_FIXTURES`` (corpus-presence-only, intentionally
+    unexercised). A fixture in neither set has silently fallen out of the
+    conformance gate entirely — still vendored, but no longer checked by
+    anything. This test is UNCONDITIONAL (no xfail) so that hole cannot hide.
+    """
+    vendored_json = {p.name for p in VENDOR_DIR.glob("*.json")}
+    tracked = set(FIXTURE_MODEL_MAP) | set(NO_MODEL_FIXTURES)
+    untracked = sorted(vendored_json - tracked)
+    assert not untracked, (
+        f"vendored fixture(s) {untracked} under {VENDOR_DIR} are neither a key "
+        "in FIXTURE_MODEL_MAP nor listed in NO_MODEL_FIXTURES — they have "
+        "silently fallen out of the conformance gate. Add each to "
+        "FIXTURE_MODEL_MAP (with a manifest row if it currently fails) or to "
+        "NO_MODEL_FIXTURES if it is intentionally corpus-presence-only."
+    )
+
+
+def test_no_orphan_manifest_rows() -> None:
+    """Every manifest row's ``fixture`` must be a key in ``FIXTURE_MODEL_MAP``.
+
+    If a fixture is dropped from ``FIXTURE_MODEL_MAP`` (e.g. by accident, or
+    during a refactor) but its manifest rows are left behind, those rows
+    become orphans: ``test_tier_a_representation.py`` /
+    ``test_tier_b_roundtrip.py`` iterate ``FIXTURE_MODEL_MAP`` to build their
+    parametrizations, so the fixture silently stops being exercised at all
+    while its now-meaningless xfail rows continue to count toward BASELINE.
+    This test is UNCONDITIONAL (no xfail) so that orphan signature cannot hide.
+    """
+    manifest = load_manifest()
+    orphans = sorted(
+        {
+            entry["fixture"]
+            for entry in manifest
+            if entry["fixture"] not in FIXTURE_MODEL_MAP
+        }
+    )
+    assert not orphans, (
+        f"xfail_manifest.json references fixture(s) {orphans} that are NOT "
+        "keys in FIXTURE_MODEL_MAP. These rows are orphaned — the fixture has "
+        "fallen out of the Tier A/B KAT parametrizations entirely while its "
+        "manifest rows remain. Either restore the FIXTURE_MODEL_MAP entry or "
+        "remove the orphaned manifest row(s)."
+    )
+
+
+def test_manifest_failure_modes_are_consistent() -> None:
+    """Cross-check every manifest row's ``failure_mode`` against ``resolve_model``.
+
+    Each row must carry a ``failure_mode`` of either ``"model_missing"`` (the
+    fixture's target model does not exist yet — ``resolve_model`` raises
+    ``ModelNotFoundError``) or ``"validation"`` (the model exists but
+    ``model_validate`` rejects the example's shape — ``resolve_model`` must
+    SUCCEED).
+
+    This distinguishes "not implemented yet" from "implemented but wrong" and
+    catches a typo'd dotted path in ``FIXTURE_MODEL_MAP``: a ``"validation"``
+    row whose model path is misspelled would make ``resolve_model`` raise
+    ``ModelNotFoundError`` — which this test flags as inconsistent (a typo
+    masquerading as a clean not-yet-implemented xfail) rather than letting it
+    silently pass as an ordinary xfail.
+
+    For ``"model_missing"`` rows, ``resolve_model`` must raise
+    ``ModelNotFoundError`` — confirming the model is genuinely absent. When a
+    later slice (e.g. T1) adds the model, ``resolve_model`` starts succeeding,
+    this test starts failing for that row, and the fixture's KAT either passes
+    (XPASS under ``strict=True`` in test_tier_a/b) or now fails for
+    ``"validation"`` reasons — either way the manifest row must be updated,
+    which this failure forces.
+    """
+    manifest = load_manifest()
+    bad_modes: list[tuple[str, str, str]] = []
+    inconsistent: list[tuple[str, str, str, str]] = []
+
+    for entry in manifest:
+        fixture = entry["fixture"]
+        tier = entry["tier"]
+        failure_mode = entry.get("failure_mode")
+
+        if failure_mode not in _VALID_FAILURE_MODES:
+            bad_modes.append((fixture, tier, str(failure_mode)))
+            continue
+
+        model_path = FIXTURE_MODEL_MAP.get(fixture)
+        if model_path is None:
+            # Orphan rows are reported by test_no_orphan_manifest_rows; skip
+            # here to avoid a confusing double-failure on the same root cause.
+            continue
+
+        try:
+            resolve_model(model_path)
+        except ModelNotFoundError:
+            resolved = False
+        else:
+            resolved = True
+
+        if failure_mode == "model_missing" and resolved:
+            inconsistent.append(
+                (
+                    fixture,
+                    tier,
+                    failure_mode,
+                    f"resolve_model({model_path!r}) succeeded, but this row "
+                    'claims "model_missing" — the model now exists; update '
+                    "failure_mode (and likely flip/remove this row).",
+                )
+            )
+        elif failure_mode == "validation" and not resolved:
+            inconsistent.append(
+                (
+                    fixture,
+                    tier,
+                    failure_mode,
+                    f"resolve_model({model_path!r}) raised ModelNotFoundError, "
+                    'but this row claims "validation" (model exists but '
+                    "rejects the example). Either FIXTURE_MODEL_MAP has a "
+                    "typo'd/incorrect dotted path for this fixture, or "
+                    'failure_mode should be "model_missing".',
+                )
+            )
+
+    assert not bad_modes, (
+        f"manifest rows with invalid/missing failure_mode (must be one of "
+        f"{_VALID_FAILURE_MODES}): {bad_modes}"
+    )
+    assert not inconsistent, "manifest failure_mode inconsistencies:\n" + "\n".join(
+        f"  {fixture} (tier {tier}, failure_mode={failure_mode}): {msg}"
+        for fixture, tier, failure_mode, msg in inconsistent
     )
