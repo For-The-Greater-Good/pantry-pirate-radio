@@ -266,6 +266,20 @@ def test_object_excludes_url_and_organization_id(db_session) -> None:
     ), "organization_id leaked into the federation export object"
 
 
+def test_object_excludes_addresses(db_session) -> None:
+    """L2 (issue #599) added a structured `addresses[]` field to
+    LocationResponse, but ``_LOCATION_SQL`` and the explicit
+    ``LocationResponse(...)`` construction in ``build_location_aggregate``
+    deliberately omit it — it stays None and is dropped by ``exclude_none``,
+    so the curated export object (and its signed bytes) are UNCHANGED by L2.
+    An `address` row is inserted to prove the omission is deliberate (not
+    merely "never set")."""
+    loc_id = _insert_location(db_session)
+    _insert_address(db_session, loc_id, address_1="100 Main St")
+    obj = build_location_aggregate(db_session, loc_id)
+    assert "addresses" not in obj, "addresses leaked into the federation export object"
+
+
 def test_two_distinct_schedules_not_collapsed(db_session) -> None:
     """Two distinct schedule rows must yield two schedules (spike Proof 2)."""
     loc_id = _insert_location(db_session)

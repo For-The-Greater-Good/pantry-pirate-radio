@@ -107,6 +107,35 @@ async def hsds_graph(db_session: AsyncSession):
         },
     )
 
+    address_id = str(uuid.uuid4())
+    await db_session.execute(
+        text(
+            """
+            INSERT INTO address (
+                id, location_id, attention, address_1, address_2, city,
+                region, state_province, postal_code, country, address_type
+            )
+            VALUES (
+                :id, :loc, :attention, :address_1, :address_2, :city,
+                :region, :state_province, :postal_code, :country, :address_type
+            )
+            """
+        ),
+        {
+            "id": address_id,
+            "loc": location_id,
+            "attention": "Front Desk",
+            "address_1": "123 Main St",
+            "address_2": "Suite 100",
+            "city": "New York",
+            "region": "Manhattan",
+            "state_province": "NY",
+            "postal_code": "10001",
+            "country": "US",
+            "address_type": "physical",
+        },
+    )
+
     await db_session.flush()
 
     return {
@@ -114,6 +143,7 @@ async def hsds_graph(db_session: AsyncSession):
         "service_id": uuid.UUID(service_id),
         "location_id": uuid.UUID(location_id),
         "sal_id": uuid.UUID(sal_id),
+        "address_id": uuid.UUID(address_id),
     }
 
 
@@ -292,6 +322,72 @@ async def test_list_locations_includes_url_and_organization_id(
     )
     assert target.url == "https://example.org/manhattan-pantry"
     assert target.organization_id == hsds_graph["org_id"]
+
+
+@pytest.mark.asyncio
+async def test_get_location_includes_addresses(hsds_graph, db_session: AsyncSession):
+    """L2 (issue #599): GET /locations/{id} must nest the structured
+    `addresses[]` from the `address` table."""
+    from app.api.v1.locations import get_location
+
+    result = await get_location(
+        location_id=hsds_graph["location_id"],
+        include_services=False,
+        session=db_session,
+    )
+
+    assert result.addresses is not None
+    assert len(result.addresses) == 1
+    address = result.addresses[0]
+    assert address.id == hsds_graph["address_id"]
+    assert address.attention == "Front Desk"
+    assert address.address_1 == "123 Main St"
+    assert address.address_2 == "Suite 100"
+    assert address.city == "New York"
+    assert address.region == "Manhattan"
+    assert address.state_province == "NY"
+    assert address.postal_code == "10001"
+    assert address.country == "US"
+    assert address.address_type == "physical"
+
+
+@pytest.mark.asyncio
+async def test_list_locations_includes_addresses(hsds_graph, db_session: AsyncSession):
+    """Same as above, but via the list endpoint."""
+    from fastapi import Request
+    from app.api.v1.locations import list_locations
+
+    class _StubURL:
+        def __init__(self, url: str):
+            self._url = url
+
+        def __str__(self) -> str:
+            return self._url
+
+        def include_query_params(self, **kwargs):
+            return self
+
+        def remove_query_params(self, key):
+            return self
+
+    class _StubRequest:
+        url = _StubURL("http://test/api/v1/locations")
+
+    page = await list_locations(
+        request=_StubRequest(),  # type: ignore[arg-type]
+        page=1,
+        per_page=10,
+        organization_id=None,
+        include_services=False,
+        session=db_session,
+    )
+
+    target = next(
+        loc for loc in page.data if str(loc.id) == str(hsds_graph["location_id"])
+    )
+    assert target.addresses is not None
+    assert len(target.addresses) == 1
+    assert target.addresses[0].address_1 == "123 Main St"
 
 
 @pytest.mark.asyncio

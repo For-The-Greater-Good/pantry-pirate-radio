@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.hsds.response import (
+    Address,
     LocationResponse,
     MetadataResponse,
     OrganizationResponse,
@@ -165,6 +166,153 @@ def test_location_response_url_and_organization_id():
     assert location.url == "http://example.com"
     assert isinstance(location.url, str)
     assert location.organization_id == org_id
+
+
+def test_address_model_required_fields():
+    """L2 (issue #599): `Address` enforces the HSDS-required scalars
+    (address_1, city, state_province, postal_code, country, address_type)."""
+    address_id = uuid4()
+
+    address = Address(
+        id=address_id,
+        address_1="123 Main St",
+        city="Anytown",
+        state_province="NY",
+        postal_code="10001",
+        country="US",
+        address_type="physical",
+    )
+    assert address.id == address_id
+    assert address.address_1 == "123 Main St"
+    assert address.city == "Anytown"
+    assert address.state_province == "NY"
+    assert address.postal_code == "10001"
+    assert address.country == "US"
+    assert address.address_type == "physical"
+
+    # Optional fields default to None when not supplied.
+    assert address.attention is None
+    assert address.address_2 is None
+    assert address.region is None
+    assert address.location_id is None
+
+    # Missing a required field (address_1) raises.
+    with pytest.raises(ValidationError):
+        Address(
+            id=uuid4(),
+            city="Anytown",
+            state_province="NY",
+            postal_code="10001",
+            country="US",
+            address_type="physical",
+        )
+
+
+def test_address_model_optional_fields():
+    """Optional Address fields (attention, address_2, region, location_id) are
+    accepted when supplied."""
+    address_id = uuid4()
+    location_id = uuid4()
+
+    address = Address(
+        id=address_id,
+        location_id=location_id,
+        attention="A. Persona",
+        address_1="1-30 Main Street",
+        address_2="MyVillage",
+        city="MyCity",
+        region="MyRegion",
+        state_province="MyState",
+        postal_code="ABC 1234",
+        country="US",
+        address_type="postal",
+    )
+    assert address.location_id == location_id
+    assert address.attention == "A. Persona"
+    assert address.address_2 == "MyVillage"
+    assert address.region == "MyRegion"
+
+
+def test_address_model_validates_official_example():
+    """The official HSDS `location.json` example's `addresses[0]` dict
+    (no `location_id`, no `attributes`/`metadata`) must `model_validate`
+    cleanly against `Address` (Tier-A progress on the address sub-shape)."""
+    example_address = {
+        "id": "74706e55-df26-4b84-80fe-ecc30b5befb4",
+        "attention": "A. Persona",
+        "address_1": "1-30 Main Street",
+        "address_2": "MyVillage",
+        "city": "MyCity",
+        "region": "MyRegion",
+        "state_province": "MyState",
+        "postal_code": "ABC 1234",
+        "country": "US",
+        "address_type": "postal",
+    }
+    address = Address.model_validate(example_address)
+    assert str(address.id) == example_address["id"]
+    assert address.attention == "A. Persona"
+    assert address.address_1 == "1-30 Main Street"
+    assert address.address_2 == "MyVillage"
+    assert address.city == "MyCity"
+    assert address.region == "MyRegion"
+    assert address.state_province == "MyState"
+    assert address.postal_code == "ABC 1234"
+    assert address.country == "US"
+    assert address.address_type == "postal"
+
+
+def test_address_model_jcs_round_trip_with_official_example():
+    """`Address` validated from the official example round-trips byte-equal
+    via `app.federation.canonical.jcs_bytes` after `model_dump(mode="json",
+    exclude_none=True)` (no location_id/attributes/metadata leak in)."""
+    from app.federation.canonical import jcs_bytes
+
+    example_address = {
+        "id": "74706e55-df26-4b84-80fe-ecc30b5befb4",
+        "attention": "A. Persona",
+        "address_1": "1-30 Main Street",
+        "address_2": "MyVillage",
+        "city": "MyCity",
+        "region": "MyRegion",
+        "state_province": "MyState",
+        "postal_code": "ABC 1234",
+        "country": "US",
+        "address_type": "postal",
+    }
+    address = Address.model_validate(example_address)
+    dumped = address.model_dump(mode="json", exclude_none=True)
+    assert dumped == example_address
+    # Byte-for-byte round trip: re-canonicalizing the dump is idempotent.
+    assert jcs_bytes(dumped) == jcs_bytes(example_address)
+
+
+def test_location_response_addresses_field():
+    """L2 (issue #599): `LocationResponse.addresses` defaults to None and
+    accepts a list of `Address` models."""
+    location_id = uuid4()
+
+    bare = LocationResponse(id=location_id, name="Bare Location")
+    assert bare.addresses is None
+
+    address = Address(
+        id=uuid4(),
+        location_id=location_id,
+        address_1="123 Main St",
+        city="Anytown",
+        state_province="NY",
+        postal_code="10001",
+        country="US",
+        address_type="physical",
+    )
+    location = LocationResponse(
+        id=location_id,
+        name="Downtown Food Pantry",
+        addresses=[address],
+    )
+    assert location.addresses is not None
+    assert len(location.addresses) == 1
+    assert location.addresses[0].address_1 == "123 Main St"
 
 
 def test_service_at_location_response():

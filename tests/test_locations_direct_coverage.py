@@ -34,7 +34,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -52,6 +54,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -122,7 +125,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -141,6 +146,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -206,7 +212,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -224,6 +232,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -292,7 +301,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -308,6 +319,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -366,7 +378,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -383,6 +397,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
@@ -453,7 +468,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -468,6 +485,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock session
             mock_session = AsyncMock()
@@ -529,7 +547,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repositories
             mock_repo = AsyncMock()
@@ -545,6 +565,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock service at location. The handler now builds a shallow dict
             # from the ORM (no nested relationship traversal) before validating,
@@ -609,7 +630,9 @@ class TestLocationsDirectExecution:
             "app.api.v1.locations.get_location_sources"
         ) as mock_get_sources, patch(
             "app.api.v1.locations.get_location_schedules"
-        ) as mock_get_schedules:
+        ) as mock_get_schedules, patch(
+            "app.api.v1.locations.get_location_addresses"
+        ) as mock_get_addresses:
 
             # Mock repository
             mock_repo = AsyncMock()
@@ -628,6 +651,7 @@ class TestLocationsDirectExecution:
             # Mock async helper functions to return empty lists
             mock_get_sources.return_value = []
             mock_get_schedules.return_value = []
+            mock_get_addresses.return_value = []
 
             # Mock utilities
             mock_calc_meta.return_value = {
