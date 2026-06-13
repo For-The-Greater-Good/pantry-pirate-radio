@@ -32,7 +32,16 @@ def test_api_root_version_unchanged():
     assert r.json()["version"] == "3.1.1"
 
 
-@pytest.mark.parametrize("name", ["location.json", "service.json", "openapi.json"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "location.json",
+        "service.json",
+        "organization.json",
+        "service_at_location.json",
+        "openapi.json",
+    ],
+)
 def test_profile_patch_is_valid_json(name):
     data = json.loads((_PROFILES / name).read_text())
     assert isinstance(data, dict)
@@ -44,6 +53,7 @@ def test_location_profile_adds_only_optional_props():
     assert "required" not in data or data.get("required") in (None, [], {})
     props = data.get("properties", {})
     assert "confidence_score" in props and "verified_by" in props and "sources" in props
+    assert "source_count" in props and "distance" in props
 
 
 def test_service_profile_adds_only_optional_props():
@@ -51,6 +61,23 @@ def test_service_profile_adds_only_optional_props():
     assert "required" not in data or data.get("required") in (None, [], {})
     props = data.get("properties", {})
     assert "confidence_score" in props and "verified_by" in props and "sources" in props
+    assert "source_count" in props
+
+
+def test_organization_profile_adds_only_optional_props():
+    data = json.loads((_PROFILES / "organization.json").read_text())
+    assert "required" not in data or data.get("required") in (None, [], {})
+    props = data.get("properties", {})
+    assert "confidence_score" in props and "verified_by" in props and "sources" in props
+    assert "source_count" in props
+
+
+def test_service_at_location_profile_adds_only_optional_props():
+    data = json.loads((_PROFILES / "service_at_location.json").read_text())
+    assert "required" not in data or data.get("required") in (None, [], {})
+    props = data.get("properties", {})
+    assert "confidence_score" in props and "verified_by" in props and "sources" in props
+    assert "source_count" in props
 
 
 def test_openapi_patch_documents_federation_paths():
@@ -58,3 +85,13 @@ def test_openapi_patch_documents_federation_paths():
     paths = data.get("paths", {})
     assert "/api/v1/federation/export" in paths
     assert "/api/v1/federation/inbox" in paths
+
+
+def test_openapi_patch_documents_additive_locations_and_search_paths():
+    data = json.loads((_PROFILES / "openapi.json").read_text())
+    paths = data.get("paths", {})
+    assert "/api/v1/locations" in paths
+    assert "/api/v1/locations/{location_id}" in paths
+    assert "/api/v1/locations/search" in paths
+    assert "/api/v1/organizations/search" in paths
+    assert "/api/v1/services/search" in paths

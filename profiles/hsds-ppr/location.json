@@ -4,7 +4,7 @@
       "name": "confidence_score",
       "type": "integer",
       "title": "Confidence Score",
-      "description": "Pantry Pirate Radio data-quality confidence for this location, 0-100. Scraped data is capped at 90; values 91-100 are reserved for human corrections. Optional profile extension.",
+      "description": "Pantry Pirate Radio data-quality confidence for this location, 0-100 (scraped data capped at 90; 91-100 reserved for human corrections). NOT emitted by current HSDS read responses or the federation export at the entity level — it is surfaced per-source inside each `sources[]` item today; an entity-level value is reserved for the forthcoming federation export surface (epic slices X1/X2). Optional profile extension.",
       "minimum": 0,
       "maximum": 100,
       "core": "N"
@@ -13,7 +13,7 @@
       "name": "verified_by",
       "type": "string",
       "title": "Verified By",
-      "description": "Provenance of the most authoritative verification for this location. Optional profile extension.",
+      "description": "Provenance of the most authoritative verification for this location: auto (scraped), admin/source/claimed (human-corrected), or network (federation-corroborated provenance, operational with P2 Slice 3 / I1). Not currently surfaced by HSDS read responses; reserved for the federation/provenance surface. Optional profile extension.",
       "enum": ["auto", "admin", "source", "claimed", "network"],
       "core": "N"
     },
@@ -21,10 +21,83 @@
       "name": "sources",
       "type": "array",
       "title": "Sources",
-      "description": "Identifiers of the scrapers or networks that corroborated this location. Optional profile extension supporting multi-source corroboration.",
+      "description": "Per-source corroboration details for this location: one entry per scraper or network identifier that contributed data, supporting multi-source corroboration. Optional profile extension.",
       "items": {
-        "type": "string"
+        "type": "object",
+        "properties": {
+          "scraper": {
+            "name": "scraper",
+            "type": "string",
+            "title": "Scraper",
+            "description": "Scraper or network identifier for this source."
+          },
+          "name": {
+            "name": "name",
+            "type": "string",
+            "title": "Name",
+            "description": "Location name as reported by this source."
+          },
+          "phone": {
+            "name": "phone",
+            "type": "string",
+            "title": "Phone",
+            "description": "Phone number as reported by this source."
+          },
+          "email": {
+            "name": "email",
+            "type": "string",
+            "title": "Email",
+            "description": "Email address as reported by this source."
+          },
+          "website": {
+            "name": "website",
+            "type": "string",
+            "title": "Website",
+            "description": "Website as reported by this source."
+          },
+          "address": {
+            "name": "address",
+            "type": "string",
+            "title": "Address",
+            "description": "Address as reported by this source."
+          },
+          "confidence_score": {
+            "name": "confidence_score",
+            "type": "integer",
+            "title": "Confidence Score",
+            "description": "Per-source confidence score, 0-100.",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "last_updated": {
+            "name": "last_updated",
+            "type": "string",
+            "title": "Last Updated",
+            "description": "Timestamp this source last updated its contribution."
+          },
+          "first_seen": {
+            "name": "first_seen",
+            "type": "string",
+            "title": "First Seen",
+            "description": "Timestamp this source was first observed."
+          }
+        }
       },
+      "core": "N"
+    },
+    "source_count": {
+      "name": "source_count",
+      "type": "integer",
+      "title": "Source Count",
+      "description": "Count of distinct corroborating sources (scraper/network identifiers) for this location. The read API currently sets this to len(sources), which is equivalent when sources are de-duplicated by source identifier; code-level unification of the two definitions is tracked for a later slice. Optional profile extension.",
+      "minimum": 0,
+      "core": "N"
+    },
+    "distance": {
+      "name": "distance",
+      "type": "string",
+      "title": "Distance",
+      "description": "Great-circle distance from the search origin to this location. Appears ONLY on radius/proximity search responses; it is search-result metadata, not a stored property of the location. Optional profile extension.",
       "core": "N"
     }
   }

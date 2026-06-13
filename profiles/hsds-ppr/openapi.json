@@ -1,5 +1,70 @@
 {
   "paths": {
+    "/api/v1/locations": {
+      "get": {
+        "summary": "List locations",
+        "description": "Returns a paginated list of HSDS Location records, including the PPR profile extension fields `sources` and `source_count`. Optional profile endpoint additive to the core HSDS API.",
+        "operationId": "listLocations",
+        "tags": ["locations"],
+        "responses": {
+          "200": {
+            "description": "A page of HSDS Location records."
+          }
+        }
+      }
+    },
+    "/api/v1/locations/{location_id}": {
+      "get": {
+        "summary": "Get a location by id",
+        "description": "Returns a single HSDS Location record, including the PPR profile extension fields `sources` and `source_count`. Optional profile endpoint additive to the core HSDS API.",
+        "operationId": "getLocation",
+        "tags": ["locations"],
+        "responses": {
+          "200": {
+            "description": "The requested HSDS Location record."
+          }
+        }
+      }
+    },
+    "/api/v1/locations/search": {
+      "get": {
+        "summary": "Search locations",
+        "description": "Returns HSDS Location records matching search and/or radius criteria, including the PPR profile extension fields `sources` and `source_count`. Radius/proximity search results additionally carry the PPR profile extension field `distance`. Optional profile endpoint additive to the core HSDS API.",
+        "operationId": "searchLocations",
+        "tags": ["locations"],
+        "responses": {
+          "200": {
+            "description": "A page of matching HSDS Location records."
+          }
+        }
+      }
+    },
+    "/api/v1/organizations/search": {
+      "get": {
+        "summary": "Search organizations",
+        "description": "Returns HSDS Organization records matching search criteria. Optional PPR-additive search endpoint over the core HSDS Organization shape; no PPR profile extension fields are currently emitted for this entity. Optional profile endpoint additive to the core HSDS API.",
+        "operationId": "searchOrganizations",
+        "tags": ["organizations"],
+        "responses": {
+          "200": {
+            "description": "A page of matching HSDS Organization records."
+          }
+        }
+      }
+    },
+    "/api/v1/services/search": {
+      "get": {
+        "summary": "Search services",
+        "description": "Returns HSDS Service records matching search criteria. Optional PPR-additive search endpoint over the core HSDS Service shape; no PPR profile extension fields are currently emitted for this entity. Optional profile endpoint additive to the core HSDS API.",
+        "operationId": "searchServices",
+        "tags": ["services"],
+        "responses": {
+          "200": {
+            "description": "A page of matching HSDS Service records."
+          }
+        }
+      }
+    },
     "/api/v1/federation/export": {
       "get": {
         "summary": "Export HSDS records for federation peers",
