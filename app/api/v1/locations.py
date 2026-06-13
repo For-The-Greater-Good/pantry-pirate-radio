@@ -248,6 +248,10 @@ async def list_locations(
                 "name": location.name,
                 "alternate_name": location.alternate_name,
                 "description": location.description,
+                "url": location.url,
+                "organization_id": (
+                    str(location.organization_id) if location.organization_id else None
+                ),
                 "latitude": float(location.latitude) if location.latitude else None,
                 "longitude": float(location.longitude) if location.longitude else None,
                 "transportation": location.transportation,
@@ -443,6 +447,10 @@ async def search_locations(
                 "name": location.name,
                 "alternate_name": location.alternate_name,
                 "description": location.description,
+                "url": location.url,
+                "organization_id": (
+                    str(location.organization_id) if location.organization_id else None
+                ),
                 "latitude": float(location.latitude) if location.latitude else None,
                 "longitude": float(location.longitude) if location.longitude else None,
                 "transportation": location.transportation,
@@ -551,6 +559,10 @@ async def get_location(
             "name": location.name,
             "alternate_name": location.alternate_name,
             "description": location.description,
+            "url": location.url,
+            "organization_id": (
+                str(location.organization_id) if location.organization_id else None
+            ),
             "latitude": float(location.latitude) if location.latitude else None,
             "longitude": float(location.longitude) if location.longitude else None,
             "transportation": location.transportation,

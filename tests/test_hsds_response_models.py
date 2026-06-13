@@ -142,6 +142,31 @@ def test_location_response():
     assert location.metadata.last_updated == "2024-02-06T20:46:26Z"
 
 
+def test_location_response_url_and_organization_id():
+    """L1 (issue #597): `url` and `organization_id` are optional HSDS-core
+    location scalars, default to None, and `url` stays a plain string (no
+    HttpUrl trailing-slash normalization that would mutate served values and
+    break the Tier-B byte round-trip)."""
+    location_id = uuid4()
+    org_id = uuid4()
+
+    # Defaults: both None when not supplied.
+    bare = LocationResponse(id=location_id, name="Bare Location")
+    assert bare.url is None
+    assert bare.organization_id is None
+
+    # Accepted when supplied, and url is NOT mutated (no trailing slash added).
+    location = LocationResponse(
+        id=location_id,
+        name="Downtown Food Pantry",
+        url="http://example.com",
+        organization_id=org_id,
+    )
+    assert location.url == "http://example.com"
+    assert isinstance(location.url, str)
+    assert location.organization_id == org_id
+
+
 def test_service_at_location_response():
     """Test ServiceAtLocationResponse model validation."""
     service_id = uuid4()

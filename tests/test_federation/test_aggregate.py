@@ -250,6 +250,22 @@ def test_object_excludes_envelope_identity_fields(db_session) -> None:
         assert forbidden not in obj, f"{forbidden} leaked into the object"
 
 
+def test_object_excludes_url_and_organization_id(db_session) -> None:
+    """L1 (issue #597) added `url`/`organization_id` to LocationResponse, but
+    ``_LOCATION_SQL`` and the explicit ``LocationResponse(...)`` construction in
+    ``build_location_aggregate`` deliberately omit both — they stay None and are
+    dropped by ``exclude_none``, so the curated export object (and its signed
+    bytes) are UNCHANGED by L1. organization_id is set on the row to prove the
+    omission is deliberate (not merely "never set")."""
+    org_id = _insert_organization(db_session)
+    loc_id = _insert_location(db_session, organization_id=org_id)
+    obj = build_location_aggregate(db_session, loc_id)
+    assert "url" not in obj, "url leaked into the federation export object"
+    assert (
+        "organization_id" not in obj
+    ), "organization_id leaked into the federation export object"
+
+
 def test_two_distinct_schedules_not_collapsed(db_session) -> None:
     """Two distinct schedule rows must yield two schedules (spike Proof 2)."""
     loc_id = _insert_location(db_session)

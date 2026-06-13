@@ -254,9 +254,16 @@ class OrganizationResponse(BaseResponse):
 class LocationResponse(BaseResponse):
     """Response model for Location endpoints."""
 
+    organization_id: UUID | None = None
     name: str | None = None
     alternate_name: str | None = None
     description: str | None = None
+    # Plain string, NOT HttpUrl: HttpUrl normalizes "http://example.com" to
+    # "http://example.com/" (trailing slash), which would mutate served values
+    # and break the Tier-B byte round-trip. HSDS location.url is a plain URL
+    # string ("If location_type is virtual, then this field represents the URL
+    # of a virtual location.").
+    url: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     transportation: str | None = None
