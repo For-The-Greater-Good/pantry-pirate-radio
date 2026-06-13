@@ -9,7 +9,10 @@ null-deletion) or replaces rather than extends. This module:
 1. pins a local ``merge_patch`` implementation against the vendored RFC 7386
    Appendix A vectors (external truth — constitution v1.7.0), then
 2. merges each real Profile patch over its base schema and asserts the merge
-   ADDS only the three profile fields and removes nothing.
+   ADDS only the expected PPR profile extension fields and removes nothing.
+3. cross-checks the declared ``sources[]`` item shape against the
+   ``SourceInfo`` Pydantic model so the Profile's declared shape can't drift
+   from what the read API actually serves.
 """
 
 import json
@@ -22,7 +25,17 @@ _CASES = json.loads((_VENDOR / "vectors.json").read_text(encoding="utf-8"))["cas
 
 _BASE = Path(__file__).resolve().parents[2] / "docs" / "HSDS" / "schema"
 _PROFILE = Path(__file__).resolve().parents[2] / "profiles" / "hsds-ppr"
-_PROFILE_FIELDS = {"confidence_score", "verified_by", "sources"}
+
+# Per-file expected sets of PPR profile extension properties. location.json
+# additionally carries `distance` (search-result metadata); the other three
+# entities share the uniform corroboration/provenance surface.
+_COMMON_PROFILE_FIELDS = {"confidence_score", "verified_by", "sources", "source_count"}
+_PROFILE_FIELDS_BY_FILE = {
+    "location.json": _COMMON_PROFILE_FIELDS | {"distance"},
+    "service.json": _COMMON_PROFILE_FIELDS,
+    "organization.json": _COMMON_PROFILE_FIELDS,
+    "service_at_location.json": _COMMON_PROFILE_FIELDS,
+}
 
 
 def merge_patch(target, patch):
@@ -64,6 +77,8 @@ def _has_none(obj) -> bool:
     [
         ("location.json", ["id", "location_type"]),
         ("service.json", ["id", "name", "status"]),
+        ("organization.json", ["id", "name", "description"]),
+        ("service_at_location.json", ["id"]),
     ],
 )
 def test_profile_patch_over_base_adds_only_profile_fields(name, base_required) -> None:
@@ -77,8 +92,9 @@ def test_profile_patch_over_base_adds_only_profile_fields(name, base_required) -
 
     # required is neither shrunk nor grown.
     assert merged.get("required") == base_required
-    # properties gain ONLY the three profile fields; none are removed.
-    assert set(merged["properties"]) == set(base["properties"]) | _PROFILE_FIELDS
+    # properties gain ONLY the expected profile fields for this entity; none removed.
+    expected_fields = _PROFILE_FIELDS_BY_FILE[name]
+    assert set(merged["properties"]) == set(base["properties"]) | expected_fields
     # every base property survives unchanged.
     for key, val in base["properties"].items():
         assert merged["properties"][key] == val
@@ -96,6 +112,38 @@ def test_openapi_patch_adds_only_federation_paths() -> None:
         "/api/v1/federation/inbox",
         "/api/v1/federation/history",
         "/api/v1/federation/actor",
+        "/api/v1/locations",
+        "/api/v1/locations/{location_id}",
+        "/api/v1/locations/search",
+        "/api/v1/organizations/search",
+        "/api/v1/services/search",
     }
     # No base path is dropped.
     assert set(base.get("paths", {})) <= set(merged.get("paths", {}))
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "location.json",
+        "service.json",
+        "organization.json",
+        "service_at_location.json",
+    ],
+)
+def test_location_sources_items_match_source_info_model(name) -> None:
+    """The declared `sources[].items.properties` shape must equal the field set
+    of `app.models.hsds.response.SourceInfo` — the model the read API actually
+    uses to serialize `LocationResponse.sources`. This prevents the Profile's
+    declared shape from silently drifting from what is served (the original sin
+    of the array-of-strings `sources` this slice replaces). All four entity
+    files declare the same uniform `sources[]` shape, so this is pinned for
+    each of them."""
+    from app.models.hsds.response import SourceInfo
+
+    patch = json.loads((_PROFILE / name).read_text(encoding="utf-8"))
+    sources_schema = patch["properties"]["sources"]
+    assert sources_schema["type"] == "array"
+    item_props = set(sources_schema["items"]["properties"])
+
+    assert item_props == set(SourceInfo.model_fields)
