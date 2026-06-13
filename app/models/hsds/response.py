@@ -251,6 +251,35 @@ class OrganizationResponse(BaseResponse):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class Address(HSDSBaseModel):
+    """Structured HSDS address, nested under a Location's ``addresses[]``.
+
+    Required fields mirror BOTH the HSDS ``address.json`` schema's
+    ``required`` list and the ``address`` table's NOT NULL columns
+    (``app/database/models.py::AddressModel``), so a row served from the DB
+    always satisfies this model. ``attributes``/``metadata`` are out of scope
+    (T2).
+    """
+
+    address_1: str = Field(..., description="Address line 1")
+    city: str = Field(..., description="City")
+    state_province: str = Field(..., description="State or province")
+    postal_code: str = Field(..., description="Postal code")
+    country: str = Field(..., description="Country (ISO 3166-1 alpha-2)")
+    address_type: str = Field(
+        ..., description="Address type (physical, postal, or virtual)"
+    )
+
+    attention: str | None = Field(None, description="Attention line")
+    address_2: str | None = Field(None, description="Address line 2")
+    region: str | None = Field(None, description="Region")
+    location_id: UUID | None = Field(
+        None, description="Identifier of the location this address belongs to"
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class LocationResponse(BaseResponse):
     """Response model for Location endpoints."""
 
@@ -275,6 +304,7 @@ class LocationResponse(BaseResponse):
     sources: list[SourceInfo] | None = None  # Source-specific data
     source_count: int = Field(1, description="Number of sources for this location")
     schedules: list[ScheduleInfo] | None = None  # Schedule information
+    addresses: list[Address] | None = None  # Structured HSDS addresses
 
     model_config = ConfigDict(from_attributes=True)
 

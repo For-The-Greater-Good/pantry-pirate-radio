@@ -13,6 +13,7 @@ from app.database.models import LocationModel
 from app.models.hsds.location import Location
 from app.models.hsds.query import GeoBoundingBox, GeoPoint
 from app.models.hsds.response import (
+    Address,
     LocationResponse,
     ServiceResponse,
     Page,
@@ -118,6 +119,65 @@ async def get_location_schedules(
         schedules.append(schedule)
 
     return schedules
+
+
+async def get_location_addresses(
+    location_id: str, session: AsyncSession
+) -> list[Address]:
+    """Get structured HSDS addresses for a location via direct SQL query.
+
+    Args:
+        location_id: Location ID
+        session: Database session
+
+    Returns:
+        List of structured Address models. The `address` table NOT-NULLs
+        address_1/city/state_province/postal_code/country/address_type
+        (init-scripts/01-hsds-schema.sql), so every row satisfies Address's
+        required fields.
+    """
+    address_query = """
+        SELECT
+            id,
+            location_id,
+            attention,
+            address_1,
+            address_2,
+            city,
+            region,
+            state_province,
+            postal_code,
+            country,
+            address_type
+        FROM address
+        WHERE location_id = :location_id
+        ORDER BY id
+    """
+
+    result = await session.execute(
+        text(address_query), {"location_id": str(location_id)}
+    )
+    rows = result.fetchall()
+
+    addresses = []
+    for row in rows:
+        addresses.append(
+            Address(
+                id=row.id,
+                location_id=row.location_id,
+                attention=row.attention,
+                address_1=row.address_1,
+                address_2=row.address_2,
+                city=row.city,
+                region=row.region,
+                state_province=row.state_province,
+                postal_code=row.postal_code,
+                country=row.country,
+                address_type=row.address_type,
+            )
+        )
+
+    return addresses
 
 
 async def get_location_sources(
@@ -278,6 +338,11 @@ async def list_locations(
         schedules = await get_location_schedules(str(location.id), session)
         if schedules:
             location_data.schedules = schedules[:5]  # Limit to 5 schedules per location
+
+        # Add structured addresses information via direct SQL query
+        addresses = await get_location_addresses(str(location.id), session)
+        if addresses:
+            location_data.addresses = addresses
 
         if include_services and location.services_at_location:
             location_data.services = [
@@ -478,6 +543,11 @@ async def search_locations(
         if schedules:
             location_data.schedules = schedules[:5]  # Limit to 5 schedules per location
 
+        # Add structured addresses information via direct SQL query
+        addresses = await get_location_addresses(str(location.id), session)
+        if addresses:
+            location_data.addresses = addresses
+
         # Add distance information for radius searches
         if (
             latitude is not None
@@ -589,6 +659,11 @@ async def get_location(
     schedules = await get_location_schedules(str(location.id), session)
     if schedules:
         location_response.schedules = schedules
+
+    # Add structured addresses information via direct SQL query
+    addresses = await get_location_addresses(str(location.id), session)
+    if addresses:
+        location_response.addresses = addresses
 
     if include_services:
         # Load services at this location. Build shallow dicts so Pydantic never
