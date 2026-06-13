@@ -96,6 +96,7 @@ class LocationModel(Base):
         ForeignKey("organization.id"),
         nullable=True,
     )
+    url = Column(Text, nullable=True)
     name = Column(Text, nullable=True)
     alternate_name = Column(Text, nullable=True)
     description = Column(Text, nullable=True)

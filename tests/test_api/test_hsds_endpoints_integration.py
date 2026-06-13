@@ -72,12 +72,12 @@ async def hsds_graph(db_session: AsyncSession):
         text(
             """
             INSERT INTO location (
-                id, organization_id, name, description,
+                id, organization_id, name, description, url,
                 latitude, longitude, location_type,
                 validation_status, confidence_score, is_canonical
             )
             VALUES (
-                :id, :org_id, :name, :desc,
+                :id, :org_id, :name, :desc, :url,
                 40.7128, -74.0060, 'physical',
                 'verified', 75, true
             )
@@ -88,6 +88,7 @@ async def hsds_graph(db_session: AsyncSession):
             "org_id": org_id,
             "name": "Manhattan Pantry",
             "desc": "Pantry location",
+            "url": "https://example.org/manhattan-pantry",
         },
     )
 
@@ -233,6 +234,64 @@ async def test_get_location_with_services(hsds_graph, db_session: AsyncSession):
     assert result.services is not None
     assert len(result.services) >= 1
     assert any(s.name == "Food Pantry" for s in result.services)
+
+
+@pytest.mark.asyncio
+async def test_get_location_includes_url_and_organization_id(
+    hsds_graph, db_session: AsyncSession
+):
+    """L1 (issue #597): LocationResponse must surface the HSDS-core `url` and
+    `organization_id` scalars that the DB already stores on `location`."""
+    from app.api.v1.locations import get_location
+
+    result = await get_location(
+        location_id=hsds_graph["location_id"],
+        include_services=False,
+        session=db_session,
+    )
+
+    assert result.url == "https://example.org/manhattan-pantry"
+    assert result.organization_id == hsds_graph["org_id"]
+
+
+@pytest.mark.asyncio
+async def test_list_locations_includes_url_and_organization_id(
+    hsds_graph, db_session: AsyncSession
+):
+    """Same as above, but via the list endpoint's loc_dict fallback path."""
+    from fastapi import Request
+    from app.api.v1.locations import list_locations
+
+    class _StubURL:
+        def __init__(self, url: str):
+            self._url = url
+
+        def __str__(self) -> str:
+            return self._url
+
+        def include_query_params(self, **kwargs):
+            return self
+
+        def remove_query_params(self, key):
+            return self
+
+    class _StubRequest:
+        url = _StubURL("http://test/api/v1/locations")
+
+    page = await list_locations(
+        request=_StubRequest(),  # type: ignore[arg-type]
+        page=1,
+        per_page=10,
+        organization_id=None,
+        include_services=False,
+        session=db_session,
+    )
+
+    target = next(
+        loc for loc in page.data if str(loc.id) == str(hsds_graph["location_id"])
+    )
+    assert target.url == "https://example.org/manhattan-pantry"
+    assert target.organization_id == hsds_graph["org_id"]
 
 
 @pytest.mark.asyncio
